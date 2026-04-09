@@ -1,6 +1,6 @@
 generated: '2026-04-07T00:00:00Z'
 source: harvested
-note: Generic baseline using public OWASP references. Customize by setting requirements_yaml_url
+description: Generic baseline using public OWASP references. Customize by setting requirements_yaml_url
   in config.json to point to your organization's requirements.
 sources_meta:
 - id: owasp-requirements
@@ -531,6 +531,9 @@ blueprints:
     content: |-
       Implement a Backend-for-Frontend (BFF) for user-context API access in your SPA.
       This keeps tokens out of the browser runtime, reduces XSS/token exfiltration risk, and enables hardened cookie-based sessions.
+    references:
+    - id: AC-004
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html
   - title: 2. Configure the Client in the Identity Provider
     url: https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html
     content: |-
@@ -538,6 +541,9 @@ blueprints:
       Restrict access to internal users only unless anonymous/public access is explicitly required.
       Configure user roles and scopes as needed for your application.
       Recommended OAuth settings: Grant=authorization_code, PKCE=enabled, Access token TTL=5 minutes, Refresh token TTL=15–30 days with BFF.
+    references:
+    - id: AC-004
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html
   - title: 2.1. Handling Refresh Tokens
     url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
     content: |-
@@ -551,6 +557,11 @@ blueprints:
       If unavoidable, transmit only via HTTP header: Authorization: Bearer <token>.
       Never put tokens in URLs (query string, fragment, or redirects).
       Enforce strong XSS protections including CSP.
+    references:
+    - id: WEB-002
+      url: https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html
+    - id: DP-003
+      url: https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
   - title: 2.3. OAuth Redirect URI Validation
     url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
     content: |-
@@ -622,6 +633,9 @@ blueprints:
   - title: 2. Token Handling
     url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
     content: 'Send tokens only in the HTTP header: Authorization: Bearer <token>'
+    references:
+    - id: DP-003
+      url: https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
   - title: 3. Token Storage
     url: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
     content: 'See Secret Storage blueprint. Requirement: AC-001 — Securely Authenticate API Services'
@@ -729,6 +743,9 @@ blueprints:
       The BFF handles OAuth/OIDC flows with the identity provider, stores access and refresh tokens server-side,
       issues hardened session cookies to the browser, and rotates session identifiers after authentication.
       This prevents token exposure to JavaScript and mitigates XSS impact.
+    references:
+    - id: AC-004
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html
   - title: Recommended Authentication Pattern
     url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
     content: |-
@@ -785,6 +802,9 @@ blueprints:
       Trusted Types provide browser-level protection against DOM-based XSS by requiring that dangerous DOM sinks only accept values created from approved policies.
       Add CSP directives: require-trusted-types-for 'script'; trusted-types framework dompurify default;
       Do not use: trusted-types *; — this disables meaningful protection.
+    references:
+    - id: WEB-007
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
   - title: Recommended CSP
     url: https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html
     content: |-
@@ -899,3 +919,271 @@ blueprints:
       url: https://cheatsheetseries.owasp.org/cheatsheets/Infrastructure_as_Code_Security_Cheat_Sheet.html
     - id: IF-008
       url: https://cheatsheetseries.owasp.org/cheatsheets/Infrastructure_as_Code_Security_Cheat_Sheet.html
+  - title: 5. PodSecurity Standards
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
+    content: |-
+      Apply the Kubernetes PodSecurity admission controller at the namespace level.
+      Use the "restricted" profile for production namespaces:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: production
+          labels:
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted
+      The restricted profile enforces: non-root UID, no privilege escalation, no hostNetwork/hostPID,
+      restricted volume types, and seccomp profile set to RuntimeDefault or Localhost.
+    references:
+    - id: IF-002
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
+    - id: IF-004
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
+  - title: 6. Seccomp Profiles
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
+    content: |-
+      Apply a seccomp profile to every pod to restrict the set of system calls available to the container.
+      Use RuntimeDefault as the minimum baseline:
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
+      For high-security workloads, create a custom Localhost profile that allows only the syscalls
+      your application actually uses. Audit with tools like strace or seccomp-bpf logging to
+      determine the required syscall set before enforcing.
+    references:
+    - id: IF-004
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
+- id: BP-SECURITY-LOGGING
+  source_id: owasp-cheatsheets
+  url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+  title: Security Logging & Monitoring
+  summary: |-
+    Guidance for implementing structured security logging, centralized log aggregation,
+    sensitive data redaction, and anomaly alerting.
+  topics:
+  - _structured_logging
+  - _centralized_aggregation
+  - _sensitive_data_redaction
+  - _security_event_coverage
+  - _alerting_rules
+  - _log_retention
+  sections:
+  - title: 1. Structured Logging Format
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+    content: |-
+      Use a structured log format (JSON) with consistent fields across all services.
+      Every security-relevant log entry MUST include: timestamp (ISO 8601), request-id (correlation),
+      user-id or service-id, action performed, outcome (success/failure), and source IP.
+      Avoid free-text-only log entries for security events — they are difficult to parse and alert on.
+      Use a shared logging library or middleware to enforce the schema automatically.
+    references:
+    - id: LM-002
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+  - title: 2. Security Event Coverage
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+    content: |-
+      Log all security-relevant events with sufficient context for incident investigation:
+      - Authentication: login success/failure, MFA challenge, token refresh, session creation/destruction
+      - Authorization: access denied, privilege escalation attempts, RBAC role changes
+      - Data access: bulk exports, sensitive record access, admin operations
+      - Configuration: security setting changes, secret rotation, firewall rule modifications
+      - Input validation: rejected payloads, rate limit breaches, WAF blocks
+      Do not log the request body or response body by default — only log metadata.
+    references:
+    - id: LM-001
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+  - title: 3. Sensitive Data Redaction
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Vocabulary_Cheat_Sheet.html
+    content: |-
+      Never include sensitive values in log entries at any severity level.
+      Implement a redaction layer that strips or masks: passwords, API keys, bearer tokens,
+      credit card numbers (PCI), PII (email, phone, SSN), session identifiers, and cryptographic keys.
+      Use pattern-based redaction (regex for known formats) plus field-name-based redaction
+      (any field named password, secret, token, authorization, cookie).
+      Validate redaction in CI with a log sanitization test that asserts no sensitive patterns appear.
+    references:
+    - id: LM-006
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Vocabulary_Cheat_Sheet.html
+  - title: 4. Centralized Log Aggregation
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+    content: |-
+      Forward all security logs to a centralized, tamper-resistant log aggregation system.
+      Do not rely solely on local application logs — they can be deleted or modified by an attacker.
+      Use a log shipper (Fluentd, Fluent Bit, Vector) to forward logs from each pod/container.
+      Ensure the aggregation system enforces write-once semantics or append-only storage
+      to prevent post-compromise log tampering.
+    references:
+    - id: LM-003
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+  - title: 5. Alerting Rules
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+    content: |-
+      Define alerting rules for anomalous patterns and route alerts to an on-call channel:
+      - Repeated authentication failures (>5 per minute from same IP or user)
+      - Privilege escalation (role change to admin, new service account creation)
+      - Unusual data access volumes (bulk export exceeding normal baseline)
+      - Rate limit breaches from a single source
+      - Authorization failures spike (>10x baseline within 5 minutes)
+      Tune thresholds based on production baselines to minimize alert fatigue.
+    references:
+    - id: LM-005
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+  - title: 6. Log Retention
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+    content: |-
+      Retain security logs for a minimum of 90 days online (hot storage, queryable)
+      and 12 months in cold storage (archived, retrievable for forensic investigations).
+      Align retention periods with compliance requirements (SOC 2, ISO 27001, PCI DSS).
+      Automate log lifecycle management with retention policies in the aggregation platform.
+    references:
+    - id: LM-004
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+- id: BP-ERROR-HANDLING
+  source_id: owasp-cheatsheets
+  url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+  title: Error Handling & Secure Failure
+  summary: |-
+    Guidance for implementing secure error handling that prevents information disclosure
+    while maintaining debuggability through server-side diagnostics.
+  topics:
+  - _global_error_handler
+  - _safe_error_responses
+  - _auth_error_consistency
+  - _server_side_diagnostics
+  sections:
+  - title: 1. Global Error Handler
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+    content: |-
+      Install a global error handler that catches all unhandled exceptions and returns a safe response.
+      The handler MUST: return a generic error message to the client, log the full exception server-side
+      with a correlation ID, set the appropriate HTTP status code, and ensure the application remains
+      in a secure state (no partial transactions, no leaked resources).
+      Never allow framework default error pages (with stack traces) to reach production.
+    references:
+    - id: EH-001
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+  - title: 2. Safe Error Responses
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+    content: |-
+      Return generic error messages to clients; log detailed diagnostics server-side only.
+      Safe response format: {"error": "An error occurred", "correlationId": "<uuid>"}
+      Never include in client responses: stack traces, SQL statements, internal file paths,
+      database connection strings, framework version numbers, or internal service names.
+      Use a correlation ID so support staff can look up the full error in server logs.
+    references:
+    - id: EH-002
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+  - title: 3. Authentication & Authorization Error Consistency
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
+    content: |-
+      Handle authentication and authorization failures consistently to avoid information disclosure:
+      - Login failure: always return "Invalid credentials" regardless of whether the user exists
+      - Use constant-time comparison for credentials to prevent timing side-channels
+      - Return identical HTTP status codes and response shapes for "user not found" vs "wrong password"
+      - Rate-limit failed attempts uniformly regardless of the failure reason
+      - Do not reveal whether an email/username is registered in error messages or password reset flows
+    references:
+    - id: EH-003
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
+  - title: 4. Server-Side Diagnostics
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+    content: |-
+      Log full exception details server-side for every error, including:
+      - Exception type and message, stack trace, request method and path
+      - Authenticated user ID (if available), correlation ID, timestamp
+      - Request parameters (with sensitive values redacted per the Security Logging blueprint)
+      Use structured logging (JSON) so diagnostics are searchable in the log aggregation platform.
+      Set log level to ERROR for unhandled exceptions and WARN for expected validation failures.
+    references:
+    - id: LM-001
+      url: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+- id: BP-LLM-SECURITY
+  source_id: owasp-cheatsheets
+  url: https://genai.owasp.org/llm-top-10/
+  title: AI / LLM Application Security
+  summary: |-
+    Guidance for building secure applications that integrate Large Language Models.
+    Covers prompt injection defenses, output filtering, tool permission models, and cost control.
+  topics:
+  - _prompt_injection_defense
+  - _output_filtering
+  - _tool_permission_model
+  - _rag_security
+  - _cost_control
+  - _system_prompt_protection
+  sections:
+  - title: 1. Prompt Injection Defense
+    url: https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+    content: |-
+      Sanitize and validate all user input before incorporating it into LLM prompts.
+      Use parameterized prompt templates with strict separation between system instructions and user content.
+      Never concatenate raw user input directly into system prompts via string formatting.
+      Implement input length limits and character allowlists for user-supplied prompt content.
+      Use delimiter tokens (e.g. <user_input>...</user_input>) to clearly mark user content boundaries.
+      Test prompts with adversarial inputs (jailbreak attempts, instruction overrides) in CI.
+    references:
+    - id: LLM-001
+      url: https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+  - title: 2. Output Filtering & Validation
+    url: https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/
+    content: |-
+      Treat all LLM output as untrusted input. Filter before returning to users or downstream systems.
+      Implement output validation that checks for: API keys (regex for common formats), internal URLs
+      and hostnames, PII patterns (email, phone, SSN), file paths, and training data artifacts.
+      Never use LLM output directly in eval(), exec(), raw SQL, shell commands, innerHTML,
+      or downstream API calls without sanitization and validation.
+      Log flagged outputs for review and model improvement.
+    references:
+    - id: LLM-002
+      url: https://genai.owasp.org/llmrisk/llm02-sensitive-information-disclosure/
+    - id: LLM-005
+      url: https://genai.owasp.org/llmrisk/llm05-improper-output-handling/
+  - title: 3. Tool Permission Model
+    url: https://genai.owasp.org/llmrisk/llm06-excessive-agency/
+    content: |-
+      Implement a permission model for LLM tool use following least privilege:
+      - Define an explicit allowlist of tools the LLM may invoke
+      - Categorize tools by risk: read-only (low), write (medium), destructive/external (high)
+      - Require human-in-the-loop approval for destructive or irreversible operations
+        (delete, send email, execute code, make payments, modify infrastructure)
+      - Log every tool invocation with: tool name, parameters, invoking user, timestamp, outcome
+      - Rate-limit tool invocations per session and per user
+    references:
+    - id: LLM-006
+      url: https://genai.owasp.org/llmrisk/llm06-excessive-agency/
+  - title: 4. RAG & Vector Store Security
+    url: https://genai.owasp.org/llmrisk/llm08-vector-and-embedding-weaknesses/
+    content: |-
+      Validate and sanitize all data ingested into RAG knowledge bases and vector stores.
+      Enforce authentication and authorization on all vector database queries — apply the same
+      access control as the source data (if a user cannot access a document, they cannot query its embeddings).
+      Restrict who can update the knowledge base and maintain an audit trail for all embedding updates.
+      Rate-limit similarity search endpoints to prevent extraction attacks.
+      Validate embedding dimensions and content before indexing to prevent poisoned embeddings.
+    references:
+    - id: LLM-004
+      url: https://genai.owasp.org/llmrisk/llm04-data-and-model-poisoning/
+    - id: LLM-008
+      url: https://genai.owasp.org/llmrisk/llm08-vector-and-embedding-weaknesses/
+  - title: 5. Cost Control & Rate Limiting
+    url: https://genai.owasp.org/llmrisk/llm10-unbounded-consumption/
+    content: |-
+      Set max_tokens limits on all LLM API calls to prevent unbounded generation costs.
+      Implement per-user and per-session rate limits on LLM invocations.
+      Monitor token consumption and set cost alerting thresholds (e.g. alert at 80% of daily budget).
+      Implement circuit breakers that disable LLM features when costs exceed thresholds.
+      Track and attribute costs per user, team, and feature to identify abuse or misconfiguration.
+    references:
+    - id: LLM-010
+      url: https://genai.owasp.org/llmrisk/llm10-unbounded-consumption/
+  - title: 6. System Prompt Protection
+    url: https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/
+    content: |-
+      Keep system prompts server-side only; never include them in client-side bundles or API responses.
+      Do not log system prompts at debug level — treat them as sensitive configuration.
+      Do not echo system prompt content in error messages or API error responses.
+      Use a separate configuration store for system prompts with access controls and audit logging.
+      Version-control system prompts and review changes like code (they define security boundaries).
+    references:
+    - id: LLM-007
+      url: https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/
