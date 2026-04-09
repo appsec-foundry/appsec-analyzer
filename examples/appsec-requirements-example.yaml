@@ -1,9 +1,27 @@
 generated: '2026-04-07T00:00:00Z'
-source: generic-owasp
+source: harvested
 note: Generic baseline using public OWASP references. Customize by setting requirements_yaml_url
   in config.json to point to your organization's requirements.
+sources_meta:
+- id: owasp-requirements
+  type: requirement
+  title: OWASP Security Requirements
+  reference_url: https://owasp.org/Top10/
+  crawl_url: https://owasp.org/Top10/
+  indexed_at: '2026-04-07T00:00:00Z'
+  items_count: 25
+  mode: structured
+- id: owasp-cheatsheets
+  type: blueprint
+  title: OWASP Cheat Sheet Series
+  reference_url: https://cheatsheetseries.owasp.org/
+  crawl_url: https://cheatsheetseries.owasp.org/
+  indexed_at: '2026-04-07T00:00:00Z'
+  items_count: 5
+  mode: full
 categories:
 - id: CAT-WEB
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A03_2021-Injection/
   title: Web & Frontend Security
   requirements:
@@ -41,6 +59,7 @@ categories:
     text: Set Referrer-Policy and Permissions-Policy response headers to limit information leakage and browser feature exposure
     priority: SHOULD
 - id: CAT-EH
+  source_id: owasp-requirements
   url: https://owasp.org/www-community/Improper_Error_Handling
   title: Error Handling & Security Events
   requirements:
@@ -58,6 +77,7 @@ categories:
     text: Handle authentication and authorization failures consistently to avoid information disclosure through timing or response differences
     priority: MUST
 - id: CAT-HN
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A05_2021-Security_Misconfiguration/
   title: System Hardening
   requirements:
@@ -78,6 +98,7 @@ categories:
     text: Deploy a Web Application Firewall (WAF) in front of all internet-facing applications
     priority: SHOULD
 - id: CAT-AC
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A01_2021-Broken_Access_Control/
   title: Authentication & Access Control
   requirements:
@@ -106,6 +127,7 @@ categories:
     text: Enforce resource-level authorization checks to prevent Insecure Direct Object Reference (IDOR); compare token identity claims against the requested resource
     priority: MUST
 - id: CAT-IV
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A03_2021-Injection/
   title: Input Validation & Data Handling
   requirements:
@@ -134,6 +156,7 @@ categories:
     text: Apply strict limits on payload size, field length, array length, and JSON nesting depth to prevent resource exhaustion
     priority: MUST
 - id: CAT-DP
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A02_2021-Cryptographic_Failures/
   title: Data Protection & Cryptography
   requirements:
@@ -167,6 +190,7 @@ categories:
     text: Do not disable TLS certificate verification; never set insecure flags such as verify=false, rejectUnauthorized=false, or equivalent
     priority: MUST
 - id: CAT-SC
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/
   title: Supply Chain & Dependency Security
   requirements:
@@ -195,6 +219,7 @@ categories:
     text: Run Static Application Security Testing (SAST) in the CI/CD pipeline on every pull request and fail builds on high-severity findings
     priority: MUST
 - id: CAT-LM
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A09_2021-Security_Logging_and_Monitoring_Failures/
   title: Security Logging & Monitoring
   requirements:
@@ -223,6 +248,7 @@ categories:
     text: Never include sensitive values (tokens, passwords, PII, credit-card numbers) in log entries at any severity level
     priority: MUST
 - id: CAT-IF
+  source_id: owasp-requirements
   url: https://owasp.org/Top10/A05_2021-Security_Misconfiguration/
   title: Infrastructure & Container Security
   requirements:
@@ -259,6 +285,7 @@ categories:
     text: Store IaC templates in version control; apply code review and approval gates before any infrastructure change reaches production
     priority: MUST
 - id: CAT-LLM
+  source_id: owasp-requirements
   url: https://genai.owasp.org/llm-top-10/
   title: AI / LLM Security (OWASP LLM Top 10)
   requirements:
@@ -326,6 +353,7 @@ categories:
     priority: MUST
 blueprints:
 - id: BP-API-OVERVIEW
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
   title: Security Blueprint for APIs
   summary: |-
@@ -345,6 +373,7 @@ blueprints:
       Service-to-Service Access — Authentication and authorization of product APIs
       CORS — Securing cross-origin access using CORS
 - id: BP-API-HARDENING
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
   title: API Hardening
   summary: |-
@@ -400,6 +429,7 @@ blueprints:
     - id: SC-006
       url: https://owasp.org/www-community/controls/Static_Code_Analysis
 - id: BP-API-VALIDATION
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html
   title: Input Validation
   summary: Guidance for restrictive API input validation across different technology stacks.
@@ -442,6 +472,7 @@ blueprints:
     - id: IV-004
       url: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
 - id: BP-SECRET-MANAGEMENT
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
   title: Secret Storage
   summary: Guidance for secure secret storage and access across different deployment environments.
@@ -478,6 +509,7 @@ blueprints:
       you require dynamic secrets or fine-grained lease management, or you already operate a Vault cluster.
       For single-platform workloads the platform-native options above are simpler and sufficient.
 - id: BP-API-AUTHZ-ENDUSER
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
   title: End-User Authentication and Authorization via SSO
   summary: |-
@@ -561,6 +593,7 @@ blueprints:
     - id: AC-006
       url: https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html
 - id: BP-API-AUTHZ-SERVICE
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
   title: Service-to-Service API Authentication and Authorization
   summary: 'Scope: Machine-to-machine (M2M) APIs using OAuth 2.0 client credentials.'
@@ -636,6 +669,7 @@ blueprints:
     - id: AC-002
       url: https://cheatsheetseries.owasp.org/cheatsheets/Access_Control_Cheat_Sheet.html
 - id: BP-API-CORS
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/CORS_Security_Cheat_Sheet.html
   title: CORS Enforcement
   summary: 'Limit which origins may call the API from a browser.'
@@ -653,6 +687,7 @@ blueprints:
     - id: WEB-003
       url: https://cheatsheetseries.owasp.org/cheatsheets/CORS_Security_Cheat_Sheet.html
 - id: BP-SPA-BFF
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
   title: Security Blueprint for SPAs with BFF
   summary: |-
@@ -805,6 +840,7 @@ blueprints:
     - id: SC-002
       url: https://owasp.org/www-project-dependency-check/
 - id: BP-CONTAINER-SECURITY
+  source_id: owasp-cheatsheets
   url: https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html
   title: Container & Infrastructure Security
   summary: |-
