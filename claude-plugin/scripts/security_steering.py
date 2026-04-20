@@ -81,7 +81,7 @@ def _activation_source(cfg):
 
 
 def _plugin_roots():
-    """Return candidate paths that resolve to the plugin/ directory."""
+    """Return candidate paths that resolve to the claude-plugin/ directory."""
     roots = []
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
     if env_root:

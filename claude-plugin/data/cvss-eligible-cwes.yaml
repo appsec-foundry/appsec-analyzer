@@ -6,7 +6,7 @@
 # concrete, reachable code — not from design posture, policy gaps, or
 # coverage blind spots.
 #
-# Rules (enforced by plugin/scripts/validate_intermediate.py and the
+# Rules (enforced by claude-plugin/scripts/validate_intermediate.py and the
 # triage-validator):
 #   - threat.source == "dep-scan" or "known-vuln"  →  cvss_v4 REQUIRED
 #   - threat.source == "stride"                    →  cvss_v4 ALLOWED iff

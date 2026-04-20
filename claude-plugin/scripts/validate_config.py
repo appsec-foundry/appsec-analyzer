@@ -3,13 +3,13 @@
 validate_config.py — JSON schema validator for appsec-plugin configuration files.
 
 Validates:
-  1. plugin/config.json — main plugin configuration
+  1. claude-plugin/config.json — main plugin configuration
   2. skills/check-appsec-requirements/config.json — requirements skill configuration
 
 Usage:
   python3 validate_config.py [config_dir]
 
-  config_dir defaults to $CLAUDE_PLUGIN_ROOT or the plugin/ directory
+  config_dir defaults to $CLAUDE_PLUGIN_ROOT or the claude-plugin/ directory
   relative to this script.
 
 Exit codes: 0 = all valid, 1 = validation errors found, 2 = usage error.

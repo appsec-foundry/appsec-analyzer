@@ -3,7 +3,7 @@
 validate_intermediate.py — schema validator for appsec-plugin intermediate files.
 
 Structural validation is driven by the YAML JSONSchema contracts in
-`plugin/schemas/` (single source of truth). Custom invariants that JSONSchema
+`claude-plugin/schemas/` (single source of truth). Custom invariants that JSONSchema
 Draft 2020-12 cannot express are enforced as Python post-checks:
 
   - Sequential T-NNN ordering and uniqueness in `.threats-merged.json`

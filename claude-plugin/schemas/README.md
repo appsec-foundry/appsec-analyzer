@@ -2,7 +2,7 @@
 
 JSONSchema (Draft 2020-12) contracts for every structured artifact the plugin
 produces or consumes. The schemas are the **single source of truth** for the
-data contracts; `plugin/scripts/validate_intermediate.py` loads them at runtime
+data contracts; `claude-plugin/scripts/validate_intermediate.py` loads them at runtime
 and enforces them via `jsonschema`.
 
 | Schema | Artifact | Written by | Read by |
