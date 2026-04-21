@@ -2,7 +2,7 @@
 """
 plugin_meta.py — single source of truth for plugin version metadata.
 
-Reads claude-plugin/.claude-plugin/plugin.json and exposes:
+Reads .claude-plugin/plugin.json and exposes:
   - plugin_version         (SemVer string, e.g. "0.9.0-beta")
   - analysis_version       (int, bumped when STRIDE prompts / recon categories /
                             severity logic / CWE mapping change in a way that

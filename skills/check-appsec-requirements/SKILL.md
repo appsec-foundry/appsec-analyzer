@@ -59,7 +59,7 @@ if [ -n "$CLAUDE_PLUGIN_ROOT" ]; then
   SKILL_CONFIG="$CLAUDE_PLUGIN_ROOT/skills/check-appsec-requirements/config.json"
 else
   SKILL_CONFIG=$(find /root /home /opt -maxdepth 6 \
-    -path "*/appsec-plugin/claude-plugin/skills/check-appsec-requirements/config.json" \
+    -path "*/appsec-plugin/skills/check-appsec-requirements/config.json" \
     2>/dev/null | head -1)
 fi
 ```
@@ -102,7 +102,7 @@ curl -sf --max-time 15 -H "Accept: application/yaml" "$REQUIREMENTS_URL_OVERRIDE
     Verify the URL is correct and the server is running.
 
     Need a starting point? The plugin ships a reference YAML at
-      claude-plugin/data/appsec-requirements-fallback.yaml
+      data/appsec-requirements-fallback.yaml
     (53 baseline requirements across 10 categories, each with CWE/OWASP
     links). Copy it, adapt the IDs and URLs to your organization, serve it
     over HTTP (e.g. `python3 scripts/mock-context-server.py`), and pass the
@@ -142,13 +142,13 @@ If found: use this file. Print: `▶ Requirements: loaded from plugin cache (<RE
 
   No remote endpoint responded and no plugin cache exists.
   To fix this:
-    1. Set requirements_yaml_url in claude-plugin/skills/check-appsec-requirements/config.json
+    1. Set requirements_yaml_url in skills/check-appsec-requirements/config.json
     2. Or pass --requirements <url> to provide a URL directly
     3. Run this skill once with the endpoint reachable to populate the cache
 
   The cache is stored at: <REQUIREMENTS_CACHE>
 
-  Starter template: claude-plugin/data/appsec-requirements-fallback.yaml contains
+  Starter template: data/appsec-requirements-fallback.yaml contains
   53 baseline requirements (10 categories, each with CWE/OWASP links) as a
   reference. Copy and adapt it, then serve it from any HTTP endpoint
   (e.g. `python3 scripts/mock-context-server.py`) — that URL goes into

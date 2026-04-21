@@ -250,7 +250,7 @@ properties:
             - coverage-gap
         cvss_v4:
           # Optional CVSS v4.0 score. Only present for threats whose CWE is
-          # on the eligibility list (claude-plugin/data/cvss-eligible-cwes.yaml)
+          # on the eligibility list (data/cvss-eligible-cwes.yaml)
           # and that carry concrete code-level evidence — typically
           # source=dep-scan, source=known-vuln, or source=stride for
           # injection/auth-bypass-class CWEs with file:line evidence.
@@ -337,7 +337,7 @@ properties:
         summary:
           type: string
 
-  # Optional blocks documented in claude-plugin/CLAUDE.md but not always present.
+  # Optional blocks documented in CLAUDE.md but not always present.
   run_statistics:
     type: [object, "null"]
     additionalProperties: true

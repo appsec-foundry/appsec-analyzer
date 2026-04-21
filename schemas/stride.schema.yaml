@@ -41,7 +41,7 @@ $defs:
 
   cvss_v4:
     # Optional CVSS v4.0 score block. Only permitted when the threat's CWE
-    # is on the eligibility list (claude-plugin/data/cvss-eligible-cwes.yaml) AND
+    # is on the eligibility list (data/cvss-eligible-cwes.yaml) AND
     # concrete file:line evidence exists. See validate_intermediate.py for
     # the eligibility post-check that enforces this rule across sources.
     type: object

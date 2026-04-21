@@ -93,7 +93,7 @@ properties:
           # Optional CVSS v4.0 score. Eligibility (which threats may carry
           # this field) is enforced as a post-check in
           # validate_intermediate.py against
-          # claude-plugin/data/cvss-eligible-cwes.yaml; the structural shape is
+          # data/cvss-eligible-cwes.yaml; the structural shape is
           # defined here.
           oneOf:
             - type: "null"

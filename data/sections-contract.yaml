@@ -527,7 +527,7 @@ sections:
     heading_numbered: false
     anchor: "appendix-a-vektor-taxonomy"
     fragment_type: computed
-    data_source: "claude-plugin/data/breach-vector-taxonomy.yaml"
+    data_source: "data/breach-vector-taxonomy.yaml"
 
 # ---------------------------------------------------------------------------
 # Renderer invariants — checked automatically after rendering

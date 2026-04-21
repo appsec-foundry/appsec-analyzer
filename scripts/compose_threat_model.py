@@ -4,7 +4,7 @@
 This is the central component of the "LLM cannot deviate from structure"
 architecture. It reads:
 
-    1. ``claude-plugin/data/sections-contract.yaml`` — declarative document shape.
+    1. ``data/sections-contract.yaml`` — declarative document shape.
     2. ``<output>/threat-model.yaml`` — canonical structured baseline (threats,
        mitigations, components, security_controls, meta, changelog).
     3. ``<output>/.triage-flags.json`` — triage ranking v2+ (optional).

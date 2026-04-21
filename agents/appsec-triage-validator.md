@@ -166,7 +166,7 @@ Also verify rating coherence:
 
 **Print now:** `[triage]   ↳ Step 5/5 — CVSS scope validation…`
 
-Verify each threat's `cvss_v4` field against the eligibility rules encoded in `claude-plugin/data/cvss-eligible-cwes.yaml`. Read the positive list once at the start of this step.
+Verify each threat's `cvss_v4` field against the eligibility rules encoded in `data/cvss-eligible-cwes.yaml`. Read the positive list once at the start of this step.
 
 | Condition | Expected state | Flag when violated |
 |-----------|---------------|--------------------|
