@@ -218,6 +218,15 @@ assessment completion.
   STRIDE and later jobs did. The completion output used Analyzer guidance and
   `status`/`results` validated the final deliverables. No external model was
   contacted or charged.
+- The installed-wheel export smoke exposed a public flag spelling defect:
+  `--pentest-tasks` reached the controller as `--pentest_tasks` and was
+  rejected. The CLI now translates internal argument names to their public
+  hyphenated spellings for all forwarded switches; a controller-boundary test
+  covers exports and controls. A complete offline CLI assessment then
+  published schema-checked SARIF, Threat Dragon JSON, pentest tasks, YAML,
+  Markdown, and figures, and `results` verified each digest. The redundant
+  public `--strict-urls` switch was removed because untrusted preflight
+  already enforces it and the controller did not accept that extra flag.
 
 ## Milestones
 

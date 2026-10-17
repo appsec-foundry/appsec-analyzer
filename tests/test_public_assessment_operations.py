@@ -113,3 +113,29 @@ def test_assess_rejects_missing_operator_profile_before_host_call(tmp_path: Path
     assert result.returncode != 0
     assert "org profile not found" in result.stdout + result.stderr
     assert not (tmp_path / "out" / "security-assessment.yaml").exists()
+
+
+def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, monkeypatch) -> None:
+    from appsec_analyzer import cli
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    from appsec_analyzer import hosts
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    observed = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(orchestration_controller, "assess_main",
+                        lambda arguments: observed.extend(arguments) or 0)
+    ns = cli._parser().parse_args([
+        "assess", "--repo", str(repo), "--host", "claude-cli", "--hard-budget", "1",
+        "--pentest-tasks", "--no-requirements", "--skip-context", "--no-qa",
+        "--no-org-profile", "--threatdragon", "--sarif",
+    ])
+    assert cli._assess(ns) == 0
+    for flag in ("--pentest-tasks", "--no-requirements", "--skip-context", "--no-qa",
+                 "--no-org-profile", "--threatdragon", "--sarif"):
+        assert flag in observed
+    assert not any("_" in argument for argument in observed if argument.startswith("--"))

@@ -56,7 +56,7 @@ def _parser() -> argparse.ArgumentParser:
     assess.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
     assess.add_argument("--context", metavar="SOURCE")
     for flag in ("sarif", "threatdragon", "pdf", "html", "pentest-tasks",
-                 "no-requirements", "skip-context", "no-qa", "strict-urls",
+                 "no-requirements", "skip-context", "no-qa",
                  "ignore-legacy", "migrate-legacy"):
         assess.add_argument("--" + flag, action="store_true")
     for name, help_text in (
@@ -251,10 +251,10 @@ def _assess(ns: argparse.Namespace) -> int:
         if ns.requirements:
             args.append(ns.requirements)
     for flag in ("resume", "rebuild", "quiet", "sarif", "threatdragon", "pdf", "html",
-                 "pentest_tasks", "no_requirements", "skip_context", "no_qa", "strict_urls",
+                 "pentest_tasks", "no_requirements", "skip_context", "no_qa",
                  "ignore_legacy", "migrate_legacy", "no_org_profile"):
         if getattr(ns, flag):
-            args.append("--" + flag)
+            args.append("--" + flag.replace("_", "-"))
     with checkout_arguments(args) as local_args:
         return assess_main(local_args)
 
