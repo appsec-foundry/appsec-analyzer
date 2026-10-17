@@ -47,6 +47,9 @@ class _Reply:
     def read(self, limit):
         return self.data[:limit]
 
+    def getheader(self, name):
+        return None
+
 
 class _Connection:
     instances = []
@@ -130,6 +133,35 @@ def test_cancellation_before_transmission(fake_host):
     with pytest.raises(api_hosts.HostCancelled):
         api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "p", {}, 5, lambda: True)
     assert not fake_host.instances
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [("90", 90), ("0", 0), ("-5", None), ("NaN", None), ("1e300", None), ("12\nsecret", None), ("9" * 129, None)],
+)
+def test_retry_after_validates_untrusted_header(value, expected):
+    assert api_hosts._retry_after(value) == expected
+
+
+def test_retry_after_http_date(monkeypatch):
+    monkeypatch.setattr(api_hosts.time, "time", lambda: 0)
+    assert api_hosts._retry_after("Thu, 01 Jan 1970 00:01:00 GMT") == 60
+    assert api_hosts._retry_after("Thu, 01 Jan 1970 00:01:00") is None
+
+
+def test_rate_limit_transports_only_validated_reset_not_body(fake_host, monkeypatch):
+    class Limited(_Connection):
+        def getresponse(self):
+            reply = _Reply(b"private-provider-diagnostic", 429)
+            reply.getheader = lambda name: "120"
+            return reply
+
+    monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Limited)
+    with pytest.raises(api_hosts.TransportError) as caught:
+        api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
+    assert caught.value.reason == "rate_limit" and caught.value.retry_after_s == 120
+    assert caught.value.usd is None
+    assert "private-provider-diagnostic" not in str(caught.value)
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -432,7 +433,8 @@ def test_a_refused_call_with_a_reported_cost_leaves_the_run_resumable(scope):
         assert resumed.budget.calls == 1 and resumed.budget.spent_usd == 0.0
 
 
-def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(scope):
+@pytest.mark.parametrize("rate_limit", [False, True])
+def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(scope, rate_limit):
     state = lifecycle(scope)
     schema = {
         "type": "object",
@@ -454,7 +456,7 @@ def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(sco
         def invoke(self, *args):
             return HostReply({"action": "complete", "reads": [], "artifact": {"ok": True}}, 0.01)
 
-    with state.hold():
+    with pytest.raises(TransportError) if rate_limit else nullcontext(), state.hold():
         jobs = AssessmentJobs(
             scope,
             state.directory / "jobs",
@@ -464,6 +466,11 @@ def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(sco
             state.checkpoint,
         )
         assert jobs.execute(**kwargs) == {"ok": True}
+
+        if rate_limit:
+            raise TransportError("rate_limit", reason="rate_limit", usd=0)
+    assert stored(scope)["status"] == "interrupted" and not state.lock.exists()
+    assert stored(scope)["deliverables"] == {}
 
     def no_host(role, ceiling):
         pytest.fail("Accepted job must resume without another dispatch")

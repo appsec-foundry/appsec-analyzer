@@ -1172,17 +1172,24 @@ def test_interrupted_rate_limit_reports_cause_and_resume_action(monkeypatch, cap
     assert "--resume" in error
 
 
-def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch, capsys):
+@pytest.mark.parametrize("reset", [None, 3600])
+def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch, capsys, tmp_path, reset):
     from runtime.analyst_host import TransportError
 
     def rate_limited(argv):
-        raise TransportError("untrusted host diagnostic", reason="rate_limit", usd=0.0)
+        raise TransportError("untrusted host diagnostic", reason="rate_limit", usd=0.0, retry_after_s=reset)
 
+    path = tmp_path / "progress.jsonl"
+    monkeypatch.setattr(controller._AssessmentProgress, "path", path)
     monkeypatch.setattr(controller, "assess_repositories", rate_limited)
-    assert controller.assess_main(["--repo", "x", "--output", "y"]) == 1
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == controller.ASSESS_PAUSED_EXIT
     error = capsys.readouterr().err
     assert "provider rate limit" in error and "--resume" in error
     assert "untrusted host diagnostic" not in error
+    assert "accepted steps are kept" in error
+    assert ("cooldown of 3600 s" in error) == (reset is not None)
+    record = json.loads(path.read_text().splitlines()[-1])
+    assert record["status"] == "paused" and record["resumable"] is True
 
 
 @pytest.mark.parametrize("names", [("edge", "service"), ("west", "east")])

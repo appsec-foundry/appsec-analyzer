@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import Callable
 from urllib.parse import urlsplit
 
@@ -40,8 +41,24 @@ _WIRE_SCHEMA = {
 
 
 class ApiTransportError(TransportError):
-    def __init__(self, reason: str):
-        super().__init__(reason, reason=reason, usd=None)
+    def __init__(self, reason: str, *, retry_after_s: float | None = None):
+        super().__init__(reason, reason=reason, usd=None, retry_after_s=retry_after_s)
+
+
+def _retry_after(value: object) -> float | None:
+    """Accept bounded HTTP Retry-After values, never provider error prose."""
+    if type(value) is not str or len(value) > 128 or not value.isascii() or any(ord(c) < 32 for c in value):
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        reset = parsedate_to_datetime(value)
+        if reset.tzinfo is None:
+            return None
+        return max(0.0, reset.timestamp() - time.time())
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -204,7 +221,8 @@ class ResponsesTransport:
                 )
                 reply = connection.getresponse()
                 data = reply.read(MAX_REPLY_BYTES + 1)
-                result.append((reply.status, data))
+                retry_after = _retry_after(reply.getheader("Retry-After")) if reply.status == 429 else None
+                result.append((reply.status, data, retry_after))
             except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
                 result.append(exc)
             finally:
@@ -223,7 +241,7 @@ class ResponsesTransport:
             worker.join(timeout=min(0.1, max(0.01, deadline - time.monotonic())))
         if not result or isinstance(result[0], Exception):
             raise ApiTransportError("transport")
-        status, data = result[0]
+        status, data, retry_after = result[0]
         if len(data) > MAX_REPLY_BYTES:
             raise ApiTransportError("response_too_large")
         if status in (401, 403):
@@ -231,7 +249,7 @@ class ResponsesTransport:
         if status == 402:
             raise ApiTransportError("billing_error")
         if status == 429:
-            raise ApiTransportError("rate_limit")
+            raise ApiTransportError("rate_limit", retry_after_s=retry_after)
         if status >= 500:
             raise ApiTransportError("server_error")
         if status != 200:

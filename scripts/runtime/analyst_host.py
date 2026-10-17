@@ -67,10 +67,22 @@ class TransportError(Exception):
     budget can settle the call instead of treating its cost as unknown.
     """
 
-    def __init__(self, message: str, *, reason: str = "transport", usd: float | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "transport",
+        usd: float | None = None,
+        retry_after_s: float | None = None,
+    ):
         super().__init__(message)
         self.reason = reason
         self.usd = usd
+        self.retry_after_s = (
+            float(retry_after_s)
+            if type(retry_after_s) in (int, float) and math.isfinite(retry_after_s) and retry_after_s >= 0
+            else None
+        )
 
 
 # The host's own error codes for a call the API refused. They come from the

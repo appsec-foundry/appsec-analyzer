@@ -70,6 +70,8 @@ Allow users to export an existing validated model without rerunning analysis. Ap
 
 Let users inspect status, stop a run, and resume compatible interrupted work. Preserve accepted work when resuming and identify stale or incompatible state. Store the effective operator profile with the run. On resume, preserve resolved OpenAI alias targets and revalidate their models, options, and prices against the installed catalog; changed definitions or incompatible runtime state require a new run. Expose progress, actionable failure reasons, and recovery steps. Never describe interrupted or incomplete work as complete.
 
+On provider rate limits, pause admission of all new model calls in the assessment, including other roles and providers sharing its budget; already running calls may settle. Use bounded retries and valid HTTP `Retry-After` delays without shortening the provider's wait or extending execution limits. Stop with paused exit code 3, retained accepted work, and `--resume` guidance when retries are exhausted or the cooldown exceeds three minutes or the remaining execution time. Optional jobs cannot replace a persistent rate limit with a coverage gap and continue publication. Resume remains subject to the original deadline and compatibility checks; CLI hosts without structured reset metadata use the bounded fallback delays.
+
 ## REQ-017: Reassess without losing work
 
 Let users deliberately rebuild. Preserve accepted work and earlier-result history across reassessment; a deliberate rebuild may reset the model and history. Protect intervening user edits. Identify stale or incompatible state and the review status of findings.

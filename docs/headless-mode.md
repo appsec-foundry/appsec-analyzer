@@ -27,8 +27,9 @@ With `--output`, the complete JSON is saved as `scan-result.json`. The full `sca
 command uses the same assessment controller as `assess`, shows live progress, and
 creates its private default destination if `--output` is omitted. A `stop` request preserves
 accepted assessment work for a compatible `--resume`. `--rebuild` starts over.
-After a rate-limit interruption, wait for provider capacity and rerun with
-`--resume` in place of `--rebuild`.
+
+On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
+
 The result and status contracts distinguish scanner-only output from completed,
 interrupted, and failed assessments. After normal cleanup removes the event
 feed, `progress` reports the final state with `feed_available: false` and no

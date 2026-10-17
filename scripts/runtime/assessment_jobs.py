@@ -496,11 +496,12 @@ class AssessmentJobs:
             self._record(role, seconds=time.monotonic() - started)
             return ExchangeResult(on_failure(str(exc)), (), 0, None)
         except (ModelAnswerFailure, HostTimeout, TransportError) as exc:
-            # A login or billing failure fails every later call too; it is never replaced.
+            # Account failures and exhausted shared cooldowns must stop optional jobs too.
             operator = isinstance(exc, TransportError) and exc.reason in (
                 "authentication_failed",
                 "billing_error",
                 "quota_exhausted",
+                "rate_limit",
             )
             replaceable = not operator and (
                 isinstance(exc, (ModelAnswerFailure, HostTimeout)) or not self.budget.unsettled

@@ -804,6 +804,10 @@ requirements:
 
   REQ-016:
     applies_to:
+      - appsec_analyzer/api_hosts.py
+      - scripts/runtime/analyst_host.py
+      - scripts/runtime/multi_repo_discovery.py
+      - scripts/runtime/assessment_jobs.py
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
       - scripts/runtime/resolve_config.py
@@ -829,6 +833,13 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
+      - tests/test_rate_limit_pause.py::test_provider_reset_is_respected_or_stops_without_retry
+      - tests/test_rate_limit_pause.py::test_shared_backoff_then_success_resets_failure_streak
+      - tests/test_api_hosts.py::test_rate_limit_transports_only_validated_reset_not_body
+      - tests/test_assessment_jobs.py::test_a_transient_failure_that_persists_still_stops_a_required_job
+      - tests/test_assessment_state.py::test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost
+      - tests/test_multi_repo_controller.py::test_persistent_rate_limit_reports_action_without_raw_host_text
       - tests/test_assessment_state.py::test_subscription_state_resume_and_monetary_tampering
       - tests/test_profiles.py::test_model_alias_is_frozen_on_resume_and_changed_profile_is_rejected
       - tests/test_profiles.py::test_alias_resume_keeps_controller_identity_and_rejects_changed_budget

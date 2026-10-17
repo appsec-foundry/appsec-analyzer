@@ -27,7 +27,7 @@ from shared._atomic_io import atomic_write_json, atomic_write_text
 from shared.artifact_names import LEGACY_MODEL, MODEL
 
 from runtime import acquire_lock
-from runtime.analyst_host import HostCancelled
+from runtime.analyst_host import HostCancelled, TransportError
 from runtime.assessment_host import ExchangeError
 from runtime.assessment_jobs import RECEIPT_SCHEMA, AssessmentBudget, _read_json, digest
 from runtime.multi_repo_discovery import BudgetExhausted
@@ -201,6 +201,7 @@ class AssessmentState:
                 self.state["status"] = (
                     "interrupted"
                     if isinstance(error, (HostCancelled, KeyboardInterrupt, AssessmentPaused, BudgetExhausted))
+                    or (isinstance(error, TransportError) and error.reason == "rate_limit")
                     else "failed"
                 )
                 self.checkpoint()

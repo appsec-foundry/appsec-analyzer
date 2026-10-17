@@ -218,6 +218,10 @@ class DiscoveryBudget:
         self._lock = threading.Condition()
         self._inflight = 0
         self._local = threading.local()
+        # All roles share admission, including profiles using several hosts.
+        self._rate_until = 0.0
+        self._rate_failures = 0
+        self._rate_stopped = False
 
     @property
     def failed(self) -> bool:
@@ -246,6 +250,7 @@ class DiscoveryBudget:
     def invoke(self, factory, system, prompt, schema, timeout_s, should_stop) -> HostReply:
         timeouts = 0
         failures = 0
+        self._local.rate_failures = 0
         # A retry gets the caller's time that is left, not the full limit again.
         deadline = time.monotonic() + timeout_s
         left = timeout_s
@@ -279,6 +284,15 @@ class DiscoveryBudget:
                 if self.on_retry is not None:
                     self.on_retry("model call stopped at its time or thinking limit; repeating it once")
             except TransportError as exc:
+                if exc.reason == "rate_limit":
+                    failures += 1
+                    with self._lock:
+                        if self._rate_stopped:
+                            raise
+                        delay = max(0, math.ceil(self._rate_until - time.monotonic()))
+                    if self.on_retry is not None:
+                        self.on_retry(f"model call failed (rate_limit); all new model calls paused for {delay} s")
+                    continue
                 # Only a settled call leaves accounting available; another
                 # running call does not block this retry (MR-16).
                 if self.unsettled or exc.reason not in TRANSIENT_FAILURES or failures >= len(TRANSIENT_RETRY_DELAYS):
@@ -289,6 +303,7 @@ class DiscoveryBudget:
                     raise
                 delay = TRANSIENT_RETRY_DELAYS[failures]
                 failures += 1
+                self._local.rate_failures += 1
                 if delay >= self.remaining_seconds():
                     raise
                 self.retries.append({"reason": exc.reason, "usd": exc.usd or 0.0, "paid": paid})
@@ -315,6 +330,18 @@ class DiscoveryBudget:
             while True:
                 if should_stop():
                     raise HostCancelled("Discovery cancelled")
+                if self._rate_stopped:
+                    raise TransportError("Provider rate limit; continue with --resume", reason="rate_limit", usd=0.0)
+                cooldown = self._rate_until - time.monotonic()
+                if cooldown > 0:
+                    if cooldown >= admission_deadline - time.monotonic() or cooldown >= self.remaining_seconds():
+                        self._rate_stopped = True
+                        self._lock.notify_all()
+                        raise TransportError(
+                            "Provider cooldown exceeds time left; continue with --resume", reason="rate_limit", usd=0.0
+                        )
+                    self._lock.wait(min(1.0, cooldown))
+                    continue
                 if self.unsettled:
                     raise ExchangeError("Discovery call budget exhausted or accounting unavailable")
                 if self.calls >= self.call_limit():
@@ -345,6 +372,7 @@ class DiscoveryBudget:
             if remaining < 1:
                 raise AdmissionTimeout("model call exceeded its job's time limit before admission")
             self._local.reserved = ceiling
+            admitted_at = time.monotonic()
             self.calls += 1
             if not self.subscription:
                 self.spent_usd += ceiling
@@ -356,7 +384,24 @@ class DiscoveryBudget:
             # failed call without a cost report is charged the reservation; a
             # reported cost, even one turn over it, is charged as reported.
             # Either way the run can be resumed.
-            self._settle(ceiling, ceiling if exc.usd is None else exc.usd)
+            with self._lock:
+                if exc.reason == "rate_limit":
+                    index = max(self._rate_failures, self._local.rate_failures)
+                    self._rate_failures += 1
+                    paid = exc.usd is None or exc.usd > FREE_FAILURE_USD
+                    paid_blocked = paid and (self._local.rate_failures or self._paid_retries() >= MAX_PAID_RETRIES)
+                    self._local.rate_failures += 1
+                    if index >= len(TRANSIENT_RETRY_DELAYS) or paid_blocked:
+                        self._rate_stopped = True
+                    else:
+                        delay = max(TRANSIENT_RETRY_DELAYS[index], exc.retry_after_s or 0)
+                        # Long provider cooldowns need an explicit later resume.
+                        self._rate_until = max(self._rate_until, time.monotonic() + delay)
+                        if delay > 180 or self._rate_until >= min(self.deadline, admission_deadline):
+                            self._rate_stopped = True
+                        if not self._rate_stopped:
+                            self.retries.append({"reason": "rate_limit", "usd": exc.usd or 0.0, "paid": paid})
+                self._settle(ceiling, ceiling if exc.usd is None else exc.usd)
             if (
                 not self.subscription
                 and exc.reason == "error_max_budget_usd"
@@ -367,6 +412,7 @@ class DiscoveryBudget:
                 f"{exc}; the run can continue: rerun the same command with --resume",
                 reason=exc.reason,
                 usd=exc.usd,
+                retry_after_s=exc.retry_after_s,
             ) from None
         except HostCancelled:
             # A timed-out or cancelled call's process group is stopped; its
@@ -378,6 +424,10 @@ class DiscoveryBudget:
             self._settle(ceiling, None)
             raise
         cost = reply.usd
+        with self._lock:
+            # A response to an older, already running call cannot clear a cooldown.
+            if not self._rate_stopped and admitted_at >= self._rate_until:
+                self._rate_failures = 0
         if self.subscription:
             self._settle(ceiling, None)
             if cost is not None:

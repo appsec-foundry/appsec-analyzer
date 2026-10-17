@@ -406,11 +406,14 @@ def test_a_transient_settled_failure_is_retried_until_the_call_succeeds(tmp_path
     assert jobs.budget.spent_usd == pytest.approx(0.01) and not jobs.budget.failed
 
 
-def test_a_transient_failure_that_persists_still_stops_a_required_job(tmp_path, no_retry_wait):
+@pytest.mark.parametrize("optional", [False, True])
+def test_a_transient_failure_that_persists_still_stops_a_required_job(tmp_path, no_retry_wait, optional):
     from runtime.analyst_host import TransportError
 
     host = Refused(10, "rate_limit")
     jobs, kwargs = _hanging(tmp_path, host)
+    if optional:
+        kwargs["on_failure"] = lambda reason: pytest.fail("Rate limits cannot become optional coverage gaps")
     with pytest.raises(TransportError, match="rate_limit.*--resume"):
         jobs.execute(**kwargs)
     assert host.calls == 4 and not jobs.budget.failed
