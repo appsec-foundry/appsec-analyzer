@@ -207,6 +207,11 @@ assessment completion.
   live controller driver uses the same CLI; it was not run because no paid
   qualification was authorized. Older full-run and repair drivers still call
   the temporary CLI delegate with legacy flags and need migration before use.
+- Package inventory searches found no Analyzer runtime imports or subprocess
+  calls for the Claude prompt steering hook, legacy session banner, or old
+  plugin status tool. Those three plugin-only modules remain in the filtered
+  source history for provenance but are excluded from wheel and sdist. Direct
+  `appsec-analyzer status` remains the supported state reader.
 - An installed-wheel run interrupted on four planned fake host errors returned
   a resumable status. A subsequent `assess --resume` completed offline: the
   accepted discovery, architecture, and control roles did not run again, while

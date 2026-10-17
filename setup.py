@@ -11,7 +11,9 @@ from setuptools.command.build_py import build_py
 ROOT = Path(__file__).resolve().parent
 RUNTIME_DIRS = ("scripts", "agents", "data", "schemas", "templates")
 RUNTIME_ROOT_SCRIPTS = {"appsec-analyst-cli", "mermaid_validate.mjs"}
-RETIRED_RUNTIME = {"plugin_meta.py", "plugin_read_gate.py", "plugin_write_gate.py"}
+RETIRED_RUNTIME = {"plugin_meta.py", "plugin_read_gate.py", "plugin_write_gate.py",
+                   "appsec_status.py", "session_banner.py"}
+RETIRED_ANALYZERS = {"security_steering.py"}
 USER_DOCS = (
     "security-assessment.md", "threat-analyst.md", "configuration.md",
     "model-selection.md", "headless-mode.md", "security-requirements-audit-skill.md",
@@ -26,6 +28,8 @@ def _ignore(directory: str, names: list[str]) -> set[str]:
         ignored.update(name for name in names if Path(directory, name).is_file() and name not in RUNTIME_ROOT_SCRIPTS)
     if Path(directory) == ROOT / "scripts" / "runtime":
         ignored.update(name for name in names if name in RETIRED_RUNTIME)
+    if Path(directory) == ROOT / "scripts" / "analyzers":
+        ignored.update(name for name in names if name in RETIRED_ANALYZERS)
     return ignored
 
 

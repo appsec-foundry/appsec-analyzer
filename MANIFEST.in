@@ -14,6 +14,7 @@ recursive-include scripts/validators *.py
 recursive-include scripts/assets *.css
 include scripts/appsec-analyst-cli scripts/mermaid_validate.mjs
 exclude scripts/runtime/plugin_meta.py scripts/runtime/plugin_read_gate.py scripts/runtime/plugin_write_gate.py
+exclude scripts/runtime/appsec_status.py scripts/runtime/session_banner.py scripts/analyzers/security_steering.py
 recursive-include agents *.md
 recursive-include data *.yaml *.json *.md
 recursive-include schemas *.yaml *.json *.md
