@@ -41,6 +41,8 @@ Select `--profile codex` for the experimental OpenAI API adapter, using an exter
 
 Select `--profile codex-cli` for ChatGPT plan usage through Codex CLI 0.163.0 on Linux/macOS with an existing ChatGPT login. Obtain explicit authorization to consume plan allowance before model calls. Use `appsec-analyzer assess --repo <absolute-local-path> --profile codex-cli --max-calls 1000 --max-duration 14400 --non-interactive`. This profile rejects USD budget options, defaults to serial components, and reports monetary cost as unavailable. Do not substitute an API key or change authentication on the user's behalf. See [Codex CLI setup and recovery](../../docs/profiles.md#use-your-chatgpt-plan-with-codex-cli) for allowance errors, version restrictions, model availability, and data use. Offline tests do not qualify live assessment quality.
 
+The built-in `codex` and `codex-cli` model profiles use `gpt-luna` with low reasoning effort for `recon_scanner`. All other roles use `gpt-sol` with the existing depth-dependent effort. Operator model defaults and role overrides take precedence; this routing has offline coverage and no live assessment quality qualification.
+
 Use `appsec-analyzer capabilities` before suggesting a different profile; API profiles remain unqualified until their model, route, cost, and depth are established, and the gateway is unavailable through the public CLI. Do not make a paid model call without authorization. Use
 `appsec-analyzer status|progress|stop|results --output <assessment-directory>`
 for lifecycle operations. An interrupted compatible assessment resumes with

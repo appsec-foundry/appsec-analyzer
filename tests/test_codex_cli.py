@@ -314,9 +314,12 @@ def test_subscription_controller_publishes_validated_reports(tmp_path, monkeypat
         def invoke(self, *args):
             return HostReply(self.delegate.invoke(*args).payload, None)
 
+    dispatched = {}
+
     def factory(role, model, ceiling):
         assert ceiling is None
-        assert model == "gpt-6.1-sol"
+        assert model == ("gpt-6-luna" if role == "recon_scanner" else "gpt-6.1-sol")
+        dispatched[role] = model
         return SubscriptionHost(host.factory(role, model, 1))
 
     result = controller.assess_repositories(
@@ -335,6 +338,8 @@ def test_subscription_controller_publishes_validated_reports(tmp_path, monkeypat
         run_profile=run,
     )
     assert result["status"] == "complete" and result["spent_usd"] is None and result["calls"] > 0
+    assert dispatched["recon_scanner"] == "gpt-6-luna"
+    assert dispatched["stride_analyzer"] == "gpt-6.1-sol"
     state = json.loads((output / ".assessment-state.json").read_text())
     assert state["schema_version"] == 2 and state["accounting"]["spent_usd"] is None
     assert state["operator_profile"]["adapter"] == "codex-cli"

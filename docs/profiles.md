@@ -11,6 +11,8 @@ appsec-analyzer scan --profile codex
 
 `claude` and `codex` use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
 
+The built-in `codex` and `codex-cli` model profiles use Luna for `recon_scanner` with low reasoning effort at every depth. All other roles use Sol with low effort at quick depth, medium at standard, and high at thorough. The model aliases resolve through the installed [model catalog](../data/model-catalog.yaml). This split has offline routing coverage; assessment quality with Luna has not passed live qualification. Operator model defaults and role overrides still take precedence.
+
 Profiles apply to `scan` and `assess`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
 
 ## Use your ChatGPT plan with Codex CLI
@@ -136,6 +138,8 @@ depths:
 ```
 
 Then set `model_profile: team-sol` in the scan profile. This example demonstrates configuration; it is not a tested claim that these models are the best choice for those tasks.
+
+The Recon override above matches the built-in OpenAI profiles. To use Sol for Recon too, set `roles.recon_scanner.model: gpt-sol` in your model profile.
 
 `base` accepts only `codex` or `claude`. User profiles cannot inherit from other user profiles. Alternatively, a complete model profile can specify `adapter: openai` or `adapter: claude-cli` and supply its own defaults. Do not combine `base` and `adapter`.
 

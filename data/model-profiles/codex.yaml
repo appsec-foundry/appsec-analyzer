@@ -2,6 +2,10 @@ schema_version: 1
 adapter: openai
 defaults:
   model: gpt-sol
+roles:
+  recon_scanner:
+    model: gpt-luna
+    reasoning_effort: low
 depths:
   quick:
     defaults:

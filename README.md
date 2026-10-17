@@ -141,6 +141,8 @@ appsec-analyzer scan --profile codex --assessment-depth thorough --budget 20
 
 You can also create [your own scan and model profiles](docs/profiles.md), including per-role model settings. Inspect them with `appsec-analyzer profiles show NAME` or check them with `appsec-analyzer profiles validate NAME`. The built-in profiles impose no output-token cap.
 
+The built-in `codex` and `codex-cli` model profiles use Luna with low reasoning effort for reconnaissance and Sol for all other roles. Operator model overrides take precedence. This routing has offline tests; live assessment quality remains unqualified.
+
 Component analysis runs at most two components at once by default. Set `max_parallel` in a scan profile or pass `--max-parallel 4` to override it for a run. Accepted values are integers from 1 to 16; higher values can encounter provider rate limits.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.

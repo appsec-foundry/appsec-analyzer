@@ -939,6 +939,8 @@ requirements:
       - tests/test_codex_cli.py::test_public_subscription_selection
       - tests/test_codex_cli.py::test_subscription_profiles_reject_unenforceable_options
       - tests/test_profiles.py::test_user_defaults_role_depth_and_cli_precedence
+      - tests/test_profiles.py::test_builtins_have_complete_roles_without_output_caps
+      - tests/test_profiles.py::test_operator_can_override_builtin_recon_model
       - tests/test_profiles.py::test_max_parallel_defaults_profile_cli_and_provenance
       - tests/test_profiles.py::test_public_max_parallel_reaches_controller_from_profile_or_cli
       - tests/test_profiles.py::test_invalid_max_parallel_is_rejected_before_host_or_checkout

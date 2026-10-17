@@ -130,13 +130,33 @@ def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypa
     assert exc.value.code == 2
 
 
-@pytest.mark.parametrize("name", ["claude", "codex"])
+@pytest.mark.parametrize("name", ["claude", "codex", "codex-cli"])
 @pytest.mark.parametrize("depth", profiles.DEPTHS)
 def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
     resolved = profiles.resolve_scan(name, depth=depth)
     assert set(resolved["models"]) == set(profiles.ROLES)
     assert all("max_output_tokens" not in row for row in resolved["models"].values())
     assert resolved["qualified"] is False
+    if name in ("codex", "codex-cli"):
+        assert resolved["models"]["recon_scanner"]["model"] == "gpt-6-luna"
+        assert resolved["models"]["recon_scanner"]["reasoning_effort"] == "low"
+        for role, settings in resolved["models"].items():
+            if role != "recon_scanner":
+                assert settings["model"] == "gpt-6.1-sol"
+                assert settings["reasoning_effort"] == {"quick": "low", "standard": "medium", "thorough": "high"}[depth]
+
+
+@pytest.mark.parametrize("base", ["codex", "codex-cli"])
+@pytest.mark.parametrize("override", ["defaults", "roles"])
+def test_operator_can_override_builtin_recon_model(home, base, override):
+    definition = {"schema_version": 1, "base": base}
+    settings = {"model": "gpt-sol", "reasoning_effort": "high"}
+    definition[override] = settings if override == "defaults" else {"recon_scanner": settings}
+    write(home, "model", "team", definition)
+    write(home, "scan", "team", {"schema_version": 1, "model_profile": "team"})
+    resolved = profiles.resolve_scan("team")
+    assert resolved["models"]["recon_scanner"]["model"] == "gpt-6.1-sol"
+    assert resolved["models"]["recon_scanner"]["reasoning_effort"] == "high"
 
 
 @pytest.mark.parametrize(
@@ -420,11 +440,13 @@ def test_examples_validate_at_all_depths(home):
             profiles.resolve_scan(str(path), depth=depth)
 
 
-def test_controller_dispatches_models_and_publishes_attributes(home, tmp_path, monkeypatch):
+@pytest.mark.parametrize("model_profile", ["team-sol", "codex"])
+def test_controller_dispatches_models_and_publishes_attributes(home, tmp_path, monkeypatch, model_profile):
     """Run the real offline controller through composition and publication."""
     sample(home)
     scan_path = home / "profiles/release.yaml"
     scan = yaml.safe_load(scan_path.read_text())
+    scan["model_profile"] = model_profile
     attributes = {"team": "payments", "file": "release-2026", "repository_id": "review-label"}
     scan["report"]["attributes"] = attributes
     scan_path.write_text(yaml.safe_dump(scan))
