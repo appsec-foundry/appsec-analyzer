@@ -118,12 +118,46 @@ assessment completion.
   follow-up commits remain on `import-v1`; their changes were cherry-picked
   onto the corrected `dev` history. The source checkout's `dev` branch advanced
   externally during this work; that later commit was not imported.
+- A complete offline controller replay exposed one more omitted historical
+  path, `scripts/auto_emitter_pass.sh`. A separate full bare clone of the same
+  frozen bundle was filtered for that path alone, with `git-filter-repo` 2.47.0
+  in `/tmp/appsec-analyzer-emitter-bare-20261017.git`. Its 11 retained source
+  commits were merged without squash as the second parent of local merge
+  `03a3e9c4`. The original source-tip blob hash and imported blob hash both
+  equal `14f08a26c59333bd1d07f09185e6501449ddbaaf`. The
+  [supplemental commit map](emitter-commit-map.txt) and
+  [ref map](emitter-ref-map.txt) identify rewritten and pruned commits. No
+  Advisor release tag was added. The old shell current-tree file was then
+  removed because the same ordered deterministic pass now runs through the
+  controller's engine-owned Python script dispatcher; its history remains.
+- The first complete fake-Claude CLI assessment stopped at the missing
+  enrichment receipt, proving publication stayed blocked. After moving the
+  ordered pass, single- and two-repository fake-host assessments completed and
+  published schema-valid assessment models. Existing tests that expected old
+  `threat-model.*` names were updated to `security-assessment.*`. The
+  `test_auto_emitter_pass.py` regression now checks the active Python path,
+  including order, fail-closed receipt, refuted findings, and idempotence.
+- Local wheel and sdist smoke builds succeeded outside the source trees. The
+  second build has 585 wheel entries and 687 sdist entries. Inventory checks
+  found neither the temporary `run-headless.sh`, old plugin metadata/gates,
+  reviewer launcher, nor test runner in either artifact. The isolated wheel
+  installed after downloading declared dependencies. Its `scan` succeeded with
+  all model credentials unset and Claude pointed to a nonexistent executable;
+  installed status/progress/results operations read a valid local fixture.
+  `stop` correctly rejected a completed fixture. A complete installed-wheel
+  assessment remains to be tested with an offline fake host.
+- The plugin-only `appsec-reviewer-cli` shell launcher and its direct tests
+  were removed from the current tree after confirming they depended on the
+  excluded `verify-requirements` plugin skill and broad host tools. This is
+  distinct from the focused Threat Analyst and independent Requirements Audit.
+  Plugin metadata and read/write hooks have no Analyzer runtime consumer and
+  were removed; direct CLI source and output boundaries have their own tests.
 
 ## Milestones
 
 | Milestone | State | Evidence and next step |
 | --- | --- | --- |
-| A1–A2 inventory and history | Imported, verification ongoing | Source and filtered revisions, path and commit maps, blob comparison, historical samples above; finish scoped secret triage and current-tree exclusions. |
+| A1–A2 inventory and history | Imported, verification ongoing | Primary and supplemental filtered lineages, maps, blob comparison, historical samples above; finish scoped secret triage and current-tree exclusions. |
 | A3–A5 provider boundary | Offline adapter in progress | Responses/gateway transport and negative offline tests exist; qualification, complete pipeline replay, and public API routing remain open. |
-| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths and focused analyst delegation exist; requirements audit, plugin dependencies, launcher consumer migration, and installed-artifact verification remain open. |
+| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths, focused analyst delegation, and wheel smoke checks exist; requirements audit, some launcher consumers, installed assessment and resume checks remain open. |
 | A7 local release preparation | Open | Build and inspect wheel and sdist; record unresolved qualification and compatibility limits. No source-repository correction, push, or publication. |
