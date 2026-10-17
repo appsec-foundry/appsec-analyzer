@@ -20,7 +20,7 @@ appsec-analyzer scan --profile claude --assessment-depth quick
 | `standard` | `gpt-sol` | `gpt-6.1-sol` | `medium` |
 | `thorough` | `gpt-sol` | `gpt-6.1-sol` | `high` |
 
-These defaults apply to all roles. A user model profile can change the model or effort for individual roles and depths. Analyzer resolves `gpt-sol`, `gpt-luna`, and `gpt-astra` using its installed [model catalog](../data/model-catalog.yaml). Explicit model IDs are also supported when present in that catalog. Catalog changes ship with Analyzer; the aliases do not discover new models over the network.
+These defaults apply to every role except `recon_scanner`, which uses `gpt-luna` (`gpt-6-luna`) with low reasoning effort at every depth. This routing has offline coverage; live assessment quality remains unqualified. A user model profile can change the model or effort for individual roles and depths. Analyzer resolves `gpt-sol`, `gpt-luna`, and `gpt-astra` using its installed [model catalog](../data/model-catalog.yaml). Explicit model IDs are also supported when present in that catalog. Catalog changes ship with Analyzer; the aliases do not discover new models over the network.
 
 By default, requests omit `max_output_tokens`. Analyzer imposes no cap below the model maximum. An explicit limit is optional and includes both reasoning and visible output tokens. Incomplete answers caused by that limit fail with `output_token_limit`.
 
