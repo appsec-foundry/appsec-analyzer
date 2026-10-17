@@ -3524,7 +3524,9 @@ def _assessment_intro(
     if ns.hard_budget is None and ns.soft_budget is not None:
         cut += f" (1.25 × deprecated --soft-budget ${ns.soft_budget:g}; use --hard-budget)"
     elif ns.hard_budget is None:
-        cut += " (default for the assessment depth; set --soft-budget or --hard-budget to change it)"
+        cut += " (default for the assessment depth; change with --budget USD)"
+    else:
+        cut += " (change with --budget USD)"
     limit = _elapsed(budget.timeout_s)
     # The trust mode only decides whether this start check runs; the analysis is the same.
     trust = (

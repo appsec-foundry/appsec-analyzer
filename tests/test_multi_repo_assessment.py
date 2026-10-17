@@ -653,12 +653,13 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
         ["--repo", "/r", "--output", "/o", "--hard-budget", "5", "--trust-mode", "trusted", "--max-duration", "3900"]
     )
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "quick", "Models: m1 (a)", "P"))
-    assert rows["Budget"].split("\n")[0] == "model calls stop at $5.00" and rows["Time limit"] == "1h05m"
+    assert rows["Budget"].split("\n")[0] == "model calls stop at $5.00 (change with --budget USD)"
+    assert rows["Time limit"] == "1h05m"
     assert rows["Trust mode"].startswith("trusted: start check skipped\n") and rows["Output"] == "/o"
     ns = parse(["--repo", "/r", "--output", "/o", "--interactive-launch"])
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "standard", "Models: m1 (a)", "P"))
     assert rows["Budget"].split("\n")[0] == (
-        "model calls stop at $20.00 (default for the assessment depth; set --soft-budget or --hard-budget to change it)"
+        "model calls stop at $20.00 (default for the assessment depth; change with --budget USD)"
     )
 
 
