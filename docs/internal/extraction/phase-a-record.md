@@ -206,9 +206,8 @@ assessment completion.
   current `security-assessment` deliverables. Their 10 source/oracle-order
   contract tests passed, and `sh -n` accepted all three scripts. The optional
   live controller driver uses the same CLI; it was not run because no paid
-  qualification was authorized. Older full-run and repair drivers still call
-  the temporary CLI delegate with legacy flags and needed migration. The
-  manual full-run driver now invokes `appsec-analyzer assess` with an explicit
+  qualification was authorized. The manual full-run driver now invokes
+  `appsec-analyzer assess` with an explicit
   USD budget and verifies `appsec-analyzer results` plus current assessment
   deliverables. Its source contract has four passing offline tests; `sh -n`
   accepted the shell script, and `make e2e-full` without a budget failed before
@@ -219,6 +218,16 @@ assessment completion.
   The existing offline controller and public CLI tests remain the active
   regression checks. The old frozen fixture format remains replayable but
   its live freeze procedure is historical.
+- The final manual-driver migration and its documentation were committed
+  separately after the CLI and package work. `make test-analyzer` then passed
+  54 offline tests. The inherited `scripts/run_tests.py --check-groups` still
+  fails on removed plugin tests and source paths, so the inherited full test
+  and release-check targets are not qualified gates. A fresh local wheel and
+  sdist from a separate clone were inventoried: the retired E2E drivers,
+  old wrapper, plugin-only modules, test runner, local output, and `.env`
+  files were absent. The wheel was reinstalled in the isolated test venv;
+  its `version` and credential-free `scan` smoke checks passed. The new
+  manual driver itself was not executed because it makes live model calls.
 - Package inventory searches found no Analyzer runtime imports or subprocess
   calls for the Claude prompt steering hook, legacy session banner, or old
   plugin status tool. Those three plugin-only modules remain in the filtered
@@ -254,5 +263,5 @@ assessment completion.
 | --- | --- | --- |
 | A1–A2 inventory and history | Complete within scoped review | Primary and supplemental filtered lineages, maps, byte comparison, historical samples, and redacted pattern review above. The pattern review cannot guarantee absence of every secret. |
 | A3–A5 provider boundary | Offline implementation complete | Responses/gateway transports and negative contract tests exist. Live model/route qualification and public API routing remain open by operator instruction. |
-| A6 standalone CLI and package | Core complete; compatibility gaps open | Installed scan, fake-host assessment and resume, state operations, exports, focused analyst entry, and bounded local-catalog audit work. Older full/repair drivers and inherited test-group routing remain open. |
+| A6 standalone CLI and package | Core complete; compatibility gaps open | Installed scan, fake-host assessment and resume, state operations, exports, focused analyst entry, and bounded local-catalog audit work. Manual full driver uses the CLI; legacy repair and plugin evaluation drivers were retired. Inherited test-group routing remains stale. |
 | A7 local release preparation | Local artifacts complete | Wheel and sdist built from a separate clone, inventoried, installed, and smoke-tested; checksums and release notes remain local. No source-repository correction, push, or publication. |
