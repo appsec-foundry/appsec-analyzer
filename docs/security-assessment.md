@@ -1,6 +1,6 @@
 # Complete security assessment
 
-`appsec-analyzer scan` analyzes one or several local Git checkouts as one
+`appsec-analyzer scan` analyzes one or several local Git checkouts or explicitly selected Git URLs as one
 system. It uses Claude CLI by default, freezes admitted source, runs
 semantic roles, checks their output against canonical contracts, verifies
 evidence, and publishes a report only after validation. The report covers
@@ -45,3 +45,13 @@ uses its [own result schema](../schemas/deterministic-scan-result.schema.json).
 The source guide, retained in [history](history/advisor/security-assessment.md),
 explains domain concepts and earlier plugin behavior in detail. Its commands
 and provider statements are historical.
+
+## Known threats
+
+Place prior findings in `docs/known-threats.yaml`, using the [example](../examples/known-threats.yaml) and [schema](../schemas/known-threats.schema.yaml). The engine validates this declaration and records its repository provenance. A prior finding or accepted-risk statement is input to analysis; it does not establish that an attack works or that a control is effective. `--skip-context` skips business context but keeps known threats available.
+
+## Exports and compatibility
+
+Exports are requested on `scan` or `assess`; there is no public export-existing command. `results` checks the hashes of already published files. Internal names such as `threat-model.yaml` remain in intermediate processing and historical fixtures; the current published model is `security-assessment.yaml`.
+
+Interactive triage, automated code fixes, baseline installation, plugin hooks, and a separate security-score command are not part of the public Analyzer CLI. The focused analyst can preview and check selected abuse cases with `hypothesis --abuse-case`; see the [analyst guide](threat-analyst.md).

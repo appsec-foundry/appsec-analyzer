@@ -1,6 +1,10 @@
 # Schemas
 
-JSONSchema (Draft 2020-12) contracts for every structured artifact the plugin
+The public source scan uses `deterministic-scan-result.schema.json`; full-assessment state uses `multi-repo-state.schema.json`; the independent audit uses `requirements-audit.schema.json`. Published full-assessment YAML uses `threat-model.output.schema.yaml` under the filename `security-assessment.yaml`. Historical schema IDs remain stable for compatibility.
+
+The detailed table below also includes retained Advisor and context-v2 contracts. Inclusion here does not mean a standalone command produces that artifact. Check its current producer and consumer before changing or removing it.
+
+JSONSchema (Draft 2020-12) contracts for structured artifacts the engine
 produces or consumes. The schemas are the **single source of truth** for the
 data contracts; `scripts/validators/validate_intermediate.py` loads them at runtime
 and enforces runtime artifacts via `jsonschema`; plugin-shipped config/data

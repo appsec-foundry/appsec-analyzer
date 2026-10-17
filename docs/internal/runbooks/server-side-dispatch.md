@@ -1,5 +1,7 @@
 # Server-Side Threat-Model Dispatch
 
+Historical Advisor runbook: the workflows, presets, and launcher below were excluded from the Analyzer extraction. This repository does not provide this dispatch service. For current unattended operation, use [the CLI guide](../../headless-mode.md); live provider execution still requires an authorized budget.
+
 Run a headless threat model entirely on a GitHub Actions runner without a local checkout. One manual dispatch selects a target and depth, which together identify one preset. Presets live in `.github/threat-model-presets.json`, and the workflow lives in `.github/workflows/threat-model-dispatch.yml`.
 
 This is plugin-development and operations infrastructure. Its targets are the project's deliberately insecure test repositories rather than user-facing scans.

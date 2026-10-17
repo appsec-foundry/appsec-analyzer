@@ -14,7 +14,7 @@ The implementation references below were checked on 2026-10-17. They describe th
 
 ### Transport and schema boundaries
 
-- [The headless launcher](../../../scripts/run-headless.sh) hands controller assessments to `orchestration_controller.py assess`, but still checks Claude availability and, in subscription mode, Claude authentication before that handoff.
+- The pre-extraction headless launcher (`scripts/run-headless.sh`, now removed) hands controller assessments to `orchestration_controller.py assess`, but still checks Claude availability and, in subscription mode, Claude authentication before that handoff.
 - [The transport protocol](../../../scripts/runtime/analyst_host.py) exposes `invoke(system, prompt, schema, timeout_s, should_stop) -> HostReply(payload, usd)`.
 - [The controller](../../../scripts/orchestrator/orchestration_controller.py) constructs `ClaudeCliTransport` in `_assessment_cli_host_factory`; `assess_repositories` also accepts an injected host factory. Semantic roles and renderers obtain their transports through this seam.
 - This factory configures tool-less calls in private work directories. Claude-specific options include effort, thinking limits, prompt caching, environment handling, and diagnostic events. Authentication hints also name Claude.
@@ -196,7 +196,7 @@ Package extraction includes:
 - Maintaining one source for role prompts while retaining valid Claude agent definitions for the legacy path. Preserve existing slicing and prompt contracts until their consumers migrate.
 - Defining the business-context input interface consistently with REQ-BIZ-010 and preserving optional external export tools with explicit unavailable-tool errors.
 - Testing an installed wheel outside the source checkout through assessment, resume, rendering, and affected exports; repeat the relevant integration checks for the plugin's vendored artifact.
-- Preparing dependency locking, trusted publication and release provenance under the [release runbook](../../releasing.md), with compatibility and rollback behavior defined before publication.
+- Preparing dependency locking, trusted publication and release provenance; the current [local release guide](../../local-release-preparation.md) documents preview archive checks, while publication and rollback qualification remain separate work.
 
 Other skills need an individual ownership assessment before moving into the engine. Removing the legacy path and splitting repositories are outside this provider implementation scope; the product architecture describes the subsequent ownership and migration milestones.
 

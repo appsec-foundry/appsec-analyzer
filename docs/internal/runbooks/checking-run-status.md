@@ -1,69 +1,30 @@
-# Checking run status (is a scan running? how far along?)
+# Inspect and recover an Analyzer run
 
-Use the status helpers to check whether a scan is running and which phase it has reached.
+Use the output directory of the full assessment. The default location is in the user's private Analyzer data directory, not `docs/security` in the analyzed repository. The CLI prints the selected location.
 
-The helpers only read run state. They do not analyze code, write artifacts, dispatch agents, or require new skill permissions. You can use them during an active scan.
-
-<a id="the-one-gotcha-where-a-live-run-actually-writes"></a>
-## Run-state location
-
-A live run's heartbeat and progress sidecars live under the **OUTPUT_DIR**
-(`<repo>/docs/security` by default), *not* the repo root.
-
-The repository-root `.agent-run.log` may belong to an earlier run. Process names also do not reliably identify a scan started in another session. Use the helpers below to read the active output directory and check heartbeat freshness.
-
-## Snapshot: is it alive, and what is it doing right now?
-
-```bash
-python3 scripts/runtime/appsec_status.py --repo /path/to/repo --live
+```sh
+appsec-analyzer status --output /private/assessment
+appsec-analyzer progress --output /private/assessment
+appsec-analyzer results --output /private/assessment
 ```
 
-Prints the in-flight snapshot: current phase + checkpoint status,
-`heartbeat_age` vs. the phase's `stall_threshold`, the active progress line
-(`.appsec-progress.json`), and each active tool call (`.active-tool-calls/`)
-with its age, agent, tool, and truncated input.
+`status` returns the run identity, lifecycle state, accounting, and deliverable names. `progress` returns bounded recent events. After successful cleanup the feed may be absent; `feed_available: false` with the final state is expected. `results` requires completion and verifies every recorded deliverable digest. A changed or symlinked artifact is rejected.
 
-Read it like this:
+To request a stop:
 
-- `heartbeat_age` well under `stall_threshold` → **alive**.
-- `heartbeat_age` past the threshold, or no active tool calls and an old
-  checkpoint → **stalled or dead** (a run driven from another session that
-  crashed leaves no process to find, so age is the signal, not `ps`).
-
-If the previous run produced no `threat-model.md` and no scan is active, the snapshot shows a last-run verdict and recovery hint. It uses the same `runtime/cutoff_cause.py` classifications as the in-run banner: `api_stall`, `session_death`, or `budget`. Unlike that banner, the verdict remains available after the orchestrator exits. It is suppressed while a live process holds the run lock. JSON output carries it under `cutoff` as `{kind, block}`, or `null`.
-
-Add `--json` for cron-style polling from a second terminal or the IDE:
-
-```bash
-python3 scripts/runtime/appsec_status.py --repo /path/to/repo --live --json
+```sh
+appsec-analyzer stop --output /private/assessment
 ```
 
-Equivalent skill form (same helper underneath):
+The controller observes cancellation at its next checkpoint. Do not infer immediate termination from the request alone. Check status before taking another action.
 
-```
-/appsec-advisor:status --repo /path/to/repo --live
-```
+Resume an interrupted run using the same selected source and compatible options:
 
-Without `--live`, `/appsec-advisor:status` shows the plugin version, available capsules, last-run identity, configuration sources, and fast-path preview.
-
-## Follow: watch phase transitions and stalls as they happen
-
-For a live, phase-aware tail (instead of repeated snapshots) point
-`runtime/watch_run.py` at the **OUTPUT_DIR**, not the repo root:
-
-```bash
-python3 scripts/runtime/watch_run.py /path/to/repo/docs/security
-python3 scripts/runtime/watch_run.py /path/to/repo/docs/security --depth thorough
-python3 scripts/runtime/watch_run.py /path/to/repo/docs/security --once   # snapshot, no follow
+```sh
+appsec-analyzer assess --repo /path/to/project --host claude-cli \
+  --budget 20 --output /private/assessment --resume
 ```
 
-The watcher reads `.hook-events.log` and prints phase, step, agent, file, heartbeat, error, and assessment events. It emits one `STALL` line when a phase exceeds its silence threshold from `PHASE_DURATION_LIMITS_SECONDS`, multiplied by `--stall-multiplier` (default 1.5). Phase-specific thresholds allow for long LLM calls during triage and fragment authoring.
+The budget shown is an example requiring authorization. Changed source, incompatible settings, expired state, or unresolved cost accounting may prevent resume. Follow the reported reason; do not edit state files to bypass it. A deliberate `--rebuild` starts over and must respect existing user edits.
 
-## Which to reach for
-
-| Need | Use |
-|---|---|
-| One-shot "is it alive / what now?" | `runtime/appsec_status.py --live` |
-| Same, machine-readable for polling | `runtime/appsec_status.py --live --json` |
-| Continuous follow + stall detection | `runtime/watch_run.py <output_dir>` |
-| Broader plugin/last-run overview | `runtime/appsec_status.py` (no `--live`) |
+These operations apply to full-assessment state. A source scan has a standalone JSON result; a requirements audit cannot resume. Focused analyst jobs use `analyst answer` and `analyst cancel`. The retained `runtime/appsec_status.py` depends on excluded Advisor modules and is not the current status interface.

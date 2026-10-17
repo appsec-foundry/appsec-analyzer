@@ -38,7 +38,7 @@ The source checkout was inspected at `c8b8a0ec38cf325e29f1f3cdef5c2a04c6317d3f`.
 
 The operator's sibling checkout `../appsec-analyzer` is locally clean, has an unborn `main` branch, and has `origin` set to `git@github.com:appsec-foundry/appsec-analyzer.git`. No local commits or tracked files need reconciliation at this point. Remote branch state and publication access still need verification before import or push; the local empty checkout does not establish that the remote is empty.
 
-Several historical statements in the concepts have already been overtaken by the [assessment transition](handoff-appsec-analyzer-transition-2026-10-17.md). The current skill is `appsec-analyzer`; the assessment launcher dispatches directly to the controller. Do not recreate the retired `create-threat-model` runtime or its removed agents.
+Several historical statements in the concepts have already been overtaken by the Advisor assessment-transition handoff (`handoff-appsec-analyzer-transition-2026-10-17.md`, not included in the extraction). The current skill is `appsec-analyzer`; the assessment launcher dispatches directly to the controller. Do not recreate the retired `create-threat-model` runtime or its removed agents.
 
 The following code paths define the initial extraction work. Line references describe the inspected revision and must be rechecked at the chosen extraction commit.
 
@@ -47,7 +47,7 @@ The following code paths define the initial extraction work. Line references des
 | [`_assessment_cli_host_factory`](../../../scripts/orchestrator/orchestration_controller.py#L3506) | Constructs `ClaudeCliTransport` directly, so controller selection remains Claude-specific despite the injected factory seam. | A3 |
 | [`Transport.invoke`](../../../scripts/runtime/analyst_host.py#L137) and [`response_schema` / `host_schema`](../../../scripts/runtime/assessment_host.py#L89) | A transport protocol exists, but wire projection targets the current host; other dialects need deliberate projection and decoding. | A3–A5 |
 | [`resolve_assessment`](../../../scripts/runtime/resolve_config.py#L1872) and [`_assessment_session`](../../../scripts/orchestrator/orchestration_controller.py#L866) | Effective defaults include controller-specific model corrections; actor discovery still has a fallback outside resolution. Copying only generic model defaults changes behavior. | A3 |
-| [`run-headless.sh`](../../../scripts/run-headless.sh#L238) | Checks Claude availability and authentication before controller dispatch. An API-only installation cannot use this launcher unchanged. | A3, A6 |
+| `run-headless.sh` (removed after extraction) | Checks Claude availability and authentication before controller dispatch. An API-only installation cannot use this launcher unchanged. | A3, A6 |
 | [`_assessment_runtime_fingerprint`](../../../scripts/orchestrator/orchestration_controller.py#L833) | Reads plugin directories and `.claude-plugin/plugin.json`; merely moving resources cannot make installed runs independent. | A6 |
 | [`read_requirements_config`](../../../scripts/runtime/resolve_config.py#L1227) | Reads functional configuration from `skills/audit-security-requirements/config.json`. Move the engine-owned setting with its consumers. | A1, A6 |
 | [`assessment_scanner_findings.py`](../../../scripts/model/assessment_scanner_findings.py#L1) | Scans frozen snapshots but integrates with component ownership and subsequent evidence verification. A standalone scanner entry needs an explicit output contract. | A6 |

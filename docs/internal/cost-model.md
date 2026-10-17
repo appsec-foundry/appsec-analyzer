@@ -1,5 +1,7 @@
 # Run cost
 
+Scope: this is retained Advisor session-hook telemetry guidance. The standalone assessment uses durable controller accounting exposed by `appsec-analyzer status`; its current spending contract is in [the assessment guide](../security-assessment.md). The `run-headless.sh` and hook paths below are historical, not current CLI dependencies.
+
 What a run costs, how to measure it without getting a wrong number, and which
 savings have already been ruled out. New measurements go in the findings log at
 the bottom; the sections above are rewritten when a measurement changes them.

@@ -75,7 +75,7 @@ If the section introduces a new ID class (e.g. `CP-NN`), also extend `scripts/va
 ## Quick verification
 
 ```bash
-ruff check scripts/ tests/ hooks/
+ruff check scripts/ tests/ appsec_analyzer/
 pytest tests/test_compose_threat_model.py tests/test_qa_checks.py tests/test_validate_fragment.py -q
 python3 scripts/validators/check_fragment_registry.py   # if present (Phase A1)
 ```

@@ -10,7 +10,7 @@ Complete threat model reports live in the companion repository [appsec-advisor-e
 
 Copy these files into the repository you assess and adapt them.
 
-- [`known-threats.yaml`](known-threats.yaml) records prior pentest findings, accepted risks, and known issues for OWASP Juice Shop. Place your version at `docs/known-threats.yaml`, as described in [Known threats](../docs/security-assessment.md#known-threats--docsknown-threatsyaml).
+- [`known-threats.yaml`](known-threats.yaml) records prior pentest findings, accepted risks, and known issues for OWASP Juice Shop. Place your version at `docs/known-threats.yaml`; the [assessment guide](../docs/security-assessment.md#known-threats) explains how it is used.
 - [`abuse-cases.yaml`](abuse-cases.yaml) is a commented abuse case that documents every field and the values it accepts. Place your version under `docs/security/abuse-cases/`, as described in [Business abuse cases](../docs/org-profiles.md#business-abuse-cases).
 
 ## Requirements catalog
@@ -22,11 +22,11 @@ These files form a demonstration catalog informed by OWASP ASVS 5.0.0, the OWASP
 - [`blueprints/`](blueprints/) holds two blueprints of the combined catalog, one file per blueprint, in the shape the harvester writes.
 - [`appsec-requirements-example.openspec.md`](appsec-requirements-example.openspec.md) and [`appsec-requirements-example.sdd`](appsec-requirements-example.sdd) express the observable, mandatory behavior of the combined catalog as an OpenSpec and a SpecDD specification.
 
-Each YAML file is accepted by `--requirements` on its own. The [Requirements Harvester](../docs/harvester.md#output-format--validation) guide describes the catalog format and the OpenSpec and SpecDD exports.
+For `audit-requirements --requirements`, select the combined catalog or the requirements-only YAML. A blueprint-only file has no requirements to grade and cannot run an independent audit. The [Requirements Harvester](../docs/harvester.md) guide describes catalog preparation and optional specification exports.
 
 ## Requirements audit report
 
-The `requirements-auditor/` directory holds a `--demo` requirements audit of OWASP Juice Shop as [Markdown](requirements-auditor/appsec-requirements-report.md), [JSON](requirements-auditor/appsec-requirements-report.json), and [PDF](requirements-auditor/appsec-requirements-report.pdf). The [Requirements Audit](../docs/security-requirements-audit-skill.md) guide explains the statuses and flags.
+The `requirements-auditor/` directory retains an Advisor-era demo audit of OWASP Juice Shop as [Markdown](requirements-auditor/appsec-requirements-report.md) and [JSON](requirements-auditor/appsec-requirements-report.json). It illustrates verdicts, not qualification of the current CLI. No PDF is included. The [Requirements Audit](../docs/security-requirements-audit-skill.md) guide explains current statuses and flags.
 
 ## Scan and model profiles
 

@@ -1,6 +1,6 @@
 # Script layout
 
-Runtime modules are grouped by responsibility. Existing filenames identify each command within its package. Shell entry points and maintainer tools remain directly under `scripts/`.
+Runtime modules are grouped by responsibility. The supported user entry is `appsec-analyzer`; direct script commands are internal or maintainer interfaces. The public package in `appsec_analyzer/` selects engine resources from the checkout or installed wheel.
 
 | Directory | Responsibility |
 |---|---|
@@ -12,13 +12,12 @@ Runtime modules are grouped by responsibility. Existing filenames identify each 
 | `exporters/` | HTML, PDF, SARIF and Threat Dragon output. |
 | `validators/` | Artifact validation, QA and publication gates. |
 | `repairs/` | Contracted repairs and preservation of authored sections. |
-| `runtime/` | Configuration, hooks, lifecycle, telemetry, status and cleanup. |
+| `runtime/` | Configuration, source admission, model hosts, lifecycle, telemetry, and cleanup; also retained hook-era helpers. |
 | `requirements/` | Requirements retrieval, state, assessment and traceability. |
-| `baseline/` | Secure-coding baseline installation and maintenance. |
 | `shared/` | Cross-domain parsing, paths, atomic IO and policy helpers. |
 
-Run a command by its full path, for example `python3 scripts/orchestrator/orchestration_controller.py --help`. Direct CLI entry points add the plugin's `scripts/` directory to the import path. Imports use the qualified package name, for example `from shared._atomic_io import atomic_write_text`; they do not search every domain directory or use compatibility wrappers.
+Run an internal command by its full path, for example `python3 scripts/orchestrator/orchestration_controller.py --help`. Direct entry points add the engine's `scripts/` directory to the import path. Imports use qualified domain names, for example `from shared._atomic_io import atomic_write_text`.
 
-Paths to plugin data and schemas are resolved from the plugin root, independent of the caller's working directory. Hook identifiers and artifact provenance labels remain stable when their implementation moves.
+The Advisor baseline package, plugin metadata, and hook registration were excluded from the extraction. Some retained helpers still refer to them and are not usable standalone; see the [legacy review](../docs/internal/analysis/repository-review-2026-10-17.md). Existing schema identifiers and migration helpers may intentionally retain Advisor or threat-model names.
 
-When moving a module, update imports, subprocess paths, skill and agent commands, hook commands, permissions, requirement bindings and reviewed source-to-test routes together. Tests keep their existing names under `tests/`; `scripts/run_tests.py` records their source paths. Packaging copies the complete directory tree.
+When moving a module, check imports, dynamic dispatch, subprocess paths, prompts, schemas, packaging, requirement bindings, and affected tests together. `scripts/run_tests.py` contains an inherited routing catalog with known stale references; it is not a complete current dependency graph. `setup.py` and `MANIFEST.in` select packaged resources and exclude some legacy files; they do not copy every checkout file.

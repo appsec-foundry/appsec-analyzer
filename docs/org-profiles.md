@@ -27,7 +27,7 @@ Analyzer enforcement points. Keep profile context documents and secrets out
 of the analyzed repository; any selected context sent to a model should be
 reviewed by the operator.
 
-### Business abuse cases
+## Business abuse cases
 
 Repository-owned cases under `docs/security/abuse-cases/` express business
 rules that source patterns cannot settle alone. A case can name the legitimate

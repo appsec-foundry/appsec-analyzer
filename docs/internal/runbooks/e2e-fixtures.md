@@ -141,6 +141,8 @@ mismatch can be triaged without a local rerun. The artifact also carries
 
 ### Triaging a failed run locally
 
+The following CI artifact and repair instructions describe the Advisor repository. Analyzer does not include these workflows or `scripts/ci_triage.sh`; use local output with the [current status commands](checking-run-status.md).
+
 The artifact is a complete output directory, including the dot-prefixed run
 state (`include-hidden-files: true` on the upload step — without it
 `upload-artifact` v4.4+ silently drops every one of those files, which is most

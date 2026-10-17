@@ -1,12 +1,14 @@
 # Configuration
 
-The public command is `appsec-analyzer`. `scan` takes local `--repo` paths, an optional existing `--output` directory, `--profile`, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory, the `claude` profile, and `standard` depth. `assess` requires an explicit profile (or legacy `--host`) and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.
+The public command is `appsec-analyzer`. `scan` takes local `--repo` paths or explicitly selected HTTPS/SSH Git URLs, an optional existing `--output` directory, `--profile`, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory, the `claude` profile, and `standard` depth. `assess` requires an explicit profile (or legacy `--host`) and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.
 
 Choose `--profile claude` for the Claude CLI or `--profile codex` for the experimental OpenAI API adapter. A scan profile supplies the model profile, depth, USD budget, exports, and report attributes; explicit CLI options override those defaults. No `--host` argument is needed. Users can create YAML files under `~/.config/appsec-analyzer/profiles/` and `model-profiles/`, or select an external scan file. See [scan and model profiles](profiles.md) for the format, examples, and precedence, and [models and cost](model-selection.md) for provider defaults.
 
 An operator may pass `--org-profile FILE`, `--preset NAME`, or
 `--no-org-profile` to select or disable inherited assessment defaults. See
 [organization profiles](org-profiles.md).
+
+Use `scan-sources` for a deterministic source scan without a model account. It supports repeated `--repo`, `--assessment-depth`, `--trust-mode`, an existing external `--output` directory, and `--json`. Git URLs still require network retrieval.
 
 Full `scan` and `assess` are model-backed and default to a USD 20 spending limit; the separate `audit-requirements` command defaults to USD 5. Set `--budget USD` to override the default. The amount must be positive and finite; the requirements audit additionally requires at least USD 0.05. The CLI prints the selected limit to stderr before starting, leaving structured stdout unchanged. `--hard-budget` remains a compatible alias. These defaults do not vary with assessment depth and never enable unlimited spending.
 

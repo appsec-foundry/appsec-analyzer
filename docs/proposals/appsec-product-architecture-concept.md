@@ -17,9 +17,9 @@ Use three product repositories plus the existing baseline project. Keep each cap
 
 The Analyzer's plugin command is `/appsec-advisor:appsec-analyzer`. The design workflow uses `/appsec-advisor:create-threat-model`. The existing `analyze-threats` name continues to identify focused analysis of a question, change, or hypothesis; it does not become another name for the full Analyzer.
 
-AppSec Advisor names the combined product and its Claude Code plugin. Keep the existing `appsec-advisor` repository, local directory name, and plugin namespace. Extract the Analyzer into a new repository; do not rename the existing repository or add a `-plugin` suffix. Product names do not require renaming every internal module or artifact. The Analyzer still produces a Security Assessment Report; its target artifact names and storage transition are described in the [assessment concept](application-security-assessment-concept.md).
+AppSec Advisor names the combined product and its Claude Code plugin. Keep the existing `appsec-advisor` repository, local directory name, and plugin namespace. Extract the Analyzer into a new repository; do not rename the existing repository or add a `-plugin` suffix. Product names do not require renaming every internal module or artifact. The Analyzer still produces a Security Assessment Report; its target artifact names and storage transition are described in the Advisor assessment concept (`application-security-assessment-concept.md`, not included in this extraction).
 
-These are target interfaces. The current controller skill is still [create-security-assessment](../../skills/create-security-assessment/SKILL.md), and legacy threat-model commands still exist. Changing those interfaces requires the compatibility work below.
+These are target interfaces recorded before extraction. At that point the controller skill was `create-security-assessment` in the pre-extraction Advisor tree, and legacy threat-model commands still exist. Changing those interfaces requires the compatibility work below.
 
 ## Architecture and dependency direction
 
@@ -50,7 +50,7 @@ The plugin repository owns the Claude manifest, marketplace integration, common 
 
 Keep semantic analysis out of plugin glue. The `appsec-analyzer` entry skill is supplied by the Analyzer project and invokes its supported CLI. The plugin may adapt packaging paths and register that skill, but does not maintain a second copy of its workflow. A plugin status view combines component versions and asks each component for its own state; it does not parse private run files independently.
 
-Only host integration hooks belong here. Analyzer budget enforcement, source admission, validation, and cleanup cannot depend on a Claude hook being installed. They belong in the Analyzer so CLI and CI callers receive the same controls. The existing [internal packaging workflow](../internal-plugin-packaging.md) is a starting point for distribution, not evidence that the components are already separable.
+Only host integration hooks belong here. Analyzer budget enforcement, source admission, validation, and cleanup cannot depend on a Claude hook being installed. They belong in the Analyzer so CLI and CI callers receive the same controls. The existing Advisor internal packaging workflow (`docs/internal-plugin-packaging.md`, not included here) is a starting point for distribution, not evidence that the components are already separable.
 
 ### AppSec skills
 
@@ -71,7 +71,7 @@ Each skill owns its instructions, reference material, helpers, and focused tests
 
 Initially, a repository release may version the collection together while publishing separately selectable skill bundles. Independent installation does not require an independent release process for every small skill. Test each promised standalone bundle without the plugin checkout; do not claim compatibility with another agent host based only on the presence of a `SKILL.md` file.
 
-The first bundle is the [requirements and design threat-modeling workflow](requirements-led-threat-modeling-concept.md). Preserve its agreed behavior: contextual LLM questions, bounded optional architecture exploration, one maintained `<repo>/threat-model.md`, and a link from the existing security document or a newly created root `SECURITY.md`. A review only presents feedback. Feature updates extend the existing model. An ambiguously identified existing file is preserved until the user clarifies its use. Missing sources or unanswered questions never justify invented architecture or an empty replacement model.
+The first bundle is the requirements and design threat-modeling workflow in the sibling `appsec-skills` project. Preserve its agreed behavior: contextual LLM questions, bounded optional architecture exploration, one maintained `<repo>/threat-model.md`, and a link from the existing security document or a newly created root `SECURITY.md`. A review only presents feedback. Feature updates extend the existing model. An ambiguously identified existing file is preserved until the user clarifies its use. Missing sources or unanswered questions never justify invented architecture or an empty replacement model.
 
 ### AppSec Analyzer
 
@@ -184,7 +184,7 @@ The maintained catalog advances to new releases while each listed archive remain
 
 ### Stable marketplace address
 
-Keep the [current marketplace catalog](../../.claude-plugin/marketplace.json) in `appsec-foundry/appsec-advisor`. The repository split does not relocate the registered marketplace source. Preserve the marketplace name, plugin namespace, and `appsec-advisor@appsec-foundry` installation identifier; existing users should not need to register a different marketplace.
+Keep the Advisor marketplace catalog (`.claude-plugin/marketplace.json` in that repository) in `appsec-foundry/appsec-advisor`. The repository split does not relocate the registered marketplace source. Preserve the marketplace name, plugin namespace, and `appsec-advisor@appsec-foundry` installation identifier; existing users should not need to register a different marketplace.
 
 The distribution change happens inside the catalog: replace the plugin source that currently selects the repository's `main` branch with a versioned release archive and its digest. Before public cutover, test an upgrade from the existing installation through the unchanged marketplace address, preserving settings and retained data. Coordinate this source-type transition with command migration and release cutover. Retaining the address does not replace upgrade testing.
 
@@ -218,7 +218,7 @@ Use independently reviewable milestones. Product naming is settled here; command
 6. Ship an explicit command and artifact migration. The assessment entry becomes `appsec-analyzer`; do not route an old assessment invocation into design threat modeling. Coordinate the retirement of `create-security-assessment` and legacy commands with existing launchers, CI, permissions, help, and org packages. Resolve the earlier proposal's release timing before reusing `create-threat-model`; add no unreviewed aliases or notice stubs.
 7. Extract additional skills only after standalone dependency and output-consumer checks pass. Retire migrated implementations from their old source to prevent parallel maintenance. Keep specialized workflows available throughout their supported transition.
 
-The [assessment concept](application-security-assessment-concept.md) retains its report semantics and storage scope. Its earlier `create-security-assessment` name describes that transition; this concept supplies the subsequent `appsec-analyzer` target. The [threat-modeling concept](requirements-led-threat-modeling-concept.md) remains the source for the design skill's behavior. Neither document alone authorizes the other workflow's implementation or release.
+The Advisor assessment concept (`application-security-assessment-concept.md`, not included in this extraction) retains its report semantics and storage scope. Its earlier `create-security-assessment` name describes that transition; this concept supplies the subsequent `appsec-analyzer` target. The Advisor threat-modeling concept (`requirements-led-threat-modeling-concept.md`, not included here) remains the source for the design skill's behavior. Neither document alone authorizes the other workflow's implementation or release.
 
 ## Acceptance evidence
 
