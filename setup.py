@@ -26,6 +26,7 @@ USER_DOCS = (
     "threat-analyst.md",
     "configuration.md",
     "model-selection.md",
+    "profiles.md",
     "headless-mode.md",
     "security-requirements-audit-skill.md",
     "threat-dragon-export.md",
@@ -92,6 +93,8 @@ class BuildAnalyzer(build_py):
         examples = package / "examples"
         examples.mkdir(exist_ok=True)
         shutil.copy2(ROOT / "examples" / "appsec-requirements-example.yaml", examples)
+        for folder in ("profiles", "model-profiles"):
+            shutil.copytree(ROOT / "examples" / folder, examples / folder, dirs_exist_ok=True)
         docs = package / "docs"
         docs.mkdir(parents=True, exist_ok=True)
         for name in USER_DOCS:

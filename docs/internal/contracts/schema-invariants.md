@@ -30,6 +30,10 @@ Failure modes to watch for in PR review:
   fragment → bypasses single-source-of-truth and drifts on rerun.
 - A new ID class introduced without assigning it to the composer or linkifier → that class ships as bare links on every rendered MD.
 
+## Operator report metadata
+
+The optional `meta.report_attributes` field contains at most 32 operator-supplied string labels. Keys and values follow the scan-profile schema. The composer validates and escapes them as literal text near the report title. They are excluded from recursive source-reference projection and qualification; a label named `file` is not evidence. `meta.model_configuration` records the effective model settings by role without credentials or provider endpoints. Neither field changes findings or grants runtime authority. Older models without these fields remain valid.
+
 ## Actor registration evidence
 
 Current actor resolutions carry `open_registration_resolution` with an open/disputed decision, reason, and repository file/line evidence; the YAML builder preserves it in `meta`. Reach-equivalence and abuse-case applicability consume this decision without rewriting recon evidence or changing STRIDE severity. Disputed candidates enter the shared team-question selection even when no finding anchor exists. Historical actor artifacts remain readable, and models without actor resolution retain their curated attack-surface fallback.

@@ -1,0 +1,8 @@
+schema_version: 1
+base: claude
+roles:
+  stride_analyzer:
+    model: sonnet
+    reasoning_effort: high
+  threat_merger:
+    model: sonnet

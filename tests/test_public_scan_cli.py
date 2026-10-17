@@ -189,7 +189,7 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
     observed = []
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
-    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args: observed.extend(args) or 0)
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args, **kwargs: observed.extend(args) or 0)
     arguments = [command, *budget_args]
     if command == "assess":
         arguments += ["--repo", str(tmp_path), "--host", "claude-cli"]
@@ -260,4 +260,8 @@ def test_public_budget_help_documents_default_and_alias(command, default):
     result = _run(command, "--help")
     assert result.returncode == 0
     assert "--budget USD, --hard-budget USD" in result.stdout
-    assert f"Maximum model cost in USD (default: {default})" in result.stdout
+    help_text = " ".join(result.stdout.split())
+    if command == "audit-requirements":
+        assert f"Maximum model cost in USD (default: {default})" in help_text
+    else:
+        assert f"Maximum model cost in USD (built-in default: {default}; user profile may override)" in help_text

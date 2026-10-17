@@ -1,0 +1,66 @@
+schema_version: 1
+adapter: claude-cli
+defaults:
+  model: sonnet
+  reasoning_effort: medium
+depths:
+  quick:
+    roles:
+      abuse_case_deriver:
+        model: claude-sonnet-4-6
+      abuse_case_verifier:
+        model: claude-sonnet-4-6
+      post_stride_synthesizer:
+        model: claude-sonnet-4-6
+      recon_scanner:
+        model: haiku
+      stride_analyzer:
+        model: claude-sonnet-4-6
+      threat_merger:
+        model: claude-sonnet-4-6
+      triage_validator:
+        model: claude-sonnet-4-6
+      ms_renderer:
+        model: claude-sonnet-4-6
+      secarch_renderer:
+        model: claude-sonnet-4-6
+  standard:
+    roles:
+      abuse_case_deriver:
+        model: claude-sonnet-5-5
+      abuse_case_verifier:
+        model: claude-sonnet-5-5
+      post_stride_synthesizer:
+        model: claude-sonnet-5-5
+      recon_scanner:
+        model: haiku
+      stride_analyzer:
+        model: claude-sonnet-4-6
+      threat_merger:
+        model: claude-sonnet-5-5
+      triage_validator:
+        model: claude-sonnet-5-5
+      ms_renderer:
+        model: claude-sonnet-5-5
+      secarch_renderer:
+        model: claude-sonnet-5-5
+  thorough:
+    roles:
+      abuse_case_deriver:
+        model: claude-sonnet-5-5
+      abuse_case_verifier:
+        model: claude-sonnet-5-5
+      post_stride_synthesizer:
+        model: opus
+      recon_scanner:
+        model: haiku
+      stride_analyzer:
+        model: opus
+      threat_merger:
+        model: opus
+      triage_validator:
+        model: opus
+      ms_renderer:
+        model: claude-sonnet-5-5
+      secarch_renderer:
+        model: claude-sonnet-5-5

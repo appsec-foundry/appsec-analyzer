@@ -1,0 +1,7 @@
+# Uses the built-in Claude model profile; no model file is needed.
+schema_version: 1
+description: Quick developer assessment
+model_profile: claude
+assessment_depth: quick
+budget: 10
+outputs: [markdown, sarif]

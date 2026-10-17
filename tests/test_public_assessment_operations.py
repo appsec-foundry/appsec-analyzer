@@ -167,7 +167,9 @@ def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, mon
     repo.mkdir()
     observed = []
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
-    monkeypatch.setattr(orchestration_controller, "assess_main", lambda arguments: observed.extend(arguments) or 0)
+    monkeypatch.setattr(
+        orchestration_controller, "assess_main", lambda arguments, **kwargs: observed.extend(arguments) or 0
+    )
     ns = cli._parser().parse_args(
         [
             "assess",
@@ -212,7 +214,9 @@ def test_scan_starts_full_assessment_with_headless_defaults(tmp_path: Path, monk
     output.mkdir(mode=0o700)
     observed = []
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
-    monkeypatch.setattr(orchestration_controller, "assess_main", lambda arguments: observed.extend(arguments) or 0)
+    monkeypatch.setattr(
+        orchestration_controller, "assess_main", lambda arguments, **kwargs: observed.extend(arguments) or 0
+    )
     arguments = [
         "scan",
         "--repo",
@@ -279,9 +283,9 @@ def test_scan_kept_runtime_files_require_private_output(tmp_path: Path, monkeypa
 @pytest.mark.parametrize(
     "depth, effort, output_cap",
     [
-        ("quick", "low", 16_384),
-        ("standard", "medium", 24_576),
-        ("thorough", "high", 32_768),
+        ("quick", "low", None),
+        ("standard", "medium", None),
+        ("thorough", "high", None),
     ],
 )
 @pytest.mark.parametrize("selection", ["profile", "legacy-profile", "legacy-host", "matching-host"])
@@ -302,7 +306,7 @@ def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(
     observed = {}
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("Claude host must not be called"))
 
-    def fake_assess(arguments, *, api_profile=None):
+    def fake_assess(arguments, *, api_profile=None, run_profile=None):
         observed["arguments"] = arguments
         observed["profile"] = api_profile
         return 0
@@ -335,7 +339,7 @@ def test_claude_profile_preserves_controller_model_resolution(tmp_path, monkeypa
     preflight = []
     observed = []
     monkeypatch.setattr(hosts, "claude_preflight", lambda: preflight.append(True))
-    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args: observed.extend(args) or 0)
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args, **kwargs: observed.extend(args) or 0)
     assert (
         cli.main(
             [command, "--repo", str(tmp_path), "--profile", "claude", "--assessment-depth", depth, "--model", "sonnet"]
@@ -359,7 +363,9 @@ def test_codex_profile_selects_the_model_configured_for_each_depth(tmp_path, mon
     observed = []
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("Claude host must not be called"))
     monkeypatch.setattr(
-        orchestration_controller, "assess_main", lambda args, *, api_profile: observed.append(api_profile.model) or 0
+        orchestration_controller,
+        "assess_main",
+        lambda args, *, api_profile, run_profile: observed.append(api_profile.model) or 0,
     )
     for depth in ("quick", "standard", "thorough"):
         monkeypatch.setitem(CODEX_PROFILES, depth, replace(CODEX_PROFILES[depth], model=f"test-{depth}"))

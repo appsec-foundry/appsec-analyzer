@@ -97,3 +97,7 @@ Each schema carries a `$id` of the form
 require a version bump in the schema `$id` path (e.g. `/v2/<name>.schema.yaml`)
 and a coordinated update across the producing agent, the validator, and any
 downstream consumer.
+
+## Operator profiles
+
+`scan-profile.schema.yaml` validates scan defaults, USD budgets, exports, and report attributes. `model-profile.schema.yaml` validates model defaults and role/depth overrides. Both use `schema_version: 1`. The CLI also checks model capabilities and operator file boundaries; see [scan and model profiles](../docs/profiles.md).

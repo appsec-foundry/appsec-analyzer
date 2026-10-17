@@ -18667,6 +18667,11 @@ def render(
 
     title = _render_title(ctx, title_template_override=title_template_override)
     rendered_parts.append(title)
+    attributes = (ctx.yaml_data.get("meta") or {}).get("report_attributes")
+    if attributes:
+        from shared.profile_metadata import render_attributes
+
+        rendered_parts.append(render_attributes(attributes))
     if preamble:
         rendered_parts.append(preamble.rstrip())
 

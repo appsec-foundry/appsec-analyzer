@@ -152,10 +152,12 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/profiles.md
       - docs/security-assessment.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_controller_dispatches_models_and_publishes_attributes
       - tests/test_build_threat_model_yaml.py::test_business_context_trace_records_safe_provenance_without_prose
       - tests/test_multi_repo_assessment.py::test_combined_assessment_publishes_one_qualified_model
 
@@ -741,6 +743,7 @@ requirements:
 
   REQ-014:
     applies_to:
+      - scripts/shared/profile_metadata.py
       - skills/export-security-assessment/**
       - scripts/exporters/**
       - scripts/model/build_threat_model_yaml.py
@@ -749,12 +752,15 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/profiles.md
       - docs/security-assessment.md
       - docs/threat-dragon-export.md
       - docs/internal/contracts/schema-invariants.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_report_attributes_are_literal_text
+      - tests/test_profiles.py::test_controller_dispatches_models_and_publishes_attributes
       - tests/test_export_threat_model_skill.py::test_sarif_helper_runs_standalone
       - tests/test_export_threat_model_skill.py::test_pentest_helper_runs_yaml_only
       - tests/test_export_threat_model_skill.py::test_threat_dragon_helper_runs_standalone
@@ -783,6 +789,7 @@ requirements:
 
   REQ-016:
     applies_to:
+      - appsec_analyzer/profiles.py
       - scripts/runtime/resolve_config.py
       - scripts/orchestrator/orchestration_controller.py
       - scripts/model/persist_run_baseline.py
@@ -799,11 +806,15 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/profiles.md
+      - specs/changes/scan-model-profiles/proposal.md
       - docs/security-assessment.md
       - README.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_model_alias_is_frozen_on_resume_and_changed_profile_is_rejected
+      - tests/test_profiles.py::test_alias_resume_keeps_controller_identity_and_rejects_changed_budget
       - tests/test_threat_model_health.py::test_freshness_no_yaml_no_md
       - tests/test_threat_model_health.py::test_freshness_unchanged_exit0
       - tests/test_threat_model_health.py::test_freshness_plugin_drift_exit10
@@ -846,6 +857,12 @@ requirements:
 
   REQ-018:
     applies_to:
+      - appsec_analyzer/profiles.py
+      - data/scan-profiles/**
+      - data/model-profiles/**
+      - data/model-catalog.yaml
+      - schemas/scan-profile.schema.yaml
+      - schemas/model-profile.schema.yaml
       - scripts/model/resolve_actors.py
       - scripts/model/resolve_abuse_cases.py
       - scripts/contexts/build_threat_modeling_context.py
@@ -863,6 +880,8 @@ requirements:
       - EX-1
       - EX-2
     documents:
+      - docs/profiles.md
+      - specs/changes/scan-model-profiles/proposal.md
       - docs/security-assessment.md
       - docs/org-profiles.md
       - docs/internal/contracts/org-profile-invariants.md
@@ -873,6 +892,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_user_defaults_role_depth_and_cli_precedence
+      - tests/test_profiles.py::test_invalid_scan_profiles_fail_before_host_or_checkout
+      - tests/test_profiles.py::test_unknown_models_parameters_and_authority_are_rejected
+      - tests/test_profiles.py::test_controller_dispatches_models_and_publishes_attributes
+      - tests/test_profiles.py::test_custom_models_cannot_bypass_organization_opus_rule
       - tests/test_resolve_actors.py::test_resolver_never_writes_actor_choices_back_to_repo
       - tests/test_build_threat_modeling_context.py::test_rejects_invalid_known_threats_before_context_publication
       - tests/test_org_profile_schema.py::test_valid_org_profile_fixture_passes
@@ -889,6 +913,9 @@ requirements:
 
   REQ-019:
     applies_to:
+      - schemas/scan-profile.schema.yaml
+      - schemas/model-profile.schema.yaml
+      - schemas/multi-repo-state.schema.json
       - schemas/threat-model.output.schema.yaml
       - schemas/org-profile.schema.yaml
       - scripts/runtime/legacy_import.py
@@ -899,11 +926,14 @@ requirements:
     decisions:
       - EX-1
     documents:
+      - docs/profiles.md
+      - specs/changes/scan-model-profiles/proposal.md
       - docs/internal/contracts/schema-invariants.md
       - docs/internal/contracts/org-profile-invariants.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_invalid_scan_profiles_fail_before_host_or_checkout
       - tests/test_prepare_trust_boundary_context.py::test_normalize_migrates_legacy_without_promoting_absence
       - tests/test_single_repo_controller.py::test_a_finished_docs_security_assessment_is_imported_on_request_and_its_history_continues
       - tests/test_legacy_import.py::test_an_interrupted_or_broken_run_is_reported_and_never_imported
@@ -912,12 +942,15 @@ requirements:
 
   REQ-020:
     applies_to:
+      - appsec_analyzer/profiles.py
+      - data/model-catalog.yaml
       - appsec_analyzer/cli.py
       - appsec_analyzer/api_hosts.py
       - engine.json
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/profiles.md
       - docs/configuration.md
       - docs/model-selection.md
       - docs/internal/contracts/requirement-acceptance.md
@@ -1010,6 +1043,9 @@ requirements:
 
   REQ-023:
     applies_to:
+      - appsec_analyzer/profiles.py
+      - appsec_analyzer/api_hosts.py
+      - data/model-catalog.yaml
       - appsec_analyzer/cli.py
       - appsec_analyzer/requirements_audit.py
       - scripts/run-headless.sh
@@ -1022,12 +1058,16 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/profiles.md
+      - specs/changes/scan-model-profiles/proposal.md
       - docs/security-assessment.md
       - docs/headless-mode.md
       - specs/changes/public-budget-defaults/proposal.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_catalog_prices_determine_role_reservations
+      - tests/test_api_hosts.py::test_default_output_allowance_is_not_reduced_to_fit_budget
       - tests/test_public_scan_cli.py::test_public_budget_reaches_assessment_controller
       - tests/test_public_scan_cli.py::test_public_budget_reaches_requirements_audit
       - tests/test_public_scan_cli.py::test_public_budget_rejects_invalid_values_before_host
@@ -1217,6 +1257,7 @@ requirements:
 
   REQ-031:
     applies_to:
+      - appsec_analyzer/profiles.py
       - scripts/runtime/remote_repositories.py
       - scripts/validators/preflight_untrusted.py
       - scripts/runtime/multi_repo_scope.py
@@ -1227,11 +1268,14 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/profiles.md
       - README.md
       - SECURITY.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_profiles.py::test_symlinks_large_files_and_source_owned_profiles_are_rejected
+      - tests/test_profiles.py::test_ambiguous_or_executable_yaml_is_rejected
       - tests/test_remote_repositories.py::test_clone_does_not_execute_operator_filters_or_hooks
       - tests/test_preflight_untrusted.py::test_repo_owned_claude_settings_flagged
       - tests/test_preflight_untrusted.py::test_repo_root_claude_memory_is_flagged
@@ -1317,6 +1361,7 @@ requirements:
 
   REQ-035:
     applies_to:
+      - appsec_analyzer/profiles.py
       - scripts/orchestrator/orchestration_controller.py
       - scripts/runtime/ensure_output_gitignore.py
       - scripts/shared/assessment_location.py
@@ -1327,6 +1372,7 @@ requirements:
     decisions:
       - AS-1
     documents:
+      - docs/profiles.md
       - docs/security-assessment.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial

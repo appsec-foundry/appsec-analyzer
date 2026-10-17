@@ -53,8 +53,9 @@ class ApiProfile:
     input_usd_per_million: float
     output_usd_per_million: float
     price_revision: str
-    max_output_tokens: int
+    max_output_tokens: int | None = None
     reasoning_effort: str | None = None
+    model_output_limit: int = 128_000
     max_request_bytes: int = MAX_REQUEST_BYTES
     gateway_route_revision: str | None = None
     pinned_ip: str | None = None
@@ -63,9 +64,16 @@ class ApiProfile:
         url = urlsplit(self.endpoint)
         if self.kind not in ("openai", "gateway"):
             raise ValueError("unsupported API host kind")
-        if (url.scheme != "https" or not url.hostname or url.port not in (None, 443)
-                or url.username or url.password or url.query or url.fragment
-                or not url.path.endswith("/v1/responses")):
+        if (
+            url.scheme != "https"
+            or not url.hostname
+            or url.port not in (None, 443)
+            or url.username
+            or url.password
+            or url.query
+            or url.fragment
+            or not url.path.endswith("/v1/responses")
+        ):
             raise ValueError("API endpoint must be a fixed HTTPS Responses URL")
         if self.kind == "openai" and (url.hostname != "api.openai.com" or url.path != "/v1/responses"):
             raise ValueError("direct OpenAI calls use the official Responses endpoint")
@@ -77,11 +85,23 @@ class ApiProfile:
             raise ValueError("model identifier is invalid")
         if not self.price_revision or len(self.price_revision) > 128:
             raise ValueError("price profile needs a dated revision")
-        if (any(type(x) not in (int, float) or not math.isfinite(x) or x <= 0
-                for x in (self.input_usd_per_million, self.output_usd_per_million))
-                or type(self.max_output_tokens) is not int or not 1 <= self.max_output_tokens <= 32768):
+        if (
+            any(
+                type(x) not in (int, float) or not math.isfinite(x) or x <= 0
+                for x in (self.input_usd_per_million, self.output_usd_per_million)
+            )
+            or type(self.model_output_limit) is not int
+            or not 1 <= self.model_output_limit <= 128000
+            or (
+                self.max_output_tokens is not None
+                and (
+                    type(self.max_output_tokens) is not int
+                    or not 1 <= self.max_output_tokens <= self.model_output_limit
+                )
+            )
+        ):
             raise ValueError("price rates and output cap must be positive and bounded")
-        if self.reasoning_effort not in (None, "low", "medium", "high", "xhigh"):
+        if self.reasoning_effort not in (None, "none", "low", "medium", "high", "xhigh", "max"):
             raise ValueError("unsupported reasoning effort")
         if type(self.max_request_bytes) is not int or not 1 <= self.max_request_bytes <= MAX_REQUEST_BYTES:
             raise ValueError("request byte cap must be positive and bounded")
@@ -89,6 +109,10 @@ class ApiProfile:
             address = ipaddress.ip_address(self.pinned_ip)
             if self.kind == "openai" or address.is_loopback or address.is_link_local or address.is_multicast:
                 raise ValueError("private pin is unavailable for this destination")
+
+    @property
+    def output_token_bound(self) -> int:
+        return self.max_output_tokens if self.max_output_tokens is not None else self.model_output_limit
 
 
 def _public_addresses(host: str) -> tuple[str, ...]:
@@ -120,16 +144,14 @@ class ResponsesTransport:
             raise ValueError("API call needs a positive finite USD ceiling")
         self.profile, self.ceiling = profile, float(ceiling)
 
-    def invoke(self, system: str, prompt: str, schema: dict, timeout_s: int,
-               should_stop: Callable[[], bool]):
+    def invoke(self, system: str, prompt: str, schema: dict, timeout_s: int, should_stop: Callable[[], bool]):
         # Import at invocation to keep deterministic scanning independent of hosts.
         if should_stop():
             raise HostCancelled("API call cancelled before transmission")
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise ApiTransportError("invalid_timeout")
         credential = os.environ.get(self.profile.key_env)
-        if (not credential or len(credential) > 4096
-                or any(ord(char) < 33 or ord(char) > 126 for char in credential)):
+        if not credential or len(credential) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in credential):
             raise ApiTransportError("authentication_failed")
         if type(schema) is not dict or type(system) is not str or type(prompt) is not str:
             raise ApiTransportError("invalid_request")
@@ -137,25 +159,34 @@ class ResponsesTransport:
         # JSON inside the one required string is decoded exactly; the controller
         # then validates the complete canonical artifact and correction rules.
         contract = json.dumps(schema, separators=(",", ":"), ensure_ascii=False)
-        instructions = (system + "\nReturn exactly one JSON object with payload_json: a JSON string "
-                        "containing your response to this canonical contract. Preserve null and "
-                        "absent fields exactly. Contract:\n" + contract)
+        instructions = (
+            system + "\nReturn exactly one JSON object with payload_json: a JSON string "
+            "containing your response to this canonical contract. Preserve null and "
+            "absent fields exactly. Contract:\n" + contract
+        )
         request = {
-            "model": self.profile.model, "instructions": instructions, "input": prompt,
-            "store": False, "max_output_tokens": self.profile.max_output_tokens,
-            "text": {"format": {"type": "json_schema", "name": "appsec_exchange",
-                                "strict": True, "schema": _WIRE_SCHEMA}},
+            "model": self.profile.model,
+            "instructions": instructions,
+            "input": prompt,
+            "store": False,
+            "text": {
+                "format": {"type": "json_schema", "name": "appsec_exchange", "strict": True, "schema": _WIRE_SCHEMA}
+            },
         }
+        if self.profile.max_output_tokens is not None:
+            request["max_output_tokens"] = self.profile.max_output_tokens
         if self.profile.reasoning_effort:
             request["reasoning"] = {"effort": self.profile.reasoning_effort}
         body = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(body) > self.profile.max_request_bytes:
             raise ApiTransportError("request_too_large")
         # UTF-8 byte length bounds text token count, with room for API framing.
-        # The output limit is enforced by the provider request itself.
+        # Output is bounded by an explicit request limit or the catalog model maximum.
         input_bound = len(body) + 4096
-        bound = (input_bound * self.profile.input_usd_per_million
-                 + self.profile.max_output_tokens * self.profile.output_usd_per_million) / 1_000_000
+        bound = (
+            input_bound * self.profile.input_usd_per_million
+            + self.profile.output_token_bound * self.profile.output_usd_per_million
+        ) / 1_000_000
         if bound > self.ceiling:
             raise ApiTransportError("budget_exhausted")
         url = urlsplit(self.profile.endpoint)
@@ -165,9 +196,12 @@ class ResponsesTransport:
 
         def send() -> None:
             try:
-                connection.request("POST", url.path, body=body,
-                                   headers={"Authorization": "Bearer " + credential,
-                                            "Content-Type": "application/json"})
+                connection.request(
+                    "POST",
+                    url.path,
+                    body=body,
+                    headers={"Authorization": "Bearer " + credential, "Content-Type": "application/json"},
+                )
                 reply = connection.getresponse()
                 data = reply.read(MAX_REPLY_BYTES + 1)
                 result.append((reply.status, data))
@@ -202,6 +236,18 @@ class ResponsesTransport:
             raise ApiTransportError("server_error")
         if status != 200:
             raise ApiTransportError("invalid_request")
+        # Keep token exhaustion distinct from malformed structured output.
+        try:
+            truncated = json.loads(data)
+            if (
+                isinstance(truncated, dict)
+                and truncated.get("status") == "incomplete"
+                and isinstance(truncated.get("incomplete_details"), dict)
+                and truncated["incomplete_details"].get("reason") == "max_output_tokens"
+            ):
+                raise ApiTransportError("output_token_limit")
+        except (json.JSONDecodeError, UnicodeError):
+            pass
         try:
             response = json.loads(data)
             if type(response) is not dict:
@@ -210,22 +256,33 @@ class ResponsesTransport:
                 raise ValueError("incomplete response")
             usage = response["usage"]
             input_tokens, output_tokens = usage["input_tokens"], usage["output_tokens"]
-            if (type(input_tokens) is not int or type(output_tokens) is not int or input_tokens < 0
-                    or output_tokens < 0 or input_tokens > input_bound
-                    or output_tokens > self.profile.max_output_tokens):
+            if (
+                type(input_tokens) is not int
+                or type(output_tokens) is not int
+                or input_tokens < 0
+                or output_tokens < 0
+                or input_tokens > input_bound
+                or output_tokens > self.profile.output_token_bound
+            ):
                 raise ValueError("invalid token usage")
             if type(response["output"]) is not list:
                 raise ValueError("output is not a list")
-            content = [part for item in response["output"] if type(item) is dict and item.get("type") == "message"
-                       for part in item.get("content", []) if type(part) is dict]
+            content = [
+                part
+                for item in response["output"]
+                if type(item) is dict and item.get("type") == "message"
+                for part in item.get("content", [])
+                if type(part) is dict
+            ]
             if len(content) != 1 or content[0].get("type") != "output_text":
                 raise ValueError("refusal or ambiguous output")
             wire = json.loads(content[0]["text"])
             if type(wire) is not dict or set(wire) != {"payload_json"} or type(wire["payload_json"]) is not str:
                 raise ValueError("wire schema mismatch")
             payload = json.loads(wire["payload_json"])
-            measured = (input_tokens * self.profile.input_usd_per_million
-                        + output_tokens * self.profile.output_usd_per_million) / 1_000_000
+            measured = (
+                input_tokens * self.profile.input_usd_per_million + output_tokens * self.profile.output_usd_per_million
+            ) / 1_000_000
             if measured > self.ceiling:
                 raise ValueError("cost ceiling exceeded")
         except (KeyError, TypeError, ValueError, AttributeError):

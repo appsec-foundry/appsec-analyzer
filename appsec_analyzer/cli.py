@@ -24,6 +24,12 @@ _PROFILE_HOSTS = {"claude": "claude-cli", "codex": "openai"}
 _LEGACY_CODEX_PROFILES = ("codex-quick", "codex-standard", "codex-thorough")
 
 
+class _Explicit(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.explicit = {*getattr(namespace, "explicit", ()), self.dest}
+
+
 def _engine_imports() -> None:
     scripts = str(resource_root() / "scripts")
     if scripts not in sys.path:
@@ -35,6 +41,19 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
+    profiles = commands.add_parser("profiles", help="List, inspect, or validate profiles without model calls")
+    actions = profiles.add_subparsers(dest="profile_action", required=True)
+    actions.add_parser("list", help="List built-in and user scan/model profiles")
+    for action in ("show", "validate"):
+        command = actions.add_parser(action, help=f"{action.capitalize()} a scan profile and its models")
+        command.add_argument("selection", metavar="NAME_OR_FILE")
+        command.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"))
+        command.add_argument("--budget", type=_positive_budget)
+        command.add_argument(
+            "--outputs",
+            nargs="+",
+            choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
+        )
     scan = commands.add_parser(
         "scan",
         help="Run the full headless security assessment with live progress",
@@ -48,7 +67,7 @@ def _parser() -> argparse.ArgumentParser:
     sources.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
     sources.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     sources.add_argument("--json", action="store_true", help="Print the complete machine-readable result")
-    assess = commands.add_parser("assess", help="Run a full semantic assessment with an explicit model profile")
+    assess = commands.add_parser("assess", help="Run a full semantic assessment with an explicit scan profile")
     _add_assessment_arguments(assess, default_repo=False)
 
     for name, help_text in (
@@ -133,9 +152,8 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     )
     parser.add_argument(
         "--profile",
-        choices=(*_PROFILE_HOSTS, *_LEGACY_CODEX_PROFILES),
-        help="Model profile: claude or codex; models depend on --assessment-depth "
-        "(scan default: claude; legacy codex-<depth> names require --host openai)",
+        metavar="NAME_OR_FILE",
+        help="Scan profile name or external YAML file (scan default: claude; built-ins: claude, codex)",
     )
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
     parser.add_argument(
@@ -143,11 +161,20 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         "--hard-budget",
         dest="hard_budget",
         type=_positive_budget,
+        action=_Explicit,
         default=20.0,
         metavar="USD",
-        help="Maximum model cost in USD (default: %(default)g)",
+        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override)",
     )
-    parser.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
+    parser.add_argument(
+        "--assessment-depth", choices=("quick", "standard", "thorough"), default="standard", action=_Explicit
+    )
+    parser.add_argument(
+        "--outputs",
+        nargs="+",
+        choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
+        help="Replace profile export selection; Markdown and YAML remain the base result",
+    )
     parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
@@ -214,6 +241,7 @@ def _capabilities() -> dict:
         "engine_version": ENGINE_VERSION,
         "scan": {"available": True, "model_calls": True},
         "scan_sources": {"available": True, "model_calls": False},
+        "profiles": {"schema_version": 1, "user_defined": True, "inspection_model_calls": False},
         "assessment": {
             "providers": {
                 "claude-cli": {"adapter": "compatibility", "qualified": False, "profiles": ["claude"]},
@@ -396,6 +424,11 @@ def _write_result(directory: Path, payload: str) -> None:
 
 def _assessment_host(ns: argparse.Namespace) -> str:
     """Resolve operator options before host preflight or source retrieval."""
+    if getattr(ns, "run_profile", None):
+        host = ns.run_profile["adapter"]
+        if ns.host is not None and ns.host != host:
+            raise ValueError("selected profile conflicts with --host")
+        return host
     if ns.profile in _PROFILE_HOSTS:
         host = _PROFILE_HOSTS[ns.profile]
         if ns.host is not None and ns.host != host:
@@ -413,18 +446,65 @@ def _assessment_host(ns: argparse.Namespace) -> str:
     raise ValueError("assess requires --profile (claude or codex) or a legacy --host")
 
 
+def _prepare_profile(ns: argparse.Namespace) -> None:
+    if getattr(ns, "run_profile", None):
+        return
+    from appsec_analyzer.profiles import OUTPUTS, resolve_scan
+
+    selection = ns.profile
+    if selection in _LEGACY_CODEX_PROFILES or (selection is None and ns.host):
+        host = _assessment_host(ns)
+        selection = {"openai": "codex", "claude-cli": "claude"}.get(host)
+        if not selection:
+            raise ValueError(f"{host} has no configured model/depth profile")
+    if not selection:
+        if ns.command == "assess":
+            _assessment_host(ns)
+        selection = "claude"
+    explicit = getattr(ns, "explicit", ())
+    profile = resolve_scan(
+        selection,
+        depth=ns.assessment_depth if "assessment_depth" in explicit else None,
+        budget=ns.hard_budget if "hard_budget" in explicit else None,
+        outputs=ns.outputs,
+        repositories=ns.repo or [str(Path.cwd())],
+    )
+    selected = set(profile["settings"]["outputs"]) | {"markdown", "yaml"}
+    for output in OUTPUTS[2:]:
+        if getattr(ns, output.replace("-", "_"), False):
+            selected.add(output)
+            profile["origins"]["settings"]["outputs"] = "CLI export flags"
+    profile["settings"]["outputs"] = [item for item in OUTPUTS if item in selected]
+    ns.assessment_depth = profile["settings"]["assessment_depth"]
+    ns.hard_budget = profile["settings"]["budget"]
+    for output in OUTPUTS[2:]:
+        setattr(ns, output.replace("-", "_"), output in selected)
+    ns.run_profile = profile
+
+
 def _assess(ns: argparse.Namespace) -> int:
+    _prepare_profile(ns)
     host = _assessment_host(ns)
     _engine_imports()
     api_profile = None
     if host == "openai":
         from appsec_analyzer.codex_profiles import CODEX_PROFILES
+        from appsec_analyzer.profiles import api_profile as make_api_profile
 
-        api_profile = CODEX_PROFILES[ns.assessment_depth]
-        if ns.model and ns.model != api_profile.model:
+        api_profile = (
+            CODEX_PROFILES[ns.assessment_depth]
+            if not ns.run_profile["files"]
+            else make_api_profile(ns.run_profile["models"]["stride_analyzer"])
+        )
+        if ns.model and ns.model not in (
+            api_profile.model,
+            ns.run_profile["models"]["stride_analyzer"]["requested_model"],
+        ):
             raise ValueError("--model differs from the selected OpenAI profile")
         if ns.reasoning_model or any(getattr(ns, f"{role}_model") for role in ("stride", "triage", "merger")):
             raise ValueError("Claude reasoning and role-model overrides cannot be used with the OpenAI profile")
+        if ns.model:
+            ns.model = api_profile.model
     elif host != "claude-cli":
         raise ValueError(f"{host} has no configured model/depth profile")
     if ns.keep_runtime_files and ns.output:
@@ -511,9 +591,14 @@ def _assess(ns: argparse.Namespace) -> int:
         if getattr(ns, flag):
             args.append("--" + flag.replace("_", "-"))
     with checkout_arguments(args) as local_args:
+        from appsec_analyzer.profiles import reject_source_paths
+
+        reject_source_paths(
+            ns.run_profile["files"], [local_args[i + 1] for i, arg in enumerate(local_args[:-1]) if arg == "--repo"]
+        )
         if api_profile is not None:
-            return assess_main(local_args, api_profile=api_profile)
-        return assess_main(local_args)
+            return assess_main(local_args, api_profile=api_profile, run_profile=ns.run_profile)
+        return assess_main(local_args, run_profile=ns.run_profile)
 
 
 def _state(ns: argparse.Namespace) -> tuple[Path, dict]:
@@ -634,6 +719,26 @@ def _audit(ns: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     ns = _parser().parse_args(argv)
     try:
+        if ns.command == "profiles":
+            from appsec_analyzer.profiles import DEPTHS, list_profiles, resolve_scan
+
+            if ns.profile_action == "list":
+                document = {"profiles": list_profiles()}
+            else:
+                document = resolve_scan(ns.selection, depth=ns.assessment_depth, budget=ns.budget, outputs=ns.outputs)
+                if ns.profile_action == "validate":
+                    depths = [ns.assessment_depth] if ns.assessment_depth else list(DEPTHS)
+                    for depth in depths:
+                        resolve_scan(ns.selection, depth=depth, budget=ns.budget, outputs=ns.outputs)
+                    document = {
+                        "valid": True,
+                        "name": document["name"],
+                        "assessment_depths": depths,
+                    }
+            print(json.dumps(document, indent=2, sort_keys=True))
+            return 0
+        if ns.command in ("scan", "assess"):
+            _prepare_profile(ns)
         if ns.command in ("scan", "assess", "audit-requirements"):
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
         if ns.command == "version":
@@ -654,7 +759,7 @@ def main(argv: list[str] | None = None) -> int:
             return _audit(ns)
         raise ValueError(f"{ns.command} is not implemented")
     except (OSError, RuntimeError, ValueError) as exc:
-        print(f"appsec-analyzer: {exc}", file=sys.stderr)
+        print(f"appsec-analyzer: error: {exc}", file=sys.stderr)
         return 2
 
 

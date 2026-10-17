@@ -1,0 +1,17 @@
+# Copy alongside profiles/, into model-profiles/team-sol.yaml.
+schema_version: 1
+base: codex
+defaults:
+  model: gpt-sol
+  reasoning_effort: medium
+roles:
+  stride_analyzer:
+    reasoning_effort: high
+  evidence_verifier:
+    reasoning_effort: high
+depths:
+  thorough:
+    roles:
+      stride_analyzer:
+        reasoning_effort: xhigh
+# No max_output_tokens limit by default. An optional limit counts reasoning and visible output.

@@ -27,3 +27,7 @@ Each YAML file is accepted by `--requirements` on its own. The [Requirements Har
 ## Requirements audit report
 
 The `requirements-auditor/` directory holds a `--demo` requirements audit of OWASP Juice Shop as [Markdown](requirements-auditor/appsec-requirements-report.md), [JSON](requirements-auditor/appsec-requirements-report.json), and [PDF](requirements-auditor/appsec-requirements-report.pdf). The [Requirements Audit](../docs/security-requirements-audit-skill.md) guide explains the statuses and flags.
+
+## Scan and model profiles
+
+Copy [developer.yaml](profiles/developer.yaml) or [release.yaml](profiles/release.yaml) to your Analyzer `profiles/` directory. The release profile also needs [team-sol.yaml](model-profiles/team-sol.yaml) in `model-profiles/`. [team-claude.yaml](model-profiles/team-claude.yaml) shows Claude overrides. See the [profile guide](../docs/profiles.md) for paths, precedence, and validation commands.

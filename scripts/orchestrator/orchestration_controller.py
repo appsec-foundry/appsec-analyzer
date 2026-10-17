@@ -895,7 +895,16 @@ def _assessment_runtime_fingerprint() -> str:
 
 @contextmanager
 def _assessment_session(
-    scope, arguments, *, budget, host_factory, resume=False, model=None, rebuild=False, api_profile=None
+    scope,
+    arguments,
+    *,
+    budget,
+    host_factory,
+    resume=False,
+    model=None,
+    rebuild=False,
+    api_profile=None,
+    run_profile=None,
 ):
     """Admit one owned analysis session without selecting a primary source root.
 
@@ -907,6 +916,10 @@ def _assessment_session(
     from runtime.assessment_state import CACHE_NAME, RUN_DIAGNOSTIC_NAMES, AssessmentPaused, AssessmentState
 
     cfg = resolve_config.resolve_assessment(scope, arguments, PLUGIN_ROOT, model=model)
+    if api_profile is not None and run_profile is not None:
+        from appsec_analyzer.profiles import api_profile as resolved_api_profile
+
+        api_profile = resolved_api_profile(run_profile["models"]["stride_analyzer"])
     if api_profile is not None:
         # The selected host owns every model role. A Claude default or an
         # environment override may not silently cross the provider boundary.
@@ -928,6 +941,10 @@ def _assessment_session(
     # The resolver leaves this role to the dispatch default, as the single-repository run does.
     if not cfg.get("actor_discovery_model"):
         cfg["actor_discovery_model"] = model or os.environ.get("APPSEC_ACTOR_DISCOVERY_MODEL") or "sonnet"
+    if run_profile is not None:
+        from appsec_analyzer.profiles import apply_runtime_profile
+
+        apply_runtime_profile(run_profile, cfg, arguments, model=model)
     # Invocation spelling, argument order, and the deliverable postfix (random for a
     # bare --slug) do not change assessment policy.
     identity = {key: value for key, value in cfg.items() if key not in ("invocation_args", "slug")}
@@ -948,7 +965,8 @@ def _assessment_session(
         key = SEMANTIC_ROLE_MODEL_KEYS.get(role) if role in SEMANTIC_ROLE_REGISTRY else RENDERER_MODEL_KEYS.get(role)
         if key is None or not cfg.get(key):
             raise ControllerError(f"assessment job {role} requires a registered semantic role and resolved model")
-        return host_factory(role, cfg[key], ceiling)
+        settings = (run_profile or {}).get("models", {}).get(role)
+        return host_factory(role, settings["model"] if settings else cfg[key], ceiling)
 
     with _stop_on_terminate(state), state.hold():
         # Held now, so this removes no other run's files; an earlier scan's
@@ -3459,8 +3477,9 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
 
     by_model: dict[str, list[str]] = {}
     for role, key in sorted({**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}.items()):
-        if cfg.get(key):
-            by_model.setdefault(str(cfg[key]), []).append(role)
+        selected = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {}).get("model", cfg.get(key))
+        if selected:
+            by_model.setdefault(str(selected), []).append(role)
 
     def roles_of(roles: list[str]) -> str:
         if compact:
@@ -3585,7 +3604,7 @@ def _assessment_pipeline(cfg: dict[str, Any]) -> str:
     return " → ".join(f"{name} (+ {extras[name]})" if name in extras else name for name in phases)
 
 
-def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None):
+def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None, run_profile=None):
     """Launch each exchange as a tool-less `claude -p` in a fresh private directory.
 
     With `events_dir`, each call records the host's event stream there, so a
@@ -3606,7 +3625,7 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
             model=model,
             max_budget_usd=ceiling,
             executable=executable,
-            effort=ASSESSMENT_EFFORT,
+            effort=(run_profile or {}).get("models", {}).get(role, {}).get("reasoning_effort", ASSESSMENT_EFFORT),
             events_path=events_dir / f"{next(sequence):04d}-{role}.jsonl" if events_dir else None,
             max_thinking_tokens=ASSESSMENT_MAX_THINKING_TOKENS if events_dir else None,
             # Each exchange prompt is unique and read again only within minutes (MD-11).
@@ -3958,6 +3977,9 @@ def _assessment_render(
         model = yaml.safe_load(model_path.read_text(encoding="utf-8"))
         # Name every selected checkout before enrichment seals the model.
         model["meta"]["source_repositories"] = source_repositories(scope)
+        if cfg.get("operator_profile"):
+            model["meta"]["report_attributes"] = cfg["operator_profile"]["attributes"]
+            model["meta"]["model_configuration"] = cfg["operator_profile"]["models"]
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -4168,7 +4190,9 @@ def _private_destination(output: str) -> str:
     return output
 
 
-def assess_repositories(argv: list[str], *, host_factory=None, progress=None, api_profile=None) -> dict[str, Any]:
+def assess_repositories(
+    argv: list[str], *, host_factory=None, progress=None, api_profile=None, run_profile=None
+) -> dict[str, Any]:
     """Assess several selected local checkouts as one system and publish one model."""
     import contextlib
     import io
@@ -4182,6 +4206,10 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
     parser = _assessment_argument_parser()
     ns, rest = parser.parse_known_args(argv)
     ns.output = _assessment_destination(ns)
+    if run_profile is not None:
+        from appsec_analyzer.profiles import restore_profile
+
+        run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
     # Opened first, so every refusal after this still ends the file with its `end` record.
     _AssessmentProgress.open(ns.progress_file)
     unsupported = sorted({arg.split("=", 1)[0] for arg in rest} & set(_ASSESSMENT_UNSUPPORTED))
@@ -4205,6 +4233,10 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
         console.start_ticker()
     say = progress or (console.step if console else (lambda text: None))
     budget = _assessment_budget(ns, rest)
+    if run_profile is not None and run_profile["adapter"] == "openai":
+        from appsec_analyzer.profiles import call_reservation
+
+        budget.call_usd = min(budget.max_usd, max(budget.call_usd, call_reservation(run_profile)))
 
     def report_retry(message: str) -> None:
         _AssessmentProgress.note_retry(message)
@@ -4247,13 +4279,16 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
             raise CallError("select one assessment host")
         if api_profile is not None:
             from appsec_analyzer.api_hosts import ResponsesTransport
+            from appsec_analyzer.profiles import api_profile as role_api_profile
 
             if ns.model and ns.model != api_profile.model:
                 raise CallError("the requested model differs from the selected API profile")
-            factory = lambda role, model, ceiling: ResponsesTransport(api_profile, ceiling)
+            factory = lambda role, model, ceiling: ResponsesTransport(
+                role_api_profile(run_profile["models"][role]) if run_profile else api_profile, ceiling
+            )
         else:
             factory = host_factory or _assessment_cli_host_factory(
-                Path(hosts), scope.output / ".assessment-work" / "host-events"
+                Path(hosts), scope.output / ".assessment-work" / "host-events", run_profile=run_profile
             )
         if progress is None and not ns.quiet:
             # Per-call detail lines show that a long model call is still alive.
@@ -4288,6 +4323,7 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
                 model=ns.model,
                 rebuild=ns.rebuild,
                 api_profile=api_profile,
+                run_profile=run_profile,
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)
@@ -4883,14 +4919,14 @@ def _save_closing(outcome: dict, elapsed: str) -> None:
         print(f"⚠ completion summary not saved: {_cap_reason(str(exc))}", file=sys.stderr)
 
 
-def assess_main(argv: list[str], *, api_profile=None) -> int:
+def assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     """Command-line entry for `assess`; prints a short summary and returns an exit code."""
     code = 1
     _AssessmentProgress.last_retry = None
     # REQ-035: every file the run creates is readable by the current user only.
     umask = os.umask(0o077)
     try:
-        code = _assess_main(argv, api_profile=api_profile)
+        code = _assess_main(argv, api_profile=api_profile, run_profile=run_profile)
         return code
     finally:
         os.umask(umask)
@@ -4898,7 +4934,7 @@ def assess_main(argv: list[str], *, api_profile=None) -> int:
         _AssessmentProgress.end(code)
 
 
-def _assess_main(argv: list[str], *, api_profile=None) -> int:
+def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     from jsonschema import SchemaError, ValidationError
     from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
     from runtime.assessment_host import ExchangeError
@@ -4909,7 +4945,12 @@ def _assess_main(argv: list[str], *, api_profile=None) -> int:
     started = time.monotonic()
     try:
         try:
-            outcome = assess_repositories(argv, api_profile=api_profile) if api_profile else assess_repositories(argv)
+            if run_profile is not None:
+                outcome = assess_repositories(argv, api_profile=api_profile, run_profile=run_profile)
+            else:
+                outcome = (
+                    assess_repositories(argv, api_profile=api_profile) if api_profile else assess_repositories(argv)
+                )
         finally:
             # A stopped run must not print its last message onto the status line.
             _AssessmentConsole.stop()

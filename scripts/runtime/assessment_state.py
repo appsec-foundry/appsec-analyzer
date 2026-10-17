@@ -162,6 +162,7 @@ class AssessmentState:
                 "timeout_s": budget.timeout_s,
             },
         }
+        self.operator_profile = copy.deepcopy(configuration.get("operator_profile"))
         self.state = None
         # Set when --resume continues an unfinished run after a plugin change.
         self.runtime_changed = False
@@ -276,6 +277,8 @@ class AssessmentState:
                 "accounting": {"calls": 0, "spent_usd": 0.0, "unavailable": False},
                 "deliverables": {},
             }
+            if self.operator_profile is not None:
+                self.state["operator_profile"] = self.operator_profile
             self.directory.mkdir(mode=0o700, exist_ok=True)
             if self._history is not None:
                 atomic_write_json(self.directory / HISTORY_NAME, self._history)

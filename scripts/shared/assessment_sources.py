@@ -48,6 +48,8 @@ def source_key(reference: dict) -> str:
 
 def source_rows(value):
     """Bound traversal, including YAML alias expansion and cyclic input."""
+    if isinstance(value, dict) and isinstance(value.get("meta"), dict) and "report_attributes" in value["meta"]:
+        value = {**value, "meta": {k: v for k, v in value["meta"].items() if k != "report_attributes"}}
     stack = [(value, 0, frozenset())]
     count = 0
     while stack:

@@ -1,0 +1,11 @@
+# Copy to ~/.config/appsec-analyzer/profiles/release.yaml.
+schema_version: 1
+description: Thorough release review with team model settings
+model_profile: team-sol
+assessment_depth: thorough
+budget: 20
+outputs: [markdown, html, pdf, sarif]
+report:
+  attributes:
+    team: payments
+    review_type: release

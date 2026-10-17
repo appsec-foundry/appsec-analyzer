@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ GUIDES = (
     "threat-analyst.md",
     "configuration.md",
     "model-selection.md",
+    "profiles.md",
     "headless-mode.md",
     "security-requirements-audit-skill.md",
     "threat-dragon-export.md",
@@ -49,6 +51,21 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert (package / "scripts" / "runtime" / "multi_repo_scope.py").is_file()
     assert (package / "data" / "stride-analysis-policy.md").is_file()
     assert not (package / "agents" / "appsec-stride-analyzer-v2.md").exists()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "appsec_analyzer.cli",
+            "profiles",
+            "validate",
+            str(package / "examples/profiles/release.yaml"),
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(build), "XDG_CONFIG_HOME": str(tmp_path / "config")},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
     for name in GUIDES:
         guide = package / "docs" / name
         assert guide.is_file()
@@ -86,6 +103,17 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         assert not any(path.endswith("runtime/version_status.py") for path in files)
         assert not any(path.endswith("runtime/plugin_read_gate.py") for path in files)
     assert "appsec_analyzer/docs/security-assessment.md" in wheel_files
+    for relative in (
+        "docs/profiles.md",
+        "data/model-catalog.yaml",
+        "data/model-profiles/codex.yaml",
+        "schemas/scan-profile.schema.yaml",
+        "schemas/model-profile.schema.yaml",
+        "examples/profiles/release.yaml",
+        "examples/model-profiles/team-sol.yaml",
+    ):
+        assert "appsec_analyzer/" + relative in wheel_files
+        assert relative in source_files
     assert "appsec_analyzer/scripts/runtime/multi_repo_scope.py" in wheel_files
     assert "appsec_analyzer/data/stride-analysis-policy.md" in wheel_files
     assert "appsec_analyzer/agents/appsec-stride-analyzer-v2.md" not in wheel_files

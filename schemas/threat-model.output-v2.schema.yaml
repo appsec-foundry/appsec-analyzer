@@ -28,6 +28,18 @@ properties:
     - mode
     - model
     properties:
+      report_attributes:
+        type: object
+        maxProperties: 32
+        propertyNames:
+          pattern: ^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$
+        additionalProperties:
+          type: string
+          maxLength: 256
+          pattern: ^[^\x00-\x1f\x7f-\x9f]*$
+      model_configuration:
+        type: object
+        description: Resolved model settings per assessment role; contains no credentials.
       schema_version:
         const: 2
       project:

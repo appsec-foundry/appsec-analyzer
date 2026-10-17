@@ -3005,6 +3005,9 @@ def build_assessment_model(
     for key in ("stride_model", "triage_model", "merger_model"):
         if skill_cfg.get(key):
             meta[key] = skill_cfg[key]
+    if skill_cfg.get("operator_profile"):
+        meta["report_attributes"] = skill_cfg["operator_profile"]["attributes"]
+        meta["model_configuration"] = skill_cfg["operator_profile"]["models"]
     rows = copy.deepcopy(components["components"])
     for component in rows:
         component["threat_ids"] = sorted(t["id"] for t in threats if t["component"] == component["id"])

@@ -66,7 +66,7 @@ Allow users to export an existing validated model without rerunning analysis. Ap
 
 ## REQ-016: Follow, stop, and resume a run
 
-Let users inspect status, stop a run, and resume compatible interrupted work. Preserve accepted work when resuming and identify stale or incompatible state. Expose progress, actionable failure reasons, and recovery steps. Never describe interrupted or incomplete work as complete.
+Let users inspect status, stop a run, and resume compatible interrupted work. Preserve accepted work when resuming and identify stale or incompatible state. Store the effective operator profile with the run. On resume, preserve resolved OpenAI alias targets and revalidate their models, options, and prices against the installed catalog; changed definitions or incompatible runtime state require a new run. Expose progress, actionable failure reasons, and recovery steps. Never describe interrupted or incomplete work as complete.
 
 ## REQ-017: Reassess without losing work
 
@@ -76,7 +76,7 @@ Let users deliberately rebuild. Preserve accepted work and earlier-result histor
 
 Accept documented and validated operator settings and organization profiles. Report conflicting or unsupported options. Repository declarations cannot choose provider credentials or weaken required analysis inputs, and configuration must not suppress evidence-supported findings.
 
-For full assessments, let operators select a built-in model profile independently of analysis depth. The profile determines the provider connection and resolves model settings for the selected depth. `scan` defaults to the Claude profile and standard depth; `assess` requires an explicit profile or compatible legacy host selection. Preserve documented legacy host and depth-profile calls, reject conflicting selections before host preflight or repository retrieval, and keep model profiles separate from organization settings. Repository content cannot define or select a model profile.
+For full assessments, accept built-in or operator-owned scan profiles and model profiles in schema-versioned YAML. Scan profiles define model-profile selection, depth, USD budget, outputs, and bounded literal report attributes. Model profiles define a provider adapter or one built-in base, defaults, and role/depth overrides. Explicit CLI values override scan defaults. Provide offline listing, resolution with provenance, and validation. Resolve user files from the documented XDG configuration directories or an explicitly selected external scan path, never from analyzed repositories. `scan` defaults to the Claude profile and standard depth; `assess` requires an explicit profile or compatible legacy host selection. Preserve documented legacy host and depth-profile calls, reject conflicting selections before host preflight or repository retrieval, and keep model profiles separate from organization settings. Repository content cannot define or select a model profile. Reject unknown fields, unsupported models/options, links, unsafe YAML, and conflicting reserved names. Profiles cannot supply credentials, endpoints, prices, tools, or permission grants. Preserve organization restrictions. Record actual role settings in the result; report attributes cannot become analysis instructions or evidence references.
 
 ## REQ-019: Handle version changes clearly
 
@@ -96,7 +96,7 @@ Run without interactive responses when unattended operation is selected. Return 
 
 ## REQ-023: Control time and spending
 
-Apply documented finite default spending limits for full assessments and separate audits, allow explicit overrides, show the selected limit before starting, and explain limits for focused analysis. Enforce finite work, retry, and time bounds. Reserve required completion work before optional model calls; when budget cannot cover required assessment work, preserve validated progress in a clearly incomplete result.
+Apply documented finite default spending limits for full assessments and separate audits, allow explicit overrides, show the selected limit before starting, and explain limits for focused analysis. Profile budgets are always USD. Do not impose a default OpenAI output-token cap; omit the API parameter unless explicitly configured. Reserve each request against bounded input and the selected output cap or catalog model maximum. A role may need a larger per-call reservation without increasing the total authorized budget. Enforce finite work, retry, and time bounds. Reserve required completion work before optional model calls; when budget cannot cover required assessment work, preserve validated progress in a clearly incomplete result.
 
 ## REQ-024: Ask a focused security question
 

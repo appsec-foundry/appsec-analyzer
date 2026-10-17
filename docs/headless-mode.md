@@ -15,9 +15,9 @@ appsec-analyzer stop --output /private/assessment
 appsec-analyzer results --output /private/assessment
 ```
 
-`scan` and `assess` default to a USD 20 spending limit; `audit-requirements` defaults to USD 5. `--budget USD` overrides the default, and `--hard-budget` remains a compatible alias. The CLI prints the selected limit to stderr before starting. Use an explicit budget in automation when its spending limit should be visible in the command.
+The built-in scan profiles use a USD 20 spending limit; user scan profiles can set another budget. `audit-requirements` defaults to USD 5. `--budget USD` overrides the default, and `--hard-budget` remains a compatible alias. The CLI prints the selected limit to stderr before starting. Use an explicit budget in automation when its spending limit should be visible in the command.
 
-The model profile selects the connection and the model settings for the separately chosen analysis depth. The default for `scan` is `--profile claude --assessment-depth standard`; `assess` requires an explicit profile or legacy host. Configure a Claude login or external Anthropic credentials for `claude`, or `OPENAI_API_KEY` for the experimental `codex` profile. Existing `--host` commands remain supported; see [profile compatibility](model-selection.md).
+A [scan profile](profiles.md) selects the model profile, depth, USD budget, exports, and report attributes. A model profile supplies the connection and model settings, including optional per-role overrides. The default for `scan` is `--profile claude --assessment-depth standard`; `assess` requires an explicit profile or legacy host. Configure a Claude login or external Anthropic credentials for `claude`, or `OPENAI_API_KEY` for the experimental `codex` profile. Existing `--host` commands remain supported; see [profile compatibility](model-selection.md).
 
 Create `/private/source-scan` before running `scan-sources`. That command prints
 readable scanner findings to stdout; `--json` prints its versioned JSON instead.

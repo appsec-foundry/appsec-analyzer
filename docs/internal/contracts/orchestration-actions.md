@@ -10,7 +10,7 @@
 
 ## Ownership
 
-- `runtime/resolve_config.py` remains the source of truth for flags, paths, depth, models and output settings.
+- `runtime/resolve_config.py` resolves organization settings, flags, paths, and depth behavior. For public scans, `appsec_analyzer/profiles.py` resolves operator scan/model files and applies role models and export selection before lifecycle identity is computed. Explicit CLI settings take precedence; organization restrictions remain enforced. The stored operator profile records actual role settings and keeps OpenAI alias targets fixed on compatible resume.
 - `orchestrator/orchestration_controller.py` owns admission, phase order, job acceptance, the deterministic replacements listed below, and publication.
 - Registered agent definitions supply role instructions; the controller validates every returned artifact against its output contract before accepting it.
 

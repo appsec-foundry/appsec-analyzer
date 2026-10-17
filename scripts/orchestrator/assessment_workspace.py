@@ -140,7 +140,11 @@ def project_document(document: dict, names: Namespaces, *, schema_version: int |
 
 def legacy_model(document: dict, names: Namespaces) -> dict:
     """Project a version-2 model to the legacy output shape."""
-    view = _project({k: v for k, v in document.items() if k != "source_inventory"}, names)
+    source = {k: v for k, v in document.items() if k != "source_inventory"}
+    source["meta"] = {k: v for k, v in document["meta"].items() if k != "report_attributes"}
+    view = _project(source, names)
+    if "report_attributes" in document["meta"]:
+        view["meta"]["report_attributes"] = copy.deepcopy(document["meta"]["report_attributes"])
     view["meta"] = {
         k: v for k, v in view["meta"].items() if k not in ("source_scope_sha256", "component_inventory_fingerprint")
     }
@@ -208,9 +212,15 @@ def canonical_model(view: dict, original: dict, names: Namespaces) -> dict:
     # Local checkout and output paths only label the rendered report; like a
     # single scan's model, the published one carries no local path.
     meta = _qualify(
-        {k: v for k, v in view["meta"].items() if k not in ("source_repositories", "repository_root", "output_dir")},
+        {
+            k: v
+            for k, v in view["meta"].items()
+            if k not in ("source_repositories", "repository_root", "output_dir", "report_attributes")
+        },
         names,
     )
+    if "report_attributes" in view["meta"]:
+        meta["report_attributes"] = copy.deepcopy(view["meta"]["report_attributes"])
     meta.update(
         schema_version=2,
         source_scope_sha256=original["meta"]["source_scope_sha256"],

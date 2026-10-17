@@ -150,6 +150,24 @@
         }
       }
     },
+    "operator_profile": {
+      "type": "object",
+      "required": ["schema_version", "definition_sha256", "models"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "definition_sha256": {"$ref": "#/$defs/hash"},
+        "models": {
+          "type": "object", "maxProperties": 15,
+          "additionalProperties": {
+            "type": "object", "required": ["model", "requested_model"],
+            "properties": {
+              "model": {"type": "string", "maxLength": 128},
+              "requested_model": {"type": "string", "maxLength": 128}
+            }
+          }
+        }
+      }
+    },
     "deliverables": {
       "type": "object", "maxProperties": 64,
       "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},

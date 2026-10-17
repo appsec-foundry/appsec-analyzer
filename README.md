@@ -95,11 +95,13 @@ This command sends selected source excerpts and supplied context to the model pr
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
-The default profile is `claude` and the default depth is `standard`. Select the model profile separately from the analysis depth; the profile supplies the connection and model settings for that depth. For example, with `OPENAI_API_KEY` configured:
+The default profile is `claude` and the default depth is `standard`. A scan profile supplies the model profile, depth, USD budget, exports, and report attributes. CLI options override its defaults. For example, with `OPENAI_API_KEY` configured:
 
 ```sh
 appsec-analyzer scan --profile codex --assessment-depth thorough --budget 20
 ```
+
+You can also create [your own scan and model profiles](docs/profiles.md), including per-role model settings. Inspect them with `appsec-analyzer profiles show NAME` or check them with `appsec-analyzer profiles validate NAME`. The built-in profiles impose no output-token cap.
 
 No `--host` argument is needed. The `codex` profile uses the OpenAI API, not a Codex CLI login, and has not completed live assessment qualification. See [profiles, models, and cost](docs/model-selection.md) before a paid run.
 
@@ -170,6 +172,7 @@ The Claude CLI adapter is available. The experimental OpenAI profiles have offli
 ## Documentation
 
 - [Security assessment](docs/security-assessment.md): scope, depth, output, and recovery.
+- [Scan and model profiles](docs/profiles.md): defaults, user files, examples, and per-role model selection.
 - [Configuration](docs/configuration.md) and [organization profiles](docs/org-profiles.md): settings for local and team use.
 - [Hosts, models, and cost](docs/model-selection.md): provider support and spending controls.
 - [Command-line operation](docs/headless-mode.md): unattended runs and lifecycle commands.

@@ -62,6 +62,7 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 		tests/test_public_assessment_operations.py \
 		tests/test_requirements_audit_cli.py \
 		tests/test_api_hosts.py \
+		tests/test_profiles.py \
 		tests/test_auto_emitter_pass.py \
 		tests/test_full_run_e2e_driver.py \
 		tests/test_render_completion_summary.py::TestNextSteps \

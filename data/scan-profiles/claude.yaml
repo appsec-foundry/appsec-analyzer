@@ -1,0 +1,6 @@
+schema_version: 1
+description: Default assessment with claude
+model_profile: claude
+assessment_depth: standard
+budget: 20
+outputs: [markdown, yaml]
