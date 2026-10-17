@@ -3,19 +3,26 @@
 Install the package, then invoke the same public program locally or in CI:
 
 ```sh
-appsec-analyzer scan --repo /checkout --output /private/scan
+appsec-analyzer scan --repo /checkout --hard-budget 20 --output /private/assessment
+appsec-analyzer scan-sources --repo /checkout --output /private/source-scan
 appsec-analyzer assess --repo /checkout --host claude-cli \
   --hard-budget 20 --output /private/assessment --quiet
+appsec-analyzer scan --repo /checkout --host openai \
+  --profile codex-standard --hard-budget 20 --output /private/openai-assessment
 appsec-analyzer status --output /private/assessment
 appsec-analyzer progress --output /private/assessment
 appsec-analyzer stop --output /private/assessment
 appsec-analyzer results --output /private/assessment
 ```
 
-Create `/private/scan` before the first command. A scan without `--output`
-prints its versioned JSON to stdout. The assessment command creates its
-private default destination if `--output` is omitted. A `stop` request preserves
+Create `/private/source-scan` before running `scan-sources`. That command prints
+readable scanner findings to stdout; `--json` prints its versioned JSON instead.
+With `--output`, the complete JSON is saved as `scan-result.json`. The full `scan`
+command uses the same assessment controller as `assess`, shows live progress, and
+creates its private default destination if `--output` is omitted. A `stop` request preserves
 accepted assessment work for a compatible `--resume`. `--rebuild` starts over.
+After a rate-limit interruption, wait for provider capacity and rerun with
+`--resume` in place of `--rebuild`.
 The result and status contracts distinguish scanner-only output from completed,
 interrupted, and failed assessments. After normal cleanup removes the event
 feed, `progress` reports the final state with `feed_available: false` and no

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import threading
 
 import pytest
 
 from appsec_analyzer import api_hosts
-from runtime.analyst_host import HostCancelled, TransportError
+from appsec_analyzer.codex_profiles import CODEX_PROFILES
 
 
 def _profile(**changes):
@@ -78,10 +77,10 @@ def test_wire_decoder_preserves_absent_and_null_and_requests_no_tools(fake_host)
 
 def test_missing_credential_or_insufficient_ceiling_sends_no_source(fake_host, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY")
-    with pytest.raises(TransportError, match="authentication_failed"):
+    with pytest.raises(api_hosts.TransportError, match="authentication_failed"):
         api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
     monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
-    with pytest.raises(TransportError, match="budget_exhausted"):
+    with pytest.raises(api_hosts.TransportError, match="budget_exhausted"):
         api_hosts.ResponsesTransport(_profile(), 0.000001).invoke("s", "source", {}, 5, lambda: False)
     assert not fake_host.instances
 
@@ -110,11 +109,36 @@ def test_refusal_missing_usage_and_malformed_wire_fail_closed(fake_host, monkeyp
                 self.reply = _Reply(payload)
 
         monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Bad)
-        with pytest.raises(TransportError, match="invalid_response"):
+        with pytest.raises(api_hosts.TransportError, match="invalid_response"):
             api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "p", {}, 5, lambda: False)
 
 
 def test_cancellation_before_transmission(fake_host):
-    with pytest.raises(HostCancelled):
+    with pytest.raises(api_hosts.HostCancelled):
         api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "p", {}, 5, lambda: True)
+    assert not fake_host.instances
+
+
+@pytest.mark.parametrize("depth, effort, cap", [
+    ("quick", "low", 16_384),
+    ("standard", "medium", 24_576),
+    ("thorough", "high", 32_768),
+])
+def test_codex_profiles_pin_safe_wire_and_bounded_cost(fake_host, depth, effort, cap):
+    profile = CODEX_PROFILES[depth]
+    assert profile.model == "gpt-6.1-sol"
+    assert profile.max_request_bytes == 240_000
+    assert profile.max_output_tokens == cap
+    assert profile.input_usd_per_million == 2.5
+    assert profile.output_usd_per_million == 10.0
+    api_hosts.ResponsesTransport(profile, 2).invoke("system", "source", {}, 5, lambda: False)
+    body = fake_host.instances[0].requests[0][2]
+    assert body["reasoning"] == {"effort": effort}
+    assert body["store"] is False and "tools" not in body
+
+
+def test_codex_profile_rejects_oversized_request_before_transmission(fake_host):
+    profile = CODEX_PROFILES["standard"]
+    with pytest.raises(api_hosts.TransportError, match="request_too_large"):
+        api_hosts.ResponsesTransport(profile, 2).invoke("system", "x" * 250_000, {}, 5, lambda: False)
     assert not fake_host.instances

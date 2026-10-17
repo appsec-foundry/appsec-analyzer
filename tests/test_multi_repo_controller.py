@@ -777,7 +777,7 @@ def test_runtime_identity_binds_plugin_bytes_without_local_path_dependence(tmp_p
         "schema": "schemas/output.json",
         "data": "data/policy.yaml",
     }
-    for path in (*paths.values(), "config.json", ".claude-plugin/plugin.json"):
+    for path in (*paths.values(), "engine.json", "config.json", ".claude-plugin/plugin.json"):
         target = plugin / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("original")
@@ -1144,6 +1144,33 @@ def test_an_interrupted_assessment_exits_without_a_traceback(monkeypatch, capsys
     assert controller.assess_main(["--repo", "x", "--output", "y"]) == 130
     captured = capsys.readouterr()
     assert "✗ assessment interrupted" in captured.err and "Traceback" not in captured.err
+
+
+def test_interrupted_rate_limit_reports_cause_and_resume_action(monkeypatch, capsys):
+    def interrupted(argv):
+        controller._AssessmentProgress.note_retry(
+            "model call failed (rate_limit); repeating it in 15 s (attempt 2)"
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(controller, "assess_repositories", interrupted)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == 130
+    error = capsys.readouterr().err
+    assert "provider rate limit" in error
+    assert "--resume" in error
+
+
+def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch, capsys):
+    from runtime.analyst_host import TransportError
+
+    def rate_limited(argv):
+        raise TransportError("untrusted host diagnostic", reason="rate_limit", usd=0.0)
+
+    monkeypatch.setattr(controller, "assess_repositories", rate_limited)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == 1
+    error = capsys.readouterr().err
+    assert "provider rate limit" in error and "--resume" in error
+    assert "untrusted host diagnostic" not in error
 
 
 @pytest.mark.parametrize("names", [("edge", "service"), ("west", "east")])

@@ -916,6 +916,9 @@ def _assessment_session(scope, arguments, *, budget, host_factory, resume=False,
         cfg["host_profile"] = {
             "kind": api_profile.kind, "endpoint": api_profile.endpoint,
             "model": api_profile.model, "price_revision": api_profile.price_revision,
+            "reasoning_effort": api_profile.reasoning_effort,
+            "max_output_tokens": api_profile.max_output_tokens,
+            "max_request_bytes": api_profile.max_request_bytes,
             "gateway_route_revision": api_profile.gateway_route_revision,
             "pinned_ip": api_profile.pinned_ip,
         }
@@ -2514,12 +2517,14 @@ class _AssessmentProgress:
     """
 
     path: Path | None = None
+    last_retry: tuple[str, float] | None = None
     # Exit code -> the end record's status; any other code failed.
     STATUS = {0: "complete", 20: "complete", ASSESS_PAUSED_EXIT: "paused", 130: "interrupted"}
 
     @classmethod
     def open(cls, path: str | None) -> None:
         cls.path = Path(path) if path else None
+        cls.last_retry = None
         if cls.path:
             # Replaced, so a follower never reads an earlier run's events as this run's.
             cls._append("", mode="w")
@@ -2535,6 +2540,17 @@ class _AssessmentProgress:
         resumable = code in (ASSESS_PAUSED_EXIT, 130)
         cls.emit("end", status=cls.STATUS.get(code, "failed"), exit_code=code, resumable=resumable)
         cls.path = None
+
+    @classmethod
+    def note_retry(cls, message: str) -> None:
+        match = re.search(r"model call failed \(([a-z_]+)\)", message)
+        if match:
+            cls.last_retry = (match.group(1), time.monotonic())
+
+    @classmethod
+    def recent_rate_limit(cls) -> bool:
+        return bool(cls.last_retry and cls.last_retry[0] == "rate_limit"
+                    and time.monotonic() - cls.last_retry[1] < 300)
 
     @classmethod
     def _append(cls, text: str, mode: str = "a") -> None:
@@ -4185,7 +4201,11 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
         console.start_ticker()
     say = progress or (console.step if console else (lambda text: None))
     budget = _assessment_budget(ns, rest)
-    budget.on_retry = console.notice if console else say
+    def report_retry(message: str) -> None:
+        _AssessmentProgress.note_retry(message)
+        (console.notice if console else say)(message)
+
+    budget.on_retry = report_retry
     if ns.trust_mode == "untrusted":
         # The console header reports the result once every pre-run check passed.
         if not console:
@@ -4852,13 +4872,14 @@ def _save_closing(outcome: dict, elapsed: str) -> None:
         print(f"⚠ completion summary not saved: {_cap_reason(str(exc))}", file=sys.stderr)
 
 
-def assess_main(argv: list[str]) -> int:
+def assess_main(argv: list[str], *, api_profile=None) -> int:
     """Command-line entry for `assess`; prints a short summary and returns an exit code."""
     code = 1
+    _AssessmentProgress.last_retry = None
     # REQ-TRU-005: every file the run creates is readable by the current user only.
     umask = os.umask(0o077)
     try:
-        code = _assess_main(argv)
+        code = _assess_main(argv, api_profile=api_profile)
         return code
     finally:
         os.umask(umask)
@@ -4866,7 +4887,7 @@ def assess_main(argv: list[str]) -> int:
         _AssessmentProgress.end(code)
 
 
-def _assess_main(argv: list[str]) -> int:
+def _assess_main(argv: list[str], *, api_profile=None) -> int:
     from jsonschema import SchemaError, ValidationError
     from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
     from runtime.assessment_host import ExchangeError
@@ -4877,12 +4898,16 @@ def _assess_main(argv: list[str]) -> int:
     started = time.monotonic()
     try:
         try:
-            outcome = assess_repositories(argv)
+            outcome = assess_repositories(argv, api_profile=api_profile) if api_profile else assess_repositories(argv)
         finally:
             # A stopped run must not print its last message onto the status line.
             _AssessmentConsole.stop()
     except KeyboardInterrupt:
-        print("\n✗ assessment interrupted", file=sys.stderr)
+        print("\n✗ assessment interrupted by operator or signal; accepted steps are kept", file=sys.stderr)
+        if _AssessmentProgress.recent_rate_limit():
+            print("  A provider rate limit was reported recently. Wait for capacity, then retry with --resume instead of --rebuild.", file=sys.stderr)
+        else:
+            print("  Continue with --resume instead of --rebuild when ready.", file=sys.stderr)
         return 130
     except AssessmentPaused as exc:
         print(f"⏸ Paused after phase {exc.number}/{exc.total} — {exc.phase}; continue with --resume", flush=True)
@@ -4916,10 +4941,17 @@ def _assess_main(argv: list[str]) -> int:
     ) as exc:
         if isinstance(exc, HostCancelled) and not isinstance(exc, HostTimeout):
             print(
-                f"⏸ assessment interrupted: {_cap_reason(str(exc))}; accepted steps are kept, continue with --resume",
+                f"⏸ assessment interrupted: {_cap_reason(str(exc))}; accepted steps are kept, continue with --resume instead of --rebuild",
                 file=sys.stderr,
             )
+            if _AssessmentProgress.recent_rate_limit():
+                print("  A provider rate limit was reported recently. Wait for capacity before resuming.", file=sys.stderr)
             return ASSESS_PAUSED_EXIT
+        if isinstance(exc, TransportError) and exc.reason == "rate_limit":
+            print("✗ assessment stopped: provider rate limit blocked a required model call", file=sys.stderr)
+            print("  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
+                  file=sys.stderr)
+            return 1
         print(_AssessmentConsole.fit(f"✗ assessment stopped: {_cap_reason(str(exc))}"), file=sys.stderr)
         draft = _unpublished_draft(argv, before)
         if draft:

@@ -30,15 +30,15 @@ No push, tag, package upload, or release publication is part of this step.
 
 ## Qualification and compatibility limits
 
-- `scan` needs neither Claude nor API credentials and makes no model calls.
+- `scan` runs the full assessment and makes model calls; `scan-sources` is the
+  provider-free deterministic command.
 - `assess --host claude-cli` is a compatibility adapter with offline fake-host
   end-to-end coverage. A real CLI session, model selection, and run cost have
   not been qualified here.
-- Direct OpenAI Responses and fixed gateway transports have offline wire,
-  decoder, egress, and budget tests. No model/depth/route profile is qualified;
-  the public `assess` command refuses these hosts pending authorized live
-  tests. Their prices must be reviewed against the actual billing route and
-  fixed in a dated profile before use.
+- Direct OpenAI Responses profiles are explicitly selectable with `--host openai`
+  and have offline wire, decoder, egress, and budget tests. Their end-to-end
+  assessment quality has not been qualified in a live run. Fixed gateway routes
+  remain unavailable through the public command.
 - `audit-requirements` accepts one local catalog and one repository. The
   historical Advisor plugin audit's remote catalog precedence, PDF output,
   and resume are not available at this boundary. This audit does not declare

@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
+import re
 import runpy
 import stat
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -28,37 +31,21 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
-    scan = commands.add_parser("scan", help="Run deterministic source scanners without a model")
-    scan.add_argument("--repo", action="append", required=True, metavar="PATH")
-    scan.add_argument("--output", metavar="DIR", help="Existing directory outside every selected checkout")
-    scan.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
-    scan.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
-    assess = commands.add_parser("assess", help="Run a full semantic assessment")
-    assess.add_argument("--repo", action="append", required=True, metavar="PATH")
-    assess.add_argument("--host", choices=("claude-cli", "openai", "gateway"), required=True)
-    assess.add_argument("--output", metavar="DIR")
-    assess.add_argument("--hard-budget", type=float, required=True, metavar="USD")
-    assess.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
-    assess.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
-    assess.add_argument("--resume", action="store_true")
-    assess.add_argument("--rebuild", action="store_true")
-    assess.add_argument("--quiet", action="store_true")
-    assess.add_argument("--progress-file", metavar="PATH")
-    assess.add_argument("--model", metavar="MODEL")
-    assess.add_argument("--org-profile", metavar="FILE")
-    assess.add_argument("--preset", metavar="NAME")
-    assess.add_argument("--no-org-profile", action="store_true")
-    for role in ("stride", "triage", "merger"):
-        assess.add_argument(f"--{role}-model", metavar="MODEL")
-    assess.add_argument("--max-duration", type=int, metavar="SECONDS")
-    assess.add_argument("--fail-on", choices=("critical", "high", "medium"))
-    assess.add_argument("--evidence-verifier-cap", type=int, metavar="N")
-    assess.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
-    assess.add_argument("--context", metavar="SOURCE")
-    for flag in ("sarif", "threatdragon", "pdf", "html", "pentest-tasks",
-                 "no-requirements", "skip-context", "no-qa",
-                 "ignore-legacy", "migrate-legacy"):
-        assess.add_argument("--" + flag, action="store_true")
+    scan = commands.add_parser(
+        "scan", help="Run the full headless security assessment with live progress",
+        description="Assess the selected repository with live progress and publish security reports.",
+        epilog="Example: appsec-analyzer scan --repo /path/to/repo --hard-budget 30",
+    )
+    _add_assessment_arguments(scan, default_repo=True, default_host=True)
+    sources = commands.add_parser("scan-sources", help="Run deterministic source scanners without a model")
+    sources.add_argument("--repo", action="append", required=True, metavar="PATH")
+    sources.add_argument("--output", metavar="DIR", help="Existing directory outside every selected checkout")
+    sources.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
+    sources.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
+    sources.add_argument("--json", action="store_true", help="Print the complete machine-readable result")
+    assess = commands.add_parser("assess", help="Run a full semantic assessment with explicit model host")
+    _add_assessment_arguments(assess, default_repo=False, default_host=False)
+
     for name, help_text in (
         ("status", "Inspect a versioned assessment state"),
         ("progress", "Read the bounded assessment progress feed"),
@@ -86,15 +73,92 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _positive_budget(value: str) -> float:
+    try:
+        amount = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive finite USD amount") from exc
+    if not math.isfinite(amount) or amount <= 0:
+        raise argparse.ArgumentTypeError("must be a positive finite USD amount")
+    return amount
+
+
+def _pentest_target(value: str) -> str:
+    if any(char.isspace() or ord(char) < 32 or 127 <= ord(char) <= 159 for char in value):
+        raise argparse.ArgumentTypeError("must be an HTTP or HTTPS URL without control characters")
+    try:
+        parsed = urlsplit(value)
+        valid = parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+        _ = parsed.port
+    except ValueError:
+        valid = False
+    if not valid:
+        raise argparse.ArgumentTypeError("must be an HTTP or HTTPS URL without embedded credentials")
+    return value
+
+
+def _slug(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", value):
+        raise argparse.ArgumentTypeError("must contain 1-64 letters, digits, dots, underscores, or hyphens")
+    return value
+
+
+def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool, default_host: bool) -> None:
+    parser.add_argument("--repo", action="append", required=not default_repo, metavar="PATH",
+                        help="Repository to assess (default: current directory)" if default_repo else "Repository to assess")
+    parser.add_argument("--host", choices=("claude-cli", "openai", "gateway"),
+                        required=not default_host, default="claude-cli" if default_host else None)
+    parser.add_argument("--profile", choices=("codex-quick", "codex-standard", "codex-thorough"),
+                        help="Pinned OpenAI model profile (default: codex-<assessment-depth>)")
+    parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
+    parser.add_argument("--hard-budget", type=_positive_budget, required=True, metavar="USD",
+                        help="Maximum model cost in USD; required for a full scan")
+    parser.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
+    parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--progress-file", metavar="PATH")
+    parser.add_argument("--model", metavar="MODEL")
+    parser.add_argument("--reasoning-model", choices=("sonnet", "opus-cheap", "opus", "sonnet-economy", "haiku-economy"))
+    parser.add_argument("--project", metavar="NAME")
+    parser.add_argument("--width", type=int, metavar="COLUMNS")
+    parser.add_argument("--slug", nargs="?", const="__auto__", type=_slug, metavar="NAME",
+                        help="Also publish copies with this filename suffix; bare flag chooses one")
+    parser.add_argument("--pentest-format", choices=("generic", "strix"), default="generic",
+                        help="Format for --pentest-tasks (default: generic)")
+    parser.add_argument("--pentest-target", type=_pentest_target, metavar="URL",
+                        help="HTTP(S) target URL to include in exported pentest tasks")
+    parser.add_argument("--org-profile", metavar="FILE")
+    parser.add_argument("--preset", metavar="NAME")
+    parser.add_argument("--no-org-profile", action="store_true")
+    for role in ("stride", "triage", "merger"):
+        parser.add_argument(f"--{role}-model", metavar="MODEL")
+    parser.add_argument("--max-duration", type=int, metavar="SECONDS")
+    parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
+    parser.add_argument("--evidence-verifier-cap", type=int, metavar="N")
+    parser.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
+    parser.add_argument("--context", metavar="SOURCE")
+    parser.add_argument("--keep-runtime-files", action="store_true",
+                        help="Retain private intermediate assessment files for debugging")
+    for flag in ("sarif", "threatdragon", "pdf", "html", "pentest-tasks",
+                 "no-requirements", "skip-context", "no-qa",
+                 "ignore-legacy", "migrate-legacy"):
+        parser.add_argument("--" + flag, action="store_true")
+
+
 def _capabilities() -> dict:
     return {
         "interface_version": INTERFACE_VERSION,
         "engine_version": ENGINE_VERSION,
-        "scan": {"available": True, "model_calls": False},
+        "scan": {"available": True, "model_calls": True},
+        "scan_sources": {"available": True, "model_calls": False},
         "assessment": {
             "providers": {
                 "claude-cli": {"adapter": "compatibility", "qualified": False},
-                "openai": {"adapter": "offline-only", "qualified": False},
+                "openai": {"adapter": "responses", "qualified": False,
+                           "profiles": ["codex-quick", "codex-standard", "codex-thorough"]},
                 "gateway": {"adapter": "offline-only", "qualified": False},
             }
         },
@@ -197,9 +261,42 @@ def _scan_local(ns: argparse.Namespace) -> int:
         payload = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
         if ns.output:
             _write_result(Path(ns.output), payload)
-        else:
+        if ns.json:
             sys.stdout.write(payload)
+        else:
+            sys.stdout.write(_scan_summary(result, output=ns.output))
     return 0
+
+
+def _terminal_field(value: object) -> str:
+    """Keep repository-controlled names and scanner text on one terminal line."""
+    return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(value))).strip()[:240]
+
+
+def _scan_summary(result: dict, *, output: str | None) -> str:
+    lines = ["Deterministic scan completed."]
+    for repository in result["repositories"]:
+        findings = repository["findings"]
+        lines.extend([
+            f"\nRepository: {_terminal_field(repository['label'])}",
+            f"Files scanned: {repository['captured_files']}; excluded: {len(repository['excluded_files'])}",
+            f"Scanner findings: {len(findings)} (unverified)",
+        ])
+        for record in findings:
+            finding = record["finding"]
+            severity = _terminal_field(finding.get("severity", "Unknown"))
+            path = _terminal_field(finding.get("file", ""))
+            line = finding.get("line")
+            location = f"{path}:{line}" if type(line) is int else path
+            title = _terminal_field(finding.get("title", finding.get("check_id", "Finding")))
+            lines.append(f"  {severity}: {location}: {title}")
+    if output:
+        lines.append(f"\nComplete JSON result: {_terminal_field(Path(output) / 'scan-result.json')}")
+    lines.extend([
+        "\nFull assessment was not run.",
+        "For the full assessment: appsec-analyzer scan --repo PATH --hard-budget USD",
+    ])
+    return "\n".join(lines) + "\n"
 
 
 def _write_result(directory: Path, payload: str) -> None:
@@ -228,34 +325,69 @@ def _write_result(directory: Path, payload: str) -> None:
 
 def _assess(ns: argparse.Namespace) -> int:
     _engine_imports()
-    if ns.host != "claude-cli":
-        raise ValueError(f"{ns.host} has no qualified model/depth profile")
+    api_profile = None
+    if ns.host == "openai":
+        from appsec_analyzer.codex_profiles import CODEX_PROFILES
+
+        chosen = ns.profile or f"codex-{ns.assessment_depth}"
+        if chosen != f"codex-{ns.assessment_depth}":
+            raise ValueError("--profile must match --assessment-depth")
+        api_profile = CODEX_PROFILES[ns.assessment_depth]
+        if ns.model and ns.model != api_profile.model:
+            raise ValueError("--model differs from the selected OpenAI profile")
+        if ns.reasoning_model or any(getattr(ns, f"{role}_model") for role in ("stride", "triage", "merger")):
+            raise ValueError("Claude reasoning and role-model overrides cannot be used with --host openai")
+    elif ns.profile:
+        raise ValueError("--profile requires --host openai")
+    elif ns.host != "claude-cli":
+        raise ValueError(f"{ns.host} has no configured model/depth profile")
+    if ns.keep_runtime_files and ns.output:
+        output = Path(ns.output).absolute()
+        try:
+            info = output.stat()
+            private = (output.resolve(strict=True) == output and stat.S_ISDIR(info.st_mode)
+                       and info.st_mode & 0o077 == 0
+                       and (not hasattr(os, "getuid") or info.st_uid == os.getuid()))
+        except OSError:
+            private = False
+        if not private:
+            raise ValueError("--keep-runtime-files requires an existing private --output directory (mode 0700)")
     # The host-specific preflight runs only after explicit host selection.
     from orchestrator.orchestration_controller import assess_main
     from runtime.remote_repositories import checkout_arguments
 
-    from appsec_analyzer.hosts import claude_preflight
+    if ns.host == "claude-cli":
+        from appsec_analyzer.hosts import claude_preflight
 
-    claude_preflight()
-    args = ["--repo", ns.repo[0]]
-    for repo in ns.repo[1:]:
+        claude_preflight()
+    repositories = ns.repo or [str(Path.cwd())]
+    args = ["--repo", repositories[0]]
+    for repo in repositories[1:]:
         args += ["--repo", repo]
     args += ["--hard-budget", str(ns.hard_budget), "--assessment-depth", ns.assessment_depth,
              "--trust-mode", ns.trust_mode]
-    for flag in ("output", "progress_file", "model", "org_profile", "preset", "stride_model", "triage_model",
-                 "merger_model", "max_duration", "fail_on", "evidence_verifier_cap", "context"):
+    for flag in ("output", "progress_file", "model", "reasoning_model", "project", "width",
+                 "pentest_format", "pentest_target",
+                 "org_profile", "preset", "stride_model", "triage_model", "merger_model",
+                 "max_duration", "fail_on", "evidence_verifier_cap", "context"):
         if value := getattr(ns, flag):
             args += ["--" + flag.replace("_", "-"), str(value)]
     if ns.requirements is not None:
         args.append("--requirements")
         if ns.requirements:
             args.append(ns.requirements)
-    for flag in ("resume", "rebuild", "quiet", "sarif", "threatdragon", "pdf", "html",
-                 "pentest_tasks", "no_requirements", "skip_context", "no_qa",
+    if ns.slug is not None:
+        args.append("--slug")
+        if ns.slug != "__auto__":
+            args.append(ns.slug)
+    for flag in ("resume", "rebuild", "quiet", "verbose", "sarif", "threatdragon", "pdf", "html",
+                 "pentest_tasks", "keep_runtime_files", "no_requirements", "skip_context", "no_qa",
                  "ignore_legacy", "migrate_legacy", "no_org_profile"):
         if getattr(ns, flag):
             args.append("--" + flag.replace("_", "-"))
     with checkout_arguments(args) as local_args:
+        if api_profile is not None:
+            return assess_main(local_args, api_profile=api_profile)
         return assess_main(local_args)
 
 
@@ -367,9 +499,9 @@ def main(argv: list[str] | None = None) -> int:
         if ns.command == "capabilities":
             print(json.dumps(_capabilities(), sort_keys=True))
             return 0
-        if ns.command == "scan":
+        if ns.command == "scan-sources":
             return _scan(ns)
-        if ns.command == "assess":
+        if ns.command in ("scan", "assess"):
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)

@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def _run(command: str, output: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -139,3 +141,87 @@ def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, mon
                  "--no-org-profile", "--threatdragon", "--sarif"):
         assert flag in observed
     assert not any("_" in argument for argument in observed if argument.startswith("--"))
+
+
+def test_scan_starts_full_assessment_with_headless_defaults(tmp_path: Path, monkeypatch) -> None:
+    from appsec_analyzer import cli, hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    output = tmp_path / "output"
+    output.mkdir(mode=0o700)
+    observed = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(orchestration_controller, "assess_main",
+                        lambda arguments: observed.extend(arguments) or 0)
+    arguments = [
+        "scan", "--repo", str(repo), "--output", str(output),
+        "--assessment-depth", "thorough", "--rebuild", "--keep-runtime-files",
+        "--sarif", "--pentest-tasks", "--pentest-format", "strix",
+        "--pentest-target", "http://localhost:3000", "--threatdragon", "--pdf", "--html",
+        "--slug", "juice-shop-thorough-v0.6.0b5", "--hard-budget", "30",
+    ]
+    ns = cli._parser().parse_args(arguments)
+    assert ns.host == "claude-cli"
+    assert cli.main(arguments) == 0
+    assert observed[:2] == ["--repo", str(repo)]
+    assert "--hard-budget" in observed
+    for flag in ("--rebuild", "--keep-runtime-files", "--sarif", "--pentest-tasks",
+                 "--threatdragon", "--pdf", "--html"):
+        assert flag in observed
+    assert observed[observed.index("--assessment-depth") + 1] == "thorough"
+    assert observed[observed.index("--output") + 1] == str(output)
+    assert observed[observed.index("--pentest-format") + 1] == "strix"
+    assert observed[observed.index("--pentest-target") + 1] == "http://localhost:3000"
+    assert observed[observed.index("--slug") + 1] == "juice-shop-thorough-v0.6.0b5"
+
+
+def test_scan_kept_runtime_files_require_private_output(tmp_path: Path, monkeypatch, capsys) -> None:
+    from appsec_analyzer import cli, hosts
+
+    output = tmp_path / "public"
+    output.mkdir(mode=0o755)
+    output.chmod(0o755)
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not be called"))
+    assert cli.main(["scan", "--repo", str(tmp_path), "--output", str(output),
+                     "--hard-budget", "30", "--keep-runtime-files"]) == 2
+    assert "requires an existing private --output directory" in capsys.readouterr().err
+
+
+def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(tmp_path, monkeypatch) -> None:
+    from appsec_analyzer import cli, hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    observed = {}
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("Claude host must not be called"))
+
+    def fake_assess(arguments, *, api_profile=None):
+        observed["arguments"] = arguments
+        observed["profile"] = api_profile
+        return 0
+
+    monkeypatch.setattr(orchestration_controller, "assess_main", fake_assess)
+    assert cli.main(["scan", "--repo", str(tmp_path), "--host", "openai",
+                     "--profile", "codex-thorough", "--assessment-depth", "thorough",
+                     "--hard-budget", "30"]) == 0
+    assert observed["profile"].model == "gpt-6.1-sol"
+    assert observed["profile"].reasoning_effort == "high"
+    assert observed["arguments"][0:2] == ["--repo", str(tmp_path)]
+
+
+@pytest.mark.parametrize("extra, message", [
+    (["--host", "openai", "--profile", "codex-thorough"], "must match --assessment-depth"),
+    (["--host", "openai", "--reasoning-model", "opus"], "cannot be used"),
+    (["--profile", "codex-standard"], "requires --host openai"),
+])
+def test_codex_profile_invalid_combinations_fail_before_host(tmp_path, monkeypatch, capsys, extra, message):
+    from appsec_analyzer import cli, hosts
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not be called"))
+    assert cli.main(["scan", "--repo", str(tmp_path), "--hard-budget", "1", *extra]) == 2
+    assert message in capsys.readouterr().err

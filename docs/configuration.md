@@ -2,8 +2,8 @@
 
 The public command is `appsec-analyzer`. `scan` takes local `--repo` paths,
 an optional existing `--output` directory, `--assessment-depth`, and
-`--trust-mode`. It has no provider configuration. `assess` requires `--host`
-and `--hard-budget`; `--help` lists the supported depth, model, context,
+`--trust-mode`. It defaults to the Claude CLI host and requires `--hard-budget`.
+`assess` requires an explicit `--host` and `--hard-budget`; `--help` lists the supported depth, model, context,
 requirements, resume, and export flags.
 An operator may pass `--org-profile FILE`, `--preset NAME`, or
 `--no-org-profile` to select or disable inherited assessment defaults. See
@@ -12,9 +12,11 @@ An operator may pass `--org-profile FILE`, `--preset NAME`, or
 The Claude CLI host reads `APPSEC_CLAUDE_EXECUTABLE` (default `claude`) and
 uses a Claude login or externally configured Anthropic API credential.
 Credentials must remain outside repositories and reports. The direct OpenAI
-and gateway transports use `OPENAI_API_KEY` and `APPSEC_GATEWAY_API_KEY`
-respectively in offline contract tests; public use is blocked until a fixed
-model and gateway route have been qualified. No repository may select a host,
+host uses `OPENAI_API_KEY` with a pinned `codex-<depth>` profile. It sends
+bounded source excerpts to `https://api.openai.com/v1/responses`, requests
+`store: false`, and gives the model no tools. The fixed gateway transport uses
+`APPSEC_GATEWAY_API_KEY` only in offline contract tests; public use remains
+blocked until a fixed route has been qualified. No repository may select a host,
 endpoint, credential name, or model by declaring it in source.
 
 The assessment resolver retains its tested role defaults and certain `APPSEC_*`

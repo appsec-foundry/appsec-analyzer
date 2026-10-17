@@ -15,9 +15,9 @@ import os
 import re
 import socket
 import ssl
+import sys
 import threading
 import time
-import sys
 from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlsplit
@@ -54,6 +54,8 @@ class ApiProfile:
     output_usd_per_million: float
     price_revision: str
     max_output_tokens: int
+    reasoning_effort: str | None = None
+    max_request_bytes: int = MAX_REQUEST_BYTES
     gateway_route_revision: str | None = None
     pinned_ip: str | None = None
 
@@ -79,6 +81,10 @@ class ApiProfile:
                 for x in (self.input_usd_per_million, self.output_usd_per_million))
                 or type(self.max_output_tokens) is not int or not 1 <= self.max_output_tokens <= 32768):
             raise ValueError("price rates and output cap must be positive and bounded")
+        if self.reasoning_effort not in (None, "low", "medium", "high", "xhigh"):
+            raise ValueError("unsupported reasoning effort")
+        if type(self.max_request_bytes) is not int or not 1 <= self.max_request_bytes <= MAX_REQUEST_BYTES:
+            raise ValueError("request byte cap must be positive and bounded")
         if self.pinned_ip:
             address = ipaddress.ip_address(self.pinned_ip)
             if self.kind == "openai" or address.is_loopback or address.is_link_local or address.is_multicast:
@@ -140,8 +146,10 @@ class ResponsesTransport:
             "text": {"format": {"type": "json_schema", "name": "appsec_exchange",
                                 "strict": True, "schema": _WIRE_SCHEMA}},
         }
+        if self.profile.reasoning_effort:
+            request["reasoning"] = {"effort": self.profile.reasoning_effort}
         body = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        if len(body) > MAX_REQUEST_BYTES:
+        if len(body) > self.profile.max_request_bytes:
             raise ApiTransportError("request_too_large")
         # UTF-8 byte length bounds text token count, with room for API framing.
         # The output limit is enforced by the provider request itself.
