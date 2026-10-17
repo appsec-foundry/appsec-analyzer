@@ -17,11 +17,13 @@ import stat
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
 from shared._atomic_io import atomic_write_json
 
+from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
 from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
 from runtime.assessment_host import MAX_EXCHANGES, ExchangeError, ExchangeResult, ModelAnswerFailure, run_exchange
 from runtime.multi_repo_discovery import MAX_CALL_SECONDS, BudgetedHost, BudgetExhausted, DiscoveryBudget
@@ -45,10 +47,17 @@ def digest(value) -> str:
     ).hexdigest()
 
 
+@dataclass
 class AssessmentBudget(DiscoveryBudget):
     """Aggregate the full assessment rather than the discovery phase alone."""
 
+    max_parallel: int = field(default=DEFAULT_MAX_PARALLEL, kw_only=True)
+
     def __post_init__(self):
+        try:
+            validate_max_parallel(self.max_parallel)
+        except ValueError as exc:
+            raise ExchangeError(str(exc)) from None
         if (
             any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (self.max_usd, self.call_usd))
             or self.call_usd > self.max_usd
@@ -114,6 +123,7 @@ class AssessmentBudget(DiscoveryBudget):
     def _reserve(self):
         group, _role, optional = getattr(self._local, "job", (None, None, False))
         dollars, serial, parallel = 0.0, 0.0, 0.0
+        parallel_count = 0
         for key, (role, count) in self.required.items():
             # Required source analysis protects the report; optional work also
             # protects every remaining STRIDE batch. Running calls are already
@@ -123,10 +133,13 @@ class AssessmentBudget(DiscoveryBudget):
             usd, seconds = self._estimate(role)
             dollars += count * usd
             if role == "stride_analyzer":
-                parallel += count * seconds
+                parallel_count += count
+                parallel = max(parallel, seconds)
             else:
                 serial += count * seconds
-        return dollars, math.ceil(serial + parallel / 4) + FINALIZATION_SECONDS
+        # The last, partially filled worker group still needs a full job slot.
+        parallel_seconds = math.ceil(parallel_count / self.max_parallel) * parallel
+        return dollars, math.ceil(serial + parallel_seconds) + FINALIZATION_SECONDS
 
     def available_usd(self):
         available = super().available_usd()

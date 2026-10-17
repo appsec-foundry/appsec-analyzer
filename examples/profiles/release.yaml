@@ -4,6 +4,7 @@ description: Thorough release review with team model settings
 model_profile: team-sol
 assessment_depth: thorough
 budget: 20
+max_parallel: 2
 outputs: [markdown, html, pdf, sarif]
 report:
   attributes:

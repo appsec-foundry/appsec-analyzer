@@ -132,6 +132,8 @@ appsec-analyzer scan --profile codex --assessment-depth thorough --budget 20
 
 You can also create [your own scan and model profiles](docs/profiles.md), including per-role model settings. Inspect them with `appsec-analyzer profiles show NAME` or check them with `appsec-analyzer profiles validate NAME`. The built-in profiles impose no output-token cap.
 
+Component analysis runs at most two components at once by default. Set `max_parallel` in a scan profile or pass `--max-parallel 4` to override it for a run. Accepted values are integers from 1 to 16; higher values can encounter provider rate limits.
+
 No `--host` argument is needed. The `codex` profile uses the OpenAI API, not a Codex CLI login, and has not completed live assessment qualification. See [profiles, models, and cost](docs/model-selection.md) before a paid run.
 
 `standard` also analyzes business logic. `thorough` can cost more without producing more verified results when later checks cannot fit the budget; see [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough).

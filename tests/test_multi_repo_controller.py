@@ -17,6 +17,20 @@ from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
 from runtime.multi_repo_scope import admit
 
 
+def test_controller_script_resolves_parallel_limits_without_pythonpath(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    script = Path(controller.__file__).resolve()
+    result = subprocess.run(
+        [sys.executable, str(script), "assess", "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--max-parallel N" in result.stdout
+
+
 def checkout(root):
     root.mkdir()
     subprocess.run(["git", "init", "-q", str(root)], check=True)
@@ -1148,9 +1162,7 @@ def test_an_interrupted_assessment_exits_without_a_traceback(monkeypatch, capsys
 
 def test_interrupted_rate_limit_reports_cause_and_resume_action(monkeypatch, capsys):
     def interrupted(argv):
-        controller._AssessmentProgress.note_retry(
-            "model call failed (rate_limit); repeating it in 15 s (attempt 2)"
-        )
+        controller._AssessmentProgress.note_retry("model call failed (rate_limit); repeating it in 15 s (attempt 2)")
         raise KeyboardInterrupt
 
     monkeypatch.setattr(controller, "assess_repositories", interrupted)
@@ -1453,8 +1465,9 @@ def test_control_and_stride_contexts_omit_path_hashes_and_controls_answer_in_one
 
 
 @pytest.mark.parametrize("count", [6, 9])
-def test_components_run_concurrently_within_the_limit_and_keep_order(tmp_path, count):
-    """MR-16: up to four components at a time; results and warnings keep component order."""
+@pytest.mark.parametrize("max_parallel", [1, 2, 4])
+def test_components_run_concurrently_within_the_limit_and_keep_order(tmp_path, count, max_parallel):
+    """Configured parallel work preserves the order of results and warnings."""
     import threading
     import time
 
@@ -1465,7 +1478,7 @@ def test_components_run_concurrently_within_the_limit_and_keep_order(tmp_path, c
     jobs = AssessmentJobs(
         scope,
         scope.output / ".assessment/jobs",
-        AssessmentBudget(2, 0.05, 60, 120),
+        AssessmentBudget(2, 0.05, 60, 120, max_parallel=max_parallel),
         Host(scope).factory,
         lambda: False,
         lambda: None,
@@ -1486,7 +1499,7 @@ def test_components_run_concurrently_within_the_limit_and_keep_order(tmp_path, c
 
     names = [f"c{n}" for n in range(count)]
     results = controller._assessment_components_concurrently(jobs, names, analyze)
-    assert 1 < peak[0] <= controller.ASSESSMENT_COMPONENT_WORKERS
+    assert peak[0] == max_parallel
     assert results == [(f"document {n}", f"review {n}") for n in names]
     assert jobs.notes == [f"note {n}" for n in names]
 

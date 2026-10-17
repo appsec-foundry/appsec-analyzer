@@ -4,4 +4,5 @@ description: Quick developer assessment
 model_profile: claude
 assessment_depth: quick
 budget: 10
+max_parallel: 2
 outputs: [markdown, sarif]

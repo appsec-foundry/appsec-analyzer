@@ -21,6 +21,7 @@ from jsonschema import Draft202012Validator
 from yaml.tokens import AliasToken, AnchorToken
 
 from appsec_analyzer import resource_root
+from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
 
 BUILTINS = ("claude", "codex")
 DEPTHS = ("quick", "standard", "thorough")
@@ -254,7 +255,15 @@ def _case_files(values: list[str]) -> list[str]:
 
 
 def resolve_scan(
-    selection: str, *, depth=None, budget=None, outputs=None, abuse_case_files=None, repositories=(), home=None
+    selection: str,
+    *,
+    depth=None,
+    budget=None,
+    outputs=None,
+    abuse_case_files=None,
+    max_parallel=None,
+    repositories=(),
+    home=None,
 ) -> dict:
     home = home or config_home()
     scan, source, files = _select(selection, "scan", home=home, repositories=repositories)
@@ -265,6 +274,7 @@ def resolve_scan(
         "model_profile": "claude",
         "assessment_depth": "standard",
         "budget": 20,
+        "max_parallel": DEFAULT_MAX_PARALLEL,
         "outputs": ["markdown", "yaml"],
         "abuse_case_files": [],
     }
@@ -273,12 +283,17 @@ def resolve_scan(
     for key, value in (
         ("assessment_depth", depth),
         ("budget", budget),
+        ("max_parallel", max_parallel),
         ("outputs", outputs),
         ("abuse_case_files", abuse_case_files),
     ):
         if value is not None:
             _assign(settings, provenance, {key: value}, "CLI")
     settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
+    try:
+        validate_max_parallel(settings["max_parallel"])
+    except ValueError as exc:
+        raise ProfileError(str(exc)) from None
     if type(settings["budget"]) not in (int, float) or not math.isfinite(settings["budget"]) or settings["budget"] <= 0:
         raise ProfileError("budget must be a positive finite USD amount")
     if any(item not in OUTPUTS for item in settings["outputs"]):

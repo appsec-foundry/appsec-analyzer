@@ -72,6 +72,64 @@ def test_user_defaults_role_depth_and_cli_precedence(home):
     assert resolved["attributes"] == {"team": "payments"}
 
 
+def test_max_parallel_defaults_profile_cli_and_provenance(home):
+    assert profiles.resolve_scan("claude")["settings"]["max_parallel"] == 2
+    write(home, "scan", "parallel", {"schema_version": 1, "max_parallel": 4})
+    configured = profiles.resolve_scan("parallel")
+    assert configured["settings"]["max_parallel"] == 4
+    assert configured["origins"]["settings"]["max_parallel"].endswith("parallel.yaml")
+    override = profiles.resolve_scan("parallel", max_parallel=1)
+    assert override["settings"]["max_parallel"] == 1
+    assert override["origins"]["settings"]["max_parallel"] == "CLI"
+    assert configured["definition_sha256"] != override["definition_sha256"]
+
+
+@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("override, expected", [(None, 4), (1, 1), (16, 16)])
+def test_public_max_parallel_reaches_controller_from_profile_or_cli(
+    home, tmp_path, monkeypatch, command, override, expected
+):
+    write(home, "scan", "parallel", {"schema_version": 1, "max_parallel": 4})
+    from appsec_analyzer import hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller as controller
+
+    seen = {}
+
+    def assess(args, **kwargs):
+        seen.update(args=args, profile=kwargs["run_profile"])
+        ns, _ = controller._assessment_argument_parser().parse_known_args(args)
+        assert controller._assessment_budget(ns).max_parallel == expected
+        return 0
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(controller, "assess_main", assess)
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    args = [command, "--repo", str(repo), "--profile", "parallel"]
+    if override is not None:
+        args += ["--max-parallel", str(override)]
+    assert cli.main(args) == 0
+    assert seen["args"][seen["args"].index("--max-parallel") + 1] == str(expected)
+    assert seen["profile"]["settings"]["max_parallel"] == expected
+
+
+@pytest.mark.parametrize("command", ["scan", "assess", "profiles show", "profiles validate"])
+@pytest.mark.parametrize("value", ["0", "-1", "17", "2.5", "true", "many"])
+def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypatch, command, value):
+    from appsec_analyzer import hosts
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not start"))
+    args = command.split()
+    args += (
+        ["claude"] if args[0] == "profiles" else ["--repo", "https://example.invalid/repo.git", "--profile", "claude"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*args, f"--max-parallel={value}"])
+    assert exc.value.code == 2
+
+
 @pytest.mark.parametrize("name", ["claude", "codex"])
 @pytest.mark.parametrize("depth", profiles.DEPTHS)
 def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
@@ -87,6 +145,7 @@ def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
         {"budget": -1},
         {"budget": True},
         {"budget": float("inf")},
+        *({"max_parallel": value} for value in (0, -1, 17, True, 2.0, "3")),
         {"model_profile": "../codex"},
         {"endpoint": "https://untrusted.invalid"},
         {"outputs": ["shell"]},
@@ -247,8 +306,11 @@ def test_builtin_collision_and_model_file_symlink_fail(home, tmp_path):
 def test_profile_inspection_and_validation_do_not_need_credentials(home, monkeypatch, capsys):
     sample(home)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    assert cli.main(["profiles", "show", "release", "--budget", "7"]) == 0
-    assert json.loads(capsys.readouterr().out)["settings"]["budget"] == 7
+    assert cli.main(["profiles", "show", "release", "--budget", "7", "--max-parallel", "3"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["settings"]["budget"] == 7
+    assert shown["settings"]["max_parallel"] == 3
+    assert shown["origins"]["settings"]["max_parallel"] == "CLI"
     assert cli.main(["profiles", "validate", "release"]) == 0
     assert json.loads(capsys.readouterr().out)["valid"]
     assert cli.main(["profiles", "list"]) == 0
@@ -286,7 +348,7 @@ def test_public_cli_passes_effective_budget_exports_and_role_settings(home, tmp_
         )
         == 0
     )
-    assert "USD 12" in capsys.readouterr().err
+    assert "Model budget limit:" not in capsys.readouterr().err
     assert "--html" in seen["args"] and "--sarif" not in seen["args"]
     assert seen["args"][seen["args"].index("--model") + 1] == "gpt-6.1-sol"
     assert seen["profile"]["models"]["recon_scanner"]["model"] == "gpt-6-luna"
@@ -324,6 +386,8 @@ def test_model_alias_is_frozen_on_resume_and_changed_profile_is_rejected(home, t
     assert restored["models"]["stride_analyzer"]["input_usd_per_million"] == 2.5
     with pytest.raises(profiles.ProfileError, match="changed"):
         profiles.restore_profile(profiles.resolve_scan("release", budget=99), output, resume=True)
+    with pytest.raises(profiles.ProfileError, match="changed"):
+        profiles.restore_profile(profiles.resolve_scan("release", max_parallel=4), output, resume=True)
 
 
 def test_catalog_prices_determine_role_reservations(home):
@@ -364,7 +428,7 @@ def test_controller_dispatches_models_and_publishes_attributes(home, tmp_path, m
     attributes = {"team": "payments", "file": "release-2026", "repository_id": "review-label"}
     scan["report"]["attributes"] = attributes
     scan_path.write_text(yaml.safe_dump(scan))
-    run = profiles.resolve_scan("release", depth="quick", outputs=["markdown", "yaml"])
+    run = profiles.resolve_scan("release", depth="quick", outputs=["markdown", "yaml"], max_parallel=3)
     cli._engine_imports()
     from orchestrator import orchestration_controller as controller
     from runtime import multi_repo_scope
@@ -415,6 +479,7 @@ def test_controller_dispatches_models_and_publishes_attributes(home, tmp_path, m
     assert "payments" in (output / "security-assessment.md").read_text()
     state = json.loads((output / ".assessment-state.json").read_text())
     assert state["operator_profile"]["models"]["stride_analyzer"]["model"] == "gpt-6.1-sol"
+    assert state["operator_profile"]["settings"]["max_parallel"] == 3
 
 
 def test_validation_checks_unselected_depths(home, capsys):

@@ -178,7 +178,8 @@ def test_scan_refuses_output_inside_checkout(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("command", ["scan", "assess"])
 @pytest.mark.parametrize(
-    "budget_args, expected", [([], 20.0), (["--budget", "7.5"], 7.5), (["--hard-budget", "3"], 3.0)]
+    "budget_args, expected",
+    [([], 20.0), (["--budget", "20"], 20.0), (["--budget", "7.5"], 7.5), (["--hard-budget", "3"], 3.0)],
 )
 def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, capsys, command, budget_args, expected):
     from appsec_analyzer import cli, hosts
@@ -187,9 +188,16 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
     from orchestrator import orchestration_controller
 
     observed = []
+    profiles = []
+
+    def record_assessment(args, **kwargs):
+        observed.extend(args)
+        profiles.append(kwargs["run_profile"])
+        return 0
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
-    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args, **kwargs: observed.extend(args) or 0)
+    monkeypatch.setattr(orchestration_controller, "assess_main", record_assessment)
     arguments = [command, *budget_args]
     if command == "assess":
         arguments += ["--repo", str(tmp_path), "--host", "claude-cli"]
@@ -197,7 +205,20 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
     assert observed[:2] == ["--repo", str(tmp_path)]
     assert observed.count("--hard-budget") == 1
     assert float(observed[observed.index("--hard-budget") + 1]) == expected
-    assert f"Model budget limit: USD {expected:g}" in capsys.readouterr().err
+    assert "Model budget limit:" not in capsys.readouterr().err
+    ns, _ = orchestration_controller._assessment_argument_parser().parse_known_args(observed)
+    rows = dict(
+        orchestration_controller._assessment_intro(
+            ns,
+            orchestration_controller._assessment_budget(ns),
+            profiles[0]["settings"]["assessment_depth"],
+            "Models: test",
+            "test pipeline",
+            cfg={"operator_profile": profiles[0]},
+        )
+    )
+    assert rows["Budget"].startswith(f"model calls stop at ${expected:.2f}")
+    assert ("default for the scan profile" in rows["Budget"]) is (not budget_args)
 
 
 @pytest.mark.parametrize("command", ["scan", "assess"])

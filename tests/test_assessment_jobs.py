@@ -616,6 +616,36 @@ def test_optional_work_protects_pending_analysis_and_uses_measured_job_cost(tmp_
     assert host.calls == 1
 
 
+@pytest.mark.parametrize(
+    "max_parallel, pending, skipped", [(1, 4, True), (2, 4, True), (4, 4, False), (2, 3, True), (16, 17, True)]
+)
+def test_optional_work_keeps_time_for_pending_analysis_with_configured_workers(
+    tmp_path, max_parallel, pending, skipped
+):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(1.0, 0.05, 100, 3600, max_parallel=max_parallel)
+    jobs.budget.deadline = time.monotonic() + 2400
+    jobs.budget.plan_completion()
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", pending)
+    result = jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"})
+    assert result == {"result": "not reviewed" if skipped else "accepted"}
+    assert host.calls == (0 if skipped else 1)
+    if not skipped:
+        return
+    assert jobs.gaps[0]["budget"]
+    # Accepted work releases enough time for the optional check.
+    for _ in range(pending):
+        jobs.budget.accepted("stride:remaining", "stride_analyzer", 0.01, 1)
+    assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "accepted"}
+    assert host.calls == 1
+
+
+@pytest.mark.parametrize("value", [0, -1, 17, True, 1.5, "2"])
+def test_assessment_budget_rejects_invalid_parallel_limits(value):
+    with pytest.raises(ExchangeError, match="max_parallel"):
+        AssessmentBudget(1.0, 0.05, 10, 60, max_parallel=value)
+
+
 def test_optional_work_keeps_time_for_the_report_and_local_finalization(tmp_path):
     from runtime.assessment_jobs import FINALIZATION_SECONDS, REPORT_JOB
 

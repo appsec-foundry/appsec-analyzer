@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from appsec_analyzer import ENGINE_VERSION, INTERFACE_VERSION, resource_root
+from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, MAX_PARALLEL
 
 # Operator-selected built-ins only; repository content cannot select a provider.
 _PROFILE_HOSTS = {"claude": "claude-cli", "codex": "openai"}
@@ -49,6 +50,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("selection", metavar="NAME_OR_FILE")
         command.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"))
         command.add_argument("--budget", type=_positive_budget)
+        command.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
         command.add_argument(
             "--outputs",
             nargs="+",
@@ -168,6 +170,13 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     )
     parser.add_argument(
         "--assessment-depth", choices=("quick", "standard", "thorough"), default="standard", action=_Explicit
+    )
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        choices=range(1, MAX_PARALLEL + 1),
+        metavar="N",
+        help=f"Assess at most N components at once (1–{MAX_PARALLEL}; default: {DEFAULT_MAX_PARALLEL}; overrides profile)",
     )
     parser.add_argument(
         "--outputs",
@@ -475,6 +484,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         selection,
         depth=ns.assessment_depth if "assessment_depth" in explicit else None,
         budget=ns.hard_budget if "hard_budget" in explicit else None,
+        max_parallel=ns.max_parallel,
         outputs=ns.outputs,
         abuse_case_files=ns.abuse_case_file,
         repositories=ns.repo or [str(Path.cwd())],
@@ -487,6 +497,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
     profile["settings"]["outputs"] = [item for item in OUTPUTS if item in selected]
     ns.assessment_depth = profile["settings"]["assessment_depth"]
     ns.hard_budget = profile["settings"]["budget"]
+    ns.max_parallel = profile["settings"]["max_parallel"]
     ns.abuse_case_file = profile["settings"]["abuse_case_files"]
     for output in OUTPUTS[2:]:
         setattr(ns, output.replace("-", "_"), output in selected)
@@ -547,6 +558,8 @@ def _assess(ns: argparse.Namespace) -> int:
     args += [
         "--hard-budget",
         str(ns.hard_budget),
+        "--max-parallel",
+        str(ns.max_parallel),
         "--assessment-depth",
         ns.assessment_depth,
         "--trust-mode",
@@ -739,11 +752,23 @@ def main(argv: list[str] | None = None) -> int:
             if ns.profile_action == "list":
                 document = {"profiles": list_profiles()}
             else:
-                document = resolve_scan(ns.selection, depth=ns.assessment_depth, budget=ns.budget, outputs=ns.outputs)
+                document = resolve_scan(
+                    ns.selection,
+                    depth=ns.assessment_depth,
+                    budget=ns.budget,
+                    outputs=ns.outputs,
+                    max_parallel=ns.max_parallel,
+                )
                 if ns.profile_action == "validate":
                     depths = [ns.assessment_depth] if ns.assessment_depth else list(DEPTHS)
                     for depth in depths:
-                        resolve_scan(ns.selection, depth=depth, budget=ns.budget, outputs=ns.outputs)
+                        resolve_scan(
+                            ns.selection,
+                            depth=depth,
+                            budget=ns.budget,
+                            outputs=ns.outputs,
+                            max_parallel=ns.max_parallel,
+                        )
                     document = {
                         "valid": True,
                         "name": document["name"],
@@ -753,7 +778,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if ns.command in ("scan", "assess"):
             _prepare_profile(ns)
-        if ns.command in ("scan", "assess", "audit-requirements"):
+        if ns.command == "audit-requirements":
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
         if ns.command == "version":
             print(json.dumps({"engine_version": ENGINE_VERSION, "interface_version": INTERFACE_VERSION}))

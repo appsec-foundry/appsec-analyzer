@@ -23,6 +23,7 @@ description: Release review
 model_profile: codex
 assessment_depth: thorough
 budget: 20
+max_parallel: 2
 outputs: [markdown, html, pdf, sarif]
 report:
   attributes:
@@ -34,6 +35,8 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `budget` is always USD. `outputs` selects exports; Markdown and structured YAML are always retained as the base result. Supported formats are `markdown`, `yaml`, `html`, `pdf`, `sarif`, `threatdragon`, and `pentest-tasks`. HTML and PDF still need the export tools described in the [assessment guide](security-assessment.md). An unavailable optional export produces a warning.
 
+`max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
+
 Report attributes are text values, with up to 32 keys and 256 characters per value. They appear near the report title and under `meta.report_attributes` in the YAML result. They label the report; they do not change severity, authorize actions, or become analysis instructions. Keep credentials and confidential personal data out of them.
 
 Select the profile and override individual settings when needed:
@@ -41,6 +44,7 @@ Select the profile and override individual settings when needed:
 ```sh
 appsec-analyzer scan --profile release
 appsec-analyzer scan --profile release --budget 30
+appsec-analyzer scan --profile release --max-parallel 4
 appsec-analyzer scan --profile release --assessment-depth quick --outputs markdown sarif
 ```
 
@@ -121,6 +125,7 @@ These commands read configuration without calling a model or retrieving reposito
 appsec-analyzer profiles list
 appsec-analyzer profiles show release
 appsec-analyzer profiles show release --assessment-depth quick --budget 10
+appsec-analyzer profiles show release --max-parallel 4
 appsec-analyzer profiles validate release
 ```
 
@@ -153,3 +158,5 @@ Copyable examples are [developer.yaml](../examples/profiles/developer.yaml), [re
 The private assessment state stores the resolved profile, including each role's model and settings. OpenAI aliases remain fixed to the stored model IDs on `--resume`. The current catalog must still recognize those IDs and their options. Changing the profile, effective configuration, or cost information requires a new run. Existing lifecycle checks also reject incompatible sources, settings, or runtime updates, including catalog updates.
 
 Runs created before profile snapshots were introduced cannot resume through the new profile path. Start a new assessment when Analyzer reports this incompatibility. Existing `--profile claude`, `--profile codex`, and compatible legacy `--host` commands remain supported for new runs.
+
+`max_parallel` is part of the saved configuration. Changing it requires a new run. Snapshots created before this setting was recorded require a new run through the profile path; existing reports remain readable.

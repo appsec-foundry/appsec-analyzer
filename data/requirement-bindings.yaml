@@ -878,6 +878,7 @@ requirements:
   REQ-018:
     applies_to:
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/execution_limits.py
       - data/scan-profiles/**
       - data/model-profiles/**
       - data/model-catalog.yaml
@@ -913,6 +914,9 @@ requirements:
     coverage: partial
     guards:
       - tests/test_profiles.py::test_user_defaults_role_depth_and_cli_precedence
+      - tests/test_profiles.py::test_max_parallel_defaults_profile_cli_and_provenance
+      - tests/test_profiles.py::test_public_max_parallel_reaches_controller_from_profile_or_cli
+      - tests/test_profiles.py::test_invalid_max_parallel_is_rejected_before_host_or_checkout
       - tests/test_profiles.py::test_invalid_scan_profiles_fail_before_host_or_checkout
       - tests/test_profiles.py::test_unknown_models_parameters_and_authority_are_rejected
       - tests/test_profiles.py::test_controller_dispatches_models_and_publishes_attributes
@@ -1067,6 +1071,7 @@ requirements:
 
   REQ-023:
     applies_to:
+      - appsec_analyzer/execution_limits.py
       - scripts/runtime/interactive_budget.py
       - schemas/multi-repo-state.schema.json
       - appsec_analyzer/profiles.py
@@ -1110,6 +1115,9 @@ requirements:
       - tests/test_assessment_state.py::test_resume_rejects_a_broken_budget_authorization_chain
       - tests/test_assessment_jobs.py::test_optional_work_protects_pending_analysis_and_uses_measured_job_cost
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_the_report_and_local_finalization
+      - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_pending_analysis_with_configured_workers
+      - tests/test_assessment_jobs.py::test_assessment_budget_rejects_invalid_parallel_limits
+      - tests/test_multi_repo_controller.py::test_components_run_concurrently_within_the_limit_and_keep_order
       - tests/test_assessment_jobs.py::test_finishing_summary_uses_only_the_actual_remaining_budget
       - tests/test_assessment_jobs.py::test_finishing_summary_still_obeys_completion_and_execution_limits
       - tests/test_assessment_jobs.py::test_finishing_summary_corrections_stop_at_the_remaining_budget

@@ -645,6 +645,7 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     assert budget == "model calls stop at $18.75 (1.25 × deprecated --soft-budget $15; use --hard-budget)"
     assert "report take priority" in reserve and "Completion reserve" not in rows
     assert rows["Time limit"] == "4h" and rows["Depth"] == "standard"
+    assert rows["Max parallel"] == "2"
     assert rows["Models"] == "m1 (a, b)\nm2 (c)"
     assert rows["Trust mode"].startswith("untrusted: start check passed\n")
     assert rows["Output"] == "/o (--rebuild: replaces any earlier assessment)"
@@ -663,6 +664,28 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     )
 
 
+@pytest.mark.parametrize(
+    "origin, limit, is_default",
+    [
+        ("analyzer default", 20, True),
+        ("builtin:claude", 20, True),
+        ("CLI", 20, False),
+        ("/profiles/custom.yaml", 20, False),
+        ("builtin:claude", 30, False),
+    ],
+)
+def test_console_header_marks_only_an_effective_default_budget(origin, limit, is_default):
+    ns = controller._assessment_argument_parser().parse_args(
+        ["--repo", "/r", "--output", "/o", "--hard-budget", str(limit)]
+    )
+    cfg = {"operator_profile": {"settings": {"budget": 20}, "origins": {"settings": {"budget": origin}}}}
+    rows = dict(
+        controller._assessment_intro(ns, controller._assessment_budget(ns), "standard", "Models: m1", "P", cfg=cfg)
+    )
+    assert rows["Budget"].startswith(f"model calls stop at ${limit:.2f}")
+    assert ("default for the scan profile" in rows["Budget"]) is is_default
+
+
 def test_console_header_names_the_files_the_run_will_write_and_its_settings():
     parse = controller._assessment_argument_parser().parse_args
     ns = parse(["--repo", "/r", "--output", "/o", "--hard-budget", "5", "--project", "Shop", "--fail-on", "high"])
@@ -675,12 +698,11 @@ def test_console_header_names_the_files_the_run_will_write_and_its_settings():
     assert plain["Artifacts"].splitlines() == [
         "security-assessment.md",
         "security-assessment.yaml",
-        "security-assessment.figure*.svg (diagrams)",
     ]
     assert plain["Options"].splitlines() == ["project: Shop", "exit status fails on high or worse"]
     # Only requested exports are promised; the stamped copies name their slug.
     exports = rows({"write_sarif": True, "write_pdf": True, "write_pentest_tasks": True, "slug": " v2 "})
-    assert exports["Artifacts"].splitlines()[3:] == [
+    assert exports["Artifacts"].splitlines()[2:] == [
         "security-assessment.sarif.json",
         "pentest-tasks.yaml",
         "security-assessment.pdf",
@@ -1908,17 +1930,12 @@ def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path,
     assert out[1:] == [
         "  Findings    1 · High 1",
         "  Mitigations 1 · 1 fix first (P1)",
-        # The report first; figures are counted on their own row, other exports stay listed.
+        # The report first; embedded figures are omitted, other exports stay listed.
         f"  Report      {tmp_path / 'security-assessment.md'}",
         f"              {tmp_path / 'security-assessment.yaml'}",
         f"              {tmp_path / 'security-assessment.pdf'}",
-        "              + 2 figures",
-        # The single-repository summary's rules: findings to triage, then questions about them.
-        "  Next        Triage the findings — /appsec-advisor:triage-security-assessment",
-        "              Or just ask me:",
-        '                "What are the most critical findings?"',
-        '                "What should I fix first?"',
-        "                … or anything else about the report",
+        "  Next        Triage the findings with the owning team and assign remediation owners",
+        "              Inspect source citations and coverage before accepting or fixing findings",
     ]
 
 
@@ -2457,7 +2474,8 @@ def _coloured_console_output(monkeypatch, capsys, **env):
         monkeypatch.setenv(key, value)
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     console.facts(
-        "AppSec Plugin — Headless Mode", [("Repository", "/srv/app"), ("Trust mode", "untrusted: start check passed")]
+        "appsec-analyzer — Model-backed assessment (alpha)",
+        [("Repository", "/srv/app"), ("Trust mode", "untrusted: start check passed")],
     )
     console.plan_components(2)
     console.step("Assessing controls: Gateway (1/2)")
@@ -2476,8 +2494,10 @@ def test_colour_changes_no_column_of_the_console(monkeypatch, capsys):
     stripped = _ANSI.sub("", coloured).splitlines()
     plain_lines = plain.splitlines()
     # On a terminal the logo replaces the title line; every fact and row stays.
-    assert "   ╭  ▄█▄  ╮  appsec-advisor" in stripped
-    assert "▶ AppSec Plugin — Headless Mode" not in "\n".join(stripped)
+    assert "   ╭  ▄█▄  ╮  appsec-analyzer" in stripped
+    assert "   │ █████ │  source-based security analysis" in stripped
+    assert "Model-backed assessment (alpha)" in coloured
+    assert "▶ appsec-analyzer — Model-backed assessment (alpha)" in plain
     facts = lambda lines: [line for line in lines if " : " in line]  # noqa: E731
     assert facts(stripped) == facts(plain_lines)
     assert _rows(stripped) == _rows(plain_lines)
@@ -2539,7 +2559,7 @@ def test_width_bounds_every_console_line_on_and_off_a_terminal(monkeypatch, caps
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     roles = ", ".join(f"role_{index}" for index in range(30))
     console.facts(
-        "AppSec Plugin — Headless Mode (deterministic controller, experimental)",
+        "appsec-analyzer — Model-backed assessment (alpha)",
         [("Models", f"claude-sonnet-5-5 ({roles})")],
     )
     console.phase = "Threat analysis"
@@ -2558,13 +2578,13 @@ def test_a_narrowed_header_wraps_its_title_and_aligns_facts_without_time_stamps(
     monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 72)
     monkeypatch.setattr(sys.stderr, "isatty", lambda: False, raising=False)
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
-    title = "AppSec Plugin — Headless Mode (deterministic controller, experimental)"
+    title = "appsec-analyzer — Model-backed assessment (alpha, experimental)"
     budget = "model calls stop at $20.00 (default for the assessment depth; set --soft-budget or --hard-budget)"
     console.facts(title, [("Repository", "/srv/app"), ("Budget", budget)])
     lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]
     assert all(len(line) <= 71 for line in lines)
     stamped = [line for line in lines if re.match(r"^[0-9:]{8}  ", line)]
-    assert len(stamped) == 1 and "▶ AppSec Plugin" in stamped[0]
+    assert len(stamped) == 1 and "▶ appsec-analyzer" in stamped[0]
     assert "experimental)" in " ".join(lines)
     budget_lines = lines[lines.index(next(line for line in lines if "Budget" in line)) :]
     column = budget_lines[0].index("model")

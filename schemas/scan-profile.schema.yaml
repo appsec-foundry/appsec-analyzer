@@ -19,6 +19,11 @@ properties:
   budget:
     type: number
     exclusiveMinimum: 0
+  max_parallel:
+    description: Maximum number of components assessed at once.
+    type: integer
+    minimum: 1
+    maximum: 16
   outputs:
     type: array
     maxItems: 7

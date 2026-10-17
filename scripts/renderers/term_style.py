@@ -122,7 +122,7 @@ class Style:
         return self.gradient("━" * filled) + self("─" * (width - filled), "muted")
 
 
-TAGLINE = "code-derived STRIDE threat modeling"
+TAGLINE = "source-based security analysis"
 
 
 def plugin_version() -> str:
@@ -154,7 +154,7 @@ def logo(st: Style, detail: str, width: int | None = None) -> list[str]:
     middle = rim("█") + st("█", "iris") + st("█", "iris_core") + st("█", "iris") + rim("█")
     bottom = rim("▀") + st("█", "iris") + rim("▀")
     return [
-        f"   {bracket('╭')}  {top}  {bracket('╮')}  {st(st.gradient('appsec-advisor', 'iris', 'iris_bracket'), 'bold')}",
+        f"   {bracket('╭')}  {top}  {bracket('╮')}  {st(st.gradient('appsec-analyzer', 'iris', 'iris_bracket'), 'bold')}",
         f"   {bracket('│')} {middle} {bracket('│')}  {st(TAGLINE, 'muted')}",
         f"   {bracket('╰')}  {bottom}  {bracket('╯')}  {st(pieces[0], 'muted')}",
         *(" " * indent + st(piece, "muted") for piece in pieces[1:]),

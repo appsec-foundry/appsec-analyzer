@@ -36,6 +36,7 @@ from pathlib import Path as _Path
 
 if not __package__:
     _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 
 import argparse
@@ -916,6 +917,7 @@ def _assessment_session(
     from runtime.assessment_state import CACHE_NAME, RUN_DIAGNOSTIC_NAMES, AssessmentPaused, AssessmentState
 
     cfg = resolve_config.resolve_assessment(scope, arguments, PLUGIN_ROOT, model=model)
+    cfg["max_parallel"] = budget.max_parallel
     if api_profile is not None and run_profile is not None:
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
 
@@ -2031,10 +2033,6 @@ def _assessment_stride(
     return documents, reviews, merged
 
 
-# Components whose control jobs or STRIDE and evidence-review jobs run at the same time.
-ASSESSMENT_COMPONENT_WORKERS = 4
-
-
 def _assessment_components_concurrently(jobs, components, analyze):
     """Run `analyze(position, component, jobs)` for every component on a bounded pool (MR-16).
 
@@ -2061,7 +2059,7 @@ def _assessment_components_concurrently(jobs, components, analyze):
                 halt.set()
             raise
 
-    with ThreadPoolExecutor(max_workers=ASSESSMENT_COMPONENT_WORKERS, thread_name_prefix="component") as pool:
+    with ThreadPoolExecutor(max_workers=jobs.budget.max_parallel, thread_name_prefix="component") as pool:
         futures = [
             pool.submit(run, position, component, view)
             for (position, component), view in zip(enumerate(components, 1), views, strict=True)
@@ -2286,6 +2284,8 @@ _LEGACY_PUBLISHED = (
 
 
 def _assessment_argument_parser() -> argparse.ArgumentParser:
+    from appsec_analyzer.execution_limits import MAX_PARALLEL
+
     parser = argparse.ArgumentParser(
         prog="run-headless.sh --repo <path> --repo <path> ...",
         description="Assess several local Git checkouts as one system.",
@@ -2324,6 +2324,7 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
         help="Started by an interactive skill: without a budget flag, the depth sets the hard budget (MR-7).",
     )
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
+    parser.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
     # appsec-analyzer runs one phase per invocation and continues with --resume.
     parser.add_argument(
         "--pause-after",
@@ -2393,6 +2394,8 @@ def _requested_depth(rest: list[str]) -> str:
 def _assessment_budget(ns, rest: list[str] = ()):
     from runtime.assessment_jobs import MAX_ASSESSMENT_CALLS, MAX_ASSESSMENT_SECONDS, AssessmentBudget
 
+    from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL
+
     limit = ns.hard_budget
     if limit is None and ns.soft_budget is not None:
         limit = round(ns.soft_budget * 1.25, 2)
@@ -2405,7 +2408,13 @@ def _assessment_budget(ns, rest: list[str] = ()):
         raise CallError(f"--max-duration must be between 1 and {MAX_ASSESSMENT_SECONDS} seconds")
     if not (limit > 0 and limit < float("inf")):
         raise CallError("the assessment budget must be a positive amount in USD")
-    return AssessmentBudget(limit, min(ASSESSMENT_CALL_USD, limit), MAX_ASSESSMENT_CALLS, seconds)
+    return AssessmentBudget(
+        limit,
+        min(ASSESSMENT_CALL_USD, limit),
+        MAX_ASSESSMENT_CALLS,
+        seconds,
+        max_parallel=ns.max_parallel if ns.max_parallel is not None else DEFAULT_MAX_PARALLEL,
+    )
 
 
 def _assessment_preflight(roots: list[str]) -> None:
@@ -3528,13 +3537,14 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
 
 
 def _assessment_artifacts(cfg: dict[str, Any]) -> str:
-    """Name the files the run publishes into the output directory, one per line.
+    """Name reports and exports the run publishes, one per line.
 
     Uses the gates of the delivery step itself (``_assessment_publish``), so the
-    header never promises an export the run skips. A figure or export that cannot
+    header never promises an export the run skips. An export that cannot
     be produced is dropped there and reported in the closing block.
+    Embedded diagrams are omitted from this list.
     """
-    names = [REPORT, MODEL, "security-assessment.figure*.svg (diagrams)"]
+    names = [REPORT, MODEL]
     names += [basename for key, _script, basename in _YAML_DERIVED_EXPORTS if cfg.get(key)]
     if cfg.get("write_pentest_tasks"):
         names.append("pentest-tasks.yaml")
@@ -3570,8 +3580,14 @@ def _assessment_intro(
     elif ns.resume:
         output += " (--resume: continues the earlier assessment)"
     cut = f"model calls stop at ${budget.max_usd:.2f}"
+    profile = (cfg or {}).get("operator_profile") or {}
+    budget_origin = profile.get("origins", {}).get("settings", {}).get("budget", "")
     if ns.hard_budget is None and ns.soft_budget is not None:
         cut += f" (1.25 × deprecated --soft-budget ${ns.soft_budget:g}; use --hard-budget)"
+    elif (
+        budget_origin == "analyzer default" or budget_origin.startswith("builtin:")
+    ) and budget.max_usd == profile.get("settings", {}).get("budget"):
+        cut += " (default for the scan profile; change with --budget USD)"
     elif ns.hard_budget is None:
         cut += " (default for the assessment depth; change with --budget USD)"
     else:
@@ -3594,6 +3610,7 @@ def _assessment_intro(
         ("Budget", cut + "\nrequired analysis and report take priority over optional model work"),
         ("Time limit", limit),
         ("Depth", depth),
+        ("Max parallel", str(budget.max_parallel)),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
         ("Trust mode", trust),
         ("Pipeline", pipeline),
@@ -3609,7 +3626,7 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state) 
     on one line, without the trust and pipeline rows the header adds.
     """
     lineup, _ = _assessment_model_lines(cfg, compact=True)
-    rows = dict(_assessment_intro(ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed))
+    rows = dict(_assessment_intro(ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg))
     lines = []
     for key in ("Repository", "Repositories", "Output", "Depth", "Budget", "Time limit", "Models"):
         if key in rows:
@@ -4240,6 +4257,8 @@ def assess_repositories(
         from appsec_analyzer.profiles import restore_profile
 
         run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
+        if ns.max_parallel is None:
+            ns.max_parallel = run_profile["settings"]["max_parallel"]
     # Opened first, so every refusal after this still ends the file with its `end` record.
     _AssessmentProgress.open(ns.progress_file)
     unsupported = sorted({arg.split("=", 1)[0] for arg in rest} & set(_ASSESSMENT_UNSUPPORTED))
@@ -4382,7 +4401,7 @@ def assess_repositories(
                     # One header after the output directory, scope and configuration
                     # were accepted, so a refused start prints only its reason.
                     console.facts(
-                        "AppSec Plugin — Headless Mode (deterministic controller, experimental)",
+                        "appsec-analyzer — Model-backed assessment (alpha)",
                         _assessment_intro(
                             ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg
                         ),
@@ -4851,8 +4870,7 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     """The closing result block: what was assessed, what it found, where it is and what comes next.
 
     Verdict, finding and mitigation rows come from the `show-security-assessment`
-    summary, so both name the same numbers. Figures are counted, not listed:
-    the report embeds them.
+    summary, so both name the same numbers. Embedded figures are omitted.
     """
     from renderers.summarize_threat_model import completion_rows
 
@@ -4864,14 +4882,10 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     else:
         print(out(head, "ok", "bold") + " " + out(cost, "muted"), file=stream)
     output = Path(outcome["output"])
-    figures = [name for name in outcome["deliverables"] if name.endswith(".svg")]
     files = sorted(
-        (str(output / name) for name in outcome["deliverables"] if name not in figures),
+        (str(output / name) for name in outcome["deliverables"] if not name.endswith(".svg")),
         key=lambda path: not path.endswith(".md"),
     )
-    if figures and files:
-        # A row of its own, so a narrow console never splits the count.
-        files.append(f"+ {_count_noun(len(figures), 'figure')}")
     rows = [(key, value, None) for key, value in completion_rows(output)]
     rows += [("Report" if index == 0 else "", path, "accent") for index, path in enumerate(files)]
     if outcome.get("runtime_files"):
