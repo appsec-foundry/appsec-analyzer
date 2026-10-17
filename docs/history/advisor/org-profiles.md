@@ -1,0 +1,769 @@
+<a id="org-profiles"></a>
+# Organization profiles
+
+Org profiles package organization-specific presets, requirements, context, actors, and skill settings without changing the core plugin.
+
+The current format is `api_version: appsec-advisor.org-profile/v2`. Version 1 profiles continue to work and inherit the default actors.
+
+See the [packaging runbook](internal-plugin-packaging.md) to bundle a profile in a company-branded plugin.
+
+## What an org profile can and cannot do
+
+**Can**
+
+- set per-preset defaults: scan depth, outputs (SARIF / PDF / pentest tasks), quality knobs (QA, architect review, walkthroughs), and guardrails (wall time, cost cap)
+- gate CI on failing requirements (`requirements.gate`) or on new threats at a chosen severity (`guardrails.fail_on`)
+- apply profile-wide policy: an Opus ceiling (`policy.disable_opus`) and a remote-fetch allowlist (`policy.url_allowlist`)
+- declare a single requirements source URL, the default active state for create-threat-model, and a separate standalone-audit toggle
+- attach 1–3 short Markdown files with organization, identity, or platform context
+- enable a default-on Security Coach, and define its baseline and its own steering topics (triggers → guidance + requirement IDs)
+- bundle its own Claude Code hooks that run at the event layer (`hooks`)
+- soft-disable optional user-facing skills with a human-readable reason
+
+**Cannot**
+
+- define free-form severity policy or override CVSS eligibility
+- override `quick` / `standard` / `thorough` semantics
+- inject agent instructions or prompt overrides
+- override schemas, QA gates, permissions, or any renderer template
+- ship remote markdown context, or code that runs inside the analysis pipeline (bundled hooks run only at Claude Code's event layer, and are listed in the package surface)
+
+## Packaging
+
+The [packaging runbook](internal-plugin-packaging.md) creates a self-contained plugin. The layouts below are for a manual setup.
+
+Two layouts are supported:
+
+```
+internal-appsec-advisor/
+  appsec-advisor/                       # upstream core, not forked
+    config.json                         # sets organization_profile.path
+    schemas/org-profile.schema.yaml     # core-owned
+    scripts/validators/validate_org_profile.py     # core-owned
+  org-profile/
+    org-profile.yaml
+    context/
+      organization.md
+      sso.md
+      platform.md
+```
+
+or, bundled directly in the plugin tree:
+
+```
+appsec-advisor/
+  org-profiles/
+    acme/
+      org-profile.yaml
+      context/
+        organization.md
+        sso.md
+        platform.md
+```
+
+The plugin's `config.json` carries the pointer:
+
+```json
+{
+  "organization_profile": {
+    "enabled": true,
+    "path": "../org-profile/org-profile.yaml",
+    "default_preset": null
+  }
+}
+```
+
+`organization_profile.path` is resolved relative to the plugin root when not absolute. `default_preset: null` means "use the profile's own `default_preset`."
+
+## CLI and environment
+
+`create-threat-model` accepts these profile flags:
+
+| Flag | Meaning |
+|------|---------|
+| `--org-profile <path>` | use this profile instead of the packaged default |
+| `--preset <name>` | use this preset instead of the profile default |
+| `--no-org-profile` | ignore the packaged or env-pointed profile |
+
+For tri-state output toggles:
+
+| Flag | Meaning |
+|------|---------|
+| `--no-sarif` | disable SARIF even if a preset enables it |
+| `--no-pdf` | disable PDF even if a preset enables it |
+| `--no-pentest-tasks` | disable pentest-tasks even if a preset enables it |
+
+Environment variables mirror the CLI for headless / CI use:
+
+```
+APPSEC_ADVISOR_ORG_PROFILE=/abs/path/to/org-profile.yaml
+APPSEC_ADVISOR_PRESET=release-review
+APPSEC_ADVISOR_NO_ORG_PROFILE=1
+```
+
+Precedence (highest wins):
+
+```
+1. core defaults
+2. packaged default org profile from config.json
+3. APPSEC_ADVISOR_ORG_PROFILE / APPSEC_ADVISOR_PRESET / APPSEC_ADVISOR_NO_ORG_PROFILE
+4. --org-profile / --preset / --no-org-profile
+5. values from the selected preset
+6. supported direct CLI flags (`--sarif`, `--no-requirements`, …)
+```
+
+Profile and preset selection happen before preset values are applied. Direct command-line flags always win.
+
+## Schema overview
+
+The schema lives in `schemas/org-profile.schema.yaml`. Highlights:
+
+```yaml
+api_version: appsec-advisor.org-profile/v2
+organization:
+  id: acme
+  name: Acme Corp
+  profile_version: "2026.05.1"
+compatibility:
+  core: ">=0.0 <999.0"
+default_preset: ci-standard
+requirements:
+  source:
+    requirements_yaml_url: "https://appsec.int.example.com/appsec-requirements.yaml"
+    label: "Acme AppSec Requirements"
+    fail_mode: cache_fallback
+  create_threat_model:
+    default_active: true
+    quick_default_active: false
+llm_context:
+  documents:
+    - id: sso
+      path: context/sso.md
+      purpose: identity_ecosystem
+      max_bytes: 50000
+      applies_to_components: [identity-api]
+skill_toggles:
+  authnz-review:
+    enabled: false
+    reason: "AuthN/AuthZ reviews are restricted to the AppSec release job."
+presets:
+  ci-standard:
+    base_mode: standard
+    outputs:
+      yaml: true
+      sarif: true
+    requirements: { enabled: true }
+    quality: { qa_review: auto }
+    context:
+      document_ids: [sso]
+    guardrails: { max_wall_time: 1h, soft_budget_usd: 20, tracing: true }
+```
+
+`llm_context.documents` declares organization Markdown sources.
+`presets.<name>.context.document_ids` selects which sources a run uses;
+omitting the list selects all declared documents. The selected documents are
+loaded once as untrusted reference data. Context-v2 then projects only
+applicable component facts: business purpose, compromise impact, sensitive
+assets, security obligations, and explicit assumptions. These facts cannot
+select files, agents, tools, models, permissions, threat ratings, actors, abuse
+cases, trust boundaries, or controls.
+`applies_to_components` can place a hard upper bound on which final component
+IDs may receive facts from one document. Omit it when the control analyst must
+determine applicability from the document and component semantics.
+
+These rules apply in addition to the schema:
+
+- `default_preset` must exist in `presets`.
+- `compatibility.core` must accept the current plugin version.
+- `llm_context.documents[].path` must stay under the profile directory and may not traverse symlinks that escape it.
+- `presets[].context.document_ids[]` must reference declared documents.
+- `target.repo == profile_default` requires `target.repo_path`.
+- `target.output_dir` may only use the tokens `{repo_name}`, `{repo_slug}`, `{preset}`, `{date}`, and may not resolve into `.git/`.
+- `requirements_yaml_url` must not embed credentials and must be http/s.
+- `skill_toggles` keys must name a skill this build ships (or one the package policy removed); disabled toggles must carry a reason.
+- `baseline` needs an `id` whenever it sets a source; `baseline.url` must be http/s without credentials; `baseline.file` must exist under the profile directory and must declare the configured id.
+
+## CI gates
+
+Two gates turn a run's outcome into a CI exit code. Each stays advisory until a
+preset opts in, and each is overridden by its own command-line flag.
+
+The requirements gate fails on FAIL results and optionally on PARTIAL results. It covers `verify-requirements` and `audit-security-requirements`.
+
+```yaml
+presets:
+  ci-standard:
+    requirements:
+      enabled: true
+      gate:
+        mode: enforce          # default: advisory (exits 0)
+        gate_on: partial       # default: fail
+        priority_floor: SHOULD # default: MUST
+```
+
+Overridden by `--gate` / `--gate-on` / `--priority-floor`.
+
+The severity gate fails a headless run that adds threats at or above a level.
+Interactive runs never gate.
+
+```yaml
+presets:
+  ci-standard:
+    guardrails:
+      fail_on: high            # critical | high | medium
+```
+
+Overridden by `--fail-on`.
+
+## Policy
+
+`policy:` sits above the presets and applies to every run.
+
+```yaml
+policy:
+  disable_opus: true
+  url_allowlist: [appsec.int.example.com, raw.githubusercontent.com]
+```
+
+`disable_opus` replaces every Opus selection with Sonnet to enforce a cost or compliance ceiling. `--no-opus` and `APPSEC_DISABLE_OPUS` can also enable this restriction. A run cannot disable a restriction set by the profile.
+
+`url_allowlist` restricts fetch destinations for the requirements catalog and related-repo threat models. A host matches exactly or as a dotted subdomain, and a listed internal host is allowed even on a private address. Unlisted related-repo URLs still hit the full SSRF block (loopback, RFC1918, cloud-metadata).
+
+## Branding
+
+Cover-page fields for the PDF and HTML report, shared across presets:
+
+```yaml
+branding:
+  report_title: "Security Assessment"
+  contact_name: "AppSec Team"
+  contact_email: "appsec@acme.example"
+  logo: context/logo.png       # local path or https URL
+```
+
+Each field has a matching flag (`--report-title`, `--contact-name`,
+`--contact-email`, `--logo`) that wins for one run. Whatever you leave out uses
+the default cover.
+
+## Session banner
+
+Every session opens with a short status banner:
+
+1. **Identity**: plugin name and version (or your `headline`) plus `help` when packaged.
+2. **Threat model**: findings, age, drift, and the one skill that state calls for. The line appears only when a model exists or a scan is running.
+3. **Coding baseline**: the loaded id and scope, or what is missing or mismatched. Where the AI Secure Coding Baseline installer's own startup hook already prints the baseline status, the line appears only when something needs a decision.
+
+Use `headline` and `url` to customize the banner and help output, or `enabled` to disable the banner:
+
+```yaml
+banner:
+  headline: "ACME AppSec Advisor"          # replaces the plugin name on the identity line
+  url: "https://git.int.example.com/appsec"  # printed by the help skill
+  enabled: true                            # false ships a build that opens silently
+```
+
+`headline` is branding on the identity line only. Threat-model facts are always
+computed from the repository, so a configured headline can never claim a state
+that is not there.
+
+The same headline titles `/appsec-advisor:status`. Without one, a packaged build
+uses its own package name there, so the status header names your build rather
+than the upstream product.
+
+`url` is not printed in the banner; the `help` skill prints it under
+"Documentation". Point it at an internal repository or runbook.
+
+Packaging resolves these fields into the packaged `config.json`, because the
+banner runs as a SessionStart hook and must not depend on PyYAML. `--info-url`
+overrides `url` for one build; `--info-url ""` drops the line.
+
+Developers have the last word through `APPSEC_BANNER` in the `env` block of
+their `~/.claude/settings.json`: `0` silences a banner the organization enabled,
+`1` restores one it turned off.
+
+```json
+{ "env": { "APPSEC_BANNER": "0" } }
+```
+
+Removing the hook from `plugin_surface.hooks` also removes the banner, and drops
+the code with it.
+
+## Secure-coding baseline
+
+A secure-coding baseline is an instruction file the coding assistant loads before it writes code, so an organization's rules apply on every prompt rather than only on the ones that mention security. The plugin ships one, the [AI Secure Coding Baseline](https://github.com/appsec-foundry/aiscb). `/appsec-advisor:install-baseline` installs its latest signed release once the release signature and checksum verify against the key the plugin carries, and the session banner flags the baseline when it is missing or mismatched.
+
+New official aiscb installations use modular loading. A custom `baseline:` block continues to install a complete instruction file; packaging clears the upstream modular bundle and mode with the upstream source. Existing upstream modular organization overlays are detected and verified but remain managed by their own aiscb installer. The plugin does not convert a custom single-file baseline into a modular overlay.
+
+For official installations made by AISCB itself, `/appsec-advisor:update-baseline` delegates to a verified release installer that preserves the installed tools and loading mode. This requires an AISCB release supporting skill delegation; older installers retain their terminal update path. Modified or unrecorded installations and organization overlays require their own maintenance workflow.
+
+Use the `baseline:` block to ship your own instead:
+
+```yaml
+baseline:
+  id: acme-sec-1.0
+  name: "ACME Secure Coding Baseline"
+  url: "https://appsec.int.example.com/secure-coding-baseline.md"
+  file: baselines/acme-sec.md          # offline fallback, inside the profile dir
+```
+
+`name` sets the baseline label in the session banner and baseline skills. It defaults to `secure-coding baseline`.
+
+Or point at a git repository, for a baseline that is not served as a raw file:
+
+```yaml
+baseline:
+  id: acme-sec-1.0
+  git:
+    url: "git@git.int.example.com:appsec/baseline.git"
+    ref: main
+    path: secure-coding-baseline.md
+```
+
+The clone is shallow and uses the machine's existing git credentials; an
+unauthenticated clone fails rather than prompting.
+
+### The id is the contract
+
+`id` is what the session banner and `/appsec-advisor:verify-baseline` look for,
+and the baseline file must declare it as a line reading:
+
+```markdown
+`baseline-id: acme-sec-1.0` — when asked whether a baseline is loaded, answer
+from context: every baseline id you carry, with the file you loaded it from.
+```
+
+Installation rejects documents without the configured marker, including login pages and error responses. Packaging checks `baseline.file` for the same marker before distribution.
+
+Use `<name>-<version>[+<derivative>]` for the ID. A derivative such as `aiscb-0.1.14+acme` counts as installed and keeps its suffix in status output. A newer version of the same baseline is reported as ahead and passes verification.
+
+An older version is reported as behind, with `/appsec-advisor:update-baseline` as the repair command. A different baseline is reported as drift without a repair command; choose which rule set should apply. Older and different baselines fail an enforcing check.
+
+A custom source replaces the default baseline in the banner, verification, and installation. Packaging removes the upstream release source and bundled copy because they carry a different ID. Include `file:` for installations that cannot reach your server.
+
+### Keeping the vendored copy current
+
+`file:` is an offline copy and needs explicit updates. A matching ID does not prove that its content matches the `url` or `git` source; packaging does not detect that drift.
+
+Refresh it from the source the same profile declares:
+
+```bash
+python3 <plugin>/scripts/baseline/sync_baseline.py --profile org-profile/org-profile.yaml [--dry-run]
+```
+
+The refresh fetches, refuses anything without a `baseline-id:` marker, writes the copy, and reports what changed. It never falls back to the copy it is refreshing, so an unreachable source is an error rather than a silent success. Run it with `--dry-run` on a schedule to be told about drift before you cut a package; run it without to commit the new text.
+
+When the published document declares a *different* id, the refresh stops and writes nothing: a version change is a decision, not a copy. `--accept-id <id>` then moves the file and the `id:` in your profile together, or neither. Where two lines in the profile could be that id, it refuses and asks you to make the edit by hand.
+
+The command talks to the network, so keep it out of your packaging build: `package_internal_plugin.py` copies the profile into a temporary build directory, where a refresh would be discarded, and a build must not fail because a host is down.
+
+### Making it a gate
+
+Verification is advisory by default. Set `enforce: true` to make `/appsec-advisor:verify-baseline` exit non-zero when the configured baseline is missing, older, or different. A newer version of the same baseline passes.
+
+```yaml
+baseline:
+  id: acme-sec-1.0
+  url: "https://appsec.int.example.com/secure-coding-baseline.md"
+  enforce: true
+```
+
+Without the profile flag anyone can still ask for a verdict at the call site
+with `/appsec-advisor:verify-baseline --enforce`.
+
+`enabled: false` turns the feature off: the banner drops its baseline line and
+every baseline skill reports that none is configured. Removing
+`install-baseline`, `update-baseline`, `verify-baseline` and `remove-baseline`
+through `skill_toggles` drops the commands as well.
+
+An organization that mandates the baseline should disable `remove-baseline`
+that way, with a reason naming the policy. The stronger answer is Claude Code's
+managed policy below, which no local command can undo.
+
+### Rolling it out centrally
+
+Nothing is installed twice. Where the baseline already applies, the plugin says
+so and installs nothing.
+
+The widest option is Claude Code's own managed policy, which needs no plugin
+skill at all: deploy the baseline as the organization-wide `CLAUDE.md`, or put
+its text in the `claudeMd` key of `managed-settings.json`. Either applies to
+every session on the machine, in every repository, and cannot be switched off
+by a user.
+
+| Platform | Managed-policy `CLAUDE.md` |
+|---|---|
+| macOS | `/Library/Application Support/ClaudeCode/CLAUDE.md` |
+| Linux and WSL | `/etc/claude-code/CLAUDE.md` |
+| Windows | `C:\Program Files\ClaudeCode\CLAUDE.md` |
+
+Both skills report that deployment as the `policy` scope and stop: there is
+nothing for a developer to install or keep current, and a second local copy
+would only be another file to maintain. Distribute the file with MDM, Group
+Policy, or Ansible.
+
+`install-baseline` also reuses what a repository already carries. A baseline in `AGENTS.md` for Codex and Cursor, in `.github/copilot-instructions.md` for Copilot, or in a copy somebody committed and never imported is wired up with an import rather than copied, so updates have one source. `--no-reuse` opts out.
+
+## Actors
+
+Use the `actors:` block to add actors or disable default actor classes:
+
+```yaml
+actors:
+  inherit_defaults: true              # keep plugin's 9 default actor classes (default)
+  disable: []                          # explicitly deactivate by ID (with audit)
+  add: actors/*.yaml                  # glob for custom actor definition files
+```
+
+Actor definition files live in `org-profile/<name>/actors/` (parallel to `context/`). Each file contains a top-level `actors:` array of actor objects:
+
+```yaml
+# org-profile/acme/actors/insiders.yaml
+actors:
+  - id: ACT-E-01
+    label: acme-privileged-contractor
+    access: [internal-network, ci-cd-secrets, staging-env]
+    trust_positions: [contractor-internal-authority]
+    capabilities:
+      sophistication: medium
+      tooling: [off-the-shelf]
+      dwell_time: weeks
+      surface_reach: [local, lateral]
+    motivation: financial
+    heatmap_slug: repo-read
+    description: "External contractor with temporary elevated access."
+```
+
+Rules:
+
+- Custom actors are merged with plugin defaults. Matching IDs update the default actor.
+- `access[]` describes reachable deployment zones; `trust_positions[]`
+  describes the actor's stable credential, authority, control, possession, or
+  membership position. Declare both so discovery can reject semantic
+  duplicates.
+- A repository cannot re-enable an actor disabled by the organization profile.
+- A disabled actor requires `disable_reason`.
+
+With `inherit_defaults: false`, use `replaces: ACT-D-NN` to identify the default actor class covered by each custom actor.
+
+## Markdown context
+
+Each `llm_context.documents` file:
+
+- must be inside the profile directory
+- must fit `max_bytes` (default 50,000; maximum 200,000)
+- is scanned for common secret formats
+- is treated as untrusted reference data
+
+## LLM policy
+
+Two lists state what your organization allows a language model to receive and to do.
+The analysis compares each component with an LLM surface against them; without a list
+it records nothing, because neither question can be answered from code.
+
+```yaml
+llm_policy:
+  permitted_data_classes:
+    - internal-documentation
+    - pseudonymised-usage-metrics
+  approval_required_actions:
+    - payment or refund
+    - deletion of customer data
+    - outbound message to a customer
+```
+
+A data class the component sends to a prompt, tool call, retrieval index, or shared memory but that is not on the list becomes a finding. For each approval-required action, the analysis checks for an enforced gate in code. A system-prompt instruction does not count as a gate.
+
+## Adding your own skills
+
+An organization can ship its own skills alongside the upstream ones. Put each
+in the profile directory and point at them:
+
+```yaml
+skills:
+  add: "skills/*/SKILL.md"     # the default; relative to the profile directory
+```
+
+```text
+org-profile/
+  org-profile.yaml
+  skills/
+    acme-release-check/
+      SKILL.md
+```
+
+Packaging copies each matched skill directory to `skills/<name>/SKILL.md` under the plugin root, where Claude Code discovers it. Added skills appear in the packaged README. `plugin_surface.skills` can exclude them, and `skill_toggles` can disable them through the `skill-policy-gate` hook.
+
+Two things abort the build rather than resolve quietly:
+
+- **A name that collides with an upstream skill.** Replacing, say,
+  `create-threat-model` would change what its command does without anyone
+  deciding to.
+- **Frontmatter that would not pass for an upstream skill.** `name` must match
+  the directory, `description` must be non-empty and at most 1024 characters,
+  and no other keys are allowed. The description is the only text the model
+  sees when choosing a skill, so a malformed one degrades routing silently.
+
+Write your skill's commands in your own namespace. The namespace-leak check
+fails the build if the upstream one appears anywhere in the package.
+
+Added skills are listed under `skills.org_added` in `package-surface.json`, kept
+distinct from the upstream ones so the artifact surface stays auditable.
+
+## Skill toggles
+
+Skills can be disabled with a reason. The policy is enforced by the `skill-policy-gate` hook, which covers both ways a skill is reached: a person typing `/<plugin>:<skill>`, and Claude invoking it through the `Skill` tool. The hook enforces the policy outside the model; skill prose alone cannot enforce it.
+
+A disabled skill is refused with the organization's reason:
+
+- **User skills** (e.g. `export-security-assessment`, `authnz-review`): blocked with the reason printed. Exit code 30.
+- **Help-only**: `--help` still renders even when the skill is disabled. Exit code 10.
+- **Operational / repair skills** (`status`, `check-permissions`, `clean-run-state`, `fix-run-issues`, `security-assessment-health`): the org profile can warn but never hard-blocks them. Exit code 20.
+
+Toggles accept any skill included in the build, including organization-added skills. They also accept skills removed by package policy, so you can retain the reason for removal. Unknown names are rejected.
+
+Without a skill policy, all skills remain enabled.
+
+### Where the policy is read from
+
+Two sources, in this order:
+
+1. `.org-profile-effective.json`: what the current run resolved, including preset and CLI effects.
+2. `skill_toggles` in the packaged `config.json`, which packaging resolves from this profile at build time.
+
+The packaged configuration enforces toggles before the first scan, when no effective run profile exists.
+
+### Toggle or remove?
+
+Use a skill toggle to block a command and show the policy reason. Use `plugin_surface.skills` in `org-profile/package-policy.yaml` to remove its command, code, and README entry from the package. See the [packaging runbook](internal-plugin-packaging.md).
+
+## On-demand threat analysis
+
+The `analyst` block sets the question packages and methodology profiles an invoked [on-demand threat analysis](threat-analyst.md) uses. It never starts an analysis and adds no CI check.
+
+```yaml
+analyst:
+  required_packages:
+    - file: analyst/payments-package.yaml
+      sha256: <sha256 of the file>
+  default_packages:
+    - ref: tmm/threat-modeling-manifesto@1.0.0
+  allow_exploration: false
+```
+
+`allow_exploration: false` refuses [`--explore`](threat-analyst.md#let-the-analysis-explore-the-repository), which lets an interactive analysis read a redacted copy of the tracked files. Without the key, developers may use it. `policy.disable_opus` also applies to the analysis: `--model opus` is refused.
+
+`required_packages` apply to every invoked analysis; a developer cannot remove them. `default_packages` apply unless a developer adds more. Name a packaged package by `ref`, or ship your own package as a `file` under the profile directory pinned by its `sha256`. A file outside the profile directory, a missing file, or an unpinned file fails profile validation, and an invalid active profile rejects the analysis instead of running it without its required packages.
+
+## Security Coach
+
+`security_coach.enabled_by_default: true` activates the coach for the team. `APPSEC_COACH=0` still disables it for one session.
+
+`security_coach.max_requirements_per_topic` overrides the static default (3) for per-prompt requirement injection.
+
+### Your own steering rules
+
+Define your own coaching behaviour instead of forking the plugin. A topic is a
+trigger (which prompts it fires on) and what it injects (guidance text and
+requirement IDs from your catalog):
+
+```yaml
+security_coach:
+  enabled_by_default: true
+  baseline: "Follow Acme secure defaults on every change."   # optional, replaces the built-in
+  topics:
+    payments:
+      triggers: [payment, payout, refund]
+      guidance: Post to the ledger idempotently; refunds need dual approval.
+      requirements: [SEC-PAY-IDEMPOTENT, SEC-PAY-DUAL-APPROVAL]
+```
+
+Your topics are added to the built-in ones (auth, injection, crypto, …); an org topic with the same name replaces the built-in. Set `inherit_default_topics: false` to use only your own. Guidance is advisory and never overrides tool behavior, gates, or severity.
+
+## Status output
+
+`/appsec-advisor:status` always prints an *Org Profile* section, so the absence of a profile is an answer too:
+
+```
+Org Profile
+-----------
+  Status           active
+  Organization     Acme Corp (acme)
+  Version          2026.05.1
+  Path             /workspace/internal-appsec-advisor/org-profile/org-profile.yaml
+  Preset           ci-standard (base: standard)
+  Requirements     Acme AppSec Requirements
+  Org context      organization, sso, platform
+  Disabled skills  authnz-review
+```
+
+Before the first run resolves the profile, the status is `configured (not yet resolved)`; without a
+profile it is `none configured`.
+
+The same command lists every skill the build ships with the state the gate enforces, so a disabled
+skill and one the package policy removed are both visible with the reason your profile gave:
+
+```
+Skills (24 installed · 1 disabled by org profile · 1 removed by package policy)
+------------------------------------------------------------------------------
+  appsec-analyzer             enabled
+  export-security-assessment  disabled — Release job only.
+  acme-release-check          enabled  [organization]
+  authnz-review               removed by package policy
+```
+
+## Examples
+
+Use a different preset for a single run:
+
+```
+/appsec-advisor:create-threat-model --preset release-review
+```
+
+Scan an external repo with an AppSec preset:
+
+```
+/appsec-advisor:create-threat-model --preset appsec-verification --repo ../payments-api
+```
+
+Force a specific profile for a single run:
+
+```
+/appsec-advisor:create-threat-model --org-profile ./security/org-profile.yaml --preset ci-fast
+```
+
+Ignore the packaged profile for one run:
+
+```
+/appsec-advisor:create-threat-model --no-org-profile
+```
+
+Override requirements for one run:
+
+```
+/appsec-advisor:create-threat-model --requirements https://appsec.int.example.com/r.yaml
+/appsec-advisor:create-threat-model --no-requirements
+```
+
+## Abuse cases
+
+The plugin loads cases in this order:
+
+1. **Plugin standard library**: the technical abuse cases in `data/abuse-cases/technical.yaml` and the generic business abuse cases in `data/abuse-cases/business.yaml`, unless an org profile sets `abuse_cases.inherit_defaults: false`. Disable single cases with `abuse_cases.disable`.
+2. **Org profile**: `abuse_cases.add` is a glob (relative to the org-profile directory) of extra case files; `abuse_cases.disable` removes ids. Use the `ORG-AC-NNN` ID prefix.
+3. **Repository**: any `*.yaml` or `*.yml` file directly under `<repo>/docs/security/abuse-cases/` in the target repository is loaded automatically, beside `business-context.md` and `requirements.yaml`. The legacy location `<repo>/.appsec/abuse-cases/` is still read after it; a legacy file that reuses an ID from the new location is rejected. Use the `REPO-AC-NNN` ID prefix. IDs must be unique, and the `MODEL-AC` prefix is reserved for cases the model derives. A file that is invalid, larger than 128 KiB, a symbolic link, or reuses a loaded ID is rejected on its own: every other case still runs, and the report and run issues name the file and the reason.
+4. **One scan**: `--abuse-case-file <repo-relative-path>` adds a YAML file below the target repository. Repeat `--only-abuse-case <ID>` to run selected cases only. Either flag runs abuse-case verification at any depth, and an unreadable file or an unknown id is reported rather than silently skipped.
+
+Copy and adapt `examples/abuse-cases.yaml`; its comments describe each field and accepted value.
+
+Example repo-local case (`<repo>/docs/security/abuse-cases/payments.yaml`):
+
+```yaml
+schema_version: 1
+abuse_cases:
+  - id: REPO-AC-001
+    title: Refund replay via idempotency-key reuse
+    source: mandatory
+    attacker:
+      actor_id: authenticated-user
+      initial_access: authenticated_low_priv
+    goal: Issue duplicate refunds to an attacker-controlled balance.
+    chain:
+      - step: 1
+        label: Reuse a prior idempotency key
+        grants: replayed-request
+        finding:
+          title: Refund endpoint accepts a reused idempotency key
+          cwe: CWE-841
+          stride: Tampering
+          severity: High
+          mitigation_title: Enforce one-time idempotency keys per payment intent
+          remediation: Bind each key to one payment intent and reject reuse after a successful refund.
+        probe:
+          sink_patterns: ["idempotenc(y|e)[-_ ]?key"]
+```
+
+Use `scope_qualifier.required_signals` and `path_patterns` to limit a case to
+relevant repositories. `probe.sink_patterns` match existing findings first; a
+direct source match is checked by the verifier before it is reported.
+
+Add `finding` when a direct source match should become a normal finding after
+verification. It supplies the classification and mitigation and links the
+resulting finding to the abuse-case step. Without it, the case remains a
+scenario check and no finding is created.
+
+Add `release_gate` to fail CI for selected final verdicts:
+
+```yaml
+release_gate:
+  fail_on: [fully_viable]
+  applies_to_presets: [release-review]
+```
+
+### Business abuse cases
+
+A business abuse case states in plain language what to check, for access-control and business rules a pattern cannot express: a delegated administrator granting themselves a role, a tenant administrator reaching another tenant, self-approval, or reuse of an approval after a content change. Most security checks stay deterministic; use business abuse cases for the few rules that need judgment. The verifier derives the actor, the operations, and the boundary from the check and your code, and cites the source line for its verdict; a citation that does not match the file is rejected and the case stays unresolved.
+
+Put cases for one repository in `<repo>/docs/security/abuse-cases/` with `REPO-AC-NNN` IDs, and cases for every repository in the organization profile through `abuse_cases.add` with `ORG-AC-NNN` IDs.
+
+```yaml
+schema_version: 2
+abuse_cases:
+  - id: REPO-AC-010
+    kind: descriptive
+    title: Requester approves their own expense report
+    check: Check whether an employee can approve an expense report they submitted.
+    exclusions:
+      - Reports below the amount that policy lets employees self-approve.
+    open_questions:
+      - Which amount, if any, may be self-approved?
+    scope_qualifier:
+      path_patterns: ["*expense*", "*approv*"]
+```
+
+`check` is required; `exclusions` names legitimate behavior that is not an abuse, and `open_questions` names business facts the code cannot answer. When the verifier leaves a case unresolved, its first `open_questions` entry can appear among the team questions in the Management Summary, linked to the findings its steps bind to; it must be one plain question without links or markup. A confirmed case becomes a finding in the register. An unresolved case becomes a finding marked unproven when the verifier cites code where it found no enforcing control; any other unresolved case is reported as unresolved, not as safe. When the verifier cites an existing finding, or the cited code already has a finding of the same weakness, the case links to it instead, the finding names the case, and a confirmation citing the finding's own file marks its evidence verified. The optional `finding` block classifies the new finding with `cwe`, `stride`, `severity`, and `mitigation_title`; without it the finding is CWE-840, Elevation of Privilege, and Medium, and its mitigation is named after the case title. Business abuse cases carry no `goal_impact`, `source`, `release_gate`, or `probe`. Standard and thorough runs load the seven generic cases in `data/abuse-cases/business.yaml`; disable one by ID or all defaults with `inherit_defaults: false`. Thorough runs also let the model propose up to three cases for the application from its validated architecture; §9 marks them model-derived with `MODEL-AC` IDs, and they are verified and reported like every other case.
+
+An optional `scope_qualifier` limits where a case applies. Every entry of `required_signals` (recon signal names such as `has_role_concept`) must hold. Three locators select the source files the verifier starts from: `route_patterns` match route paths such as `"*approv*"` in the route inventory, ignoring case; `detector_rules` name source-scanner checks such as `AUTHZ-003` whose findings mark a file; `path_patterns` match file and directory names, ignoring case, so `"*role*"` selects `RoleController.java` and every file below a `roles/` directory; a pattern that contains `/` matches the end of the file path instead. At least one locator must find runtime source; otherwise the case runs only when you name its ID with `--only-abuse-case`, or its file with `--abuse-case-file` when that file lies outside `docs/security/abuse-cases/` and `.appsec/abuse-cases/`. A case without a locator therefore runs only on such a request. A case may instead spell out `actor`, `initial_access`, `goal`, `boundary`, `steps`, and `expected_controls`; it then needs a `scope_qualifier`.
+
+Business abuse cases cost model time, so they are bounded per run by `data/abuse-case-limits.yaml`. Quick depth checks only requested cases. Standard depth checks up to three and thorough depth up to eight, strongest preselection evidence first. The report counts cases that did not apply or were not performed and names each requested case that was not performed. Validate your files before a run by executing `python3 scripts/model/resolve_abuse_cases.py --repo-root <repo> --list-ids` in the plugin directory, where `<repo>` is the target repository path; every problem names the file, case ID, and field.
+
+## Hooks
+
+To bundle organization-specific Claude Code hooks, declare them in the profile and place their scripts under `org-profile/hooks/`:
+
+```yaml
+hooks:
+  block-risky-bash:
+    event: PreToolUse
+    matcher: Bash                                   # PreToolUse / PostToolUse only
+    command: python3 ${CLAUDE_PLUGIN_ROOT}/org-profile/hooks/guard.py
+```
+
+Each hook is recorded in `package-surface.json` (org-owned, separate from the upstream hooks) so the artifact surface stays auditable; `plugin_surface.hooks` can exclude one by ID. Hooks run at Claude Code's event layer. They can add context or block tool calls, but cannot change the analysis pipeline's findings, severity rules, or schemas. The full mechanism and rules live in the [packaging runbook](internal-plugin-packaging.md).
+
+## MCP servers
+
+Use `mcp` to include organization MCP servers, such as internal SAST or SCA services, in the packaged plugin. At build time the packager emits the declared servers into the plugin's `.mcp.json`, so Claude Code loads them whenever the internal plugin is active. Which servers are emitted can be narrowed by the [package policy](internal-plugin-packaging.md) allowlist (`plugin_surface.mcp_servers`); by default every declared server is included.
+
+```yaml
+mcp:
+  servers:
+    acme-sast:                       # http/sse transport
+      type: http
+      url: ${ACME_SAST_MCP_URL}
+      headers:
+        Authorization: Bearer ${ACME_SAST_TOKEN}
+    acme-sca:                        # stdio transport
+      command: ${CLAUDE_PLUGIN_ROOT}/bin/sca
+      args: ["--json"]
+```
+
+Rules:
+
+- Each server sets **either** `url` (http/sse) **or** `command` (stdio).
+- **Secrets never go in the profile.** Reference tokens and internal URLs as
+  `${ENV_VAR}`; Claude Code expands them at load time, and `${CLAUDE_PLUGIN_ROOT}`
+  resolves to the installed plugin directory. A credential embedded directly in a
+  server `url` (`user:pass@host`) is rejected at validation time.
+- **MCP tool output is untrusted reference data.** Like markdown context, it can
+  inform findings but never changes severity rules, QA gates, schemas,
+  permissions, or tool behavior. Only wire in endpoints you trust.

@@ -45,6 +45,9 @@ def _parser() -> argparse.ArgumentParser:
     assess.add_argument("--quiet", action="store_true")
     assess.add_argument("--progress-file", metavar="PATH")
     assess.add_argument("--model", metavar="MODEL")
+    assess.add_argument("--org-profile", metavar="FILE")
+    assess.add_argument("--preset", metavar="NAME")
+    assess.add_argument("--no-org-profile", action="store_true")
     for role in ("stride", "triage", "merger"):
         assess.add_argument(f"--{role}-model", metavar="MODEL")
     assess.add_argument("--max-duration", type=int, metavar="SECONDS")
@@ -239,7 +242,7 @@ def _assess(ns: argparse.Namespace) -> int:
         args += ["--repo", repo]
     args += ["--hard-budget", str(ns.hard_budget), "--assessment-depth", ns.assessment_depth,
              "--trust-mode", ns.trust_mode]
-    for flag in ("output", "progress_file", "model", "stride_model", "triage_model",
+    for flag in ("output", "progress_file", "model", "org_profile", "preset", "stride_model", "triage_model",
                  "merger_model", "max_duration", "fail_on", "evidence_verifier_cap", "context"):
         if value := getattr(ns, flag):
             args += ["--" + flag.replace("_", "-"), str(value)]
@@ -249,7 +252,7 @@ def _assess(ns: argparse.Namespace) -> int:
             args.append(ns.requirements)
     for flag in ("resume", "rebuild", "quiet", "sarif", "threatdragon", "pdf", "html",
                  "pentest_tasks", "no_requirements", "skip_context", "no_qa", "strict_urls",
-                 "ignore_legacy", "migrate_legacy"):
+                 "ignore_legacy", "migrate_legacy", "no_org_profile"):
         if getattr(ns, flag):
             args.append("--" + flag)
     with checkout_arguments(args) as local_args:

@@ -178,6 +178,12 @@ assessment completion.
   versioned progress response falls back to the final state with an empty
   event list. Negative tests still reject a symlinked feed. SARIF and Threat
   Dragon export names in the summary fallback now match the controller.
+- The current organization-profile guide was narrowed to the Analyzer's
+  explicit `--org-profile`, `--preset`, and `--no-org-profile` assessment
+  selection and validated business abuse-case example. The original mixed
+  engine/plugin guide remains in `docs/history/advisor/org-profiles.md` for
+  migration context. A missing operator-selected profile fails before a model
+  call; current relative links in the root and user guides resolve locally.
 
 ## Milestones
 

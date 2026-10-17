@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -90,3 +91,25 @@ def test_progress_rejects_symlinked_feed(tmp_path: Path) -> None:
     result = _run("progress", output)
     assert result.returncode != 0
     assert result.stdout == ""
+
+
+def test_assess_rejects_missing_operator_profile_before_host_call(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "handler.py").write_text("def handler():\n    return True\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test",
+                    "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+    fake = Path(__file__).resolve().parent / "e2e" / "fake_claude.py"
+    result = subprocess.run(
+        [sys.executable, "-m", "appsec_analyzer.cli", "assess", "--repo", str(repo),
+         "--host", "claude-cli", "--hard-budget", "1", "--trust-mode", "trusted",
+         "--output", str(tmp_path / "out"), "--org-profile", str(tmp_path / "missing.yaml")],
+        env={**os.environ, "APPSEC_CLAUDE_EXECUTABLE": str(fake),
+             "ANTHROPIC_API_KEY": "offline-test"},
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert result.returncode != 0
+    assert "org profile not found" in result.stdout + result.stderr
+    assert not (tmp_path / "out" / "security-assessment.yaml").exists()
