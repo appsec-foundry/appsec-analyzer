@@ -3,7 +3,7 @@
 # e2e_fixture.sh - Run a single-repo fixture E2E and verify the generated
 #                  report against the matching out-of-repo oracle.
 #
-# This is a manual, opt-in wrapper around scripts/run-headless.sh. It scans
+# This is a manual, opt-in wrapper around appsec-analyzer assess. It scans
 # exactly one fixture repo and runs the oracle only after report generation, so
 # expected signals never enter the analyzed repository context.
 #
@@ -37,6 +37,7 @@ ORACLE="${APPSEC_FIXTURE_E2E_ORACLE:-}"
 OUTPUT="${APPSEC_FIXTURE_E2E_OUTPUT:-}"
 DEPTH="${APPSEC_FIXTURE_E2E_DEPTH:-standard}"
 MAX_DURATION="${APPSEC_FIXTURE_E2E_MAX_DURATION:-3600}"
+HARD_BUDGET="${APPSEC_FIXTURE_E2E_HARD_BUDGET:-20}"
 CLEAN_OUTPUT=0
 ORACLE_JSON=0
 
@@ -44,7 +45,7 @@ usage() {
     cat <<'HELP'
 Usage: scripts/e2e_fixture.sh [options]
 
-Run an end-to-end AppSec Advisor scan against one single-repo fixture and verify
+Run an end-to-end AppSec Analyzer assessment against one single-repo fixture and verify
 the generated report against its external oracle.
 
 Options:
@@ -62,7 +63,7 @@ Options:
                          default: <fixture-root>/outputs/<fixture>-e2e
   --depth <level>        quick | standard | thorough
                          default: standard
-  --max-duration <sec>   Pass through to run-headless.sh
+  --max-duration <sec>   Pass through to appsec-analyzer assess
                          default: 3600
   --clean-output         Remove the output directory before running
   --oracle-json          Ask the oracle verifier to emit JSON
@@ -76,6 +77,7 @@ Environment overrides:
   APPSEC_FIXTURE_E2E_OUTPUT
   APPSEC_FIXTURE_E2E_DEPTH
   APPSEC_FIXTURE_E2E_MAX_DURATION
+  APPSEC_FIXTURE_E2E_HARD_BUDGET
 
 Exit codes:
   0  pipeline and oracle verification passed
@@ -168,8 +170,7 @@ fi
 [ -d "$ORACLE" ] || die_preflight "oracle directory not found: $ORACLE"
 [ -f "$ORACLE/verify_threat_model.py" ] || die_preflight "oracle verifier missing: $ORACLE/verify_threat_model.py"
 [ -f "$ORACLE/expected-signals.json" ] || die_preflight "oracle manifest missing: $ORACLE/expected-signals.json"
-[ -x "$PLUGIN_ROOT/scripts/run-headless.sh" ] || die_preflight "run-headless.sh is missing or not executable"
-command -v claude >/dev/null 2>&1 || die_preflight "'claude' CLI not found on PATH"
+command -v appsec-analyzer >/dev/null 2>&1 || die_preflight "appsec-analyzer is not on PATH"
 
 REPO_REAL="$(cd "$REPO" && pwd -P)" || die_preflight "cannot resolve fixture repo: $REPO"
 ORACLE_REAL="$(cd "$ORACLE" && pwd -P)" || die_preflight "cannot resolve oracle directory: $ORACLE"
@@ -200,7 +201,7 @@ mkdir -p "$OUTPUT"
 
 cat <<EOF
 ---------------------------------------------------------------------
-appsec-advisor - single-repo fixture E2E
+appsec-analyzer - single-repo fixture E2E
 ---------------------------------------------------------------------
   fixture:       $FIXTURE_NAME
   fixture-root:  $FIXTURE_ROOT
@@ -216,11 +217,9 @@ EOF
 START_TS=$(date +%s)
 PIPELINE_STATUS=0
 
-"$PLUGIN_ROOT/scripts/run-headless.sh" \
+appsec-analyzer assess --host claude-cli --hard-budget "$HARD_BUDGET" \
     --repo "$REPO" \
     --output "$OUTPUT" \
-    --full \
-    --yaml \
     --sarif \
     --assessment-depth "$DEPTH" \
     --max-duration "$MAX_DURATION" \
@@ -238,8 +237,8 @@ if [ "$PIPELINE_STATUS" -ne 0 ]; then
     exit 2
 fi
 
-REPORT="$OUTPUT/threat-model.md"
-YAML_REPORT="$OUTPUT/threat-model.yaml"
+REPORT="$OUTPUT/security-assessment.md"
+YAML_REPORT="$OUTPUT/security-assessment.yaml"
 
 [ -f "$REPORT" ] || { echo "ERROR: missing report: $REPORT" >&2; exit 3; }
 [ -f "$YAML_REPORT" ] || { echo "ERROR: missing YAML report: $YAML_REPORT" >&2; exit 3; }

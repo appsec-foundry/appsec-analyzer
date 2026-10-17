@@ -28,7 +28,7 @@ def test_e2e_cross_repo_fixture_scans_consumer_only_and_runs_oracle_after_pipeli
     text = SCRIPT.read_text()
 
     preflight_idx = text.index('python3 "$PLUGIN_ROOT/scripts/contexts/load_related_repos.py"')
-    run_headless_idx = text.index('"$PLUGIN_ROOT/scripts/run-headless.sh" \\')
+    run_headless_idx = text.index("appsec-analyzer assess --host claude-cli")
     verifier_idx = text.index('python3 "$ORACLE/verify_threat_model.py"')
     assert preflight_idx < run_headless_idx < verifier_idx
 
@@ -37,7 +37,8 @@ def test_e2e_cross_repo_fixture_scans_consumer_only_and_runs_oracle_after_pipeli
     assert '--repo "$REPO"' in pipeline_block
     assert '--output "$OUTPUT"' in pipeline_block
     assert '--assessment-depth "$DEPTH"' in pipeline_block
-    assert "--keep-runtime-files" in pipeline_block
+    assert "--hard-budget" in pipeline_block
+    assert "--keep-runtime-files" not in pipeline_block
     assert "ORACLE" not in pipeline_block
     assert "expected-signals.json" not in pipeline_block
     assert "auth-service" not in pipeline_block

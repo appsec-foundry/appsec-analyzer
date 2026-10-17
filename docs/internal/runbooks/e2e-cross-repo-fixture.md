@@ -10,7 +10,7 @@ By default the driver expects the shared sibling fixture-suite checkout:
 
 ```text
 <workspace>/
-  appsec-advisor/
+  appsec-analyzer/
   appsec-advisor-fixtures/
     repos/
       cross-repo-threat-fixture/
@@ -98,8 +98,8 @@ The script exits with `0` only when:
 
 - `scripts/contexts/load_related_repos.py` can validate and load the consumer's `docs/related-repos.yaml`.
 - All declared local producer `threat-model.yaml` exports are available.
-- `scripts/run-headless.sh` completes successfully against the consumer repo.
-- `threat-model.md` and `threat-model.yaml` exist in the output directory.
+- `appsec-analyzer assess --host claude-cli` completes against the consumer repo.
+- `security-assessment.md` and `security-assessment.yaml` exist in the output directory.
 - `oracle/verify_threat_model.py` finds all expected cross-repo signals.
 - The oracle is not located inside the scanned consumer repo.
 

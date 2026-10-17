@@ -3,16 +3,16 @@
 # e2e_spring_fixture.sh — Run the Spring Boot fixture E2E and verify the report
 #                         against the out-of-repo oracle.
 #
-# This is a deterministic wrapper around scripts/run-headless.sh. It deliberately
+# This is a fixture driver for appsec-analyzer assess. It deliberately
 # runs the oracle only after the threat model has been generated, so the oracle
 # is not part of the repository context given to appsec-analyzer.
 #
 # Claude Code goal prompt for a real run:
 #
-#   Goal: Run the real Spring Boot fixture E2E for appsec-advisor without editing
+#   Goal: Run the real Spring Boot fixture E2E for appsec-analyzer without editing
 #   repository files.
 #
-#   Working directory: <checkout>/appsec-advisor
+#   Working directory: <checkout>/appsec-analyzer
 #
 #   Run:
 #   ./scripts/e2e_spring_fixture.sh --depth quick --clean-output
@@ -68,7 +68,7 @@ Options:
                          default: <fixture-root>/outputs/spring-boot-threat-fixture-e2e
   --depth <level>        quick | standard | thorough
                          default: standard
-  --max-duration <sec>   Pass through to run-headless.sh
+  --max-duration <sec>   Pass through to appsec-analyzer assess
                          default: 3600
   --clean-output         Remove the output directory before running
   --oracle-json          Ask the oracle verifier to emit JSON
@@ -151,8 +151,7 @@ esac
 [ -d "$ORACLE" ] || die_preflight "oracle directory not found: $ORACLE"
 [ -f "$ORACLE/verify_threat_model.py" ] || die_preflight "oracle verifier missing: $ORACLE/verify_threat_model.py"
 [ -f "$ORACLE/expected-signals.json" ] || die_preflight "oracle manifest missing: $ORACLE/expected-signals.json"
-[ -x "$PLUGIN_ROOT/scripts/run-headless.sh" ] || die_preflight "run-headless.sh is missing or not executable"
-command -v claude >/dev/null 2>&1 || die_preflight "'claude' CLI not found on PATH"
+command -v appsec-analyzer >/dev/null 2>&1 || die_preflight "appsec-analyzer is not on PATH"
 
 REPO_REAL="$(cd "$REPO" && pwd -P)" || die_preflight "cannot resolve fixture repo: $REPO"
 ORACLE_REAL="$(cd "$ORACLE" && pwd -P)" || die_preflight "cannot resolve oracle directory: $ORACLE"
@@ -183,7 +182,7 @@ mkdir -p "$OUTPUT"
 
 cat <<EOF
 ─────────────────────────────────────────────────────────────────────
-appsec-advisor — Spring Boot fixture E2E
+appsec-analyzer — Spring Boot fixture E2E
 ─────────────────────────────────────────────────────────────────────
   fixture-root:  $FIXTURE_ROOT
   layout:        $FIXTURE_LAYOUT
@@ -198,11 +197,9 @@ EOF
 START_TS=$(date +%s)
 PIPELINE_STATUS=0
 
-"$PLUGIN_ROOT/scripts/run-headless.sh" \
+appsec-analyzer assess --host claude-cli --hard-budget "${APPSEC_FIXTURE_E2E_HARD_BUDGET:-20}" \
     --repo "$REPO" \
     --output "$OUTPUT" \
-    --full \
-    --yaml \
     --sarif \
     --assessment-depth "$DEPTH" \
     --max-duration "$MAX_DURATION" \
@@ -220,8 +217,8 @@ if [ "$PIPELINE_STATUS" -ne 0 ]; then
     exit 2
 fi
 
-REPORT="$OUTPUT/threat-model.md"
-YAML_REPORT="$OUTPUT/threat-model.yaml"
+REPORT="$OUTPUT/security-assessment.md"
+YAML_REPORT="$OUTPUT/security-assessment.yaml"
 
 [ -f "$REPORT" ] || { echo "ERROR: missing report: $REPORT" >&2; exit 3; }
 [ -f "$YAML_REPORT" ] || { echo "ERROR: missing YAML report: $YAML_REPORT" >&2; exit 3; }

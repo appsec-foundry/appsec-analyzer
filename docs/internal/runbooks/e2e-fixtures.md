@@ -16,7 +16,7 @@ Resulting layout:
 
 ```text
 <workspace>/
-  appsec-advisor/
+  appsec-analyzer/
   appsec-advisor-fixtures/
     repos/
       spring-boot-threat-fixture/
@@ -197,9 +197,9 @@ external apps and has no oracle assertion.
 
 The script exits with `0` only when:
 
-- `scripts/run-headless.sh` completes successfully against the selected fixture
+- `appsec-analyzer assess --host claude-cli` completes against the selected fixture
   repo.
-- `threat-model.md` and `threat-model.yaml` exist in the output directory.
+- `security-assessment.md` and `security-assessment.yaml` exist in the output directory.
 - `<oracle>/verify_threat_model.py` finds all expected fixture signals.
 - The oracle is not located inside the scanned repo.
 

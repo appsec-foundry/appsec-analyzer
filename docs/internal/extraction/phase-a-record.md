@@ -184,6 +184,35 @@ assessment completion.
   engine/plugin guide remains in `docs/history/advisor/org-profiles.md` for
   migration context. A missing operator-selected profile fails before a model
   call; current relative links in the root and user guides resolve locally.
+- The historical acceptance-cohort helper and plugin-hook live canary were
+  removed from the current tree with their dedicated tests and runbook. The
+  cohort manifest they required was not selected or present; the canary
+  asserted Claude Code hook and background-session behavior outside the
+  standalone controller contract. Their development history remains in the
+  filtered lineage. `scripts/run_tests.py` no longer routes to those deleted
+  tests. Offline controller and installed-wheel fake-host E2E checks replace
+  the relevant assessment-path coverage, while real host qualification stays
+  open until authorized.
+- The inherited `scripts/run_tests.py` routing catalog is not an Analyzer
+  release gate yet: its group audit found 39 failures, principally references
+  to tests and plugin paths excluded at the history filter. The controller
+  and public contracts have independent explicit pytest targets, including
+  `make test-analyzer`. The stale selection catalog remains a documented
+  development compatibility limit; it must be reconciled or retired before
+  using inherited `make test` / `make check` targets as release gates.
+- The three retained external fixture drivers now invoke `appsec-analyzer
+  assess --host claude-cli` with an explicit hard budget and inspect the
+  current `security-assessment` deliverables. Their 10 source/oracle-order
+  contract tests passed, and `sh -n` accepted all three scripts. The optional
+  live controller driver uses the same CLI; it was not run because no paid
+  qualification was authorized. Older full-run and repair drivers still call
+  the temporary CLI delegate with legacy flags and need migration before use.
+- An installed-wheel run interrupted on four planned fake host errors returned
+  a resumable status. A subsequent `assess --resume` completed offline: the
+  accepted discovery, architecture, and control roles did not run again, while
+  STRIDE and later jobs did. The completion output used Analyzer guidance and
+  `status`/`results` validated the final deliverables. No external model was
+  contacted or charged.
 
 ## Milestones
 
