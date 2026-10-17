@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,10 +15,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import check_permissions as permissions  # noqa: E402
 import contexts.context_routing as routing  # noqa: E402
 import orchestrator.orchestration_controller as controller  # noqa: E402
-import package_internal_plugin as packager  # noqa: E402
 import runtime.diagnostic_bundle as diagnostic_bundle  # noqa: E402
 
 
@@ -666,22 +665,17 @@ def test_component_architecture_context_is_delivered_only_when_selected(tmp_path
     assert selected["source_receipt"]["artifact_path"] == architecture_path
 
 
-def test_plan_uses_existing_permissions_and_is_not_copied_into_diagnostics():
-    entries = permissions.load_required(ROOT / "data" / "required-permissions.yaml")
-    rules = [entry["entry"] for entry in entries]
-    assert any(
-        permissions._rule_covers(rule, "Read(${PLUGIN_ROOT}/data/context-routing-catalog.yaml)") for rule in rules
-    )
-    assert any(permissions._rule_covers(rule, "Write(${OUTPUT_DIR}/.context-routing-plan.json)") for rule in rules)
+def test_plan_is_not_copied_into_diagnostics():
     assert routing.PLAN_NAME not in diagnostic_bundle.LOG_NAMES
     assert routing.PLAN_RECEIPT_NAME not in diagnostic_bundle.LOG_NAMES
-    reasons = " ".join(entry["reason"] for entry in entries)
-    assert "context catalog" in reasons and "context-routing plan" in reasons
 
 
 def test_catalog_runtime_bindings_and_schemas_are_packaged(tmp_path):
     build = tmp_path / "build"
-    packager.copy_source(ROOT, build)
+    result = subprocess.run(
+        [sys.executable, "setup.py", "build_py", "--build-lib", str(build)], cwd=ROOT, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
     for relative in (
         "data/context-routing-catalog.yaml",
         "data/context-routing-bindings.json",
@@ -692,4 +686,4 @@ def test_catalog_runtime_bindings_and_schemas_are_packaged(tmp_path):
         "schemas/stride-component-context-plan.schema.json",
         "scripts/contexts/context_routing.py",
     ):
-        assert (build / relative).is_file()
+        assert (build / "appsec_analyzer" / relative).is_file()

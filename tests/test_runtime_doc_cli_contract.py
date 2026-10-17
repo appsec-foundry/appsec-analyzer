@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILLS = REPO_ROOT / "skills"
 SCRIPTS = REPO_ROOT / "scripts"
 
-_BASH_BLOCK = re.compile(r"```bash\n(.*?)```", re.DOTALL)
+_BASH_BLOCK = re.compile(r"```(?:bash|sh)\n(.*?)```", re.DOTALL)
 # The escaped-newline branch must come first: `[^\n]` would otherwise consume
 # the trailing backslash of a line continuation and strand the rest of a
 # multi-line invocation — which silently dropped the very doc this test exists
@@ -40,7 +40,8 @@ _BASH_BLOCK = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 #
 # `|` ends the invocation: the runtime docs pipe one script into the next, and
 # the downstream flags belong to the downstream parser.
-_SCRIPT_CALL = re.compile(r"scripts/([a-z0-9_]+\.py)(?P<args>(?:\\\n|[^\n`|])*)")
+_SCRIPT_CALL = re.compile(r"scripts/([a-z0-9_/-]+\.py)(?P<args>(?:\\\n|[^\n`|])*)")
+_CLI_CALL = re.compile(r"(?<![\w/-])appsec-analyzer\s+([a-z][a-z0-9-]*)(?P<args>(?:\\\n|[^\n`|])*)")
 _FLAG = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]*)")
 _ARGPARSE_HELP = re.compile(r"^(?:options|optional arguments|positional arguments):", re.MULTILINE)
 
@@ -53,7 +54,8 @@ _SUBCOMMAND = re.compile(r"^[\"']?\s*([a-z][a-z0-9-]*)(?![\w=/.-])")
 def _documented_invocations() -> list[tuple[Path, str, str, frozenset[str]]]:
     """(doc, script, subcommand, flags) for every scripted invocation in a doc."""
     found: list[tuple[Path, str, str, frozenset[str]]] = []
-    docs = set(SKILLS.rglob("SKILL*.md")) | set((SKILLS / "create-threat-model" / "modes").glob("*.md"))
+    entry = SKILLS / "appsec-analyzer" / "SKILL.md"
+    docs = {entry} if entry.is_file() else set(SKILLS.rglob("SKILL*.md"))
     for doc in sorted(docs):
         text = doc.read_text(encoding="utf-8")
         for block in _BASH_BLOCK.findall(text):
@@ -69,12 +71,20 @@ def _documented_invocations() -> list[tuple[Path, str, str, frozenset[str]]]:
                 flags = frozenset(_FLAG.findall(args))
                 if flags:
                     found.append((doc, script, subcommand, flags))
+            for match in _CLI_CALL.finditer(block):
+                flags = frozenset(_FLAG.findall(match.group("args")))
+                if flags:
+                    found.append((doc, "appsec-analyzer", match.group(1), flags))
     return found
 
 
 def _accepted_flags(script: str, subcommand: str) -> frozenset[str] | None:
     """Flags the script's own parser advertises, or None if it has no CLI help."""
-    argv = [sys.executable, str(SCRIPTS / script)]
+    argv = (
+        [sys.executable, "-m", "appsec_analyzer.cli"]
+        if script == "appsec-analyzer"
+        else [sys.executable, str(SCRIPTS / script)]
+    )
     if subcommand:
         argv.append(subcommand)
     argv.append("--help")
@@ -101,15 +111,20 @@ def test_subcommand_extraction_preserves_continued_invocations(tmp_path, monkeyp
     scripts = tmp_path / "scripts"
     skills.mkdir()
     scripts.mkdir()
-    (scripts / "runner.py").write_text("")
+    (scripts / "runtime").mkdir()
+    (scripts / "runtime" / "runner.py").write_text("")
     (skills / "SKILL.md").write_text(
-        '```bash\npython3 "$PLUGIN/scripts/runner.py"' + separator + "inspect --scope sample\n```\n"
+        '```bash\npython3 "$PLUGIN/scripts/runtime/runner.py"' + separator + "inspect --scope sample\n```\n"
     )
     monkeypatch.setitem(_documented_invocations.__globals__, "SKILLS", skills)
     monkeypatch.setitem(_documented_invocations.__globals__, "SCRIPTS", scripts)
     rows = _documented_invocations()
     assert len(rows) == 1
-    assert rows[0][1:] == ("runner.py", "inspect", frozenset({"--scope"}))
+    assert rows[0][1:] == ("runtime/runner.py", "inspect", frozenset({"--scope"}))
+
+
+def test_public_cli_examples_are_extracted_from_installed_entry():
+    assert {row[2] for row in INVOCATIONS if row[1] == "appsec-analyzer"} >= {"scan-sources", "assess"}
 
 
 def test_the_runtime_docs_actually_invoke_scripts():

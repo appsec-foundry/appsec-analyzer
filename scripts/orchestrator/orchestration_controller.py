@@ -158,8 +158,8 @@ SEMANTIC_ROLE_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "stride_analyzer": {
         "agent": "appsec-stride-analyzer-v2",
-        "instruction": PLUGIN_ROOT / "agents" / "appsec-stride-analyzer-v2.md",
-        "tools": ("Read", "Glob", "Grep", "Bash", "Write"),
+        "instruction": PLUGIN_ROOT / "data" / "stride-analysis-policy.md",
+        "tools": (),
         "output_contracts": ("schemas/stride.schema.yaml",),
     },
     "threat_merger": {
@@ -894,8 +894,9 @@ def _assessment_runtime_fingerprint() -> str:
 
 
 @contextmanager
-def _assessment_session(scope, arguments, *, budget, host_factory, resume=False, model=None, rebuild=False,
-                        api_profile=None):
+def _assessment_session(
+    scope, arguments, *, budget, host_factory, resume=False, model=None, rebuild=False, api_profile=None
+):
     """Admit one owned analysis session without selecting a primary source root.
 
     The caller qualifies its trusted transport first. This controller chooses
@@ -914,8 +915,10 @@ def _assessment_session(scope, arguments, *, budget, host_factory, resume=False,
         for key in set(SEMANTIC_ROLE_MODEL_KEYS.values()) | set(RENDERER_MODEL_KEYS.values()):
             cfg[key] = api_profile.model
         cfg["host_profile"] = {
-            "kind": api_profile.kind, "endpoint": api_profile.endpoint,
-            "model": api_profile.model, "price_revision": api_profile.price_revision,
+            "kind": api_profile.kind,
+            "endpoint": api_profile.endpoint,
+            "model": api_profile.model,
+            "price_revision": api_profile.price_revision,
             "reasoning_effort": api_profile.reasoning_effort,
             "max_output_tokens": api_profile.max_output_tokens,
             "max_request_bytes": api_profile.max_request_bytes,
@@ -1690,7 +1693,7 @@ def _assessment_stride(
     from orchestrator import assessment_context
     from orchestrator.assessment_workspace import Namespaces
 
-    # REQ-FLW-005: program files outside every component reach no job; the run says so.
+    # REQ-003: program files outside every component reach no job; the run says so.
     unowned = analysis.unowned_summary(scope, components["components"], Namespaces(scope).qualify)
     if unowned:
         directories = ", ".join(f"{row['directory']} {row['files']}" for row in unowned["by_directory"])
@@ -1917,7 +1920,7 @@ def _assessment_stride(
             # Per-component progress: components run concurrently (MR-16).
             progress(f"Finished STRIDE job: {label(component)} ({index}/{len(target_batches)})")
         for part, (target_batch, _) in zip(parts, target_batches, strict=True):
-            # A coverage statement for the report, not an action item (REQ-FLW-005).
+            # A coverage statement for the report, not an action item (REQ-003).
             jobs.infos.extend(
                 {
                     "undecided": {"component": component["name"], "target": target[:300]},
@@ -2347,7 +2350,7 @@ def _console_width(value: str) -> int:
 # MR-7: hard budget in USD of an interactive launch without a budget flag.
 INTERACTIVE_DEPTH_BUDGET_USD = {"quick": 10.0, "standard": 20.0, "thorough": 40.0}
 # Exit status of an incomplete run that --resume continues: one that stopped at
-# its --pause-after boundary or on a stop request (REQ-FLW-006).
+# its --pause-after boundary or on a stop request (REQ-022).
 ASSESS_PAUSED_EXIT = 3
 # The completed run's closing block as plain text, under the state's work directory.
 ASSESSMENT_SUMMARY_NAME = "summary.txt"
@@ -2549,8 +2552,7 @@ class _AssessmentProgress:
 
     @classmethod
     def recent_rate_limit(cls) -> bool:
-        return bool(cls.last_retry and cls.last_retry[0] == "rate_limit"
-                    and time.monotonic() - cls.last_retry[1] < 300)
+        return bool(cls.last_retry and cls.last_retry[0] == "rate_limit" and time.monotonic() - cls.last_retry[1] < 300)
 
     @classmethod
     def _append(cls, text: str, mode: str = "a") -> None:
@@ -3948,7 +3950,7 @@ def _assessment_render(
         _run_script(
             "model/build_threat_model_yaml.py",
             [str(workspace), "--repo-root", str(root), "--plugin-root", str(PLUGIN_ROOT)]
-            # REQ-USE-004: the workspace starts empty, so the replaced assessment's changelog comes along.
+            # REQ-017: the workspace starts empty, so the replaced assessment's changelog comes along.
             + (["--history", str(history)] if history else []),
         )
         model = yaml.safe_load(model_path.read_text(encoding="utf-8"))
@@ -3960,7 +3962,7 @@ def _assessment_render(
             model["meta"]["project_name"] = cfg["project_name"]
         if len(scope.repositories) == 1:
             model["meta"].update(_single_repository_meta(scope))
-        # REQ-FLW-005: the report names the coverage gap, not only the console.
+        # REQ-003: the report names the coverage gap, not only the console.
         unexamined = [{"component": e["component"], "files": e["files"]} for e in jobs.infos if "component" in e]
         if unexamined:
             model["meta"]["unexamined_source"] = unexamined
@@ -4145,7 +4147,7 @@ def _assessment_destination(ns) -> str:
 def _private_destination(output: str) -> str:
     """Create ``output`` privately when it lies under the per-user data directory.
 
-    REQ-TRU-005: such a destination is created with mode 0700 at every level,
+    REQ-035: such a destination is created with mode 0700 at every level,
     and a symlinked, foreign or group-readable level stops the run. An
     explicit --output elsewhere is used as given.
     """
@@ -4201,6 +4203,7 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
         console.start_ticker()
     say = progress or (console.step if console else (lambda text: None))
     budget = _assessment_budget(ns, rest)
+
     def report_retry(message: str) -> None:
         _AssessmentProgress.note_retry(message)
         (console.notice if console else say)(message)
@@ -4275,7 +4278,13 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
             infos.append(imported)
         try:
             session = _assessment_session(
-                scope, rest, budget=budget, host_factory=factory, resume=ns.resume, model=ns.model, rebuild=ns.rebuild,
+                scope,
+                rest,
+                budget=budget,
+                host_factory=factory,
+                resume=ns.resume,
+                model=ns.model,
+                rebuild=ns.rebuild,
                 api_profile=api_profile,
             )
             with session as (cfg, state, jobs):
@@ -4439,7 +4448,7 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None, ap
                 warnings.extend(failed)
                 warnings.extend(jobs.notes)
                 infos.extend(_coverage_infos(jobs.infos, ns.verbose))
-                # A budget skip is the planned degradation, not a run issue (REQ-FLW-008).
+                # A budget skip is the planned degradation, not a run issue (REQ-023).
                 skipped = [gap for gap in jobs.gaps if gap.get("budget")]
                 if skipped:
                     infos.append(_budget_skip_info(skipped, architecture["components"]["components"], budget))
@@ -4835,7 +4844,7 @@ def _print_closing(outcome: dict, elapsed: str, out: Style, err: Style, stdout=N
         # Wrapped as plain text; only the leading mark is coloured.
         print(err("⚠", "warn") + fit(f"⚠ {warning}")[1:], file=stderr)
     if outcome.get("infos"):
-        # Coverage statements, not defects (REQ-FLW-005): one heading, one line each.
+        # Coverage statements, not defects (REQ-003): one heading, one line each.
         print(err("ℹ Coverage", "muted"), file=stderr)
         for info in outcome["infos"]:
             print(err(fit(f"  · {info}", "    "), "muted"), file=stderr)
@@ -4876,7 +4885,7 @@ def assess_main(argv: list[str], *, api_profile=None) -> int:
     """Command-line entry for `assess`; prints a short summary and returns an exit code."""
     code = 1
     _AssessmentProgress.last_retry = None
-    # REQ-TRU-005: every file the run creates is readable by the current user only.
+    # REQ-035: every file the run creates is readable by the current user only.
     umask = os.umask(0o077)
     try:
         code = _assess_main(argv, api_profile=api_profile)
@@ -4905,7 +4914,10 @@ def _assess_main(argv: list[str], *, api_profile=None) -> int:
     except KeyboardInterrupt:
         print("\n✗ assessment interrupted by operator or signal; accepted steps are kept", file=sys.stderr)
         if _AssessmentProgress.recent_rate_limit():
-            print("  A provider rate limit was reported recently. Wait for capacity, then retry with --resume instead of --rebuild.", file=sys.stderr)
+            print(
+                "  A provider rate limit was reported recently. Wait for capacity, then retry with --resume instead of --rebuild.",
+                file=sys.stderr,
+            )
         else:
             print("  Continue with --resume instead of --rebuild when ready.", file=sys.stderr)
         return 130
@@ -4945,12 +4957,16 @@ def _assess_main(argv: list[str], *, api_profile=None) -> int:
                 file=sys.stderr,
             )
             if _AssessmentProgress.recent_rate_limit():
-                print("  A provider rate limit was reported recently. Wait for capacity before resuming.", file=sys.stderr)
+                print(
+                    "  A provider rate limit was reported recently. Wait for capacity before resuming.", file=sys.stderr
+                )
             return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason == "rate_limit":
             print("✗ assessment stopped: provider rate limit blocked a required model call", file=sys.stderr)
-            print("  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
-                  file=sys.stderr)
+            print(
+                "  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
+                file=sys.stderr,
+            )
             return 1
         print(_AssessmentConsole.fit(f"✗ assessment stopped: {_cap_reason(str(exc))}"), file=sys.stderr)
         draft = _unpublished_draft(argv, before)

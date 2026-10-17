@@ -7,11 +7,42 @@
   "required": ["version", "generated_at", "repository", "priority_floor", "summary", "results"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "const": 1 },
+    "version": { "type": "integer", "enum": [1, 2] },
     "generated_at": { "type": "string", "description": "ISO 8601 UTC." },
     "model_id": { "type": "string" },
     "repository": { "type": "string", "description": "Git remote URL or directory name." },
     "requirements_source": { "type": "string", "description": "remote | cached | local | demo — catalog provenance." },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["catalog_sha256", "scope"],
+      "properties": {
+        "catalog_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "scope": {
+          "type": "object", "additionalProperties": false,
+          "required": ["schema_version", "scope_sha256", "repositories"],
+          "properties": {
+            "schema_version": { "const": 2 },
+            "scope_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "repositories": {
+              "type": "array", "minItems": 1, "maxItems": 1,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["repository_id", "label", "head", "state_sha256", "dirty", "files", "exclusions"],
+                "properties": {
+                  "repository_id": { "type": "string", "pattern": "^repo-[a-f0-9]{16}$" },
+                  "label": { "type": "string" },
+                  "head": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+                  "state_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                  "dirty": { "type": "boolean" },
+                  "files": { "type": "array", "items": { "type": "object", "required": ["path", "sha256", "bytes"] } },
+                  "exclusions": { "type": "array", "items": { "type": "object", "required": ["path", "reason"] } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "catalog": {
       "type": "object",
       "additionalProperties": true,
@@ -107,5 +138,8 @@
         }
       }
     }
-  }
+  },
+  "if": { "properties": { "version": { "const": 2 } } },
+  "then": { "required": ["provenance"] },
+  "else": { "not": { "required": ["provenance"] } }
 }

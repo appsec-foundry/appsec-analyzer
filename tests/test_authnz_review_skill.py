@@ -1,11 +1,4 @@
-"""
-Integration tests for the `authnz-review` skill's pentest-task export.
-
-The skill body is prose, so what is testable is the wiring it depends on: the
-org-profile resolver it reads its three pentest defaults from, the exporter CLI
-it calls, and the commands and paths the prose names. A rename on either side
-must not pass silently.
-"""
+"""Exercise the retained org-profile resolver, pentest exporter, and authn agent."""
 
 from __future__ import annotations
 
@@ -17,13 +10,6 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "authnz-review" / "SKILL.md"
-SAVE_AND_EXPORT = SKILL.parent / "save-and-export.md"
-
-
-def _skill_text() -> str:
-    """The skill contract: SKILL.md plus the save/export steps it loads on demand."""
-    return SKILL.read_text(encoding="utf-8") + SAVE_AND_EXPORT.read_text(encoding="utf-8")
 
 
 def _authnz_report() -> dict:
@@ -160,62 +146,6 @@ def test_exporter_cli_reports_an_unreadable_report(tmp_path):
 # ---------------------------------------------------------------------------
 # Wiring named in the skill body
 # ---------------------------------------------------------------------------
-
-
-def test_skill_documents_every_pentest_flag():
-    text = _skill_text()
-    for flag in ("--pentest-tasks", "--no-pentest-tasks", "--pentest-format", "--pentest-target"):
-        assert flag in text, flag
-
-
-def test_skill_calls_the_resolver_and_the_exporter():
-    text = _skill_text()
-    assert "runtime/resolve_org_profile.py" in text
-    assert "renderers/render_pentest_tasks.py" in text
-    assert "--authnz" in text
-    assert "--route-inventory" in text
-
-
-def test_skill_writes_its_own_task_file():
-    """A threat-model export lives at docs/security/pentest-tasks.yaml in the
-    same directory. The review must not overwrite it."""
-    text = _skill_text()
-    assert "pentest-tasks-authnz.yaml" in text
-    assert "docs/security/pentest-tasks.yaml" not in text
-
-
-def test_slug_names_the_task_file():
-    """With `--slug`, the task file carries the slug like the stamped
-    threat-model deliverables; without it, the default name stays."""
-    text = _skill_text()
-    assert "--slug <value>" in text
-    assert "PENTEST_FILE=pentest-tasks-authnz-<SLUG>.yaml" in text
-    assert "PENTEST_FILE=pentest-tasks-authnz.yaml" in text
-    assert '--output "$PENTEST_DIR/$PENTEST_FILE"' in text
-    # The task file never lands in the checkout (REQ-TRU-005).
-    assert "docs/security/$PENTEST_FILE" not in text
-    assert "[A-Za-z0-9._-]" in text
-
-
-def test_skill_reads_the_inventory_coverage_counts():
-    """The skill prints and gates on counts the inventory computes (FE-14),
-    so it never recounts routes or invents a field the file lacks."""
-    text = _skill_text()
-    schema = json.loads((ROOT / "schemas" / "route-inventory.schema.json").read_text(encoding="utf-8"))
-    coverage = schema["properties"]["coverage"]["properties"]
-    for field in ("route_count", "authenticated_count", "authn_absent_count", "authn_unknown_count"):
-        assert field in coverage, field
-        assert field in text, field
-    assert "authn_absent_count == route_count" not in text
-    assert "--require-inputs" in text
-    assert 'gate --report "$OUTPUT_DIR/.authnz-report.json"' in text
-    assert "authenticated_routes" not in text
-
-
-def test_skill_passes_the_plugin_root_and_keeps_no_trap():
-    text = _skill_text()
-    assert "CLAUDE_PLUGIN_ROOT=<CLAUDE_PLUGIN_ROOT>" in text
-    assert "trap " not in text
 
 
 def test_agent_maps_every_authn_signal_value():

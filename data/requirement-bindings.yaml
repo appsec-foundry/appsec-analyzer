@@ -43,7 +43,7 @@ requirements:
 
   REQ-PUR-002:
     applies_to:
-      - agents/appsec-stride-analyzer-v2.md
+      - data/stride-analysis-policy.md
       - docs/security-assessment.md
       - agents/appsec-threat-renderer.md
       - agents/shared/ms-template.md
@@ -91,7 +91,7 @@ requirements:
       - scripts/model/merge_threats.py
       - scripts/validators/validate_intermediate.py
       - scripts/contexts/build_threat_modeling_context.py
-      - agents/appsec-stride-analyzer-v2.md
+      - data/stride-analysis-policy.md
       - schemas/related-repos.schema.yaml
       - scripts/contexts/slice_cross_repo_for_component.py
       - scripts/analyzers/discover_identity_providers.py
@@ -379,7 +379,7 @@ requirements:
       - templates/fragments/verdict.md.j2
       - scripts/validators/triage_validate_ratings.py
       - agents/appsec-control-analyst.md
-      - agents/appsec-stride-analyzer-v2.md
+      - data/stride-analysis-policy.md
       - schemas/stride-component-business-context.schema.json
       - schemas/stride-analyst-context.schema.json
       - schemas/stride-dispatch-manifest.schema.yaml
@@ -1069,7 +1069,6 @@ requirements:
       - tests/test_legacy_import.py::test_an_interrupted_or_broken_run_is_reported_and_never_imported
       - tests/test_legacy_import.py::test_without_a_choice_the_run_stops_with_the_instruction
       - tests/test_analysis_version_upgrade.py::test_analysis_v5_declares_prior_read_compatibility
-      - tests/test_check_release_meta.py::test_main_invalid_analysis_compatibility_fails
 
   REQ-SCO-001:
     applies_to:
@@ -1127,7 +1126,7 @@ requirements:
   REQ-FLW-010:
     applies_to:
       - agents/appsec-recon-scanner.md
-      - agents/appsec-stride-analyzer-v2.md
+      - data/stride-analysis-policy.md
       - scripts/analyzers/architecture_coverage_checks.py
       - data/architecture-coverage-rules.yaml
     decisions: []
@@ -1154,7 +1153,7 @@ requirements:
       - scripts/contexts/build_cross_repo_register.py
       - scripts/contexts/slice_cross_repo_for_component.py
       - schemas/related-repos.schema.yaml
-      - agents/appsec-stride-analyzer-v2.md
+      - data/stride-analysis-policy.md
     decisions: []
     documents: []
     coverage: partial
@@ -1188,7 +1187,7 @@ requirements:
       - templates/fragments/verdict.md.j2
       - scripts/validators/triage_validate_ratings.py
       - agents/appsec-control-analyst.md
-      - agents/appsec-stride-analyzer-v2.md
+      - data/stride-analysis-policy.md
       - schemas/stride-component-business-context.schema.json
       - schemas/stride-analyst-context.schema.json
       - schemas/stride-dispatch-manifest.schema.yaml
@@ -1464,7 +1463,6 @@ requirements:
       - tests/test_assessment_location.py::test_a_symlinked_level_is_refused
       - tests/test_assessment_location.py::test_a_level_open_to_others_is_refused
       - tests/test_agent_logger_cov.py::TestOutputDir::test_a_session_without_an_assessment_writes_nothing
-      - tests/test_security_steering_units.py::test_log_coach_event_never_creates_a_directory_in_the_checkout
 
   REQ-FLW-006:
     applies_to:

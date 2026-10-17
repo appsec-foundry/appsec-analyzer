@@ -1,5 +1,7 @@
 # Org-profile invariants
 
+Scope: the format and resolver are retained by Analyzer, but the plugin build blocks below describe Advisor-only integration. The named plugin packager, hooks, and smoke tool are absent from this repository. Use [current organization profiles](../../org-profiles.md) for supported standalone behavior; do not recreate excluded plugin components merely to satisfy this inherited routing table.
+
 This document maps org-profile changes across schema, resolution, packaging, runtime consumption, and tests. `schemas/org-profile.schema.yaml` is the structural source of truth; this file owns the cross-layer routing rules.
 
 ## Change paths
@@ -15,7 +17,6 @@ Blocks that change the packaged plugin surface span:
 - `scripts/package_internal_plugin.py`
 - `scripts/smoke_test_package.py`
 - `tests/test_package_internal_plugin.py`
-- `tests/test_smoke_test_package.py`
 
 For example, org-declared `hooks` are merged into the built `hooks/hooks.json`, recorded under `hooks.org` in `package-surface.json`, and smoke-verified. Preserve declared org hook IDs; do not derive them from `/scripts/<name>` as upstream hook IDs are.
 
@@ -29,7 +30,7 @@ For example, `requirements.gate` is seeded into both requirements skills and rem
 
 Profile-level policy consumed by a hook or guard bypasses `flatten_preset`. It flows through `resolve()` into `.org-profile-effective.json` under `defaults` and is read directly by the consumer.
 
-Examples include `security_coach.topics` consumed by `scripts/analyzers/security_steering.py` and `policy.url_allowlist` consumed by `scripts/shared/_url_guard.py`. Relevant guards include `tests/test_security_steering_units.py` and `tests/test_url_guard.py`.
+The inherited plugin-only `security_coach.topics` consumer is excluded from Analyzer. The retained `policy.url_allowlist` reaches `scripts/shared/_url_guard.py` and is guarded by `tests/test_url_guard.py`.
 
 `analyst` is the one profile-level field that does not reach `.org-profile-effective.json`. `resolve()` returns it under `analyst`, and only `scripts/orchestrator/analyst_controller.py` consumes it, by calling `resolve()` itself; `resolve_config` and the assessment never see it. It spans the schema, `scripts/validators/validate_org_profile.py::_check_analyst`, `scripts/runtime/resolve_org_profile.py::analyst_packages`, the controller, and `tests/test_resolve_org_profile.py` / `tests/test_analyst_controller.py`. It adds no packaged surface.
 

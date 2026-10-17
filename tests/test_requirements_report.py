@@ -85,6 +85,14 @@ def test_schema_valid_verdict_passes(tmp_path):
     assert r.stdout.strip() == "total=4 pass=1 partial=1 fail=1 unverifiable=0 not_applicable=1"
 
 
+def test_version_two_requires_immutable_provenance():
+    verdict = _verdict()
+    verdict["version"] = 2
+    assert rr._schema_errors(verdict)
+    verdict["provenance"] = {"catalog_sha256": "bad", "scope": {}}
+    assert rr._schema_errors(verdict)
+
+
 def test_write_persists_recomputed_summary(tmp_path):
     f = tmp_path / ".requirements-audit.json"
     f.write_text(json.dumps(_verdict()), encoding="utf-8")

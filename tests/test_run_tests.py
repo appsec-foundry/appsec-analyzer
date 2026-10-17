@@ -727,7 +727,7 @@ def test_group_validator_cli_stops_on_inventory_drift(monkeypatch, capsys):
         ),
         (
             "scripts/run_tests.py",
-            {"tests/test_run_tests.py", "tests/test_audit_test_routes.py"},
+            {"tests/test_run_tests.py"},
         ),
         (
             "scripts/runtime/aggregate_run_issues.py",
@@ -751,7 +751,6 @@ def test_group_validator_cli_stops_on_inventory_drift(monkeypatch, capsys):
             "scripts/renderers/render_completion_summary.py",
             {
                 "tests/test_render_completion_summary.py",
-                "tests/test_report_plugin_issue.py",
                 "tests/test_completion_relay.py",
                 "tests/test_run_headless_completion.py",
             },
@@ -759,10 +758,6 @@ def test_group_validator_cli_stops_on_inventory_drift(monkeypatch, capsys):
         (
             "scripts/analyzers/security_score.py",
             {"tests/test_security_score.py", "tests/test_repo_scan.py"},
-        ),
-        (
-            "scripts/runtime/version_status.py",
-            {"tests/test_version_status.py", "tests/test_appsec_status.py"},
         ),
         (
             "CHANGELOG.md",
@@ -774,7 +769,7 @@ def test_group_validator_cli_stops_on_inventory_drift(monkeypatch, capsys):
         ),
         (
             "data/requirement-bindings.yaml",
-            {"tests/test_check_specs.py", "tests/test_run_tests.py", "tests/test_requirements_hook.py"},
+            {"tests/test_check_specs.py", "tests/test_run_tests.py"},
         ),
     ],
 )
@@ -793,7 +788,6 @@ def test_shipped_source_routes_include_reviewed_producers_and_consumers(source, 
         ("agents/shared/prose-samples.md", "agent_definitions"),
         ("data/context-routing-bindings.json", "context_routing"),
         ("data/context-routing-catalog.yaml", "context_routing"),
-        ("data/required-permissions.yaml", "check_permissions"),
         ("data/weakness-classes.yaml", "weakness_class_config_consistency"),
         ("docs/internal/contracts/cleanup-whitelist.md", "runtime_cleanup"),
         ("schemas/fragments/verdict.schema.json", "validate_fragment"),

@@ -4,6 +4,12 @@ This is an unpublished Phase A preview. Phase B Advisor integration is outside
 this repository's current assignment. Build from the `dev` branch in a separate
 temporary clone so checkout files and test artifacts cannot enter the archive:
 
+Run `make release-check-analyzer` before building. It checks the public
+standalone contracts and inventories a wheel and source archive, including
+incremental build cleanup and installed guide links. The inherited whole-suite
+and test-route catalog still need separate reconciliation before a full
+repository release gate can be claimed.
+
 ```sh
 git clone --no-hardlinks -b dev /path/to/appsec-analyzer /tmp/analyzer-release-source
 python3 -m build --no-isolation --outdir /tmp/analyzer-release-dist /tmp/analyzer-release-source

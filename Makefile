@@ -67,6 +67,23 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 		tests/test_render_completion_summary.py::TestNextSteps \
 		tests/test_render_completion_summary.py::TestExportDeliverablesBackstop
 
+.PHONY: check-analyzer
+check-analyzer:  ## Standalone Analyzer offline release gate, including wheel and sdist inventory
+	@ruff check appsec_analyzer scripts tests setup.py
+	@$(MAKE) --no-print-directory test-analyzer
+	@$(PYTHON) scripts/check_specs.py
+	@PYTHONPATH="$(CURDIR):$(CURDIR)/scripts" $(PYTHON) -m pytest -q \
+		tests/test_check_specs.py \
+		tests/test_requirements_report.py \
+		tests/test_context_routing.py \
+		tests/test_runtime_doc_cli_contract.py \
+		tests/test_active_stride_policy.py \
+		tests/test_analyzer_distribution.py
+
+.PHONY: release-check-analyzer
+release-check-analyzer: check-analyzer  ## Standalone offline distribution and controller gate
+	@$(MAKE) --no-print-directory test-controller
+
 .PHONY: test
 test:  ## Run the standard pytest suite with coverage (no LLM)
 	@$(PYTHON) scripts/run_tests.py all -v --tb=short --cov=scripts --cov-report=term-missing; \

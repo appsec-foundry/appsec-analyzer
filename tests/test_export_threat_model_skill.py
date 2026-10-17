@@ -173,41 +173,6 @@ def test_pentest_helper_with_target_url(tmp_path: Path):
     assert doc["meta"]["dialect"] == "strix"
 
 
-def test_skill_file_exists():
-    skill = ROOT / "skills" / "export-security-assessment" / "SKILL.md"
-    assert skill.is_file(), "SKILL.md must exist"
-    content = skill.read_text()
-    # Sanity-check: every documented format must appear in the body so the
-    # routing tables stay in sync with the help block.
-    for keyword in (
-        "--formats",
-        "--input",
-        "--output-pdf",
-        "pdf",
-        "html",
-        "sarif",
-        "pentest",
-        "threatdragon",
-        "exporters/export_sarif.py",
-        "renderers/render_pentest_tasks.py",
-        "exporters/export_pdf.py",
-        "exporters/export_html.py",
-        "exporters/export_threat_dragon.py",
-    ):
-        assert keyword in content, f"SKILL.md missing keyword: {keyword}"
-
-
-def test_threat_dragon_is_alpha_and_opt_in():
-    """The alpha format must not ride along with `--formats all`, and the help
-    block must say so — otherwise every run starts shipping it."""
-    content = (ROOT / "skills" / "export-security-assessment" / "SKILL.md").read_text()
-    assert "`all` (any element) → `pdf,html,sarif,pentest`." in content, (
-        "threatdragon must stay out of the `all` expansion while it is alpha"
-    )
-    assert "ALPHA" in content
-    assert "security-assessment.threatdragon.json" in content
-
-
 def test_threat_dragon_helper_runs_standalone(tmp_path: Path):
     output_dir = _setup_output_dir(tmp_path)
     td_out = output_dir / "threat-model.threatdragon.json"

@@ -29,7 +29,6 @@ GROUPS = {
     "quick": _tests("""
         agent_definitions
         check_specs
-        ci_test_workflow
         contract_integrity
         new_schemas
         run_tests
@@ -162,14 +161,10 @@ GROUPS = {
         agent_config_checks
         agent_definitions
         agent_doc_shell_snippets
-        ask_threat_model_skill
         authnz_review_skill
-        check_permissions
-        check_permissions_coverage
         context_prompt_budgets
         context_routing
         dispatch_prompt_cache_order
-        help_reference
         lazy_phase_group_loading
         phase_group_prompts
         prompt_token_bounds
@@ -219,7 +214,6 @@ GROUPS = {
         validate_assessment_architecture
         analyst_isolation
         analyst_questions
-        analyst_skill
         analyst_state
         build_analyst_context
         build_analyst_snapshot
@@ -231,8 +225,6 @@ GROUPS = {
         agent_logger_cov
         agent_logger_run_scope
         aggregate_run_issues
-        appsec_status
-        appsec_status_live
         artifact_stamp
         assert_completeness
         budget_watchdog
@@ -255,7 +247,6 @@ GROUPS = {
         remote_repositories
         hook_payload
         hook_payload_contract
-        hooks_schema
         lens_coverage
         live_run_holder
         log_agent_end
@@ -269,7 +260,6 @@ GROUPS = {
         render_completion_summary_verdict
         render_progress
         render_run_diagnosis
-        report_plugin_issue
         run_defect_fixes_2026_07_24
         run_diagnostics_recovery_2026_07_20
         run_headless_completion
@@ -284,7 +274,6 @@ GROUPS = {
         runtime_doc_cli_contract
         runtime_helper_batch
         schema_canonicalize
-        session_banner
         skill_auto_retry
         stage1_coverage_recovery_2026_07_20
         stage1_coverage_recovery_2026_08_02
@@ -406,8 +395,6 @@ GROUPS = {
         resolve_config_org_profile
         resolve_config_slug
         resolve_org_profile
-        security_steering
-        security_steering_units
         validate_config
     """),
     "requirements": _tests("""
@@ -417,7 +404,6 @@ GROUPS = {
         render_requirements_banner
         requirements_catalog_predicate
         requirements_gate
-        requirements_hook
         requirements_mapping
         requirements_report
         requirements_resolution
@@ -439,15 +425,10 @@ GROUPS = {
         update_baseline
     """),
     "packaging": _tests("""
-        check_release_meta
-        check_skill_enabled
-        internal_packaging_end_to_end
         marketplace_manifest
         package_internal_plugin
         plugin_meta
         skill_policy_gate
-        smoke_test_package
-        version_status
     """),
     "context": _tests("""
         business_context_preview
@@ -521,15 +502,12 @@ GROUPS = {
         yaml_io
     """),
     "tooling": _tests("""
-        audit_test_routes
         check_fragment_registry
         check_specs
         check_target_specificity
         ci_dispatch_workflows
-        ci_test_workflow
         enforcement_mutations
         run_tests
-        spec_guard
     """),
     "integration": _tests("""
         e2e_cross_repo_fixture_script
@@ -579,7 +557,6 @@ _SKILL_FILE_TESTS = "check_target_specificity context_routing requirements_verif
 
 SOURCE_TESTS = {
     "scripts/runtime/remote_repositories.py": _tests("remote_repositories"),
-    ".claude/settings.json": _tests("check_permissions requirements_hook spec_guard requirements_verification"),
     "specs/README.md": _tests("requirements_verification"),
     "specs/changes/root-requirements-catalog/proposal.md": _tests("requirements_verification"),
     "scripts/orchestrator/assessment_context.py": _tests("assessment_context check_target_specificity"),
@@ -744,7 +721,7 @@ SOURCE_TESTS = {
     "skills/authnz-review/HELP.txt": _tests(f"{_SKILL_FILE_TESTS} skill_definitions"),
     "skills/abuse-cases/SKILL.md": _tests(f"{_SKILL_FILE_TESTS} resolve_abuse_cases skill_definitions"),
     "skills/ask-security-assessment/SKILL.md": _tests(f"{_SKILL_FILE_TESTS} query_threat_model skill_definitions"),
-    "skills/help/SKILL.md": _tests(f"{_SKILL_FILE_TESTS} help_reference skill_definitions"),
+    "skills/help/SKILL.md": _tests(f"{_SKILL_FILE_TESTS} skill_definitions"),
     "skills/appsec-analyzer/SKILL.md": _tests(
         f"{_SKILL_FILE_TESTS} assessment_console single_repo_controller skill_definitions"
     ),
@@ -1523,7 +1500,6 @@ SOURCE_TESTS = {
     "data/requirement-bindings.yaml": _tests("""
         check_specs
         check_target_specificity
-        requirements_hook
         requirements_verification
         run_tests
         weakness_class_config_consistency
@@ -1533,7 +1509,6 @@ SOURCE_TESTS = {
     "docs/images/figure1-example.svg": _tests("figure1_dfd requirements_verification"),
     "docs/internal/contracts/orchestration-actions.md": _tests("requirements_verification"),
     "docs/internal/contracts/schema-invariants.md": _tests("""
-        report_plugin_issue
         requirements_verification
     """),
     "docs/internal/cost-model.md": _tests("requirements_verification"),
@@ -1550,7 +1525,6 @@ SOURCE_TESTS = {
     "docs/security-assessment.md": _tests("requirements_verification"),
     "requirements.md": _tests("""
         check_specs
-        requirements_hook
         requirements_verification
     """),
     "scripts/repairs/apply_prose_fixes.py": _tests("""
@@ -1869,7 +1843,6 @@ SOURCE_TESTS = {
         walkthrough_renderer
     """),
     "scripts/run_tests.py": _tests("""
-        audit_test_routes
         check_target_specificity
         gate_preconditions
         requirements_verification
@@ -1880,7 +1853,6 @@ SOURCE_TESTS = {
         shared_paths
     """),
     "scripts/audit_test_routes.py": _tests("""
-        audit_test_routes
         check_target_specificity
         gate_preconditions
         requirements_verification
@@ -1974,7 +1946,6 @@ SOURCE_TESTS = {
     """),
     "scripts/analyzers/deployment_inventory.py": _tests("""
         iac_resource_checks
-        check_permissions
         check_target_specificity
         deployment_inventory
         e2e_pipeline
@@ -2265,7 +2236,6 @@ SOURCE_TESTS = {
         gate_preconditions
         orchestration_controller
         recommend_fixes
-        report_plugin_issue
         requirements_verification
         run_diagnostics_recovery_2026_07_20
         run_headless_completion
@@ -2287,7 +2257,6 @@ SOURCE_TESTS = {
         render_completion_summary_config
         render_completion_summary_verdict
         render_integrity
-        report_plugin_issue
         requirements_verification
         run_headless_completion
         run_path_guard
@@ -2337,7 +2306,6 @@ SOURCE_TESTS = {
         render_completion_summary_verdict
         render_integrity
         render_progress
-        report_plugin_issue
         requirements_verification
         run_headless_completion
         shared_paths
@@ -2365,13 +2333,11 @@ SOURCE_TESTS = {
         stride_outputs
     """),
     "scripts/runtime/version_status.py": _tests("""
-        appsec_status
         check_target_specificity
         gate_preconditions
         requirements_verification
         run_path_guard
         stride_outputs
-        version_status
     """),
     "scripts/contexts/business_impact_scope.py": _tests("""
         business_impact_scope
@@ -2427,7 +2393,6 @@ SOURCE_TESTS = {
         render_completion_summary_verdict
         render_integrity
         render_properties
-        report_plugin_issue
         requirements_mapping
         requirements_verification
         run_headless_completion
@@ -2494,7 +2459,6 @@ SOURCE_TESTS = {
         reconcile_role_access
         render_completion_summary
         render_completion_summary_config
-        report_plugin_issue
         requirements_verification
         run_diagnostics_recovery_2026_07_20
         run_headless_completion
@@ -2678,8 +2642,6 @@ SOURCE_TESTS = {
         weakness_class_config_consistency
     """),
     "data/required-permissions.yaml": _tests("""
-        check_permissions
-        check_permissions_coverage
         check_target_specificity
         context_routing
         orchestration_controller
@@ -2879,7 +2841,6 @@ SOURCE_TESTS = {
         check_target_specificity
         context_routing
         gate_preconditions
-        report_plugin_issue
         requirements_verification
         run_path_guard
         runtime_cleanup
@@ -3462,7 +3423,6 @@ SOURCE_TESTS = {
         render_completion_summary
         render_completion_summary_config
         render_integrity
-        report_plugin_issue
         requirements_catalog_predicate
         requirements_trace
         requirements_verification
@@ -3599,7 +3559,6 @@ SOURCE_TESTS = {
         remote_url
     """),
     "scripts/shared/_url_guard.py": _tests("""
-        appsec_status
         baseline_modular
         build_threat_modeling_context
         check_target_specificity
@@ -3761,8 +3720,6 @@ SOURCE_TESTS = {
     """),
     "scripts/runtime/appsec_status.py": _tests("""
         portable_model_readers
-        appsec_status
-        appsec_status_live
         check_target_specificity
         gate_preconditions
         requirements_verification
@@ -3829,7 +3786,6 @@ SOURCE_TESTS = {
         stride_outputs
     """),
     "scripts/baseline/baseline_check.py": _tests("""
-        appsec_status
         baseline_check
         baseline_modular
         baseline_release
@@ -3840,14 +3796,11 @@ SOURCE_TESTS = {
         requirements_verification
         run_path_guard
         runtime_doc_cli_contract
-        session_banner
         stride_outputs
         sync_baseline
         update_baseline
-        version_status
     """),
     "scripts/baseline/baseline_modular.py": _tests("""
-        appsec_status
         baseline_check
         baseline_modular
         check_target_specificity
@@ -3856,11 +3809,9 @@ SOURCE_TESTS = {
         remove_baseline
         requirements_verification
         run_path_guard
-        session_banner
         stride_outputs
         sync_baseline
         update_baseline
-        version_status
     """),
     "scripts/baseline/baseline_release.py": _tests("""
         baseline_modular
@@ -3873,7 +3824,6 @@ SOURCE_TESTS = {
         stride_outputs
         sync_baseline
         update_baseline
-        version_status
     """),
     "scripts/baseline/baseline_state.py": _tests("""
         portable_model_readers
@@ -4073,8 +4023,6 @@ SOURCE_TESTS = {
         stride_outputs
     """),
     "scripts/check_permissions.py": _tests("""
-        check_permissions
-        check_permissions_coverage
         check_target_specificity
         context_routing
         gate_preconditions
@@ -4100,7 +4048,6 @@ SOURCE_TESTS = {
         stride_outputs
     """),
     "scripts/check_release_meta.py": _tests("""
-        check_release_meta
         check_target_specificity
         gate_preconditions
         requirements_verification
@@ -4108,9 +4055,6 @@ SOURCE_TESTS = {
         stride_outputs
     """),
     "scripts/runtime/check_skill_enabled.py": _tests("""
-        appsec_status
-        appsec_status_live
-        check_skill_enabled
         check_target_specificity
         gate_preconditions
         requirements_verification
@@ -4123,15 +4067,12 @@ SOURCE_TESTS = {
         check_specs
         check_target_specificity
         gate_preconditions
-        requirements_hook
         requirements_verification
         run_path_guard
         run_tests
         stride_outputs
     """),
     "scripts/runtime/check_state.py": _tests("""
-        appsec_status
-        appsec_status_live
         check_state
         check_state_coverage
         check_state_hung_aborted
@@ -4140,7 +4081,6 @@ SOURCE_TESTS = {
         orchestration_controller
         requirements_verification
         run_path_guard
-        session_banner
         stride_outputs
         threat_model_health
     """),
@@ -4219,8 +4159,6 @@ SOURCE_TESTS = {
         active_tool_calls
         agent_logger
         agent_logger_branches
-        appsec_status
-        appsec_status_live
         check_target_specificity
         cutoff_cause
         gate_preconditions
@@ -4302,7 +4240,6 @@ SOURCE_TESTS = {
         check_target_specificity
         diagnostic_bundle
         gate_preconditions
-        report_plugin_issue
         requirements_verification
         run_path_guard
         runtime_doc_cli_contract
@@ -4593,7 +4530,6 @@ SOURCE_TESTS = {
         agent_logger_cov
         agent_logger_run_scope
         aggregate_run_issues
-        appsec_status_live
         auto_emitter_pass
         check_target_specificity
         completion_relay
@@ -4614,14 +4550,11 @@ SOURCE_TESTS = {
         model_release_pricing
         orchestration_controller
         reconcile_role_access
-        report_plugin_issue
         requirements_verification
         run_diagnostics_recovery_2026_07_20
         run_headless_completion
         run_path_guard
         runtime_cleanup
-        security_steering
-        security_steering_units
         skill_auto_retry
         stride_attempt_writer
         stride_dispatch_waves
@@ -4916,12 +4849,9 @@ SOURCE_TESTS = {
         check_target_specificity
         context_routing
         gate_preconditions
-        internal_packaging_end_to_end
         package_internal_plugin
         requirements_verification
         run_path_guard
-        session_banner
-        smoke_test_package
         stride_outputs
     """),
     "scripts/analyzers/perimeter_patterns.py": _tests("""
@@ -4967,8 +4897,6 @@ SOURCE_TESTS = {
         agent_logger_cov
         agent_logger_run_scope
         aggregate_run_issues
-        appsec_status
-        appsec_status_live
         budget_watchdog
         check_state
         check_state_coverage
@@ -4992,7 +4920,6 @@ SOURCE_TESTS = {
         render_completion_summary_config
         render_completion_summary_verdict
         render_integrity
-        report_plugin_issue
         requirements_verification
         run_diagnostics_recovery_2026_07_20
         run_headless_completion
@@ -5312,7 +5239,6 @@ SOURCE_TESTS = {
     "scripts/runtime/report_plugin_issue.py": _tests("""
         check_target_specificity
         gate_preconditions
-        report_plugin_issue
         requirements_verification
         run_path_guard
         runtime_doc_cli_contract
@@ -5330,7 +5256,6 @@ SOURCE_TESTS = {
     "scripts/requirements/requirements_hook.py": _tests("""
         check_target_specificity
         gate_preconditions
-        requirements_hook
         requirements_verification
         run_path_guard
         stride_outputs
@@ -5668,7 +5593,6 @@ SOURCE_TESTS = {
         reference_format
         render_integrity
         render_properties
-        report_plugin_issue
         requirements_mapping
         requirements_verification
         run_path_guard
@@ -5696,8 +5620,6 @@ SOURCE_TESTS = {
         integration
         requirements_verification
         run_path_guard
-        security_steering
-        security_steering_units
         stride_outputs
     """),
     "scripts/runtime/session_banner.py": _tests("""
@@ -5705,7 +5627,6 @@ SOURCE_TESTS = {
         gate_preconditions
         requirements_verification
         run_path_guard
-        session_banner
         stride_outputs
     """),
     "scripts/runtime/skill_policy_gate.py": _tests("""
@@ -5740,7 +5661,6 @@ SOURCE_TESTS = {
         package_internal_plugin
         requirements_verification
         run_path_guard
-        smoke_test_package
         stride_outputs
     """),
     "scripts/spec_guard.py": _tests("""
@@ -5748,7 +5668,6 @@ SOURCE_TESTS = {
         gate_preconditions
         requirements_verification
         run_path_guard
-        spec_guard
         stride_outputs
     """),
     "scripts/model/stamp_threat_model.py": _tests("""
@@ -5765,8 +5684,6 @@ SOURCE_TESTS = {
     "scripts/runtime/stride_outputs.py": _tests("""
         actor_attribution
         aggregate_run_issues
-        appsec_status
-        appsec_status_live
         baseline_content_unchanged
         baseline_state_coverage
         build_threat_model_yaml
@@ -5911,7 +5828,6 @@ SOURCE_TESTS = {
         controller_e2e
         analyst_controller
         analyst_host
-        analyst_skill
         check_target_specificity
         requirements_verification
         analyst_cli
@@ -5924,7 +5840,6 @@ SOURCE_TESTS = {
         analyst_cli
         analyst_controller
         analyst_isolation
-        analyst_skill
         check_target_specificity
         requirements_verification
         finding_state
@@ -5949,11 +5864,9 @@ SOURCE_TESTS = {
     "scripts/appsec-analyst-cli": _tests("""
         abuse_case_hypothesis
         analyst_cli
-        analyst_skill
         requirements_verification
     """),
     "skills/analyze-threats/SKILL.md": _tests("""
-        analyst_skill
         org_profile_schema
         skill_definitions
         check_target_specificity
@@ -5963,7 +5876,6 @@ SOURCE_TESTS = {
         runtime_doc_cli_contract
     """),
     "skills/analyze-threats/HELP.txt": _tests("""
-        analyst_skill
         skill_definitions
         check_target_specificity
         requirements_verification
@@ -6211,7 +6123,6 @@ SOURCE_TESTS = {
         reconcile_role_access
         render_completion_summary
         render_completion_summary_config
-        report_plugin_issue
         requirements_verification
         run_diagnostics_recovery_2026_07_20
         run_headless_completion
@@ -6323,7 +6234,7 @@ SOURCE_TESTS = {
 # and every test module that names the document's file name.
 SOURCE_PREFIX_TESTS = {
     "docs/": _tests("requirements_verification"),
-    "specs/changes/check-threat-hypotheses/": _tests("check_specs requirements_hook requirements_verification"),
+    "specs/changes/check-threat-hypotheses/": _tests("check_specs requirements_verification"),
     "specs/changes/report-anatomy/": _tests("report_anatomy"),
     "tests/fixtures/report-anatomy/": _tests("report_anatomy"),
 }
