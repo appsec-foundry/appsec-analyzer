@@ -34,7 +34,7 @@ def no_harm_components(yaml_data: dict) -> set[str]:
     """Component ids whose applied business context explicitly declares no material harm.
 
     An explicit no-harm declaration is distinct from unknown impact
-    (REQ-BIZ-003): only ``impact_is_material is False`` counts.
+    (REQ-009): only ``impact_is_material is False`` counts.
     """
     trace = yaml_data.get("business_context_trace") or {}
     if not isinstance(trace, dict) or trace.get("status") != "applied":

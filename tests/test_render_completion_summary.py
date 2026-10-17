@@ -2660,7 +2660,7 @@ class TestStyleSummary:
             assert any(candidate == expected for candidate in it), line
 
     def test_unproven_stays_visible(self):
-        """REQ-MOD-009: colour never drops the unproven marker."""
+        """REQ-008: colour never drops the unproven marker."""
         assert "F-001 (unproven)" in self._ANSI.sub("", self._style())
 
     def test_severity_bars_follow_the_threats_field(self):

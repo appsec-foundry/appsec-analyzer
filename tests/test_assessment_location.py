@@ -1,4 +1,4 @@
-"""The external assessment destination (decision AS-1, REQ-TRU-005)."""
+"""The external assessment destination (decision AS-1, REQ-035)."""
 
 from __future__ import annotations
 

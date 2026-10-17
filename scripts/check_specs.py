@@ -33,12 +33,13 @@ BINDING_SCHEMA = ROOT / "schemas" / "requirement-bindings.schema.yaml"
 REGISTER = ROOT / "docs" / "internal" / "decisions.md"
 
 REGISTER_PATH = "docs/internal/decisions.md"
-HELD_PATHS = ("requirements.md", REGISTER_PATH)
+ACCEPTANCE_PATH = "docs/internal/contracts/requirement-acceptance.md"
+HELD_PATHS = ("requirements.md", ACCEPTANCE_PATH, REGISTER_PATH)
 CHANGE_DIR = "specs/changes/"
 
 SECTION_RE = re.compile(r"^## (.+?)\s*$")
 ENTRY_RE = re.compile(r"^- \*\*(REQ-[^:*\s]+):\*\*\s*(.*?)\s*$")
-ID_SHAPE_RE = re.compile(r"^REQ-[A-Z]{2,5}-\d{3}$")
+ID_SHAPE_RE = re.compile(r"^REQ-[0-9]{3}$")
 DECISION_RE = re.compile(r"^[A-Z]{2,3}-\d+$")
 DECISION_ROW_RE = re.compile(r"^\|\s*([A-Z]{2,3}-\d+)\s*\|(.*)$")
 TECHNICAL_FIELD_RE = re.compile(r"\*\*(?:Applies to|Source|Guard):\*\*")

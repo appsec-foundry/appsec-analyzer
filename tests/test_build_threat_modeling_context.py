@@ -97,7 +97,7 @@ def test_header_names_the_business_context_file_that_was_read(tmp_path, relative
 
 
 def test_supplied_reference_document_is_admitted_as_fenced_and_named_data(tmp_path):
-    """REQ-MOD-005/REQ-BIZ-001: supplied context remains named untrusted data;
+    """REQ-010: supplied context remains named untrusted data;
     a control it claims does not arrive as a finding."""
     repo = _repo(tmp_path)
     output = tmp_path / "output"
@@ -239,7 +239,7 @@ def test_escapes_repository_identity_in_the_metadata_table(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# REQ-BIZ-004 — --skip-context runs without business context, not just without
+# REQ-010 — --skip-context runs without business context, not just without
 # the question
 # ---------------------------------------------------------------------------
 

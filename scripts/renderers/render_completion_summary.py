@@ -2293,7 +2293,7 @@ def style_summary(text: str, st: Style) -> str:
     sequences literally. Works on the line shapes this module produces —
     section headings at column 0, ``_summary_field`` rows, ``Warning:`` and
     ``Note:`` lines — and adds severity bars under ``Threats``. Every word of
-    the plain text stays, including ``(unproven)`` (REQ-MOD-009).
+    the plain text stays, including ``(unproven)`` (REQ-008).
     """
     if not st.enabled:
         return text

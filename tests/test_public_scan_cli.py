@@ -56,6 +56,18 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_capabilities_distinguish_adapters_from_live_qualification() -> None:
+    result = _run("capabilities")
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    providers = document["assessment"]["providers"]
+    assert providers["claude-cli"]["adapter"] == "compatibility"
+    assert providers["openai"]["adapter"] == "responses"
+    assert providers["openai"]["profiles"] == ["codex-quick", "codex-standard", "codex-thorough"]
+    assert providers["gateway"]["adapter"] == "offline-only"
+    assert all(provider["qualified"] is False for provider in providers.values())
+
+
 def test_scan_without_provider_or_claude_reports_only_scanner_coverage(tmp_path: Path) -> None:
     repo = _repo(tmp_path / "project")
     result = _run("scan-sources", "--repo", str(repo))

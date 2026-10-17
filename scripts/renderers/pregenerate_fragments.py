@@ -566,7 +566,7 @@ def gen_system_overview(yaml_data: dict) -> str:
             lines.append(f"All {cs.get('total') or len(components)} modeled components were analysed with full STRIDE.")
         lines.append("")
 
-    # REQ-FLW-005: files the analysis recorded as not individually examined are a
+    # REQ-003: files the analysis recorded as not individually examined are a
     # coverage gap of this assessment, stated next to the system boundary.
     unexamined = [
         row

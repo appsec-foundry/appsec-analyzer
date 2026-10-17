@@ -3294,7 +3294,7 @@ def main() -> int:
     existing_changelog = (prior_yaml or {}).get("changelog")
     if not existing_changelog and args.history is not None:
         # The controller builds in a fresh workspace and passes the replaced
-        # assessment's changelog explicitly (REQ-USE-004).
+        # assessment's changelog explicitly (REQ-017).
         _history = _load_json(args.history, required=True)
         if not isinstance(_history, list) or not all(isinstance(entry, dict) for entry in _history):
             sys.stderr.write(f"FATAL: --history must hold a changelog list: {args.history}\n")

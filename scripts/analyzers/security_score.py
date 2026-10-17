@@ -15,7 +15,7 @@ indicator's own signals:
   * the applicable architecture-coverage rules routed to it, where a rule that
     only raised a hypothesis earns a quarter of the credit a confirmed control
     earns. ``analyzers/architecture_coverage_checks.py`` decides per rule whether it
-    applies at all (REQ-ARC-001: an absent surface is not applicable), which
+    applies at all (REQ-006: an absent surface is not applicable), which
     gives each indicator an honest denominator.
   * that indicator's own findings from the config/IaC and source-auth scanners,
     as a saturating deduction weighted by catalog severity. Low never counts —

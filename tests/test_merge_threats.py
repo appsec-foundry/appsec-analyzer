@@ -426,7 +426,7 @@ class TestEvidenceDedup:
 
 class TestTitleLocatorDedup:
     """One object reported under one title at one concrete line is one finding
-    (REQ-MOD-001) even when the analyzers' CWEs, and so their derived threat
+    (REQ-008) even when the analyzers' CWEs, and so their derived threat
     categories, differ; every other category survives in additional_categories."""
 
     TITLE = "Session token kept in browser storage"

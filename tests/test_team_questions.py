@@ -414,7 +414,7 @@ def _no_harm(*components: str, declared: tuple[str, ...] = (), material: bool = 
         (_no_harm("db"), "How critical are Signing Key"),
         # A declared material impact does not say how much each asset matters.
         (_no_harm("db", "api", material=True), "How critical are Order History, Customer Records and Signing Key"),
-        # An asset the context names on its own stays relevant (REQ-BIZ-003).
+        # An asset the context names on its own stays relevant (REQ-009).
         (_no_harm("db", "api", declared=("Order History",)), "How critical are Order History"),
     ],
     ids=["all-no-harm", "holder-uncovered", "material", "named-asset"],

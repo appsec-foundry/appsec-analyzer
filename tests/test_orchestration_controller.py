@@ -249,7 +249,7 @@ class TestRetiredSelfReportedProvenance:
 
 
 # ---------------------------------------------------------------------------
-# REQ-BIZ-004 — a declared --context source reaches the run or stops it
+# REQ-010 — a declared --context source reaches the run or stops it
 # ---------------------------------------------------------------------------
 
 

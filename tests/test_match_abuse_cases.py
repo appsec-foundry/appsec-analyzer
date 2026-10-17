@@ -1558,7 +1558,7 @@ def test_a_router_file_from_the_route_inventory_never_displaces_specific_files(t
 
 
 def test_a_business_case_without_a_locator_is_verified_only_on_request(tmp_path: Path):
-    # REQ-MOD-004: a business case is verified only when preselection finds code.
+    # REQ-011: a business case is verified only when preselection finds code.
     repo = _repo(tmp_path)
     open_case = {"id": "REPO-AC-020", "kind": "descriptive", "title": "Self-approval", "check": "Check it."}
     for case in (open_case, dict(open_case, scope_qualifier={"required_signals": ["has_role_concept"]})):

@@ -5,7 +5,7 @@ The controller sends one prepared prompt to a model session and receives one
 structured reply. The session has no tools: no shell, file access, network
 fetch, delegation, MCP server, skill, plugin, hook, or project instruction.
 Additional evidence is requested through the structured reply and serviced by
-the controller from the frozen snapshot. An exploring session (REQ-ANA-011)
+the controller from the frozen snapshot. An exploring session (REQ-034)
 additionally gets ``Read``, ``Grep``, and ``Glob``, confined by ``--restricted``
 to a working directory that holds only the controller's redacted copy of the
 tracked files.

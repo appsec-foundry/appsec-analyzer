@@ -1729,7 +1729,7 @@ def _dedupe_title_locator(threats: list[dict]) -> list[dict]:
     evidence location, across CWE, threat category, component and STRIDE.
 
     Two analyzers reporting one object under one title found one finding
-    (REQ-MOD-001: same affected object, same mechanism) even when they label it
+    (REQ-008: same affected object, same mechanism) even when they label it
     with different CWEs and therefore different derived categories — a session
     token in browser storage reported as CWE-922 by one component and CWE-522 by
     another. ``_dedupe_exact`` and ``_dedupe_evidence`` keep such pairs apart

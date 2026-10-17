@@ -485,7 +485,7 @@ def test_resume_after_a_fresh_start_that_never_reached_a_cached_job(scope, rebui
 
 
 # A completed run that owns every remaining file is replaced by a new scan
-# (REQ-USE-004); test_rebuild_keeps_a_directory_with_edited_or_foreign_files
+# (REQ-017); test_rebuild_keeps_a_directory_with_edited_or_foreign_files
 # covers a completed run beside an edited or foreign file.
 @pytest.mark.parametrize("extra", ["user-file", "malformed-state"])
 def test_fresh_start_still_refuses_a_report_or_foreign_files(scope, extra):
@@ -717,7 +717,7 @@ def _completed(scope, **changes):
 
 @pytest.mark.parametrize("changes", [{}, {"runtime_sha256": "b" * 64}, {"configuration": {"stride_model": "sonnet"}}])
 def test_a_new_scan_replaces_a_completed_run_and_carries_its_changelog(scope, changes):
-    """REQ-USE-004: a new scan needs no --rebuild and continues the replaced run's history."""
+    """REQ-017: a new scan needs no --rebuild and continues the replaced run's history."""
     with lifecycle(scope).hold() as state:
         (scope.output / "threat-model.yaml").write_text("changelog:\n- date: '2026-10-17'\n")
         state.complete(["threat-model.yaml"])

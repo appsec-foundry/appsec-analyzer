@@ -228,7 +228,7 @@ def build_strategy_map(repo_root: Path) -> dict[str, dict[str, Any]]:
 
 # ================================================================ implementation design signals
 # One IMPL-STRATEGY signal per class with bespoke code and a catalogued central control. It describes a practice
-# at concrete sites (REQ-MOD-002), never the absence of a control across the application.
+# at concrete sites (REQ-008), never the absence of a control across the application.
 
 
 def build_impl_design_signals(

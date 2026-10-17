@@ -1655,7 +1655,7 @@ def test_canary_aggregates_multiple_reasons_once():
 
 
 # ---------------------------------------------------------------------------
-# REQ-BIZ-004 — declared context that reached no component is surfaced
+# REQ-010 — declared context that reached no component is surfaced
 # ---------------------------------------------------------------------------
 
 

@@ -1,124 +1,91 @@
-# Product requirements
+# Requirements for AppSec Analyzer
 
-The plugin's required behavior, grouped by topic. Implementation bindings and test evidence live in [data/requirement-bindings.yaml](data/requirement-bindings.yaml).
+AppSec Analyzer helps developers, architects, and security reviewers find security problems and decide what to fix. It examines code, configuration, and the context supplied by the team. That can reveal weaknesses in both implementation and design, but it cannot establish how a system behaves in production or approve a release.
 
-## Purpose and audience
+The requirements below describe what people should be able to do with Analyzer and what they should be able to rely on. Some capabilities are still incomplete. See the [README](README.md) for what is available today.
 
-- **REQ-PUR-001:** The tool must derive a threat model of the analyzed system from its code and configuration.
-- **REQ-PUR-002:** The analysis must cover implementation weaknesses and insecure design assumptions without claiming runtime verification or release approval.
-- **REQ-PUR-004:** The assessment report must help developers, architects, and AppSec reviewers understand risks and plan remediation.
+The [acceptance contract](docs/internal/contracts/requirement-acceptance.md) gives the detailed rules behind these requirements. The [requirement bindings](data/requirement-bindings.yaml) point to the relevant code and tests. A listed test does not establish that the whole requirement is met.
 
-## Analysis scope
+Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired IDs are never reused. Earlier IDs are listed in the [migration table](specs/changes/plain-requirement-ids/proposal.md).
 
-- **REQ-PUR-003:** Users must be able to select local repositories or Git URLs and a separate output location, including combined assessments of multiple repositories.
-- **REQ-FLW-005:** Each assessment must identify its source revisions, analysis scope, context sources, exclusions, and coverage gaps.
-- **REQ-FLW-009:** Users must be able to select analysis depth; a request to narrow the analysis to specific components or directories must be refused, never silently run in full.
-- **REQ-FLW-002:** Every analyzed component must receive all six STRIDE checks at every analysis depth.
-- **REQ-FLW-010:** Analysis must inspect applicable authentication, authorization, input handling, cryptography, secrets, frontend, deployment, supply-chain, and AI security controls.
+## Understand the system
 
-## Architecture and trust boundaries
+- **REQ-001:** **Scan without an AI account.** A source scan runs without an AI account or paid model calls. Its output explains what the scanners checked, marks observations as unverified, and makes clear that a full assessment has not been run.
 
-- **REQ-ARC-003:** The model must describe assets, actors, components, interfaces, data flows, trust boundaries, and security controls.
-- **REQ-ARC-001:** Control assessments must distinguish evidenced controls, broken controls, missing controls, uncertainty, and non-applicable surfaces.
-- **REQ-MOD-003:** Trust boundaries must represent evidenced enforcement points; declarations and missing findings must never prove that controls work.
-- **REQ-ARC-002:** Combined models must preserve repository provenance and require evidence from both sides for cross-repository connections.
-- **REQ-ARC-004:** Related-repository imports must remain contextual input and must not imply that the imported repositories were scanned.
+- **REQ-002:** **Choose what to assess.** An assessment can cover one repository or several that belong to the same system, supplied as local Git repositories or supported Git URLs. The user chooses the depth and result directory. Analyzer rejects scope restrictions it cannot honor.
 
-## Findings and evidence
+- **REQ-003:** **Know what was examined.** The report names the source versions and context used, along with anything excluded or left unchecked. Its conclusions apply to that examined source, not to later changes.
 
-- **REQ-MOD-001:** Each finding must identify a concrete security problem and supporting target-repository evidence; distinct instances must remain distinguishable.
-- **REQ-MOD-002:** Weaknesses must group related findings and support architectural problems without a single vulnerable source line.
-- **REQ-MOD-009:** Unproven findings must remain visibly unproven, carry no score, and never count as confirmed exploitation.
-- **REQ-MOD-015:** Imported known threats must be revalidated, checked for mitigation, recorded as accepted, or skipped according to their declared status.
+- **REQ-004:** **Find relevant security risks.** The analysis looks for weaknesses in how each component is built and in the design it relies on. The report shows which kinds of threats were considered and where the analysis is incomplete.
 
-## Risk assessment
+- **REQ-005:** **Understand the architecture.** The report explains what needs protecting, who uses the system, and how its components and external services exchange data. It shows where those exchanges cross access or trust boundaries.
 
-- **REQ-RPT-001:** Severity and scores must follow supported security impact and applicable policy caps.
-- **REQ-BIZ-003:** Business context may affect supported impact and ordering within a priority tier, but must not create findings, raise likelihood, change priority tiers, or relax caps.
-- **REQ-BIZ-008:** Declared absence of material business harm must remain distinct from unknown impact and must not suppress technical findings or independent obligations.
+- **REQ-006:** **Understand security controls.** For each relevant control, the report explains whether the evidence supports it, shows a problem, or leaves its effectiveness uncertain. Missing and inapplicable controls are identified separately. A claim in documentation or an absence of findings does not prove that a control works.
 
-## Business context and actors
+- **REQ-007:** **Keep repository origins clear.** In a combined assessment, findings and connections can be traced back to their repositories and evidence. Imported reference models are clearly labelled so readers can tell them apart from source examined during this assessment.
 
-- **REQ-BIZ-001:** Supplied business context must be validated and treated as untrusted data, never as analysis instructions.
-- **REQ-BIZ-005:** Interactive full and rebuild assessments must ask at most two optional use-case and business-harm questions, reuse existing answers, and apply confirmed answers in the same run.
-- **REQ-BIZ-006:** Confirmed dialog answers must be preserved for later assessments; explicit run-only context must not be persisted.
-- **REQ-BIZ-010:** Headless runs must accept context without questions; `--skip-context` must skip both the dialog and stored business context.
-- **REQ-BIZ-004:** Reports must identify the context source and affected findings, including when supplied context affects none.
-- **REQ-BIZ-002:** Conversational actor choices must remain run-local; persistent actor configuration must respect organization restrictions and explicit opt-in requirements.
+## Decide what to fix
 
-## Abuse cases
+- **REQ-008:** **Show the evidence behind each finding.** Every finding explains the problem and points to the affected code and supporting evidence. Grouping similar problems must preserve each affected location. Unproven claims are labelled and left unscored.
 
-- **REQ-MOD-004:** Users must control abuse-case sources; standard and thorough assessments must include enabled business cases, with up to three model-derived cases at thorough depth.
-- **REQ-MOD-010:** Users must be able to list case titles, types, and origins and explicitly check selected cases using an existing model or an identified isolated scope.
-- **REQ-MOD-012:** Business-case results must distinguish confirmed, unproven, mitigated, unresolved, not applicable, and not checked, with findings created or linked only under the applicable evidence rules.
+- **REQ-009:** **Explain severity.** A finding's severity is justified by evidence of the harm it could cause. The report states what is uncertain or unknown. Business context can inform the assessment, but cannot hide technical findings or override the severity rules.
 
-## Remediation
+- **REQ-010:** **Include business context.** Teams can supply information about their business and organization, or ask Analyzer to skip stored business context. The report explains how that information affected the analysis and what relevant facts are still missing.
 
-- **REQ-RPT-005:** Every finding must have a prioritized, system-specific mitigation; urgent mitigations must include concrete steps and verification, with unresolved decisions stated explicitly.
+- **REQ-011:** **Look for misuse of business features.** Teams can choose misuse cases for the analysis to examine. The results show which cases have evidence of a problem, which are mitigated or inapplicable, and which remain uncertain or unchecked.
 
-## Reports and diagrams
+- **REQ-012:** **Explain what to fix.** Findings describe how an attack could work, what damage it could do, and what developers need to change. Recommendations address this system and show what to tackle first. Urgent fixes include concrete steps and a way to check the result.
 
-- **REQ-RPT-003:** Findings must explain the affected location, attack mechanism, and required change in clear developer language with valid references.
-- **REQ-RPT-002:** Finding IDs and references must remain consistent across outputs from the same model; deliberate rebuilds may assign new IDs.
-- **REQ-RPT-006:** Structured exports must preserve requirements assessments, abuse-case outcomes, and business-context provenance without copying context prose beyond the bounded confirmed use case.
-- **REQ-RPT-007:** Architecture diagrams must remain legible at report width and retain required flow labels, with detailed catalogs available for omitted connections and boundaries.
-- **REQ-RPT-008:** Evidenced build pipelines and build-time attacks must appear in a separate supply-chain view, with an equivalent table when a readable diagram is unavailable.
-- **REQ-RPT-009:** Reports must present up to three unresolved business, design, or deployment decisions without asking users to verify individual findings.
-- **REQ-RPT-012:** Narrower export formats must retain applicable traceability and disclose information they cannot represent.
-- **REQ-RPT-016:** Users must be able to export existing models as Markdown, YAML, PDF, HTML, SARIF, Threat Dragon, and pentest tasks without rerunning analysis.
+- **REQ-013:** **Make the report easy to follow.** Architecture diagrams are readable, and finding references stay consistent throughout the report. Supporting detail and open decisions are easy to find. The report does not leave finding verification to the reader.
 
-## Model lifecycle and review
+- **REQ-014:** **Use results in other tools.** Results come in Markdown and structured YAML, with optional HTML, PDF, SARIF, Threat Dragon, and penetration-test task exports. Exports retain the relevant evidence references and conclusions. Analyzer explains any format limitations or missing export tools.
 
-- **REQ-USE-004:** Full assessments must preserve the history of earlier results; deliberate rebuilds may reset the model and history.
-- **REQ-USE-005:** Model questions and overviews must read existing results without rescanning sources or changing files.
-- **REQ-USE-006:** Users must be able to determine whether a model is fresh, stale, missing, or blocked.
-- **REQ-USE-001:** Users must be able to review findings, record decisions, and plan remediation; decisions must survive reassessment, and code changes must require explicit selection.
-- **REQ-USE-007:** Publication must require successful publication checks and include only selected report artifacts.
-- **REQ-USE-008:** Configurable architect review must preserve accepted corrections and distinguish reviewed, incomplete, and unreviewed findings.
+- **REQ-015:** **Export without running the analysis again.** A saved, validated assessment can be exported without repeating the analysis or paying for new model calls.
 
-## On-demand threat analysis
+## Run and maintain assessments
 
-- **REQ-ANA-001:** Advisory analysis must run only through explicit invocation or team-configured CI.
-- **REQ-ANA-002:** Complete advisory analysis must succeed regardless of findings; invalid inputs or incomplete required work must not report success.
-- **REQ-ANA-003:** Advisory analysis must leave existing threat models, finding IDs, and concurrent assessments unchanged.
-- **REQ-ANA-004:** Organization-required analysis inputs must remain mandatory and must not be selected or weakened by the change under review.
-- **REQ-ANA-005:** Question packages and methodology profiles must guide analysis without proving findings or granting permissions; optional profiles must identify their source without certifying compliance.
-- **REQ-ANA-007:** Analysis answers must be saved only on request, revalidated before reuse, and never automatically committed or copied into the threat model or business context.
-- **REQ-ANA-008:** Change reviews must identify whether each finding is introduced, worsened, mitigated, pre-existing, or of unknown relationship to the change.
-- **REQ-ANA-009:** Hypothesis checks must stay within selected revision and paths and distinguish supported, not confirmed in scope, and unresolved results.
-- **REQ-ANA-010:** Design analysis must work without code and report scenarios, assumptions, recommendations, and questions while identifying any model or source context used.
-- **REQ-ANA-011:** Repository exploration must be explicitly enabled, interactive, organization-permitted, and restricted to a redacted, read-only snapshot without execution or network tools.
+- **REQ-016:** **Follow, stop, and resume a run.** Progress is visible while an assessment runs. A run can be stopped and resumed when its source and settings are still compatible. If something fails, Analyzer explains the cause and how to recover. Interrupted or unfinished work is never reported as complete.
 
-## Security requirements audit
+- **REQ-017:** **Reassess without losing work.** Running another assessment preserves the history of earlier results and protects edits made since the last run. Starting over is an explicit choice, with a clear explanation that rebuilding can reset results and history.
 
-- **REQ-REQ-001:** Findings must map to configured requirements only through explicit, evidence-supported links.
-- **REQ-REQ-002:** Users must be able to audit a validated requirements catalog without creating a threat model, with catalog provenance and inspected scope recorded.
-- **REQ-REQ-003:** Requirement assessments must distinguish pass, partial, fail, unverifiable, and not applicable.
-- **REQ-REQ-005:** Audits must support advisory results and explicitly configured CI gates based on assessment status and requirement priority.
+- **REQ-018:** **Use team settings.** Analyzer accepts documented settings and organization profiles, and reports conflicting or unsupported options. Repository content cannot choose provider credentials, weaken required analysis, or suppress findings supported by evidence.
 
-## Security score
+- **REQ-019:** **Handle version changes clearly.** Public interfaces carry a version, and incompatible changes to saved results or organization profiles are versioned too. When saved work is incompatible, Analyzer provides an explicit migration or explains why it cannot use it.
 
-- **REQ-SCO-001:** Scanner-only assessment must return a 0–100 score, `undetermined` for insufficient coverage, or `incomplete` for failed or invalid required scans, while retaining findings and diagnostics.
-- **REQ-SCO-002:** Structured score output must expose producer completion, scoring and catalog versions, applicable coverage, and excluded findings so comparisons remain meaningful.
+- **REQ-020:** **Show which providers have been tested.** Analyzer distinguishes available model connections from provider configurations that have passed real assessment tests. Being able to connect to a provider is not proof that its results are reliable.
 
-## Configuration and compatibility
+- **REQ-021:** **Check results before publishing them.** Required inputs, analysis, and output must pass validation before an assessment is marked complete. Analyzer publishes only the selected report files and checks that those files have not changed when listing the results.
 
-- **REQ-CFG-001:** Organizations must be able to configure supported extensions without forking the plugin, with included capabilities recorded.
-- **REQ-CFG-002:** Repository configuration must use documented, validated inputs and must not suppress evidence-supported findings.
-- **REQ-CFG-003:** Baseline refresh must use the declared source, report drift, and require explicit acceptance of changed baseline IDs before updating all declarations consistently.
-- **REQ-EVO-003:** Incompatible changes to published artifacts, report anchors, or organization interfaces must receive explicit versioning or migration handling.
+- **REQ-022:** **Run unattended.** Assessments can run without waiting for answers from a person. Automation can tell a completed run from an interruption, an operational error, or a failed policy gate. Advisory results do not become blocking failures unless a gate was explicitly selected.
 
-## Trust and data protection
+- **REQ-023:** **Control time and spending.** Model calls run within documented spending and execution limits. The user can set a different spending limit, which Analyzer shows before a full assessment or separate audit starts. If the limits prevent completion, it keeps validated progress and clearly reports what remains unfinished.
 
-- **REQ-TRU-001:** Repository content must be untrusted by default and must not activate repository-owned instructions or hooks or redirect analysis outside selected roots.
-- **REQ-TRU-002:** Unmasked secrets in generated artifacts must block publication.
-- **REQ-TRU-003:** The tool must disclose which repository data is sent to external model providers.
-- **REQ-TRU-004:** Model-directed actions must remain within the user-authorized task, resources, and permissions.
-- **REQ-TRU-005:** Assessment results must be stored outside the analyzed repository by default and be readable only by the current user.
+## Ask focused security questions
 
-## Execution and recovery
+- **REQ-024:** **Ask a focused security question.** A focused analysis runs only when requested and does not require a full assessment. It leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
 
-- **REQ-FLW-003:** Required inputs and outputs must be validated before use; missing or invalid required data must stop publication of an apparently complete result.
-- **REQ-FLW-006:** Headless execution must require no interactive responses and must distinguish completion, incomplete execution, and failure.
-- **REQ-FLW-007:** Runs must expose progress, actionable diagnostics, and recovery options; external issue publication must require approval of the prepared content.
-- **REQ-FLW-008:** **Control time and spending.** Apply documented finite default spending limits for full assessments and separate audits, allow explicit overrides, show the selected limit before starting, and explain limits for focused analysis. Enforce finite work, retry, and time bounds. Reserve required completion work before optional model calls; when budget cannot cover required assessment work, preserve validated progress in a clearly incomplete result.
+- **REQ-025:** **Understand what a code change affects.** A change review shows which problems the change introduces, makes worse, or mitigates. It also identifies problems that were already present and says when their relationship to the change is unclear.
+
+- **REQ-026:** **Check a suspected security problem.** A hypothesis check examines a specific concern within the chosen source paths and revision. A selected misuse case can be previewed before the check runs. The answer explains whether the evidence supports the concern, does not confirm it within that scope, or leaves it unresolved. Not confirming a problem does not prove safety.
+
+- **REQ-027:** **Review a design before writing code.** A design review works from a supplied design without requiring implementation evidence. It describes possible attacks, assumptions, recommendations, and open questions, and names any code or earlier assessment used as context.
+
+- **REQ-028:** **Choose which answers to save.** Answers are saved only when requested, and the user can remove them later. Analyzer checks them again before reuse. It never automatically commits answers or copies them into a threat model or stored business context.
+
+## Check security requirements
+
+- **REQ-029:** **Check a supplied set of requirements.** A requirements audit can run on its own using a local catalog. It records where the catalog came from, which code was examined, and the evidence behind each verdict. Requirements are reported as met, partly met, unmet, unverifiable, or inapplicable.
+
+- **REQ-030:** **Decide whether an audit should block CI.** Requirements results are advisory unless the user explicitly chooses a blocking CI gate based on verdicts and requirement priorities. An unfinished audit is reported separately from a failed policy check. Unverifiable requirements never count as passing.
+
+## Protect sources and results
+
+- **REQ-031:** **Treat repository content as data.** Files in a repository cannot activate their own instructions, hooks, or tools, or send the analysis outside the selected sources. Analyzer rejects paths and links that escape the permitted source boundary.
+
+- **REQ-032:** **Keep secrets out of results.** Analyzer blocks publication of generated files containing unmasked secrets. Reports and diagnostics avoid exposing credentials or sensitive code details. Intermediate data kept during analysis stays private.
+
+- **REQ-033:** **Explain what leaves the machine.** Before using a model, Analyzer explains what code, context, and answers it will send and which selected host receives them. It distinguishes this from fetching a Git repository and does not claim provider retention guarantees it cannot verify.
+
+- **REQ-034:** **Do only what was authorized.** Analysis stays within the agreed task, resources, and permissions. Asking for an analysis does not authorize code changes, commits, publication, or acceptance of a risk. Sharing diagnostics requires approval of the actual content to be shared.
+
+- **REQ-035:** **Protect local results.** Assessment results are kept outside the analyzed repositories. Results and working data are readable only by the current user. Concurrent runs and untrusted paths cannot overwrite another run's work or unrelated files.

@@ -176,7 +176,7 @@ def admit(output_dir: Path) -> dict:
         patterns = proposal.get("path_patterns")
         if not isinstance(patterns, list) or not patterns:
             # Preselection needs a locator; a case without one would reach the
-            # verifier although no code was found for it (REQ-MOD-004).
+            # verifier although no code was found for it (REQ-011).
             dropped.append({"title": title, "reason": "a derived case must name path_patterns"})
             continue
         case = {

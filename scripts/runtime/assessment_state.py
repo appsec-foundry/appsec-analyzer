@@ -74,7 +74,7 @@ _IDENTITY_LABELS = (
 # resume check never counts a receipt the run's accounting has not charged.
 JOBS_NAME = "jobs"
 CACHE_NAME = "cache"
-# The changelog of the completed assessment a new scan replaces (REQ-USE-004).
+# The changelog of the completed assessment a new scan replaces (REQ-017).
 # It lives under the work directory, so a resume and a restart after an
 # interruption still continue it; --rebuild drops it with the earlier run.
 HISTORY_NAME = "history.json"

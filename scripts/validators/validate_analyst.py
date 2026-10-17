@@ -177,7 +177,7 @@ def validate_snapshot(data: object, request: dict | None = None) -> list[str]:
     if missing:
         errors.append(f"snapshot: scope {kind} requires objects {sorted(missing)}")
     if kind == "design":
-        # An exploring design (REQ-ANA-011) freezes HEAD and admits cited files as context.
+        # An exploring design (REQ-034) freezes HEAD and admits cited files as context.
         if not set(objects) <= {"design_sha256", "head"}:
             errors.append("snapshot: a design scope carries no source objects")
         if any(entry["side"] != "proposed" or entry["change"] != "context" for entry in data["admitted"]):

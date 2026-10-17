@@ -9,17 +9,17 @@ required:
   - requirements
 properties:
   version:
-    const: 1
+    const: 2
   retired_ids:
     type: array
     uniqueItems: true
     items:
       type: string
-      pattern: ^REQ-[A-Z]{2,5}-[0-9]{3}$
+      pattern: ^REQ-([A-Z]{2,5}-)?[0-9]{3}$
   requirements:
     type: object
     propertyNames:
-      pattern: ^REQ-[A-Z]{2,5}-[0-9]{3}$
+      pattern: ^REQ-[0-9]{3}$
     additionalProperties:
       type: object
       additionalProperties: false

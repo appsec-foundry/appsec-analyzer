@@ -25,7 +25,7 @@ excluded as sensitive.
 Worktree renames appear as a deletion plus an addition. Nothing here writes
 outside the job root or runs repository code.
 
-An exploring job (REQ-ANA-011) also gets ``explore/``: a copy of every file of
+An exploring job (REQ-034) also gets ``explore/``: a copy of every file of
 the frozen proposed view that the same rules admit, with the same redaction,
 so a citation of that copy can be admitted and checked like any other context.
 A design request that explores freezes ``HEAD`` for this view.

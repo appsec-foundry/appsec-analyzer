@@ -155,7 +155,7 @@ class TestSystemOverview:
         ],
     )
     def test_scope_names_source_files_no_target_covered(self, minimal_yaml_data, rows, sentence):
-        """REQ-FLW-005: a coverage gap the analysis recorded reaches the report, not only the console."""
+        """REQ-003: a coverage gap the analysis recorded reaches the report, not only the console."""
         minimal_yaml_data["meta"]["unexamined_source"] = rows
         md = pf.gen_system_overview(minimal_yaml_data)
         assert sentence in md

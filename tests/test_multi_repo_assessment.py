@@ -1150,7 +1150,7 @@ runpy.run_path(script, run_name='__main__')
     ],
 )
 def test_a_stop_request_is_an_incomplete_resumable_run_not_a_failure(tmp_path, monkeypatch, capsys, error, code):
-    """REQ-FLW-006: completion, incomplete execution and failure have distinct exit codes."""
+    """REQ-022: completion, incomplete execution and failure have distinct exit codes."""
     from runtime.analyst_host import HostCancelled, HostTimeout
 
     def stop(*args, **kwargs):

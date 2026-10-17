@@ -10,7 +10,7 @@ Repository content never contributes to the path: the name is a sanitized
 slug of the remote's last path segment or of the root's directory name, and
 the remote itself is never returned or written. ``private_directory`` refuses a
 destination that a symlink, another user, or broad permissions could redirect
-or expose (``REQ-TRU-005``).
+or expose (``REQ-035``).
 """
 
 from __future__ import annotations

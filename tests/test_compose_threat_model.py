@@ -7238,7 +7238,7 @@ def test_exposure_and_kind_legends_define_their_vocabulary(tmp_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
-# REQ-BIZ-004 — the report names the business-context file it read
+# REQ-010 — the report names the business-context file it read
 # ---------------------------------------------------------------------------
 
 

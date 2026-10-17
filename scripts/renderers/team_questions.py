@@ -341,7 +341,7 @@ def select_open_questions(
         # An explicit no-material-harm declaration is a sourced answer to how much
         # the asset matters (AC-7) where it covers every component that reaches
         # or stores the asset. An asset the context names on its own stays
-        # relevant (REQ-BIZ-003), and unknown impact keeps asking.
+        # relevant (REQ-009), and unknown impact keeps asking.
         holders = {item["component"] for item in reached} | {
             str(ref.get("component_id"))
             for ref in asset.get("component_refs") or []

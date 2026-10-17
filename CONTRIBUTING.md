@@ -249,3 +249,11 @@ When adding a new section to the generated threat model, see [`docs/internal/run
 ## Reporting security issues
 
 Do not open public issues for vulnerabilities. Use a [GitHub Security Advisory](../../security/advisories/new). See [`SECURITY.md`](SECURITY.md).
+
+## Requirements and compatibility
+
+Write one observable user outcome per requirement, with a short label and a stable `REQ-NNN` ID. Do not renumber IDs when moving or reordering requirements. Keep detailed acceptance rules in the normative [acceptance contract](docs/internal/contracts/requirement-acceptance.md), and paths and exact test selectors in [data/requirement-bindings.yaml](data/requirement-bindings.yaml). Direct, partial, and advisory coverage describe the evidence's scope; they do not assert that a test currently passes.
+
+Record semantic changes to requirements or their acceptance rules and compatibility implications in `specs/changes/`. The [plain-ID migration](specs/changes/plain-requirement-ids/proposal.md) maps the inherited catalog to the current one. Binding schema version 2 uses plain IDs for active requirements and permits the earlier format only for retirements. Keep retired IDs so old references cannot acquire a new meaning. Update current guides and public examples when commands or availability change.
+
+For report sections, follow the [section runbook](docs/internal/runbooks/adding-a-section.md) and [schema invariants](docs/internal/contracts/schema-invariants.md). Inspect golden changes before regeneration; do not edit expected output to conceal a producer defect.

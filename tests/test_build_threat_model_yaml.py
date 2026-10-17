@@ -3077,7 +3077,7 @@ def test_already_valid_cwe_is_returned_byte_identical(raw):
 
 
 # ---------------------------------------------------------------------------
-# REQ-BIZ-003 — a finding names the declared context that weights it
+# REQ-009 — a finding names the declared context that weights it
 # ---------------------------------------------------------------------------
 
 

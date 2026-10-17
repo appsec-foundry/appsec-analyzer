@@ -15,15 +15,15 @@ import check_specs  # noqa: E402
 
 
 def entry(
-    rid: str = "REQ-XYZ-001",
+    rid: str = "REQ-001",
     text: str = "The stable product requirement.",
 ) -> str:
-    return f"# Plugin requirements\n\n## A section\n\n- **{rid}:** {text}\n"
+    return f"# Analyzer requirements\n\n## A section\n\n- **{rid}:** {text}\n"
 
 
 def binding_document(
     *,
-    rid: str = "REQ-XYZ-001",
+    rid: str = "REQ-001",
     applies: list[str] | None = None,
     decisions: list[str] | None = None,
     documents: list[str] | None = None,
@@ -32,7 +32,7 @@ def binding_document(
     retired: list[str] | None = None,
 ) -> dict:
     return {
-        "version": 1,
+        "version": 2,
         "retired_ids": retired or [],
         "requirements": {
             rid: {
@@ -74,7 +74,7 @@ def test_parses_only_normative_text():
     parsed = check_specs.parse(entry())
     assert parsed == [
         check_specs.Entry(
-            rid="REQ-XYZ-001",
+            rid="REQ-001",
             section="A section",
             line=5,
             text="The stable product requirement.",
@@ -85,24 +85,51 @@ def test_parses_only_normative_text():
 def test_bullets_keep_their_text_topic_and_source_line():
     markdown = (
         "# Requirements\n\n## Evidence\n\n"
-        "- **REQ-ABC-001:** Cite inspected code.\n"
-        "- **REQ-ABC-002:** Keep uncertainty visible.\n\n"
-        "## Exports\n\n- **REQ-DEF-001:** Preserve references.\n"
+        "- **REQ-001:** Cite inspected code.\n"
+        "- **REQ-002:** Keep uncertainty visible.\n\n"
+        "## Exports\n\n- **REQ-003:** Preserve references.\n"
     )
     assert check_specs.parse(markdown) == [
-        check_specs.Entry("REQ-ABC-001", "Evidence", 5, "Cite inspected code."),
-        check_specs.Entry("REQ-ABC-002", "Evidence", 6, "Keep uncertainty visible."),
-        check_specs.Entry("REQ-DEF-001", "Exports", 10, "Preserve references."),
+        check_specs.Entry("REQ-001", "Evidence", 5, "Cite inspected code."),
+        check_specs.Entry("REQ-002", "Evidence", 6, "Keep uncertainty visible."),
+        check_specs.Entry("REQ-003", "Exports", 10, "Preserve references."),
     ]
 
 
 def test_malformed_bullet_id_is_not_silently_dropped(catalog_root):
-    markdown = entry() + "\n- **REQ-XYZ-12:** Another promise.\n"
+    markdown = entry() + "\n- **REQ-12:** Another promise.\n"
     assert any("malformed id" in problem for problem in problems(markdown, binding_document(), catalog_root))
 
 
+@pytest.mark.parametrize("rid", ["REQ-001", "REQ-042", "REQ-999"])
+def test_plain_ids_are_valid_without_category_or_sequence_requirements(catalog_root, rid):
+    assert problems(entry(rid), binding_document(rid=rid), catalog_root) == []
+
+
+@pytest.mark.parametrize("rid", ["REQ-XYZ-001", "REQ-12", "REQ-0001", "REQ-abc", "REQ-１２３", "REQ-001/extra"])
+def test_invalid_active_ids_are_rejected_in_catalog_and_bindings(catalog_root, rid):
+    assert any("malformed id" in issue for issue in problems(entry(rid), binding_document(), catalog_root))
+    assert check_specs.binding_schema_problems(binding_document(rid=rid))
+
+
+def test_legacy_and_plain_retirements_are_preserved(catalog_root):
+    document = binding_document(retired=["REQ-XYZ-001", "REQ-002"])
+    assert problems(entry(), document, catalog_root) == []
+
+
+@pytest.mark.parametrize("rid", ["REQ-12", "REQ-XYZ-12", "REQ-XYZ-１２３"])
+def test_malformed_retired_ids_are_rejected(rid):
+    assert check_specs.binding_schema_problems(binding_document(retired=[rid]))
+
+
+def test_old_binding_version_requires_explicit_migration(catalog_root):
+    document = binding_document()
+    document["version"] = 1
+    assert any("version" in issue for issue in problems(entry(), document, catalog_root))
+
+
 def test_requirement_outside_a_topic_is_rejected(catalog_root):
-    markdown = "# Requirements\n\n- **REQ-XYZ-001:** A promise.\n"
+    markdown = "# Requirements\n\n- **REQ-001:** A promise.\n"
     assert any("outside any section" in problem for problem in problems(markdown, binding_document(), catalog_root))
 
 
@@ -110,12 +137,12 @@ def test_lookup_renders_bullet_text_once(catalog_root):
     parsed = check_specs.parse(entry())[0]
     binding = check_specs.parse_bindings(binding_document())[parsed.rid]
     rendered = check_specs.render(parsed, binding)
-    assert "REQ-XYZ-001 (A section)" in rendered
+    assert "REQ-001 (A section)" in rendered
     assert rendered.count(parsed.text) == 1
 
 
 def test_duplicate_id_is_rejected(catalog_root):
-    doubled = entry() + entry(text="Another requirement.").split("# Plugin requirements\n\n", 1)[1]
+    doubled = entry() + entry(text="Another requirement.").split("# Analyzer requirements\n\n", 1)[1]
     assert any("duplicate id" in problem for problem in problems(doubled, binding_document(), catalog_root))
 
 
@@ -132,19 +159,19 @@ def test_implementation_metadata_is_rejected_from_catalog(catalog_root):
 
 def test_binding_schema_requires_every_field(catalog_root):
     document = binding_document()
-    del document["requirements"]["REQ-XYZ-001"]["coverage"]
+    del document["requirements"]["REQ-001"]["coverage"]
     assert any("coverage" in problem for problem in problems(entry(), document, catalog_root))
 
 
 def test_active_requirement_requires_exactly_one_binding(catalog_root):
-    document = binding_document(rid="REQ-XYZ-002")
+    document = binding_document(rid="REQ-002")
     found = problems(entry(), document, catalog_root)
     assert any("missing binding" in problem for problem in found)
     assert any("inactive requirement" in problem for problem in found)
 
 
 def test_retired_requirement_id_cannot_be_active(catalog_root):
-    document = binding_document(retired=["REQ-XYZ-001"])
+    document = binding_document(retired=["REQ-001"])
     assert any("also retired" in problem for problem in problems(entry(), document, catalog_root))
 
 
@@ -216,7 +243,7 @@ def test_applicable_uses_external_bindings(catalog_root):
     entries = check_specs.parse(entry())
     bindings = check_specs.parse_bindings(binding_document(applies=["*.py"]))
     hits = check_specs.applicable(entries, bindings, "target.py", root=catalog_root)
-    assert [(item.rid, binding.coverage) for item, binding in hits] == [("REQ-XYZ-001", "direct")]
+    assert [(item.rid, binding.coverage) for item, binding in hits] == [("REQ-001", "direct")]
     assert check_specs.applicable(entries, bindings, "README.md", root=catalog_root) == []
 
 
@@ -229,14 +256,14 @@ def test_applicable_ignores_paths_outside_repository(catalog_root):
 def test_main_reports_requirement_and_coverage_counts(capsys):
     assert check_specs.main([]) == 0
     output = capsys.readouterr().out
-    assert "73 requirements" in output
+    assert "35 requirements" in output
     assert "direct" in output and "partial" in output and "advisory" in output
 
 
 def test_main_for_prints_governing_requirement_and_coverage(capsys):
     assert check_specs.main(["--for", "scripts/model/merge_threats.py"]) == 0
     output = capsys.readouterr().out
-    assert "REQ-MOD-001" in output
+    assert "REQ-008" in output
     assert "Guard coverage: partial" in output
 
 
@@ -327,11 +354,11 @@ def test_the_register_is_held_when_no_base_revision_can_be_read():
     ]
 
 
-def test_the_catalog_is_held_for_any_change(monkeypatch):
+@pytest.mark.parametrize("path", ["requirements.md", check_specs.ACCEPTANCE_PATH])
+def test_requirements_and_acceptance_rules_are_held_for_any_change(monkeypatch, path):
     with_base(monkeypatch, register_text())
-    assert check_specs.unapproved_changes(["requirements.md"], "HEAD") == [
-        "requirements.md changed with no proposal under specs/changes/"
-    ]
+    assert check_specs.unapproved_changes([path], "HEAD") == [f"{path} changed with no proposal under specs/changes/"]
+    assert check_specs.unapproved_changes([path, "specs/changes/review/proposal.md"], "HEAD") == []
 
 
 def test_changed_against_unknown_ref_reports_and_exits_two(capsys):

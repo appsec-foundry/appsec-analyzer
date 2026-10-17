@@ -130,7 +130,7 @@ def test_docs_security_keeps_foreign_files_and_overwrites_a_legacy_report(tmp_pa
 
 @pytest.mark.parametrize("names", [("solo",), ("frontend", "backend")])
 def test_a_new_scan_continues_the_history_and_a_rebuild_resets_it(tmp_path, monkeypatch, names):
-    """REQ-USE-004: a rerun over a completed assessment keeps its changelog; --rebuild starts a new one."""
+    """REQ-017: a rerun over a completed assessment keeps its changelog; --rebuild starts a new one."""
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
     outcome, host, out = _assess(tmp_path, monkeypatch, names, ("--no-pdf",))
     assert outcome["status"] == "complete"
@@ -350,7 +350,7 @@ def test_a_failed_best_effort_scanner_is_a_run_warning(tmp_path, monkeypatch):
 
 
 def test_weaknesses_are_regrouped_after_ranking_and_before_the_model_is_built(tmp_path, monkeypatch):
-    """REQ-MOD-002: ranking can merge or refute findings, so weakness groups follow it into the model."""
+    """REQ-008: ranking can merge or refute findings, so weakness groups follow it into the model."""
     real = controller._run_script
     steps = []
 
@@ -467,7 +467,7 @@ def _destination(argv):
 
 
 def test_without_output_the_run_writes_to_a_private_application_directory(tmp_path, monkeypatch):
-    """REQ-TRU-005 / AS-1: the default destination lies outside the checkout and only its owner can read it."""
+    """REQ-035 / AS-1: the default destination lies outside the checkout and only its owner can read it."""
     from shared.assessment_location import application_directory, assessment_directory, combined_application_name
 
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
@@ -524,7 +524,7 @@ def test_the_run_creates_files_for_its_owner_only_and_restores_the_umask(monkeyp
 
 
 def test_a_finished_docs_security_assessment_is_imported_on_request_and_its_history_continues(tmp_path, monkeypatch):
-    """REQ-USE-004 / REQ-EVO-003: the import carries results and history; the checkout's files stay."""
+    """REQ-017 / REQ-019: the import carries results and history; the checkout's files stay."""
     from shared.assessment_location import application_directory
 
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")

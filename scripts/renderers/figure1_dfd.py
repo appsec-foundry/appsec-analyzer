@@ -4196,7 +4196,7 @@ def _reorder_for_crossings(build):
     """Model order unless a reorder clearly pays: ``build(ranks)`` lays the overview out with
     ``ranks`` as stacking order. The reordered figure is adopted only when it saves at least
     ``REORDER_MIN_SAVED`` and ``REORDER_MIN_SHARE`` of the routed crossings, passes the
-    geometry and semantic self-check, and loses no payload label (REQ-RPT-007)."""
+    geometry and semantic self-check, and loses no payload label (REQ-013)."""
     svg, state = build({})
     before = _routed_crossings(state["edges"])
     if before < REORDER_MIN_SAVED:
