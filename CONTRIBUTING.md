@@ -98,7 +98,7 @@ The deterministic assessment controller has its own checks:
 | Target | Purpose |
 |---|---|
 | `make test-controller` | Offline, no model cost, about 80 seconds: one in-process single-repository controller run over a small web application (a browser client calling its own API through guarded, public and unresolved routes), so route inventory, client-to-API flows, the architecture gate, abuse matching and publication run on real structure. Run it after any controller or deterministic-stage change. |
-| `make e2e-controller` | Offline, no model cost, about two minutes with `pytest-xdist` installed: complete controller runs through `scripts/run-headless.sh` and the real CLI transport against `tests/e2e/fake_claude.py`, with injected rate-limit, overload, text-answer and login failures and a `--resume` after a stopped run. |
+| `make e2e-controller` | Offline, no model cost: complete controller runs through `appsec-analyzer assess` and the real CLI transport against `tests/e2e/fake_claude.py`, with injected rate-limit, overload, text-answer and login failures and a `--resume` after a stopped run. |
 | `make e2e-controller-live` | One live quick controller run with the real `claude` CLI on the synthetic repository, or on `REPO=<path>`, bounded by `BUDGET` (default 3 USD); it checks that a valid model was published and prints the host event logs for diagnosis. |
 
 Cross-repository behavior has a separate driver. See the [cross-repository fixture runbook](docs/internal/runbooks/e2e-cross-repo-fixture.md).
@@ -189,7 +189,7 @@ python3 scripts/validators/validate_intermediate.py <file.json>  # intermediate 
 
 ```bash
 python3 scripts/mock-server.py [port]             # mock REST endpoints: context + requirements (default 4444)
-./scripts/run-headless.sh --repo /path --output /out --yaml --sarif
+appsec-analyzer assess --repo /path --host claude-cli --hard-budget 5 --output /out --sarif
 python3 scripts/requirements/harvest_requirements.py           # regenerate fallback requirements YAML (use --format all for spec exports)
 python3 scripts/threat_fixture.py freeze --run /out --into tests/fixtures/golden/<name> --repo /path
 python3 scripts/threat_fixture.py replay --fixture tests/fixtures/golden/<name> --repo /path

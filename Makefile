@@ -97,7 +97,7 @@ test-controller:  ## One offline controller run over a small web-application fix
 	@$(PYTHON) -m pytest tests/test_controller_fixture.py -q --tb=short
 
 .PHONY: e2e-controller
-e2e-controller:  ## Offline end-to-end runs of the assessment controller through run-headless.sh and a fake claude CLI, with injected API failures (no LLM, ~2 min with pytest-xdist)
+e2e-controller:  ## Offline end-to-end runs through appsec-analyzer assess and a fake Claude CLI (no LLM)
 	@$(PYTHON) -m pytest tests/test_controller_e2e.py -q --tb=short $$($(PYTHON) -c 'import xdist' 2>/dev/null && echo '-n auto')
 
 .PHONY: e2e-controller-live
@@ -239,16 +239,16 @@ inspect-bundle:  ## Print a triage summary of a diagnostic bundle: make inspect-
 # ─────────────────────────────────────────────────────────────────────────────
 # Ad-hoc headless analysis against an arbitrary target repo
 #
-# Thin wrapper around scripts/run-headless.sh for maintainer spot-checks
+# Maintainer spot checks through the public Analyzer CLI.
 # (e.g. juice-shop). Streams to the terminal AND a log file by default; set
 # BG=1 to detach via nohup so this session is free to work in parallel.
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: analyze
-analyze:  ## Headless threat-model against any repo: make analyze REPO=<path> [BG=1] [LOG=<file>] [MAX_DURATION=9000] [EXTRA="--assessment-depth thorough"]
+analyze:  ## Assessment against any repo: make analyze REPO=<path> [HARD_BUDGET=20] [BG=1] [EXTRA="--assessment-depth thorough"]
 	@test -n "$(REPO)" || { echo "ERROR: set REPO=<path to repo to analyze>, e.g. make analyze REPO=/home/mrohr/juice-shop"; exit 2; }
 	@log="$(or $(LOG),$(HOME)/appsec-$(notdir $(patsubst %/,%,$(REPO))).log)"; \
-	cmd='APPSEC_PLUGIN_DEV=1 $(PLUGIN_ROOT)scripts/run-headless.sh --repo "$(REPO)" --verbose --max-duration $(or $(MAX_DURATION),9000) $(EXTRA)'; \
+	cmd='appsec-analyzer assess --host claude-cli --hard-budget $(or $(HARD_BUDGET),20) --repo "$(REPO)" --max-duration $(or $(MAX_DURATION),9000) $(EXTRA)'; \
 	if [ -n "$(BG)" ]; then \
 		nohup sh -c "$$cmd" >"$$log" 2>&1 & \
 		echo "▶ analyzing $(REPO) in background (PID $$!)"; \

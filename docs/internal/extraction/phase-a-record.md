@@ -168,6 +168,16 @@ assessment completion.
   behavior. A fourth test expected an older controller function and was
   aligned with the current deterministic render stage without reducing its
   scanner-wiring check.
+- The installed v3 wheel ran a complete single-repository assessment against
+  the offline fake Claude transport: 13 fake calls, schema-valid YAML, Markdown,
+  and four figures published. `status` and `results` read the published state
+  and verified deliverable digests. That run exposed two current-tree migration
+  defects: its completion message suggested an Advisor plugin action, and
+  `progress` failed after normal cleanup removed the feed. The completion
+  guidance now directs review of findings and source citations, while the
+  versioned progress response falls back to the final state with an empty
+  event list. Negative tests still reject a symlinked feed. SARIF and Threat
+  Dragon export names in the summary fallback now match the controller.
 
 ## Milestones
 
@@ -175,5 +185,5 @@ assessment completion.
 | --- | --- | --- |
 | A1–A2 inventory and history | Imported, verification ongoing | Primary and supplemental filtered lineages, maps, blob comparison, historical samples above; finish scoped secret triage and current-tree exclusions. |
 | A3–A5 provider boundary | Offline adapter in progress | Responses/gateway transport and negative offline tests exist; qualification, complete pipeline replay, and public API routing remain open. |
-| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths, focused analyst delegation, independent bounded requirements audit, and wheel smoke checks exist; some launcher development consumers, installed assessment, and resume checks remain open. |
+| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths, focused analyst delegation, independent bounded requirements audit, and installed fake-host assessment exist; some launcher development consumers and installed resume checks remain open. |
 | A7 local release preparation | Open | Build and inspect wheel and sdist; record unresolved qualification and compatibility limits. No source-repository correction, push, or publication. |
