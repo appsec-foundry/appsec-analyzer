@@ -865,3 +865,30 @@ def test_a_trust_or_accounting_failure_is_never_replaced(tmp_path, breach):
     with pytest.raises((ExchangeError, TransportError)):
         jobs.execute(**kwargs, on_failure=lambda reason: {"result": "replacement"})
     assert jobs.gaps == []
+
+
+def test_subscription_receipt_is_reused_without_inventing_cost(tmp_path):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(None, None, 10, 60, spent_usd=None, subscription=True)
+    host.invoke = lambda *args: HostReply({"action": "complete", "reads": [], "artifact": {"result": "accepted"}}, None)
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    receipt = json.loads(next(jobs.directory.glob("*.receipt.json")).read_text())
+    assert receipt["schema_version"] == 2 and receipt["usd"] is None
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    assert jobs.budget.calls == 1 and jobs.budget.spent_usd is None
+
+
+def test_subscription_quota_error_cannot_be_replaced_by_optional_fallback(tmp_path):
+    from runtime.analyst_host import TransportError
+
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(None, None, 10, 60, spent_usd=None, subscription=True)
+
+    def invoke(*args):
+        raise TransportError("ChatGPT allowance exhausted", reason="quota_exhausted")
+
+    host.invoke = invoke
+    with pytest.raises(TransportError) as caught:
+        jobs.execute(**kwargs, on_failure=lambda _: pytest.fail("quota failure was hidden"))
+    assert caught.value.reason == "quota_exhausted"
+    assert jobs.budget.calls == 1 and jobs.budget.spent_usd is None

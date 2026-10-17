@@ -15,9 +15,11 @@ appsec-analyzer stop --output /private/assessment
 appsec-analyzer results --output /private/assessment
 ```
 
-The built-in scan profiles use a USD 20 spending limit; user scan profiles can set another budget. `audit-requirements` defaults to USD 5. `--budget USD` overrides the default, and `--hard-budget` remains a compatible alias. The CLI prints the selected limit to stderr before starting. Use an explicit budget in automation when its spending limit should be visible in the command.
+The `claude` and `codex` scan profiles use a USD 20 spending limit; user scan profiles can set another budget. `audit-requirements` defaults to USD 5. `--budget USD` overrides the default, and `--hard-budget` remains a compatible alias. The CLI prints the selected limit to stderr before starting. Use an explicit budget in automation when its spending limit should be visible in the command.
 
 A [scan profile](profiles.md) selects the model profile, depth, USD budget, exports, and report attributes. A model profile supplies the connection and model settings, including optional per-role overrides. The default for `scan` is `--profile claude --assessment-depth standard`; `assess` requires an explicit profile or legacy host. Configure a Claude login or external Anthropic credentials for `claude`, or `OPENAI_API_KEY` for the experimental `codex` profile. Existing `--host` commands remain supported; see [profile compatibility](model-selection.md).
+
+For ChatGPT plan usage on a trusted local machine, install the supported Codex CLI 0.163.0, sign in with `codex login`, and use `appsec-analyzer assess --repo /checkout --profile codex-cli --max-calls 1000 --max-duration 14400 --output /private/subscription-assessment --non-interactive`. This uses existing CLI authentication and sends selected context to OpenAI. It rejects USD budget flags, defaults to serial components, and stops on allowance exhaustion. It does not provision a CI login or share your credentials with a runner. See [Codex CLI prerequisites, recovery, and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
 Create `/private/source-scan` before running `scan-sources`. That command prints
 readable scanner findings to stdout; `--json` prints its versioned JSON instead.

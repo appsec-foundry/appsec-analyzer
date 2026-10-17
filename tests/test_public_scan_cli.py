@@ -66,6 +66,9 @@ def test_capabilities_distinguish_adapters_from_live_qualification() -> None:
     assert providers["claude-cli"]["profiles"] == ["claude"]
     assert providers["openai"]["profiles"] == ["codex", "codex-quick", "codex-standard", "codex-thorough"]
     assert providers["gateway"]["adapter"] == "offline-only"
+    assert providers["codex-cli"]["adapter"] == "cli"
+    assert providers["codex-cli"]["billing"] == "chatgpt-subscription"
+    assert providers["codex-cli"]["profiles"] == ["codex-cli"]
     assert all(provider["qualified"] is False for provider in providers.values())
 
 
@@ -301,4 +304,7 @@ def test_public_budget_help_documents_default_and_alias(command, default):
     if command == "audit-requirements":
         assert f"Maximum model cost in USD (default: {default})" in help_text
     else:
-        assert f"Maximum model cost in USD (built-in default: {default}; user profile may override)" in help_text
+        assert (
+            f"Maximum model cost in USD (built-in default: {default}; user profile may override; unavailable with codex-cli)"
+            in help_text
+        )

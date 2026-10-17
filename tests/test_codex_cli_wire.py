@@ -1,0 +1,176 @@
+"""Explicit local wire qualification of the real CLI, never an OpenAI call.
+
+Run with APPSEC_CODEX_OFFLINE_QUALIFICATION=1. The CLI receives only an artificial
+API key and a loopback Responses fixture. No existing login or source is used.
+"""
+
+from __future__ import annotations
+
+import http.server
+import json
+import os
+import shutil
+import subprocess
+import threading
+from pathlib import Path
+
+import pytest
+
+from appsec_analyzer import codex_cli
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("APPSEC_CODEX_OFFLINE_QUALIFICATION") != "1", reason="explicit local CLI wire qualification"
+)
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_path, monkeypatch, success):
+    executable = shutil.which("codex")
+    assert executable
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "CODEX_HOME": str(tmp_path / "codex-home"),
+        "FIXTURE_KEY": "artificial-offline-key",
+    }
+    home = Path(env["CODEX_HOME"])
+    home.mkdir()
+    marker = tmp_path / "unexpected-execution"
+    # Loading this configuration would launch a server before inference.
+    (home / "config.toml").write_text(
+        '[mcp_servers.forbidden]\ncommand="touch"\nargs=[' + json.dumps(str(marker)) + "]\n"
+    )
+    (tmp_path / "AGENTS.md").write_text("FORBIDDEN_PROJECT_INSTRUCTION\n")
+    version = subprocess.run([executable, "--version"], env=env, capture_output=True, text=True, check=True)
+    assert version.stdout.strip() == "codex-cli " + codex_cli.SUPPORTED_VERSION
+    features = subprocess.run([executable, "features", "list"], env=env, capture_output=True, text=True, check=True)
+    disabled = {
+        parts[0]: False
+        for line in features.stdout.splitlines()
+        if (parts := line.split())[1] not in ("removed", "deprecated")
+    }
+    disabled["skip_host_skill_discovery"] = True
+    requests = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            if not success:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error":{"message":"offline fixture completed","type":"invalid_request_error"}}')
+                return
+            text = json.dumps({"payload_json": json.dumps({"ok": True})})
+            part = {"type": "output_text", "text": text, "annotations": []}
+            message = {
+                "id": "msg_fixture",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [part],
+            }
+            response = {
+                "id": "resp_fixture",
+                "object": "response",
+                "created_at": 1,
+                "status": "completed",
+                "model": "gpt-6.1-sol",
+                "output": [message],
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 10,
+                    "total_tokens": 20,
+                    "input_tokens_details": {"cached_tokens": 0},
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                },
+            }
+            sequence = [
+                {"type": "response.created", "response": {**response, "status": "in_progress", "output": []}},
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {**message, "status": "in_progress", "content": []},
+                },
+                {
+                    "type": "response.content_part.added",
+                    "output_index": 0,
+                    "item_id": "msg_fixture",
+                    "content_index": 0,
+                    "part": {**part, "text": ""},
+                },
+                {
+                    "type": "response.output_text.delta",
+                    "output_index": 0,
+                    "item_id": "msg_fixture",
+                    "content_index": 0,
+                    "delta": text,
+                },
+                {
+                    "type": "response.output_text.done",
+                    "output_index": 0,
+                    "item_id": "msg_fixture",
+                    "content_index": 0,
+                    "text": text,
+                },
+                {
+                    "type": "response.content_part.done",
+                    "output_index": 0,
+                    "item_id": "msg_fixture",
+                    "content_index": 0,
+                    "part": part,
+                },
+                {"type": "response.output_item.done", "output_index": 0, "item": message},
+                {"type": "response.completed", "response": response},
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for event in sequence:
+                self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
+
+        def log_message(self, *args):
+            pass
+
+    with http.server.HTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            transport = codex_cli.CodexCliTransport(
+                tmp_path, "gpt-6.1-sol", "medium", {"executable": executable, "features": disabled}
+            )
+            original_argv = transport.argv
+
+            def argv(schema, instructions):
+                command = [
+                    arg.replace('model_provider="openai"', 'model_provider="fixture"').replace(
+                        'forced_login_method="chatgpt"', 'forced_login_method="api"'
+                    )
+                    for arg in original_argv(schema, instructions)
+                ]
+                command[-1:-1] = [
+                    "-c",
+                    f'model_providers.fixture={{name="fixture",base_url="http://127.0.0.1:{server.server_port}/v1",env_key="FIXTURE_KEY",wire_api="responses"}}',
+                ]
+                return command
+
+            # Only this local fixture replaces provider/auth, never production.
+            monkeypatch.setattr(transport, "argv", argv)
+            monkeypatch.setattr(codex_cli, "environment", lambda: env)
+            if success:
+                result = transport.invoke(
+                    "Return the requested JSON without tools.", "Return JSON.", {"type": "object"}, 20, lambda: False
+                )
+                assert result.payload == {"ok": True} and result.usd is None
+            else:
+                from runtime.analyst_host import TransportError
+
+                with pytest.raises(TransportError):
+                    transport.invoke("Return JSON.", "Return JSON.", {}, 20, lambda: False)
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+    assert len(requests) == 1
+    assert requests[0].get("tools", []) == []
+    assert "FORBIDDEN_PROJECT_INSTRUCTION" not in json.dumps(requests)
+    assert not marker.exists()

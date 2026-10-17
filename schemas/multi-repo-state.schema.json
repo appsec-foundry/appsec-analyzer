@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "run_id", "identity", "started_at", "expires_at", "status", "accounting", "deliverables"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"enum": [1, 2]},
     "run_id": {"type": "string", "pattern": "^assessment-[0-9a-f]{32}$"},
     "identity": {
       "type": "object", "additionalProperties": false,
@@ -19,8 +19,8 @@
           "type": "object", "additionalProperties": false,
           "required": ["max_usd", "call_usd", "max_calls", "timeout_s"],
           "properties": {
-            "max_usd": {"type": "number", "exclusiveMinimum": 0},
-            "call_usd": {"type": "number", "exclusiveMinimum": 0},
+            "max_usd": {"type": ["number", "null"], "exclusiveMinimum": 0},
+            "call_usd": {"type": ["number", "null"], "exclusiveMinimum": 0},
             "max_calls": {"type": "integer", "minimum": 1, "maximum": 47256},
             "timeout_s": {"type": "integer", "minimum": 1, "maximum": 43200}
           }
@@ -48,7 +48,7 @@
       "required": ["calls", "spent_usd", "unavailable"],
       "properties": {
         "calls": {"type": "integer", "minimum": 0, "maximum": 47256},
-        "spent_usd": {"type": "number", "minimum": 0},
+        "spent_usd": {"type": ["number", "null"], "minimum": 0},
         "unavailable": {"type": "boolean"}
       }
     },
@@ -187,5 +187,82 @@
       "additionalProperties": {"$ref": "#/$defs/hash"}
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "limits": {
+                "properties": {
+                  "max_usd": {
+                    "type": "null"
+                  },
+                  "call_usd": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "accounting": {
+            "properties": {
+              "spent_usd": {
+                "type": "null"
+              }
+            }
+          },
+          "operator_profile": {
+            "required": [
+              "adapter"
+            ],
+            "properties": {
+              "adapter": {
+                "const": "codex-cli"
+              }
+            }
+          },
+          "budget_authorizations": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "operator_profile"
+        ]
+      },
+      "else": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "limits": {
+                "properties": {
+                  "max_usd": {
+                    "type": "number"
+                  },
+                  "call_usd": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "accounting": {
+            "properties": {
+              "spent_usd": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {"hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
 }

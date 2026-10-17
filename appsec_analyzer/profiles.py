@@ -23,7 +23,7 @@ from yaml.tokens import AliasToken, AnchorToken
 from appsec_analyzer import resource_root
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
 
-BUILTINS = ("claude", "codex")
+BUILTINS = ("claude", "codex", "codex-cli")
 DEPTHS = ("quick", "standard", "thorough")
 OUTPUTS = ("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks")
 ROLES = (
@@ -211,13 +211,13 @@ def resolve_model(settings: dict, adapter: str, *, saved_model: str | None = Non
     if not requested:
         raise ProfileError("every model role needs a model default or override")
     result = {**settings, "requested_model": requested}
-    if adapter == "openai":
+    if adapter in ("openai", "codex-cli"):
         registry = catalog()
         model = saved_model or registry["aliases"].get(requested, requested)
         if saved_model and requested not in registry["aliases"] and model != requested:
             raise ProfileError("saved profile changes an explicit model selection")
         entry = registry["models"].get(model)
-        if not entry or entry["adapter"] != adapter:
+        if not entry or entry["adapter"] != "openai":
             raise ProfileError("model is not in the installed OpenAI model catalog")
         result["model"] = model
         result.setdefault("reasoning_effort", "medium")
@@ -229,6 +229,11 @@ def resolve_model(settings: dict, adapter: str, *, saved_model: str | None = Non
         for key in ("input_usd_per_million", "output_usd_per_million"):
             result[key] = entry[key]
         result["price_revision"] = registry["price_revision"]
+        if adapter == "codex-cli":
+            if "max_output_tokens" in result:
+                raise ProfileError("Codex CLI does not expose max_output_tokens; use call and time limits")
+            for key in ("price_revision", "input_usd_per_million", "output_usd_per_million", "model_output_limit"):
+                result.pop(key, None)
     else:
         if not re.fullmatch(r"(?:sonnet|haiku|opus|claude-[a-z0-9][a-z0-9.-]{0,100})", requested):
             raise ProfileError("Claude model must be sonnet, haiku, opus, or a claude- model ID")
@@ -262,6 +267,7 @@ def resolve_scan(
     outputs=None,
     abuse_case_files=None,
     max_parallel=None,
+    max_calls=None,
     repositories=(),
     home=None,
 ) -> dict:
@@ -303,6 +309,24 @@ def resolve_scan(
     model = model_settings(
         settings["model_profile"], settings["assessment_depth"], home=model_home, repositories=repositories
     )
+    if model["adapter"] == "codex-cli":
+        if budget is not None or "budget" in scan:
+            raise ProfileError(
+                "codex-cli uses ChatGPT plan allowance; --budget and profile budget are unavailable; use --max-calls and --max-duration"
+            )
+        settings["budget"] = None
+        if max_parallel is None and "max_parallel" not in scan:
+            settings["max_parallel"] = 1
+            provenance["max_parallel"] = "codex-cli default"
+        settings["max_calls"] = max_calls if max_calls is not None else scan.get("max_calls", 1000)
+        if type(settings["max_calls"]) is not int or not 1 <= settings["max_calls"] <= 47256:
+            raise ProfileError("max_calls must be between 1 and 47256")
+        provenance["budget"] = "not applicable: ChatGPT subscription"
+        provenance["max_calls"] = (
+            "CLI" if max_calls is not None else source if "max_calls" in scan else "analyzer default"
+        )
+    elif max_calls is not None or "max_calls" in scan:
+        raise ProfileError("max_calls is available only with codex-cli")
     definition = {"scan": scan, "models": model["layers"], "settings": settings}
     fingerprint = hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
     resolved = {role: resolve_model(values, model["adapter"]) for role, values in model["definitions"].items()}
@@ -370,7 +394,7 @@ def restore_profile(profile: dict, output: Path, *, resume: bool) -> dict:
     saved = _read_state(path).get("operator_profile")
     if not saved or saved.get("definition_sha256") != profile["definition_sha256"]:
         raise ProfileError("profile settings changed or predate profile snapshots; start a new run")
-    if result["adapter"] != "openai":
+    if result["adapter"] not in ("openai", "codex-cli"):
         return result
     for role, settings in result["models"].items():
         previous = saved.get("models", {}).get(role, {})

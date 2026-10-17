@@ -1,0 +1,14 @@
+schema_version: 1
+adapter: codex-cli
+defaults:
+  model: gpt-sol
+depths:
+  quick:
+    defaults:
+      reasoning_effort: low
+  standard:
+    defaults:
+      reasoning_effort: medium
+  thorough:
+    defaults:
+      reasoning_effort: high

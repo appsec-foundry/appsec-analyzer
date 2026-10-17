@@ -240,7 +240,7 @@ class AssessmentState:
                 )
             self.budget.max_usd = self._authorized_budget(self.state)
             accounting = self.state["accounting"]
-            if not math.isfinite(accounting["spent_usd"]):
+            if not self.budget.subscription and not math.isfinite(accounting["spent_usd"]):
                 raise ExchangeError("Assessment resume cost accounting is invalid")
             if self.state["expires_at"] != self.state["started_at"] + self.budget.timeout_s:
                 raise ExchangeError("Assessment resume deadline differs from its original limit")
@@ -251,7 +251,7 @@ class AssessmentState:
                 )
             if (
                 accounting["calls"] > self.budget.max_calls
-                or accounting["spent_usd"] > self.budget.max_usd
+                or (not self.budget.subscription and accounting["spent_usd"] > self.budget.max_usd)
                 or self.state["expires_at"] <= time.time()
             ):
                 raise ExchangeError("Assessment resume budget is exhausted")
@@ -269,13 +269,13 @@ class AssessmentState:
             self._discard_unfinished_run()
             now = int(time.time())
             self.state = {
-                "schema_version": 1,
+                "schema_version": 2 if self.budget.subscription else 1,
                 "run_id": "assessment-" + secrets.token_hex(16),
                 "identity": copy.deepcopy(self.identity),
                 "started_at": now,
                 "expires_at": now + self.budget.timeout_s,
                 "status": "running",
-                "accounting": {"calls": 0, "spent_usd": 0.0, "unavailable": False},
+                "accounting": {"calls": 0, "spent_usd": self.budget.spent_usd, "unavailable": False},
                 "deliverables": {},
             }
             if self.operator_profile is not None:
@@ -513,16 +513,20 @@ class AssessmentState:
                 or not validator.is_valid(receipt)
                 or receipt["job_id"] != match.group(1)
                 or receipt["scope_sha256"] != self.identity["scope_sha256"]
-                or not math.isfinite(receipt["usd"])
+                or receipt["schema_version"] != (2 if self.budget.subscription else 1)
+                or (not self.budget.subscription and not math.isfinite(receipt["usd"]))
             ):
                 raise ExchangeError("Assessment job receipt is foreign or malformed")
             calls += receipt["calls"]
-            costs.append(receipt["usd"])
+            if not self.budget.subscription:
+                costs.append(receipt["usd"])
             # Stop as soon as receipts exceed the state; this bounds the scan.
             if calls > accounting["calls"]:
                 break
         spent = math.fsum(costs)
-        if calls > accounting["calls"] or spent > accounting["spent_usd"] + 1e-9 * max(1.0, spent):
+        if calls > accounting["calls"] or (
+            not self.budget.subscription and spent > accounting["spent_usd"] + 1e-9 * max(1.0, spent)
+        ):
             raise ExchangeError("Assessment resume accounting is below its accepted job receipts")
 
     def _check_lock(self):
@@ -547,6 +551,7 @@ class AssessmentState:
         with self.budget._lock, self._checkpoint_lock:
             if (
                 not self._held
+                or self.budget.subscription
                 or self.cancelled
                 or self.budget.failed
                 or type(amount) not in (int, float)
@@ -701,7 +706,11 @@ class AssessmentState:
             "This is an incomplete snapshot, not a completed threat model or security verdict.",
             "Required analysis or report work remains. Any normal output files are not an accepted result of this attempt.",
             "",
-            f"Accounted cost: USD {self.budget.spent_usd:.2f}; limit: USD {self.budget.max_usd:.2f}.",
+            (
+                f"ChatGPT subscription: {self.budget.calls} model calls; monetary cost is unavailable."
+                if self.budget.subscription
+                else f"Accounted cost: USD {self.budget.spent_usd:.2f}; limit: USD {self.budget.max_usd:.2f}."
+            ),
             "",
             "## Accepted steps",
             "",
@@ -727,8 +736,12 @@ class AssessmentState:
             "",
             "## Continue",
             "",
-            "Increase --hard-budget or --max-duration as needed and rerun without --resume or --rebuild to reuse compatible accepted jobs.",
-            "The accounting includes reused job costs. --resume keeps the original limits and cannot replenish an exhausted budget.",
+            (
+                "Increase --max-calls or --max-duration as needed and rerun without --resume or --rebuild to reuse compatible accepted jobs."
+                if self.budget.subscription
+                else "Increase --hard-budget or --max-duration as needed and rerun without --resume or --rebuild to reuse compatible accepted jobs."
+            ),
+            "The accounting includes reused jobs. --resume keeps the original limits and cannot replenish an exhausted budget.",
             "",
         ]
         # Use the sanitized projection throughout, including the Markdown list.

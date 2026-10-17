@@ -13,7 +13,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from analyzers import serving_units
 from contexts.reconcile_multi_repo_architecture import SCHEMA, reconcile, validate_discovery
@@ -173,23 +173,27 @@ class AdmissionTimeout(HostTimeout):
 class DiscoveryBudget:
     """Shared admission accounting; reserve each call before creating its host.
 
-    A trusted factory must enforce the supplied dollar ceiling in its backend,
+    In monetary mode, a trusted factory must enforce the supplied dollar ceiling in its backend,
     so a call that ends without a cost report, by timeout, cancellation or a
     dead host process, is charged its full reservation. Only an implausible
     cost report leaves accounting unavailable and prevents any further call.
+    Subscription full assessments use the same time/call admission with null
+    monetary fields; they make no assertion about an account-wide allowance.
     """
 
-    max_usd: float
-    call_usd: float
+    max_usd: float | None
+    call_usd: float | None
     max_calls: int
     timeout_s: int
-    spent_usd: float = 0.0
+    spent_usd: float | None = 0.0
     calls: int = 0
+    subscription: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if (
             any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (self.max_usd, self.call_usd))
             or self.call_usd > self.max_usd
+            or self.subscription is not False
             or type(self.max_calls) is not int
             or not 1 <= self.max_calls <= 96
             or type(self.timeout_s) is not int
@@ -315,6 +319,9 @@ class DiscoveryBudget:
                     raise ExchangeError("Discovery call budget exhausted or accounting unavailable")
                 if self.calls >= self.call_limit():
                     raise BudgetExhausted("Discovery call budget exhausted")
+                if self.subscription:
+                    ceiling = None
+                    break
                 # MR-16: while other calls run, wait for one to settle instead
                 # of starting below the full ceiling; running reservations are
                 # already part of `spent_usd`.
@@ -339,7 +346,8 @@ class DiscoveryBudget:
                 raise AdmissionTimeout("model call exceeded its job's time limit before admission")
             self._local.reserved = ceiling
             self.calls += 1
-            self.spent_usd += ceiling
+            if not self.subscription:
+                self.spent_usd += ceiling
             self._inflight += 1
         try:
             reply = factory(ceiling).invoke(system, prompt, schema, remaining, should_stop)
@@ -349,8 +357,10 @@ class DiscoveryBudget:
             # reported cost, even one turn over it, is charged as reported.
             # Either way the run can be resumed.
             self._settle(ceiling, ceiling if exc.usd is None else exc.usd)
-            if exc.reason == "error_max_budget_usd" and (
-                ceiling < self.call_usd or self.max_usd - self.spent_usd < MIN_CALL_USD
+            if (
+                not self.subscription
+                and exc.reason == "error_max_budget_usd"
+                and (ceiling < self.call_usd or self.max_usd - self.spent_usd < MIN_CALL_USD)
             ):
                 raise CostBudgetExhausted("Model call exhausted the remaining assessment budget allowance") from exc
             raise TransportError(
@@ -368,6 +378,12 @@ class DiscoveryBudget:
             self._settle(ceiling, None)
             raise
         cost = reply.usd
+        if self.subscription:
+            self._settle(ceiling, None)
+            if cost is not None:
+                self.failed = True
+                raise TransportError("Subscription host returned unexpected monetary accounting")
+            return reply
         if type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
             self._settle(ceiling, None)
             raise TransportError("Model call cost is unavailable")
@@ -388,11 +404,15 @@ class DiscoveryBudget:
     def call_limit(self) -> int:
         return self.max_calls
 
-    def _settle(self, ceiling: float, cost: float | None) -> None:
+    def _settle(self, ceiling: float | None, cost: float | None) -> None:
         """Replace a finished call's reservation by its cost; an unknown cost stops further calls."""
         with self._lock:
             self._inflight -= 1
-            if cost is None:
+            if self.subscription:
+                # Calls are still reserved before dispatch, including failed attempts.
+                # There is no monetary reservation to reconcile for this mode.
+                pass
+            elif cost is None:
                 self._unsettled = True
             else:
                 self.spent_usd += cost - ceiling
@@ -400,7 +420,7 @@ class DiscoveryBudget:
 
 
 class BudgetedHost:
-    def __init__(self, factory: Callable[[float], Transport], budget: DiscoveryBudget):
+    def __init__(self, factory: Callable[[float | None], Transport], budget: DiscoveryBudget):
         self.factory, self.budget = factory, budget
         self.last: Transport | None = None
 

@@ -12,10 +12,12 @@ properties:
     enum:
     - claude
     - codex
+    - codex-cli
   adapter:
     enum:
     - openai
     - claude-cli
+    - codex-cli
   defaults: &id001
     type: object
     additionalProperties: false

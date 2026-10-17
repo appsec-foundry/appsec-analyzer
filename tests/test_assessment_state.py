@@ -880,3 +880,39 @@ def test_a_stop_request_reaches_the_run_at_its_next_checkpoint(scope, tmp_path, 
         raise HostCancelled("stopped")
     # A consumed request never stops the next run; another run's request is not this run's to remove.
     assert {"this-run": not stop.exists(), "other-run": stop.is_file(), "link": stop.is_symlink()}[request_kind]
+
+
+def test_subscription_state_resume_and_monetary_tampering(scope):
+    def subscription_state(**kwargs):
+        return lifecycle(
+            scope,
+            configuration={
+                "operator_profile": {
+                    "schema_version": 1,
+                    "definition_sha256": "a" * 64,
+                    "models": {},
+                    "adapter": "codex-cli",
+                }
+            },
+            budget=AssessmentBudget(None, None, 10, 60, spent_usd=None, subscription=True),
+            **kwargs,
+        )
+
+    state = subscription_state()
+    with state.hold():
+        state.budget.calls = 2
+        state.checkpoint()
+        document = stored(scope)
+        assert document["schema_version"] == 2
+        assert document["accounting"]["spent_usd"] is None
+        assert document["identity"]["limits"]["max_usd"] is None
+        with pytest.raises(ExchangeError, match="increase"):
+            state.approve_budget_increase(50)
+    resumed = subscription_state(resume=True)
+    with resumed.hold():
+        assert resumed.budget.calls == 2 and resumed.budget.spent_usd is None
+    document = stored(scope)
+    document["accounting"]["spent_usd"] = 0
+    (scope.output / ".assessment-state.json").write_text(json.dumps(document))
+    with pytest.raises(ExchangeError, match="contract"), subscription_state(resume=True).hold():
+        pass

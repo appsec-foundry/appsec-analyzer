@@ -1,0 +1,7 @@
+schema_version: 1
+description: Assessment using Codex CLI with a ChatGPT login
+model_profile: codex-cli
+assessment_depth: standard
+max_calls: 1000
+max_parallel: 1
+outputs: [markdown, yaml]

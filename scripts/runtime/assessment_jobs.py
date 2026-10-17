@@ -59,13 +59,26 @@ class AssessmentBudget(DiscoveryBudget):
         except ValueError as exc:
             raise ExchangeError(str(exc)) from None
         if (
-            any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (self.max_usd, self.call_usd))
-            or self.call_usd > self.max_usd
+            type(self.subscription) is not bool
+            or (
+                self.subscription
+                and (self.max_usd is not None or self.call_usd is not None or self.spent_usd is not None)
+            )
+            or (
+                not self.subscription
+                and (
+                    any(
+                        type(v) not in (int, float) or not math.isfinite(v) or v <= 0
+                        for v in (self.max_usd, self.call_usd)
+                    )
+                    or self.call_usd > self.max_usd
+                    or self.spent_usd != 0
+                )
+            )
             or type(self.max_calls) is not int
             or not 1 <= self.max_calls <= MAX_ASSESSMENT_CALLS
             or type(self.timeout_s) is not int
             or not 1 <= self.timeout_s <= MAX_ASSESSMENT_SECONDS
-            or self.spent_usd != 0
             or self.calls != 0
         ):
             raise ExchangeError("Invalid full-assessment budget")
@@ -79,7 +92,7 @@ class AssessmentBudget(DiscoveryBudget):
         self.on_budget_increase = None
 
     def request_more_budget(self, should_stop) -> bool:
-        if self.on_budget_increase is None or self.unsettled or self._inflight or should_stop():
+        if self.subscription or self.on_budget_increase is None or self.unsettled or self._inflight or should_stop():
             return False
         previous = self.max_usd
         self.on_budget_increase(should_stop)
@@ -109,7 +122,9 @@ class AssessmentBudget(DiscoveryBudget):
         """Learn only from accepted jobs under this run's fixed model selection."""
         with self._lock:
             cost, duration = self.observed.get(role, (0.0, 0.0))
-            self.observed[role] = (max(cost, usd), max(duration, seconds or 0.0))
+            # Subscription completion reserves use calls and time only.
+            estimate = 0.0 if self.subscription else usd
+            self.observed[role] = (max(cost, estimate), max(duration, seconds or 0.0))
             if group in self.required:
                 planned_role, count = self.required[group]
                 self.plan_required(group, planned_role, count - 1)
@@ -118,7 +133,8 @@ class AssessmentBudget(DiscoveryBudget):
         cost, seconds = self.observed.get(role, (0.0, 0.0))
         # A cold role keeps a full call allowance. Measurements include all
         # exchanges of a job; double the largest accepted job for correction.
-        return (max(0.05, 2 * cost) if cost else self.call_usd, 2 * seconds if seconds else MAX_CALL_SECONDS)
+        allowance = 0.0 if self.subscription else (max(0.05, 2 * cost) if cost else self.call_usd)
+        return allowance, 2 * seconds if seconds else MAX_CALL_SECONDS
 
     def _reserve(self):
         group, _role, optional = getattr(self._local, "job", (None, None, False))
@@ -142,6 +158,8 @@ class AssessmentBudget(DiscoveryBudget):
         return dollars, math.ceil(serial + parallel_seconds) + FINALIZATION_SECONDS
 
     def available_usd(self):
+        if self.subscription:
+            return 0.0
         available = super().available_usd()
         if not self.reserve_completion:
             return available
@@ -400,6 +418,7 @@ class AssessmentJobs:
             receipt = _read_json(found_path)
             current = (
                 validator.is_valid(receipt)
+                and receipt["schema_version"] == (2 if self.budget.subscription else 1)
                 and receipt["job_id"] == job_id
                 and receipt["role"] == role
                 and receipt["request_sha256"] == request_sha256
@@ -425,8 +444,11 @@ class AssessmentJobs:
                     # Charge before the receipt joins this run's jobs, so its accounting
                     # covers every receipt there; the receipt moves last.
                     with self.budget._lock:
+                        if self.budget.subscription and self.budget.calls + receipt["calls"] > self.budget.max_calls:
+                            raise BudgetExhausted("Cached job calls exceed the selected subscription call limit")
                         self.budget.calls += receipt["calls"]
-                        self.budget.spent_usd += receipt["usd"]
+                        if not self.budget.subscription:
+                            self.budget.spent_usd += receipt["usd"]
                     self.checkpoint()
                     os.replace(found_artifact, artifact_path)
                     os.replace(found_path, receipt_path)
@@ -475,7 +497,11 @@ class AssessmentJobs:
             return ExchangeResult(on_failure(str(exc)), (), 0, None)
         except (ModelAnswerFailure, HostTimeout, TransportError) as exc:
             # A login or billing failure fails every later call too; it is never replaced.
-            operator = isinstance(exc, TransportError) and exc.reason in ("authentication_failed", "billing_error")
+            operator = isinstance(exc, TransportError) and exc.reason in (
+                "authentication_failed",
+                "billing_error",
+                "quota_exhausted",
+            )
             replaceable = not operator and (
                 isinstance(exc, (ModelAnswerFailure, HostTimeout)) or not self.budget.unsettled
             )
@@ -492,7 +518,7 @@ class AssessmentJobs:
         artifact = copy.deepcopy(result.artifact)
         accept(artifact, ranges)
         receipt = {
-            "schema_version": 1,
+            "schema_version": 2 if self.budget.subscription else 1,
             "job_id": job_id,
             "role": role,
             "scope_sha256": self.scope_sha256,

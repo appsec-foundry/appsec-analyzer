@@ -9,9 +9,51 @@ appsec-analyzer scan --profile claude
 appsec-analyzer scan --profile codex
 ```
 
-Both use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
+`claude` and `codex` use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
 
 Profiles apply to `scan` and `assess`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
+
+## Use your ChatGPT plan with Codex CLI
+
+Select `codex-cli` to run full assessments through the Codex CLI's existing ChatGPT login. It is an experimental connection with offline transport and full-controller tests; live assessment quality has not been qualified. Your account or workspace must allow the selected model and Codex usage. This profile uses ChatGPT plan allowance or available credits; Analyzer cannot report the remaining allowance or enforce a monetary ceiling.
+
+Prerequisites: Linux or macOS, Codex CLI **0.163.0** installed on your `PATH` outside the analyzed repositories, and a working ChatGPT login. Other CLI versions are rejected until their isolation settings have been reviewed. Follow the [official Codex CLI installation instructions](https://developers.openai.com/codex/cli) to install the supported version. An API-key login does not satisfy this profile.
+
+1. Check the installed version and sign in with ChatGPT:
+
+   ```sh
+   codex --version
+   codex login
+   codex login status
+   ```
+
+2. Run an assessment, replacing `/path/to/project` with your Git repository:
+
+   ```sh
+   appsec-analyzer scan --repo /path/to/project --profile codex-cli \
+     --max-calls 1000 --max-duration 14400
+   ```
+
+The default limits are 1,000 model exchanges including corrections, failed attempts, and retries, four hours of total elapsed time, and one component at a time. `--max-calls N` accepts 1–47,256; `--max-duration SECONDS` accepts 1–43,200; `--max-parallel N` accepts 1–16. Required analysis and report work retain the existing call and time reserves. Each CLI exchange also has its own timeout and input/output byte bounds. The call count measures Analyzer-dispatched CLI invocations, including Analyzer retries; it does not count transport retries inside the CLI. An exchange is not an exact measure of tokens or ChatGPT credits, and these limits do not guarantee that the assessment will finish within your plan allowance.
+
+Do not pass `--budget` or `--hard-budget` with `codex-cli`; they are rejected, as is a `budget` field in a subscription scan profile. The startup summary identifies ChatGPT subscription use and the call limit. Completion and status show no invented dollar charge: monetary accounting is `null`. For separately billed OpenAI API use, select `codex` and configure `OPENAI_API_KEY`.
+
+Analyzer sends selected source excerpts, analysis context, and intermediate answers to OpenAI through the CLI. It uses fresh private work directories, disables model tools and repository/user agent configuration, and requests ephemeral sessions. Analyzer does not read or copy the CLI's authentication tokens. Your ChatGPT account/workspace controls provider-side data handling; ephemeral local sessions do not establish provider retention guarantees. The adapter removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Managed Codex settings must permit its restrictions; incompatible settings stop the run.
+
+If login expires, run `codex login` again. If your allowance is exhausted, wait for it to reset or manage it in ChatGPT, then rerun the original command with the same `--output` and `--resume`. Resume keeps the original call limit and deadline. If those local limits are exhausted, start a new run without `--resume` or `--rebuild`, adjusting the limits if needed; compatible accepted jobs are reused and their call counts are retained. Never use `--rebuild` merely to retry a quota error.
+
+To save your limits, create a scan profile under a new name such as `subscription-review.yaml`:
+
+```yaml
+schema_version: 1
+model_profile: codex-cli
+assessment_depth: standard
+max_calls: 1000
+max_parallel: 1
+outputs: [markdown, yaml]
+```
+
+Custom model profiles can use `base: codex-cli` and the existing model/role/depth settings. The built-in model and reasoning defaults match `codex`; model names must be in Analyzer's installed catalog and available to your ChatGPT account. `max_output_tokens` is not supported by this adapter. The separate requirements audit and focused analyst do not gain Codex CLI support.
 
 ## Create a scan profile
 
@@ -33,9 +75,9 @@ report:
 
 The filename supplies the name `release`. Names use lowercase letters, digits, and hyphens, starting with a letter. Use `.yaml` as the extension. `schema_version` describes the file format; it does not belong in the filename.
 
-`budget` is always USD. `outputs` selects exports; Markdown and structured YAML are always retained as the base result. Supported formats are `markdown`, `yaml`, `html`, `pdf`, `sarif`, `threatdragon`, and `pentest-tasks`. HTML and PDF still need the export tools described in the [assessment guide](security-assessment.md). An unavailable optional export produces a warning.
+`budget` is always USD and is available for `claude` and `codex`; `codex-cli` uses `max_calls` instead. `outputs` selects exports; Markdown and structured YAML are always retained as the base result. Supported formats are `markdown`, `yaml`, `html`, `pdf`, `sarif`, `threatdragon`, and `pentest-tasks`. HTML and PDF still need the export tools described in the [assessment guide](security-assessment.md). An unavailable optional export produces a warning.
 
-`max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
+`max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 (`codex-cli`: 1) and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
 Report attributes are text values, with up to 32 keys and 256 characters per value. They appear near the report title and under `meta.report_attributes` in the YAML result. They label the report; they do not change severity, authorize actions, or become analysis instructions. Keep credentials and confidential personal data out of them.
 
@@ -149,7 +191,7 @@ Select its scan file explicitly:
 appsec-analyzer scan --profile /private/team-settings/profiles/release.yaml
 ```
 
-For an explicit scan path, model names resolve from the sibling `model-profiles` directory or the built-ins. Analyzer does not silently substitute a same-named model file from the user's configuration directory. The built-in names `claude` and `codex` are reserved in both directories.
+For an explicit scan path, model names resolve from the sibling `model-profiles` directory or the built-ins. Analyzer does not silently substitute a same-named model file from the user's configuration directory. The built-in names `claude`, `codex`, and `codex-cli` are reserved in both directories.
 
 Copyable examples are [developer.yaml](../examples/profiles/developer.yaml), [release.yaml](../examples/profiles/release.yaml), [team-sol.yaml](../examples/model-profiles/team-sol.yaml), and [team-claude.yaml](../examples/model-profiles/team-claude.yaml). The release example uses `team-sol`, so copy both files into their respective directories.
 

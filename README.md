@@ -90,7 +90,7 @@ Replace `/path/to/project` with the target Git repository and `/path/to/assessme
 
 Installing by package name with `pip install appsec-analyzer` requires a release on PyPI. The current preview is listed as unpublished in [local release preparation](docs/local-release-preparation.md), which also describes installation from a locally built wheel.
 
-A full assessment with the default `claude` profile needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The experimental `codex` profile uses `OPENAI_API_KEY` instead. The source scan needs neither. See [profile configuration](docs/configuration.md) for provider setup.
+A full assessment with the default `claude` profile needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The experimental `codex` profile uses `OPENAI_API_KEY` instead. To use your ChatGPT plan, select the experimental `codex-cli` profile with Codex CLI 0.163.0 and a ChatGPT login; see [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). The source scan needs neither. See [profile configuration](docs/configuration.md) for provider setup.
 
 ## Quick start
 
@@ -116,7 +116,16 @@ appsec-analyzer scan
 
 `scan` uses the current directory by default. To assess a different repository, add `--repo /path/to/project`.
 
-This command sends selected source excerpts and supplied context to the model provider and makes paid model calls. The default spending limit is **USD 20** for `scan` and `assess`. To choose another limit, use `appsec-analyzer scan --budget 10`. The CLI prints the selected limit before starting. This is a maximum, not an estimate or a guarantee that the assessment will finish within that amount. If the remaining budget cannot cover required work, the run preserves progress and reports an incomplete assessment. `--hard-budget` remains a compatible alias for `--budget`.
+This command sends selected source excerpts and supplied context to the model provider and makes paid model calls. With `claude` or `codex`, the default spending limit is **USD 20** for `scan` and `assess`. To choose another limit, use `appsec-analyzer scan --budget 10`. The CLI prints the selected limit before starting. This is a maximum, not an estimate or a guarantee that the assessment will finish within that amount. If the remaining budget cannot cover required work, the run preserves progress and reports an incomplete assessment. `--hard-budget` remains a compatible alias for `--budget`.
+
+To use your ChatGPT plan with the supported Codex CLI installed and signed in:
+
+```sh
+codex login
+appsec-analyzer scan --profile codex-cli --max-calls 1000
+```
+
+This profile uses plan allowance or available credits and defaults to 1,000 model exchanges, four hours, and serial component processing. It rejects USD budget options and reports monetary cost as unavailable. Source excerpts and context still leave the machine. See [setup, recovery, and limitations](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli); live assessment quality remains unqualified.
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 

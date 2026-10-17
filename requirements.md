@@ -58,7 +58,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-022:** **Run unattended.** Assessments can run without waiting for answers from a person. Automation can tell a completed run from an interruption, an operational error, or a failed policy gate. Advisory results do not become blocking failures unless a gate was explicitly selected.
 
-- **REQ-023:** **Control time and spending.** Model calls run within documented spending and execution limits. The user can set a different spending limit, which Analyzer shows before a full assessment or separate audit starts. If the limits prevent completion, it keeps validated progress and clearly reports what remains unfinished.
+- **REQ-023:** **Control time and spending.** Model calls run within documented spending or subscription-use limits and execution limits. The user can set the applicable spending or call limit, which Analyzer shows before a full assessment or separate audit starts. If the limits prevent completion, it keeps validated progress and clearly reports what remains unfinished.
 
 ## Ask focused security questions
 

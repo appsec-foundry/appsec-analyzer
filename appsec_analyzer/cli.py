@@ -21,7 +21,7 @@ from appsec_analyzer import ENGINE_VERSION, INTERFACE_VERSION, resource_root
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, MAX_PARALLEL
 
 # Operator-selected built-ins only; repository content cannot select a provider.
-_PROFILE_HOSTS = {"claude": "claude-cli", "codex": "openai"}
+_PROFILE_HOSTS = {"claude": "claude-cli", "codex": "openai", "codex-cli": "codex-cli"}
 _LEGACY_CODEX_PROFILES = ("codex-quick", "codex-standard", "codex-thorough")
 
 
@@ -50,6 +50,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("selection", metavar="NAME_OR_FILE")
         command.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"))
         command.add_argument("--budget", type=_positive_budget)
+        command.add_argument("--max-calls", type=int, metavar="N")
         command.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
         command.add_argument(
             "--outputs",
@@ -149,13 +150,13 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     )
     parser.add_argument(
         "--host",
-        choices=("claude-cli", "openai", "gateway"),
+        choices=("claude-cli", "openai", "gateway", "codex-cli"),
         help="Legacy provider selection; --profile selects the host automatically",
     )
     parser.add_argument(
         "--profile",
         metavar="NAME_OR_FILE",
-        help="Scan profile name or external YAML file (scan default: claude; built-ins: claude, codex)",
+        help="Scan profile name or external YAML file (scan default: claude; built-ins: claude, codex, codex-cli)",
     )
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
     parser.add_argument(
@@ -166,7 +167,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         action=_Explicit,
         default=20.0,
         metavar="USD",
-        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override)",
+        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with codex-cli)",
     )
     parser.add_argument(
         "--assessment-depth", choices=("quick", "standard", "thorough"), default="standard", action=_Explicit
@@ -224,6 +225,12 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument("--no-org-profile", action="store_true")
     for role in ("stride", "triage", "merger"):
         parser.add_argument(f"--{role}-model", metavar="MODEL")
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        metavar="N",
+        help="Maximum Codex CLI model exchanges including retries (default: 1000; subscription only)",
+    )
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
     parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
     parser.add_argument("--evidence-verifier-cap", type=int, metavar="N")
@@ -265,6 +272,12 @@ def _capabilities() -> dict:
                 "claude-cli": {"adapter": "compatibility", "qualified": False, "profiles": ["claude"]},
                 "openai": {"adapter": "responses", "qualified": False, "profiles": ["codex", *_LEGACY_CODEX_PROFILES]},
                 "gateway": {"adapter": "offline-only", "qualified": False},
+                "codex-cli": {
+                    "adapter": "cli",
+                    "billing": "chatgpt-subscription",
+                    "qualified": False,
+                    "profiles": ["codex-cli"],
+                },
             }
         },
         "requirements_audit": {"available": True, "host": "claude-cli", "qualified": False},
@@ -461,7 +474,7 @@ def _assessment_host(ns: argparse.Namespace) -> str:
         return ns.host
     if ns.command == "scan":
         return _PROFILE_HOSTS["claude"]
-    raise ValueError("assess requires --profile (claude or codex) or a legacy --host")
+    raise ValueError("assess requires --profile (claude, codex, or codex-cli) or a legacy --host")
 
 
 def _prepare_profile(ns: argparse.Namespace) -> None:
@@ -472,7 +485,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
     selection = ns.profile
     if selection in _LEGACY_CODEX_PROFILES or (selection is None and ns.host):
         host = _assessment_host(ns)
-        selection = {"openai": "codex", "claude-cli": "claude"}.get(host)
+        selection = {"openai": "codex", "claude-cli": "claude", "codex-cli": "codex-cli"}.get(host)
         if not selection:
             raise ValueError(f"{host} has no configured model/depth profile")
     if not selection:
@@ -485,6 +498,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         depth=ns.assessment_depth if "assessment_depth" in explicit else None,
         budget=ns.hard_budget if "hard_budget" in explicit else None,
         max_parallel=ns.max_parallel,
+        max_calls=ns.max_calls,
         outputs=ns.outputs,
         abuse_case_files=ns.abuse_case_file,
         repositories=ns.repo or [str(Path.cwd())],
@@ -527,6 +541,13 @@ def _assess(ns: argparse.Namespace) -> int:
             raise ValueError("Claude reasoning and role-model overrides cannot be used with the OpenAI profile")
         if ns.model:
             ns.model = api_profile.model
+    elif host == "codex-cli":
+        if ns.reasoning_model or any(getattr(ns, f"{role}_model") for role in ("stride", "triage", "merger")):
+            raise ValueError("use a model profile for codex-cli role overrides")
+        selected = ns.run_profile["models"]["stride_analyzer"]
+        if ns.model and ns.model not in (selected["model"], selected["requested_model"]):
+            raise ValueError("--model differs from the selected Codex CLI profile")
+        ns.model = selected["model"]
     elif host != "claude-cli":
         raise ValueError(f"{host} has no configured model/depth profile")
     if ns.keep_runtime_files and ns.output:
@@ -551,13 +572,20 @@ def _assess(ns: argparse.Namespace) -> int:
         from appsec_analyzer.hosts import claude_preflight
 
         claude_preflight()
+    elif host == "codex-cli":
+        from appsec_analyzer.codex_cli import preflight
+
+        runtime = preflight(repositories=ns.repo or [str(Path.cwd())])
+        ns.run_profile["cli_version"] = runtime["version"]
     repositories = ns.repo or [str(Path.cwd())]
     args = ["--repo", repositories[0]]
     for repo in repositories[1:]:
         args += ["--repo", repo]
+    if host == "codex-cli":
+        args += ["--max-calls", str(ns.run_profile["settings"]["max_calls"])]
+    else:
+        args += ["--hard-budget", str(ns.hard_budget)]
     args += [
-        "--hard-budget",
-        str(ns.hard_budget),
         "--max-parallel",
         str(ns.max_parallel),
         "--assessment-depth",
@@ -756,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
                     ns.selection,
                     depth=ns.assessment_depth,
                     budget=ns.budget,
+                    max_calls=ns.max_calls,
                     outputs=ns.outputs,
                     max_parallel=ns.max_parallel,
                 )
@@ -766,6 +795,7 @@ def main(argv: list[str] | None = None) -> int:
                             ns.selection,
                             depth=depth,
                             budget=ns.budget,
+                            max_calls=ns.max_calls,
                             outputs=ns.outputs,
                             max_parallel=ns.max_parallel,
                         )

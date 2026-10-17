@@ -947,6 +947,12 @@ def _assessment_session(
         from appsec_analyzer.profiles import apply_runtime_profile
 
         apply_runtime_profile(run_profile, cfg, arguments, model=model)
+    if (run_profile or {}).get("adapter") == "codex-cli":
+        cfg["host_profile"] = {
+            "kind": "codex-cli",
+            "cli_version": run_profile["cli_version"],
+            "billing": "chatgpt-subscription",
+        }
     # Invocation spelling, argument order, and the deliverable postfix (random for a
     # bare --slug) do not change assessment policy.
     identity = {key: value for key, value in cfg.items() if key not in ("invocation_args", "slug")}
@@ -2323,6 +2329,7 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Started by an interactive skill: without a budget flag, the depth sets the hard budget (MR-7).",
     )
+    parser.add_argument("--max-calls", type=int, metavar="N")
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
     parser.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
     # appsec-analyzer runs one phase per invocation and continues with --resume.
@@ -2391,11 +2398,25 @@ def _requested_depth(rest: list[str]) -> str:
     return depth
 
 
-def _assessment_budget(ns, rest: list[str] = ()):
+def _assessment_budget(ns, rest: list[str] = (), *, subscription=False):
     from runtime.assessment_jobs import MAX_ASSESSMENT_CALLS, MAX_ASSESSMENT_SECONDS, AssessmentBudget
 
     from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL
 
+    if subscription:
+        if ns.hard_budget is not None or ns.soft_budget is not None:
+            raise CallError("codex-cli does not accept a USD budget; use --max-calls and --max-duration")
+        return AssessmentBudget(
+            None,
+            None,
+            ns.max_calls if ns.max_calls is not None else 1000,
+            ns.max_duration if ns.max_duration is not None else ASSESSMENT_DEFAULT_SECONDS,
+            spent_usd=None,
+            subscription=True,
+            max_parallel=ns.max_parallel if ns.max_parallel is not None else 1,
+        )
+    if ns.max_calls is not None:
+        raise CallError("--max-calls requires the codex-cli profile")
     limit = ns.hard_budget
     if limit is None and ns.soft_budget is not None:
         limit = round(ns.soft_budget * 1.25, 2)
@@ -2512,9 +2533,14 @@ def _budget_skip_info(gaps: list[dict], components: list[dict], budget) -> str:
         if name and name not in listed:
             listed.append(name)
     jobs = "; ".join(f"{role} ({', '.join(listed)})" if listed else role for role, listed in roles.items())
+    accounting = (
+        f"{budget.calls} model calls; ChatGPT subscription"
+        if budget.subscription
+        else f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} spent"
+    )
     return (
         f"{_count_noun(len(gaps), 'optional model job')} did not run, to keep the budget reserve for the report: "
-        f"{jobs}; deterministic replacements are used (USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} spent)"
+        f"{jobs}; deterministic replacements are used ({accounting})"
     )
 
 
@@ -3579,10 +3605,12 @@ def _assessment_intro(
         output += " (--resume: the plugin changed, so only unchanged model steps are reused)"
     elif ns.resume:
         output += " (--resume: continues the earlier assessment)"
-    cut = f"model calls stop at ${budget.max_usd:.2f}"
+    cut = "" if budget.subscription else f"model calls stop at ${budget.max_usd:.2f}"
     profile = (cfg or {}).get("operator_profile") or {}
     budget_origin = profile.get("origins", {}).get("settings", {}).get("budget", "")
-    if ns.hard_budget is None and ns.soft_budget is not None:
+    if budget.subscription:
+        cut = f"{budget.max_calls} model calls including retries; ChatGPT allowance applies; USD cost unavailable"
+    elif ns.hard_budget is None and ns.soft_budget is not None:
         cut += f" (1.25 × deprecated --soft-budget ${ns.soft_budget:g}; use --hard-budget)"
     elif (
         budget_origin == "analyzer default" or budget_origin.startswith("builtin:")
@@ -3606,7 +3634,14 @@ def _assessment_intro(
     return [
         ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(ns.repo)),
         ("Output", output),
-        ("Billing", "api" if os.environ.get("ANTHROPIC_API_KEY") else "subscription"),
+        (
+            "Billing",
+            "ChatGPT subscription via Codex CLI"
+            if budget.subscription
+            else "api"
+            if (cfg or {}).get("host_profile") or os.environ.get("ANTHROPIC_API_KEY")
+            else "subscription",
+        ),
         ("Budget", cut + "\nrequired analysis and report take priority over optional model work"),
         ("Time limit", limit),
         ("Depth", depth),
@@ -3651,8 +3686,8 @@ def _assessment_pipeline(cfg: dict[str, Any]) -> str:
     return " → ".join(f"{name} (+ {extras[name]})" if name in extras else name for name in phases)
 
 
-def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None, run_profile=None):
-    """Launch each exchange as a tool-less `claude -p` in a fresh private directory.
+def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None, run_profile=None, *, repositories=()):
+    """Launch each exchange through the selected tool-less CLI in a private directory.
 
     With `events_dir`, each call records the host's event stream there, so a
     slow or stopped call can be diagnosed from its turns and thinking estimates.
@@ -3662,6 +3697,15 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
 
     from runtime.analyst_host import ClaudeCliTransport
 
+    if (run_profile or {}).get("adapter") == "codex-cli":
+        from appsec_analyzer.codex_cli import CodexCliTransport, preflight
+
+        runtime = preflight(repositories=repositories)
+
+        def codex_factory(role, model, ceiling):
+            return CodexCliTransport(work_root, model, run_profile["models"][role]["reasoning_effort"], runtime)
+
+        return codex_factory
     executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
     sequence = itertools.count(1)
 
@@ -4259,6 +4303,8 @@ def assess_repositories(
         run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
         if ns.max_parallel is None:
             ns.max_parallel = run_profile["settings"]["max_parallel"]
+        if ns.max_calls is None and run_profile["adapter"] == "codex-cli":
+            ns.max_calls = run_profile["settings"]["max_calls"]
     # Opened first, so every refusal after this still ends the file with its `end` record.
     _AssessmentProgress.open(ns.progress_file)
     unsupported = sorted({arg.split("=", 1)[0] for arg in rest} & set(_ASSESSMENT_UNSUPPORTED))
@@ -4281,7 +4327,7 @@ def assess_repositories(
     if console:
         console.start_ticker()
     say = progress or (console.step if console else (lambda text: None))
-    budget = _assessment_budget(ns, rest)
+    budget = _assessment_budget(ns, rest, subscription=(run_profile or {}).get("adapter") == "codex-cli")
     if run_profile is not None and run_profile["adapter"] == "openai":
         from appsec_analyzer.profiles import call_reservation
 
@@ -4337,7 +4383,10 @@ def assess_repositories(
             )
         else:
             factory = host_factory or _assessment_cli_host_factory(
-                Path(hosts), scope.output / ".assessment-work" / "host-events", run_profile=run_profile
+                Path(hosts),
+                scope.output / ".assessment-work" / "host-events",
+                run_profile=run_profile,
+                repositories=ns.repo,
             )
         if progress is None and not ns.quiet:
             # Per-call detail lines show that a long model call is still alive.
@@ -4379,7 +4428,11 @@ def assess_repositories(
                 jobs.on_gap = lambda gap: say(_assessment_gap_message(gap))
                 from runtime.interactive_budget import BudgetPrompt, can_prompt
 
-                if console and can_prompt(non_interactive=ns.non_interactive, quiet=ns.quiet, json_output=ns.json):
+                if (
+                    not budget.subscription
+                    and console
+                    and can_prompt(non_interactive=ns.non_interactive, quiet=ns.quiet, json_output=ns.json)
+                ):
 
                     def pause_prompt(paused):
                         with _AssessmentConsole._lock:
@@ -4590,7 +4643,7 @@ def assess_repositories(
         "infos": infos,
         # The kept workspace serves diagnosis; only --verbose names it.
         **({"runtime_files": str(workspace)} if workspace.is_dir() and ns.verbose else {}),
-        "spent_usd": round(budget.spent_usd, 2),
+        "spent_usd": None if budget.subscription else round(budget.spent_usd, 2),
         "calls": budget.calls,
     }
 
@@ -4636,7 +4689,7 @@ def _assessment_retry_warning(retries: list[dict]) -> str | None:
     from collections import Counter
 
     reasons = ", ".join(f"{reason} ×{count}" for reason, count in sorted(Counter(r["reason"] for r in retries).items()))
-    paid = sum(row["usd"] for row in retries if row["paid"])
+    paid = sum(row["usd"] for row in retries if row["paid"] and row["usd"] is not None)
     cost = f"; the failed paid attempts cost ≈ USD {paid:.2f}" if paid else ""
     return f"{len(retries)} model call(s) were repeated after a transient failure ({reasons}){cost}"
 
@@ -4876,7 +4929,11 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
 
     kind = "Combined security assessment" if len(outcome["repositories"]) > 1 else "Security assessment"
     head = f"✓ {kind} of {', '.join(outcome['repositories'])} written in {elapsed}"
-    cost = f"({outcome['calls']} model calls, ≈ USD {outcome['spent_usd']:.2f})"
+    cost = (
+        f"({outcome['calls']} model calls, ChatGPT subscription; USD cost unavailable)"
+        if outcome["spent_usd"] is None
+        else f"({outcome['calls']} model calls, ≈ USD {outcome['spent_usd']:.2f})"
+    )
     if _AssessmentConsole.max_columns and len(head) + 1 + len(cost) > _AssessmentConsole.columns() - 1:
         print(out(head, "ok", "bold") + "\n  " + out(cost, "muted"), file=stream)
     else:

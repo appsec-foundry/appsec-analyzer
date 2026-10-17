@@ -41,6 +41,7 @@ No push, tag, package upload, or release publication is part of this step.
   and have offline wire, decoder, egress, and budget tests. Their end-to-end
   assessment quality has not been qualified in a live run. Fixed gateway routes
   remain unavailable through the public command.
+- `codex-cli` supports Codex CLI 0.163.0 with ChatGPT login on Linux/macOS. It has offline decoder, boundary, lifecycle, and full-controller coverage; the installed CLI has a loopback-only wire qualification test. Live assessment quality and plan consumption have not been qualified. See [setup and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 - `audit-requirements` accepts one local catalog and one repository. The
   historical Advisor plugin audit's remote catalog precedence, PDF output,
   and resume are not available at this boundary. This audit does not declare

@@ -66,6 +66,19 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         text=True,
     )
     assert result.returncode == 0, result.stderr
+    result = subprocess.run(
+        [sys.executable, "-m", "appsec_analyzer.cli", "profiles", "show", "codex-cli", "--max-calls", "25"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(build), "XDG_CONFIG_HOME": str(tmp_path / "config")},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    import json
+
+    profile = json.loads(result.stdout)
+    assert profile["adapter"] == "codex-cli" and profile["settings"]["budget"] is None
+    assert profile["settings"]["max_calls"] == 25
     for name in GUIDES:
         guide = package / "docs" / name
         assert guide.is_file()
@@ -107,6 +120,8 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         "docs/profiles.md",
         "data/model-catalog.yaml",
         "data/model-profiles/codex.yaml",
+        "data/model-profiles/codex-cli.yaml",
+        "data/scan-profiles/codex-cli.yaml",
         "schemas/scan-profile.schema.yaml",
         "schemas/model-profile.schema.yaml",
         "examples/profiles/release.yaml",
@@ -114,6 +129,8 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     ):
         assert "appsec_analyzer/" + relative in wheel_files
         assert relative in source_files
+    assert "appsec_analyzer/codex_cli.py" in wheel_files
+    assert "appsec_analyzer/codex_cli.py" in source_files
     assert "appsec_analyzer/scripts/runtime/multi_repo_scope.py" in wheel_files
     assert "appsec_analyzer/data/stride-analysis-policy.md" in wheel_files
     assert "appsec_analyzer/agents/appsec-stride-analyzer-v2.md" not in wheel_files

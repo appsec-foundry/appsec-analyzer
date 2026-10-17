@@ -6,14 +6,14 @@
   "additionalProperties": false,
   "required": ["schema_version", "job_id", "role", "scope_sha256", "request_sha256", "artifact_sha256", "source_ranges", "calls", "usd"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"enum": [1, 2]},
     "job_id": {"type": "string", "pattern": "^job-[0-9a-f]{24}$"},
     "role": {"type": "string", "pattern": "^[a-z][a-z_]{1,63}$"},
     "scope_sha256": {"$ref": "#/$defs/hash"},
     "request_sha256": {"$ref": "#/$defs/hash"},
     "artifact_sha256": {"$ref": "#/$defs/hash"},
     "calls": {"type": "integer", "minimum": 1, "maximum": 6},
-    "usd": {"type": "number", "minimum": 0},
+    "usd": {"type": ["number", "null"], "minimum": 0},
     "source_ranges": {
       "type": "array", "maxItems": 48,
       "items": {
@@ -29,5 +29,30 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "usd": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "usd": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  ],
   "$defs": {"hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
 }

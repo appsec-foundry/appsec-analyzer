@@ -8,7 +8,7 @@ appsec-analyzer scan --profile codex --assessment-depth thorough
 appsec-analyzer scan --profile claude --assessment-depth quick
 ```
 
-`scan` defaults to `claude` and `standard`. `assess` requires an explicit profile or legacy host selection. Both built-in scan profiles use a USD 20 budget. Override it with `--budget USD`, or define a budget in your own scan profile. See [scan and model profiles](profiles.md) for file locations, per-role settings, output formats, report attributes, and examples.
+`scan` defaults to `claude` and `standard`. `assess` requires an explicit profile or legacy host selection. `claude` and `codex` use a USD 20 budget; `codex-cli` uses ChatGPT plan allowance with local call and time limits. For `claude` and `codex`, override the amount with `--budget USD` or define a budget in your own scan profile. See [scan and model profiles](profiles.md) for file locations, per-role settings, output formats, report attributes, and examples.
 
 ## Codex profile
 
@@ -27,6 +27,10 @@ By default, requests omit `max_output_tokens`. Analyzer imposes no cap below the
 Each request is capped at 240,000 bytes, below the catalog models' 272,000 input-token long-context price threshold. Before sending it, the adapter reserves the cost of bounded input plus the configured output limit or model maximum. For the default Sol model, the dated snapshot uses a conservative USD 2.50 per million input tokens, including a possible cache-write charge, and USD 10 per million output tokens. A large reservation can stop a call even when its eventual response would have been shorter. The total authorized USD budget still applies.
 
 An OpenAI `--model` value must match the selected STRIDE model or its requested alias. Claude role flags and `--reasoning-model` are rejected on this adapter; use a model profile for per-role OpenAI settings. Before a paid run, check the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [pricing table](https://developers.openai.com/api/docs/pricing).
+
+## Codex CLI profile
+
+`codex-cli` uses the same installed model aliases and depth-specific reasoning defaults as `codex`, through Codex CLI 0.163.0 and its ChatGPT login. The account/workspace must allow the selected model. It does not use `OPENAI_API_KEY` and cannot enforce or report a dollar charge. It defaults to 1,000 model exchanges, four hours, and one component at a time. Use `--max-calls` and `--max-duration`; `--budget`, profile `budget`, and `max_output_tokens` are rejected. See [setup and limitations](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
 ## Claude profile
 
@@ -50,4 +54,4 @@ Existing `--host claude-cli` and `--host openai` calls remain supported. The old
 
 `--org-profile` selects separate organization assessment settings. The requirements audit continues to use `--host claude-cli`.
 
-Offline protocol, boundary, and budget tests do not establish assessment quality. The `codex` profile has not completed live end-to-end qualification at any depth. User model combinations also remain unqualified. The gateway adapter has no fixed public route and remains unavailable through the CLI.
+Offline protocol, boundary, and budget tests do not establish assessment quality. The `codex` and `codex-cli` profiles have not completed live end-to-end qualification at any depth. User model combinations also remain unqualified. The gateway adapter has no fixed public route and remains unavailable through the CLI.
