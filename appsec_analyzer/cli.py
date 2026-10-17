@@ -179,6 +179,9 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument(
+        "--non-interactive", action="store_true", help="Never prompt to increase the assessment budget (use in CI)"
+    )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--progress-file", metavar="PATH")
     parser.add_argument("--model", metavar="MODEL")
@@ -584,6 +587,7 @@ def _assess(ns: argparse.Namespace) -> int:
         "resume",
         "rebuild",
         "quiet",
+        "non_interactive",
         "verbose",
         "sarif",
         "threatdragon",

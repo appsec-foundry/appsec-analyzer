@@ -18,6 +18,7 @@ import json
 import re
 from pathlib import Path
 
+import yaml
 from runtime.assessment_host import ExchangeError
 
 from orchestrator.assessment_workspace import WorkspaceError, read_json, write_json
@@ -387,6 +388,8 @@ def run_abuse_cases(
         rebuild()
         run_script("model/triage_compute_ranking.py", [str(workspace), "--if-deterministic-owner"])
     persist_abuse_cases(workspace, root, cfg, run_script)
+    if candidates:
+        progress("Review coverage: " + _abuse_coverage(workspace, candidates))
     receipts.append("Canonical abuse-case analysis persisted")
     gate = run_script(
         "validators/abuse_case_gate.py", ["--output-dir", str(workspace)], acceptable=(0, _ABUSE_GATE_EXIT)
@@ -394,6 +397,21 @@ def run_abuse_cases(
     if gate.returncode == _ABUSE_GATE_EXIT:
         raise AssessmentReviewError("abuse-case release gate failed: " + (gate.stderr or gate.stdout).strip()[-500:])
     return receipts
+
+
+def _abuse_coverage(workspace: Path, candidates: list[str]) -> str:
+    """Count completed decisions, partial checks and gaps from the validated export."""
+    model = yaml.safe_load((workspace / "threat-model.yaml").read_text(encoding="utf-8"))
+    analysis = model.get("abuse_case_analysis") or {}
+    cases = {case["id"]: case for case in analysis.get("cases") or []}
+    checked = partial = 0
+    for candidate in candidates:
+        case = cases.get(candidate, {})
+        if case.get("verification_complete") is True:
+            checked += 1
+        elif any(step.get("unverified") is False for step in case.get("steps") or []):
+            partial += 1
+    return f"abuse-case verification: {checked} checked, {partial} partial, {len(candidates) - checked - partial} unchecked"
 
 
 def persist_abuse_cases(workspace, root, cfg, run_script) -> None:
@@ -499,7 +517,8 @@ def run_architect_review(
             if wave is None:
                 break
             for job in wave:
-                progress("Reviewing findings as architect: " + job["component_id"])
+                label = "Reviewing promoted findings as architect" if post_abuse else "Reviewing findings as architect"
+                progress(label + ": " + job["component_id"])
                 allowed = _component_sources(components, job["component_id"], names)
                 proposals = _review_job(jobs, workspace, job, allowed, instructions=instructions)
                 write_json(workspace / job["output_artifact"], proposals)
@@ -514,6 +533,10 @@ def run_architect_review(
     except (OSError, ReviewError) as exc:
         raise AssessmentReviewError("architect review transaction failed") from exc
     run_script("validators/validate_intermediate.py", ["threats_merged", str(workspace / ".threats-merged.json")])
+    progress(
+        f"Review coverage: architect review: {coverage['reviewed']} reviewed, "
+        f"{coverage['unreviewed']} unreviewed, {coverage['unresolved']} unresolved"
+    )
     return [
         f"architect review {coverage['outcome']}: {coverage['reviewed']} reviewed, "
         f"{coverage['unreviewed']} unreviewed, {coverage['unresolved']} unresolved"

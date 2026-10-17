@@ -837,6 +837,11 @@ requirements:
       - tests/test_assessment_state.py::test_interrupted_session_releases_lock_and_resumes_same_identity
       - tests/test_public_assessment_operations.py::test_status_reports_assessment_scope_without_exposing_internal_identity
       - tests/test_public_assessment_operations.py::test_progress_reports_final_state_after_feed_cleanup
+      - tests/test_multi_repo_assessment.py::test_skipped_reviews_are_permanent_and_phase_counts_describe_actual_checks
+      - tests/test_multi_repo_assessment.py::test_gap_messages_never_echo_host_errors_or_untrusted_selectors
+      - tests/test_multi_repo_assessment.py::test_review_gaps_and_counts_are_written_to_the_progress_feed
+      - tests/test_assessment_review.py::test_abuse_coverage_distinguishes_checked_partial_and_missing_results
+      - tests/test_assessment_review.py::test_missing_architect_proposals_are_reported_as_unreviewed
 
   REQ-017:
     applies_to:
@@ -1027,6 +1032,8 @@ requirements:
 
   REQ-022:
     applies_to:
+      - appsec_analyzer/cli.py
+      - scripts/runtime/interactive_budget.py
       - scripts/runtime/remote_repositories.py
       - scripts/run-headless.sh
       - scripts/orchestrator/orchestration_controller.py
@@ -1042,6 +1049,8 @@ requirements:
     coverage: partial
     guards:
       - tests/test_remote_repositories.py::test_missing_credentials_fail_without_prompting
+      - tests/test_interactive_budget.py::test_only_an_interactive_non_ci_terminal_can_prompt
+      - tests/test_public_scan_cli.py::test_non_interactive_reaches_the_controller_and_is_documented
       - tests/test_remote_repositories.py::test_sigterm_stops_runner_and_removes_checkouts
       - tests/test_run_headless_completion.py::test_headless_has_no_generation_escape_hatch
       - tests/test_multi_repo_assessment.py::test_budget_stop_uses_incomplete_exit_status
@@ -1058,6 +1067,8 @@ requirements:
 
   REQ-023:
     applies_to:
+      - scripts/runtime/interactive_budget.py
+      - schemas/multi-repo-state.schema.json
       - appsec_analyzer/profiles.py
       - appsec_analyzer/api_hosts.py
       - data/model-catalog.yaml
@@ -1091,6 +1102,12 @@ requirements:
       - tests/test_run_headless_completion.py::test_the_hard_cut_is_derived_from_the_soft_budget
       - tests/test_run_headless_completion.py::test_an_explicit_hard_budget_wins_over_the_derived_one
       - tests/test_assessment_jobs.py::test_optional_work_preserves_the_report_budget
+      - tests/test_interactive_budget.py::test_prompt_requires_a_higher_literal_usd_amount
+      - tests/test_interactive_budget.py::test_budget_question_waits_for_running_calls_and_blocks_new_admission
+      - tests/test_assessment_state.py::test_explicit_terminal_answer_controls_admission_and_persistence
+      - tests/test_assessment_state.py::test_approved_budget_is_persisted_before_use_and_restored_on_resume
+      - tests/test_assessment_state.py::test_failed_approval_persistence_never_authorizes_spending
+      - tests/test_assessment_state.py::test_resume_rejects_a_broken_budget_authorization_chain
       - tests/test_assessment_jobs.py::test_optional_work_protects_pending_analysis_and_uses_measured_job_cost
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_the_report_and_local_finalization
       - tests/test_assessment_jobs.py::test_finishing_summary_uses_only_the_actual_remaining_budget

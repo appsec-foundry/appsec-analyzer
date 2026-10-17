@@ -2337,6 +2337,7 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--non-interactive", action="store_true", help="Never prompt for a higher budget (use in CI)")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
@@ -2478,6 +2479,17 @@ def _coverage_infos(entries: list[dict], verbose: bool) -> list[str]:
             f"{_count_noun(len(entries), 'component')} were not individually examined; --verbose lists them"
         ]
     )
+
+
+def _assessment_gap_message(gap: dict) -> str:
+    """Describe a controller decision without printing host errors or source text."""
+    role = _AssessmentConsole.ROLE_LABELS.get(gap.get("role"), "optional model")
+    selector = str(gap.get("selector") or "")
+    case = selector.removeprefix("abuse:")
+    subject = f" ({case})" if selector.startswith("abuse:") and re.fullmatch(r"[A-Z][A-Z0-9-]{1,79}", case) else ""
+    if gap.get("budget"):
+        return f"Coverage gap: {role}{subject} job skipped: budget reserved for required completion work"
+    return f"Coverage gap: {role}{subject} job incomplete: no accepted model result; using fallback"
 
 
 def _budget_skip_info(gaps: list[dict], components: list[dict], budget) -> str:
@@ -2672,6 +2684,7 @@ class _AssessmentConsole:
         ("Matching abuse cases", "Abuse cases"),
         ("Deriving application-specific business abuse cases", "Abuse cases"),
         ("Verifying abuse case", "Abuse cases"),
+        ("Reviewing promoted findings as architect", "Abuse cases"),
         # Root causes cover the findings abuse verification adds.
         ("Synthesizing cross-finding", "Finalization"),
         ("Updating the assessment model", "Finalization"),
@@ -2688,6 +2701,7 @@ class _AssessmentConsole:
         "Assessing controls",
         "Analyzing all STRIDE categories",
         "Reviewing findings as architect",
+        "Reviewing promoted findings as architect",
         "Verifying abuse case",
         "Stage 2:",
     )
@@ -2702,6 +2716,7 @@ class _AssessmentConsole:
         "Assessing controls": "component",
         "Analyzing all STRIDE categories": "component",
         "Reviewing findings as architect": "architect review",
+        "Reviewing promoted findings as architect": "architect review",
         "Verifying abuse case": "abuse case",
         "Stage 2:": "report section",
     }
@@ -2760,6 +2775,7 @@ class _AssessmentConsole:
         # Corrected answers per role in the current phase (MR-17).
         self.corrections: Counter = Counter()
         self.results: dict[str, str] = {}
+        self.review_coverage: dict[str, dict[str, str]] = {}
         self.headed, self.shown = False, None
         # Called once a phase has started, e.g. to report a plugin change at once.
         self.on_phase = None
@@ -2767,6 +2783,7 @@ class _AssessmentConsole:
         # Model calls in flight (_ReportedTransport registers itself) and the
         # last controller step with its start, for the terminal's status line.
         self.running: dict[int, Any] = {}
+        self.prompting = False
         self.activity, self.activity_started = "", time.monotonic()
 
     def start_ticker(self) -> None:
@@ -2793,7 +2810,7 @@ class _AssessmentConsole:
 
     def tick(self) -> None:
         """Redraw the status line: what runs right now and for how long."""
-        if not self.phase:
+        if not self.phase or self.prompting:
             return
         now = time.monotonic()
         # Copied first: calls register and leave from their own threads.
@@ -2957,6 +2974,8 @@ class _AssessmentConsole:
             # only its own tail, `\033[J` the rows a shorter area leaves below.
             # The frame is a synchronized update with a hidden cursor, so the
             # terminal never shows it half drawn or the cursor moving.
+            if self.prompting:
+                return
             up = _AssessmentConsole.status_lines - 1 if _AssessmentConsole.status_shown else 0
             sys.stderr.write(
                 _AssessmentConsole.FRAME_OPEN
@@ -3171,6 +3190,15 @@ class _AssessmentConsole:
         return self.st(head, self.FACT_ROLES.get(key, "bold")) + self.st(sep + tail, "muted")
 
     def step(self, text: str) -> None:
+        if text.startswith("Coverage gap: "):
+            self.notice(text)
+            return
+        if text.startswith("Review coverage: "):
+            detail = text.removeprefix("Review coverage: ")
+            label = detail.partition(":")[0]
+            self.review_coverage.setdefault(self.phase, {})[label] = detail
+            self.record("·", detail)
+            return
         if text.startswith(self.RESULT):
             phase, _, result = text[len(self.RESULT) :].partition(": ")
             self.results[phase] = result
@@ -3344,10 +3372,12 @@ class _AssessmentConsole:
         if self.phase:
             now = self.clock() if now is None else now
             produced = [_duration(now - self.started)]
-            if self.count:
+            coverage = self.review_coverage.get(self.phase, {})
+            if self.count and "abuse-case verification" not in coverage:
                 produced.append(_count_noun(*self.count))
             if self.results.get(self.phase):
                 produced.append(self.results[self.phase])
+            produced.extend(coverage.values())
             if self.corrections:
                 total = sum(self.corrections.values())
                 roles = ", ".join(f"{role} {count}" for role, count in sorted(self.corrections.items()))
@@ -3840,7 +3870,7 @@ def _assessment_invocation(argv: list[str]) -> str:
         "--trust-mode",
         "--fail-on",
     }
-    keep_flag = {"--full", "--resume", "--rebuild", "--quiet", "--verbose", "--json"}
+    keep_flag = {"--full", "--resume", "--rebuild", "--quiet", "--non-interactive", "--verbose", "--json"}
     kept: list[str] = []
     tokens = iter(argv)
     for token in tokens:
@@ -4327,6 +4357,20 @@ def assess_repositories(
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)
+                jobs.on_gap = lambda gap: say(_assessment_gap_message(gap))
+                from runtime.interactive_budget import BudgetPrompt, can_prompt
+
+                if console and can_prompt(non_interactive=ns.non_interactive, quiet=ns.quiet, json_output=ns.json):
+
+                    def pause_prompt(paused):
+                        with _AssessmentConsole._lock:
+                            console.prompting = paused
+                            if paused:
+                                console.clear_status()
+
+                    budget.on_budget_increase = BudgetPrompt(
+                        state, report=console.notice, pause=pause_prompt, role_labels=_AssessmentConsole.ROLE_LABELS
+                    )
                 # Only the narrowed console header counts roles; every other lineup names them.
                 lineup, model_warning = _assessment_model_lines(
                     cfg, compact=console is not None and _AssessmentConsole.max_columns is not None

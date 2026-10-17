@@ -200,6 +200,22 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
     assert f"Model budget limit: USD {expected:g}" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["scan", "assess"])
+def test_non_interactive_reaches_the_controller_and_is_documented(tmp_path, monkeypatch, command):
+    from appsec_analyzer import cli, hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    observed = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args, **kwargs: observed.extend(args) or 0)
+    assert cli.main([command, "--repo", str(tmp_path), "--profile", "claude", "--non-interactive"]) == 0
+    assert "--non-interactive" in observed
+    assert "--non-interactive" in _run(command, "--help").stdout
+
+
 @pytest.mark.parametrize(
     "budget_args, expected", [([], 5.0), (["--budget", "7.5"], 7.5), (["--hard-budget", "3"], 3.0)]
 )

@@ -147,6 +147,104 @@ def test_interrupted_session_releases_lock_and_resumes_same_identity(scope):
         assert resumed.budget.deadline <= initial.budget.deadline + 1
 
 
+def test_approved_budget_is_persisted_before_use_and_restored_on_resume(scope):
+    state = lifecycle(scope)
+    with state.hold():
+        state.approve_budget_increase(2.5)
+        assert stored(scope)["budget_authorizations"][0]["max_usd"] == 2.5
+        assert state.budget.max_usd == 2.5
+        assert stored(scope)["identity"]["limits"]["max_usd"] == 1.0
+        state.budget.spent_usd = 1.2
+    resumed = lifecycle(scope, resume=True)
+    with resumed.hold():
+        assert resumed.budget.max_usd == 2.5 and resumed.budget.spent_usd == 1.2
+
+
+@pytest.mark.parametrize("answer,expected_calls", [("2.00\n", 1), ("\n", 0)])
+def test_explicit_terminal_answer_controls_admission_and_persistence(scope, monkeypatch, answer, expected_calls):
+    from runtime.interactive_budget import BudgetPrompt
+
+    state = lifecycle(scope)
+    with state.hold():
+        state.budget.spent_usd = 0.97
+        prompt = BudgetPrompt(state, report=lambda text: None, pause=lambda value: None, role_labels={})
+        monkeypatch.setattr(prompt, "_readline", lambda stop: answer)
+        state.budget.on_budget_increase = prompt
+
+        class Host:
+            def invoke(self, *args):
+                assert stored(scope)["budget_authorizations"][-1]["max_usd"] == 2.0
+                return HostReply({"action": "complete", "reads": [], "artifact": {"ok": True}}, 0.01)
+
+        jobs = AssessmentJobs(
+            scope,
+            state.directory / "jobs",
+            state.budget,
+            lambda role, ceiling: Host(),
+            state.should_stop,
+            state.checkpoint,
+        )
+        result = jobs.execute(
+            role="architect_reviewer",
+            selector="test",
+            instructions="trusted",
+            context={},
+            schema={"type": "object", "required": ["ok"]},
+            allowed_sources=frozenset(),
+            validate=lambda artifact, ranges: None,
+            on_failure=lambda reason: {"ok": False},
+        )
+        assert result["ok"] == bool(expected_calls)
+        assert state.budget.calls == expected_calls
+        assert bool(stored(scope).get("budget_authorizations")) == bool(expected_calls)
+
+
+@pytest.mark.parametrize("amount", [0, 1.0, -1, float("nan"), float("inf"), True, "2"])
+def test_budget_approval_rejects_invalid_or_non_increasing_limits(scope, amount):
+    state = lifecycle(scope)
+    with state.hold():
+        with pytest.raises(ExchangeError, match="budget increase"):
+            state.approve_budget_increase(amount)
+        assert state.budget.max_usd == 1.0 and not state.state.get("budget_authorizations")
+
+
+def test_failed_approval_persistence_never_authorizes_spending(scope, monkeypatch):
+    state = lifecycle(scope)
+    with state.hold():
+        with monkeypatch.context() as patch:
+            patch.setattr(state, "checkpoint", lambda: (_ for _ in ()).throw(OSError("write failed")))
+            with pytest.raises(OSError):
+                state.approve_budget_increase(2.0)
+        assert state.budget.max_usd == 1.0 and not state.state.get("budget_authorizations")
+
+
+def test_resume_rejects_a_broken_budget_authorization_chain(scope):
+    state = lifecycle(scope)
+    with state.hold():
+        state.approve_budget_increase(2.0)
+    document = stored(scope)
+    document["budget_authorizations"][0]["previous_max_usd"] = 0.5
+    state.path.write_text(json.dumps(document))
+    with pytest.raises(ExchangeError, match="authorization history"), lifecycle(scope, resume=True).hold():
+        pass
+
+
+@pytest.mark.parametrize("context", ["cancelled", "unsettled", "inflight"])
+def test_budget_approval_requires_settled_active_work(scope, context):
+    state = lifecycle(scope)
+    with state.hold():
+        if context == "cancelled":
+            state.cancelled = True
+        elif context == "unsettled":
+            state.budget.failed = True
+        else:
+            state.budget._inflight = 1
+        with pytest.raises(ExchangeError, match="budget increase"):
+            state.approve_budget_increase(2.0)
+        assert state.budget.max_usd == 1.0
+        state.budget._inflight = 0
+
+
 def test_complete_session_binds_deliverables_and_detects_later_changes(scope):
     state = lifecycle(scope)
     with state.hold():

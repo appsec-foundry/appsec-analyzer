@@ -2183,7 +2183,11 @@ def test_budget_stop_uses_incomplete_exit_status(tmp_path, monkeypatch, capsys):
 
 
 def test_tight_budget_skips_optional_jobs_and_still_publishes_a_gated_report(tmp_path, monkeypatch):
-    outcome, host, out = _assess(tmp_path, monkeypatch, ("records",), ("--hard-budget", "3", "--no-pdf"))
+    shown = []
+    outcome, host, out = _assess(
+        tmp_path, monkeypatch, ("records",), ("--hard-budget", "3", "--no-pdf"), progress=shown.append
+    )
+    assert any(text.startswith("Coverage gap:") and "budget reserved" in text for text in shown)
     assert outcome["status"] == "complete"
     assert "ms_renderer" not in host.roles and "secarch_renderer" in host.roles
     # A planned budget skip is one console statement, never a run issue.
@@ -2389,6 +2393,61 @@ def test_pipeline_names_the_phases_and_optional_steps_this_run_executes():
     quick = controller._assessment_pipeline({"assessment_depth": "quick", "skip_abuse_case_verification": True})
     assert "Abuse cases" not in quick and quick.endswith("Consolidation → Finalization")
     assert quick.split(" → ") == controller._AssessmentConsole.planned_phases(abuse_cases=False)
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("live", [False, True])
+def test_skipped_reviews_are_permanent_and_phase_counts_describe_actual_checks(verbose, live):
+    lines = []
+    console = controller._AssessmentConsole(verbose, clock=_Clock(), live=live, write=lines.append)
+    console.step("Reviewing findings as architect: component-1")
+    console.step(controller._assessment_gap_message({"role": "architect_reviewer", "budget": True}))
+    console.step("Review coverage: architect review: 0 reviewed, 176 unreviewed, 0 unresolved")
+    console.step("Verifying abuse case: AC-T-001 (1/14)")
+    console.step("Reviewing promoted findings as architect: component-1")
+    assert console.phase == "Abuse cases"
+    console.step(
+        controller._assessment_gap_message(
+            {"role": "abuse_case_verifier", "selector": "abuse:AC-T-001", "budget": True}
+        )
+    )
+    console.step("Review coverage: abuse-case verification: 0 checked, 0 partial, 14 unchecked")
+    console.close()
+    text = "\n".join(lines)
+    assert "⚠" in text and "architect review job skipped: budget reserved" in text
+    assert "abuse-case verification (AC-T-001) job skipped" in text
+    completed = [line for line in lines if "done" in line]
+    assert any("176 unreviewed" in line for line in completed)
+    assert any("0 checked, 0 partial, 14 unchecked" in line for line in completed)
+    assert all("14 abuse cases" not in line for line in completed)
+
+
+def test_gap_messages_never_echo_host_errors_or_untrusted_selectors():
+    message = controller._assessment_gap_message(
+        {
+            "role": "abuse_case_verifier",
+            "selector": "abuse:AC-T-001\nFAKE SUCCESS\x1b[2J",
+            "reason": "secret-host-error",
+        }
+    )
+    assert "job incomplete: no accepted model result" in message
+    assert "secret-host-error" not in message and "FAKE" not in message and "\x1b" not in message
+
+
+def test_review_gaps_and_counts_are_written_to_the_progress_feed(tmp_path):
+    path = tmp_path / "progress.jsonl"
+    controller._AssessmentProgress.open(str(path))
+    try:
+        console = controller._AssessmentConsole(False, write=lambda text: None, live=False, clock=_Clock())
+        console.step("Matching abuse cases")
+        console.step(controller._assessment_gap_message({"role": "abuse_case_verifier", "budget": True}))
+        console.step("Review coverage: abuse-case verification: 0 checked, 0 partial, 14 unchecked")
+        console.close()
+    finally:
+        controller._AssessmentProgress.end(0)
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+    assert any(event["event"] == "warning" and "job skipped: budget reserved" in event["detail"] for event in events)
+    assert any(event["event"] == "phase_done" and "14 unchecked" in event["detail"] for event in events)
 
 
 def _coloured_console_output(monkeypatch, capsys, **env):

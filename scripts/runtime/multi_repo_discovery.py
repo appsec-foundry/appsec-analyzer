@@ -161,6 +161,14 @@ class BudgetExhausted(ExchangeError):
     """No further call fits the controller's resource limits."""
 
 
+class CostBudgetExhausted(BudgetExhausted):
+    """A settled host call consumed the remaining assessment allowance."""
+
+
+class AdmissionTimeout(HostTimeout):
+    """A job expired before a call was reserved; there is no paid call to retry."""
+
+
 @dataclass
 class DiscoveryBudget:
     """Shared admission accounting; reserve each call before creating its host.
@@ -238,12 +246,23 @@ class DiscoveryBudget:
         deadline = time.monotonic() + timeout_s
         left = timeout_s
         while True:
-            if timeouts or failures:
-                left = math.floor(deadline - time.monotonic())
-                if left < 1:
-                    raise HostTimeout("model call exceeded its job's time limit")
+            left = math.ceil(deadline - time.monotonic())
+            if left < 1:
+                raise HostTimeout("model call exceeded its job's time limit")
             try:
                 return self._invoke_once(factory, system, prompt, schema, left, should_stop)
+            except CostBudgetExhausted:
+                with self._lock:
+                    while self._inflight:
+                        if should_stop():
+                            raise HostCancelled("Assessment cancelled")
+                        self.remaining_seconds()
+                        self._lock.wait(1.0)
+                    self.call_seconds()
+                    if self.calls >= self.call_limit() or not self.request_more_budget(should_stop):
+                        raise
+            except AdmissionTimeout:
+                raise
             except HostTimeout:
                 # The host enforces the reservation as its own spending limit, so
                 # the reserved amount bounds the unknown cost: keep it as spent
@@ -287,6 +306,7 @@ class DiscoveryBudget:
             time.sleep(min(1.0, left))
 
     def _invoke_once(self, factory, system, prompt, schema, timeout_s, should_stop) -> HostReply:
+        admission_deadline = time.monotonic() + timeout_s
         with self._lock:
             while True:
                 if should_stop():
@@ -302,16 +322,22 @@ class DiscoveryBudget:
                     self.remaining_seconds()
                     self._lock.wait(1.0)
                     continue
-                break
-            # Round downward to match the host's cent-denominated budget argument.
-            ceiling = math.floor(min(self.call_usd, self.available_usd()) * 100 + 1e-9) / 100
-            if ceiling < MIN_CALL_USD:
+                # Only full assessments may ask the operator for a new spending
+                # limit. Admission stays locked and all earlier calls are settled.
+                ceiling = math.floor(min(self.call_usd, self.available_usd()) * 100 + 1e-9) / 100
+                if ceiling >= MIN_CALL_USD:
+                    break
+                self.call_seconds()  # More money cannot repair an expired time limit.
+                if self.request_more_budget(should_stop):
+                    continue
                 raise BudgetExhausted(
                     f"Assessment cost budget exhausted: USD {max(0.0, self.available_usd()):.2f} "
                     "is left, too little for another model call"
                 )
+            remaining = min(math.ceil(admission_deadline - time.monotonic()), self.call_seconds(), MAX_CALL_SECONDS)
+            if remaining < 1:
+                raise AdmissionTimeout("model call exceeded its job's time limit before admission")
             self._local.reserved = ceiling
-            remaining = min(timeout_s, self.call_seconds(), MAX_CALL_SECONDS)
             self.calls += 1
             self.spent_usd += ceiling
             self._inflight += 1
@@ -326,7 +352,7 @@ class DiscoveryBudget:
             if exc.reason == "error_max_budget_usd" and (
                 ceiling < self.call_usd or self.max_usd - self.spent_usd < MIN_CALL_USD
             ):
-                raise BudgetExhausted("Model call exhausted the remaining assessment budget allowance") from exc
+                raise CostBudgetExhausted("Model call exhausted the remaining assessment budget allowance") from exc
             raise TransportError(
                 f"{exc}; the run can continue: rerun the same command with --resume",
                 reason=exc.reason,
@@ -347,6 +373,10 @@ class DiscoveryBudget:
             raise TransportError("Model call cost is unavailable")
         self._settle(ceiling, cost)
         return reply
+
+    def request_more_budget(self, should_stop) -> bool:
+        """Discovery and unattended callers never authorize extra spending."""
+        return False
 
     def available_usd(self) -> float:
         """Spendable funds after unsettled calls, under the admission lock."""

@@ -238,6 +238,7 @@ class AssessmentState:
                     f"Assessment cannot resume: {self._changed(self.state['identity'])} changed since it "
                     f"started. A new scan is required: {again}"
                 )
+            self.budget.max_usd = self._authorized_budget(self.state)
             accounting = self.state["accounting"]
             if not math.isfinite(accounting["spent_usd"]):
                 raise ExchangeError("Assessment resume cost accounting is invalid")
@@ -530,6 +531,45 @@ class AssessmentState:
             metadata = self.lock.lstat()
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size > 4096:
                 raise ExchangeError("Assessment liveness lock is not a bounded regular file")
+
+    @staticmethod
+    def _authorized_budget(state):
+        limit = state["identity"]["limits"]["max_usd"]
+        for approval in state.get("budget_authorizations", []):
+            raised = approval["max_usd"]
+            if approval["previous_max_usd"] != limit or not math.isfinite(raised) or raised <= limit:
+                raise ExchangeError("Assessment budget authorization history is invalid")
+            limit = raised
+        return limit
+
+    def approve_budget_increase(self, amount):
+        """Persist an explicit terminal approval before admission can spend it."""
+        with self.budget._lock, self._checkpoint_lock:
+            if (
+                not self._held
+                or self.cancelled
+                or self.budget.failed
+                or type(amount) not in (int, float)
+                or not math.isfinite(amount)
+                or amount <= self.budget.max_usd
+                or len(self.state.get("budget_authorizations", [])) >= 16
+            ):
+                raise ExchangeError("Assessment budget increase is invalid or unavailable")
+            self.budget.remaining_seconds()
+            previous = self.state
+            self.state = copy.deepcopy(previous)
+            self.state.setdefault("budget_authorizations", []).append(
+                {"previous_max_usd": self.budget.max_usd, "max_usd": amount, "approved_at": int(time.time())}
+            )
+            try:
+                self._authorized_budget(self.state)
+                self.checkpoint()
+                if self.cancelled:
+                    raise HostCancelled("Assessment cancelled")
+            except BaseException:
+                self.state = previous
+                raise
+            self.budget.max_usd = amount
 
     def checkpoint(self):
         with self._checkpoint_lock:

@@ -504,7 +504,8 @@ def test_a_nearly_spent_budget_stops_with_its_reason_before_another_call(tmp_pat
 
 
 @pytest.mark.parametrize("selector", ["review:orders", "verify:billing"])
-def test_optional_work_preserves_the_report_budget(tmp_path, selector):
+@pytest.mark.parametrize("component_view", [False, True])
+def test_optional_work_preserves_the_report_budget(tmp_path, selector, component_view):
     """A review cannot consume the last report allowance, regardless of its name."""
     from runtime.assessment_jobs import REPORT_JOB
 
@@ -512,12 +513,18 @@ def test_optional_work_preserves_the_report_budget(tmp_path, selector):
     jobs.budget.deadline += 3600
     jobs.budget.plan_completion()
     jobs.budget.spent_usd = 0.94
+    reported = []
+    jobs.on_gap = reported.append
+    if component_view:
+        jobs = jobs.view()
     result = jobs.execute(**{**kwargs, "selector": selector}, on_failure=lambda reason: {"result": "not reviewed"})
     assert result == {"result": "not reviewed"} and host.calls == 0
     assert jobs.gaps[0]["budget"] and not list(jobs.directory.glob("*.receipt.json"))
+    assert reported == jobs.gaps
     assert jobs.execute(**{**kwargs, "role": "secarch_renderer", "selector": REPORT_JOB}) == {"result": "accepted"}
     assert host.calls == 1 and jobs.budget.spent_usd == pytest.approx(0.95)
     assert REPORT_JOB not in jobs.budget.required
+    assert len(reported) == 1  # the accepted report is not a coverage gap
 
 
 def test_optional_work_still_runs_with_sufficient_completion_budget(tmp_path):
@@ -741,8 +748,11 @@ def test_an_optional_job_past_its_own_time_limit_is_replaced(tmp_path):
     host = Slow([{"action": "read", "artifact": None, "reads": [read]}] * 6)
     jobs, kwargs = _hanging(tmp_path, host)
     jobs.budget = AssessmentBudget(1.0, 0.05, 10, 2)
+    reported = []
+    jobs.on_gap = reported.append
     result = jobs.execute(**kwargs, on_failure=lambda reason: {"result": "replacement"})
     assert result == {"result": "replacement"} and "time limit" in jobs.gaps[0]["reason"]
+    assert reported == jobs.gaps and not reported[0].get("budget")
 
 
 def test_a_retry_wait_ends_when_the_run_is_stopped(tmp_path, monkeypatch):

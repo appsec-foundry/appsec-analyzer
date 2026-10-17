@@ -67,6 +67,14 @@ class AssessmentBudget(DiscoveryBudget):
         self.required = {}
         self.observed = {}
         self.reserve_completion = False
+        self.on_budget_increase = None
+
+    def request_more_budget(self, should_stop) -> bool:
+        if self.on_budget_increase is None or self.unsettled or self._inflight or should_stop():
+            return False
+        previous = self.max_usd
+        self.on_budget_increase(should_stop)
+        return self.max_usd > previous
 
     def plan_completion(self):
         """Protect the required renderer; only the controller may change this plan."""
@@ -233,6 +241,8 @@ class AssessmentJobs:
         self.accepted_results: dict[str, dict] = {}
         # Optional jobs replaced after a model failure, in run order (OR-39).
         self.gaps: list[dict] = []
+        # Controller-owned progress callback, shared by forked component jobs.
+        self.on_gap = None
         # Run warnings the controller derives from accepted jobs, in run order.
         self.notes: list[str] = []
         # Coverage statements that need no action, such as files no target covered:
@@ -270,6 +280,11 @@ class AssessmentJobs:
     def execute(self, **kwargs):
         """Return the accepted artifact of one controller-selected job."""
         return self.exchange(**kwargs).artifact
+
+    def _gap(self, gap):
+        self.gaps.append(gap)
+        if self.on_gap is not None:
+            self.on_gap(dict(gap))
 
     def _remember(self, role, selector, artifact):
         findings = []
@@ -442,7 +457,7 @@ class AssessmentJobs:
             if on_failure is None or self.budget.unsettled or self.should_stop():
                 raise
             reason = "budget reserved for required completion work"
-            self.gaps.append({"role": role, "selector": selector, "reason": reason, "budget": True})
+            self._gap({"role": role, "selector": selector, "reason": reason, "budget": True})
             self._record(role, seconds=time.monotonic() - started)
             return ExchangeResult(on_failure(str(exc)), (), 0, None)
         except (ModelAnswerFailure, HostTimeout, TransportError) as exc:
@@ -457,7 +472,7 @@ class AssessmentJobs:
                     raise HostTimeout(f"{selector}: {exc}") from None
                 raise
             reason = re.sub(r"\s+", " ", str(exc))[:300]
-            self.gaps.append({"role": role, "selector": selector, "reason": reason})
+            self._gap({"role": role, "selector": selector, "reason": reason})
             self._record(role, seconds=time.monotonic() - started)
             return ExchangeResult(on_failure(reason), (), 0, None)
         ranges = _ranges(result.source_slices)

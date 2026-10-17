@@ -264,6 +264,19 @@ def test_each_verified_case_is_reported_with_its_title_and_position(abuse):
     assert f"Verifying abuse case: {CASE} — Expression evaluation leads to code execution (1/1)" in shown
     # The numbered steps count the checked cases; no second count as a phase result.
     assert not any(text.startswith("Phase result: Abuse cases") for text in shown)
+    assert any(text.startswith("Review coverage: abuse-case verification:") for text in shown)
+
+
+def test_abuse_coverage_distinguishes_checked_partial_and_missing_results(tmp_path):
+    cases = [
+        {"id": "AC-B-001", "chain_verdict": "inconclusive", "verification_complete": True},
+        {"id": "AC-B-002", "verification_complete": False, "steps": [{"unverified": False}, {"unverified": True}]},
+        {"id": "AC-B-003", "verification_complete": False, "steps": [{"unverified": True}]},
+    ]
+    (tmp_path / "threat-model.yaml").write_text(yaml.safe_dump({"abuse_case_analysis": {"cases": cases}}))
+    assert review._abuse_coverage(tmp_path, [f"AC-B-{n:03d}" for n in range(1, 5)]) == (
+        "abuse-case verification: 1 checked, 1 partial, 2 unchecked"
+    )
 
 
 @pytest.mark.parametrize("read", [(1, 5), (17, 17)], ids=["unread-line", "read-line"])
@@ -395,7 +408,7 @@ def _reviewer(reads):
     return respond
 
 
-def _architect(ctx, jobs, scripts=None):
+def _architect(ctx, jobs, scripts=None, progress=lambda text: None):
     return review.run_architect_review(
         ctx.scope,
         jobs,
@@ -404,14 +417,16 @@ def _architect(ctx, jobs, scripts=None):
         ctx.cfg,
         instructions=instructions,
         run_script=lambda name, args, **kw: (scripts if scripts is not None else []).append(name),
-        progress=lambda text: None,
+        progress=progress,
     )
 
 
 def test_an_architect_correction_is_applied_and_preserved_downstream(architect):
     jobs = Jobs(_reviewer([served(EDGE, "routes/orders.py", 1, 1)]))
     scripts = []
-    receipts = _architect(architect, jobs, scripts)
+    shown = []
+    receipts = _architect(architect, jobs, scripts, progress=shown.append)
+    assert "Review coverage: architect review: 1 reviewed, 0 unreviewed, 0 unresolved" in shown
 
     assert [call["allowed"] for call in jobs.calls] == [frozenset({(EDGE, "routes/orders.py")})]
     assert receipts[0].startswith("architect review")
@@ -425,6 +440,13 @@ def test_an_architect_correction_is_applied_and_preserved_downstream(architect):
     # A repeated call replays the completed transaction without another job.
     _architect(architect, jobs)
     assert len(jobs.calls) == 1
+
+
+def test_missing_architect_proposals_are_reported_as_unreviewed(architect):
+    jobs = Jobs(lambda role, context: ({"schema_version": 1, "job_id": context["job_id"], "proposals": {}}, []))
+    shown = []
+    _architect(architect, jobs, progress=shown.append)
+    assert "Review coverage: architect review: 0 reviewed, 1 unreviewed, 0 unresolved" in shown
 
 
 def test_a_promoted_abuse_finding_is_reviewed_before_rebuild_and_ranking(abuse):

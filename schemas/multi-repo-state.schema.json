@@ -30,6 +30,19 @@
     "started_at": {"type": "integer", "minimum": 1},
     "expires_at": {"type": "integer", "minimum": 1},
     "status": {"enum": ["running", "interrupted", "failed", "complete"]},
+    "budget_authorizations": {
+      "description": "Explicit terminal approvals for this run. The identity retains the initial configured limit; compatible resume restores the last approved maximum.",
+      "type": "array", "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["previous_max_usd", "max_usd", "approved_at"],
+        "properties": {
+          "previous_max_usd": {"type": "number", "exclusiveMinimum": 0},
+          "max_usd": {"type": "number", "exclusiveMinimum": 0},
+          "approved_at": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
     "accounting": {
       "type": "object", "additionalProperties": false,
       "required": ["calls", "spent_usd", "unavailable"],

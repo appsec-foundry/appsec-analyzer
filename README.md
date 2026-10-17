@@ -97,6 +97,10 @@ This command sends selected source excerpts and supplied context to the model pr
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
+Progress output immediately warns when optional model jobs are skipped. Architect Review and abuse-case totals distinguish actual checks from unchecked work, including at `thorough` depth. See [assessment coverage and limits](docs/security-assessment.md).
+
+An interactive terminal outside CI may ask for a higher total USD budget before budget-limited work is skipped. Only entering a higher total authorizes an increase; an empty answer keeps the current limit. Use `--non-interactive` for CI and unattended runs. Compatible resume retains earlier approved increases for the same run.
+
 The default profile is `claude` and the default depth is `standard`. A scan profile supplies the model profile, depth, USD budget, exports, and report attributes. CLI options override its defaults. For example, with `OPENAI_API_KEY` configured:
 
 ```sh

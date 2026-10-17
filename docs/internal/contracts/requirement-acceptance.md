@@ -96,9 +96,13 @@ Validate required inputs, model responses, evidence, and deliverables before use
 
 Run without interactive responses when unattended operation is selected. Return distinguishable completion, policy-gate, interruption, and operational-error outcomes. Finding severity must not silently change an advisory command into a blocking gate.
 
+For full assessments, `--non-interactive` explicitly disables budget questions. Missing input or diagnostic terminals, recognized CI environments, `--quiet`, and machine-readable controller output also disable them. Unattended execution never raises its spending limit automatically.
+
 ## REQ-023: Control time and spending
 
 Apply documented finite default spending limits for full assessments and separate audits, allow explicit overrides, show the selected limit before starting, and explain limits for focused analysis. Profile budgets are always USD. Do not impose a default OpenAI output-token cap; omit the API parameter unless explicitly configured. Reserve each request against bounded input and the selected output cap or catalog model maximum. A role may need a larger per-call reservation without increasing the total authorized budget. Enforce finite work, retry, and time bounds. Reserve required completion work before optional model calls; when budget cannot cover required assessment work, preserve validated progress in a clearly incomplete result.
+
+An interactive full assessment may ask for a higher total USD limit before a monetary budget gap prevents further work. Settle running calls and prevent new admission while waiting. Only an explicitly entered higher finite amount authorizes the increase; blank input, EOF, invalid input, cancellation, and elapsed time never authorize it. Persist authorization for the same run before spending, and retain it on a compatible resume with the original configuration. Keep call and time limits, per-call reservations, source authority, and publication gates unchanged. Declining preserves normal optional-work fallbacks or required-work interruption. Bound invalid attempts and the number of increases.
 
 ## REQ-024: Ask a focused security question
 

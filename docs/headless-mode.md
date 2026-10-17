@@ -6,7 +6,7 @@ Install the package, then invoke the same public program locally or in CI:
 appsec-analyzer scan --repo /checkout --budget 20 --output /private/assessment
 appsec-analyzer scan-sources --repo /checkout --output /private/source-scan
 appsec-analyzer assess --repo /checkout --profile claude \
-  --budget 20 --output /private/assessment --quiet
+  --budget 20 --output /private/assessment --non-interactive
 appsec-analyzer scan --repo /checkout --profile codex \
   --assessment-depth standard --budget 20 --output /private/openai-assessment
 appsec-analyzer status --output /private/assessment
@@ -31,6 +31,10 @@ The result and status contracts distinguish scanner-only output from completed,
 interrupted, and failed assessments. After normal cleanup removes the event
 feed, `progress` reports the final state with `feed_available: false` and no
 events; `status` and `results` remain available.
+
+Normal progress output records skipped optional model jobs immediately as `Coverage gap` warnings, including budget reservations, without requiring `--verbose`. Architect Review and abuse-case phase totals show actual review coverage separately from planned candidates. The final summary retains omitted work. `--quiet` suppresses live progress; see [assessment coverage and limits](security-assessment.md).
+
+Use `--non-interactive` to explicitly prevent budget questions in CI. Without it, a terminal session outside recognized CI environments may ask for a higher total USD limit when money prevents further work. Piped input or stderr, `--quiet`, and recognized CI markers also prevent questions. Examples of detected markers include `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, and `TF_BUILD`; explicit `--non-interactive` also covers CI systems that set none of them. Declining keeps the configured limit and normal fallback behavior. Compatible `--resume` retains an increase explicitly approved earlier for the same run; a fresh run uses its configured budget.
 
 The separate requirements audit uses `appsec-analyzer audit-requirements
 --repo /checkout --requirements /catalog.yaml --output /private/audit
