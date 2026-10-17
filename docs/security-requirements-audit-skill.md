@@ -82,7 +82,7 @@ Links   : https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat
 … additional open requirements …
 ```
 
-→ [Full example report](../examples/requirements-auditor/appsec-requirements-report.md) ([JSON](../examples/requirements-auditor/appsec-requirements-report.json), [PDF](../examples/requirements-auditor/appsec-requirements-report.pdf)).
+→ [Full example report](../examples/requirements-auditor/appsec-requirements-report.md) ([JSON](../examples/requirements-auditor/appsec-requirements-report.json)).
 
 ## Quick start
 

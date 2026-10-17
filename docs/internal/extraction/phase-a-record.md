@@ -91,9 +91,12 @@ assessment completion.
   scoped pattern review, not a guarantee that all sensitive data is absent.
 - A historical PDF example is a Git LFS pointer whose server object was not
   available during checkout. The branch was checked out with LFS smudging
-  skipped. Remove this example from current packaging and verify release
-  contents; the pointer remains part of selected historical commits until a
-  separately justified history decision.
+  skipped. The current PDF pointer and its user-guide link were removed after
+  checking their only retained consumer; the Markdown and JSON examples remain.
+  The PDF pointer remains part of selected historical commits.
+- `types/progress.d.ts` was removed from the current tree after a reference
+  search found no runtime, type-check, build, or documented consumer. Its
+  historical predecessor remains in the filter selection.
 - Provider access, concrete model/depth qualification, gateway route evidence,
   and paid-run budget are not supplied. The operator requested offline work;
   no paid provider calls are permitted. Provider support must remain marked
