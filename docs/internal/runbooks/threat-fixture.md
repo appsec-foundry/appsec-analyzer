@@ -1,5 +1,11 @@
 # Threat-model golden fixture (freeze / replay)
 
+> Historical Advisor-era fixture procedure. Its freeze step requires runtime
+> sidecars and `--keep-runtime-files`, which the standalone Analyzer assessment
+> CLI does not expose. Existing frozen fixtures can still be replayed for
+> deterministic renderer and scanner changes. Do not use the live-run command
+> below as a current Analyzer instruction.
+
 `scripts/threat_fixture.py` freezes a completed threat-model run as a regression fixture. Replay it after a deterministic-pipeline change to compare outputs without another LLM scan.
 
 It is a manual developer/test tool. It is **not** part of the scanned-repo

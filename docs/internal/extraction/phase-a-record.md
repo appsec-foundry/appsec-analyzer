@@ -207,7 +207,18 @@ assessment completion.
   contract tests passed, and `sh -n` accepted all three scripts. The optional
   live controller driver uses the same CLI; it was not run because no paid
   qualification was authorized. Older full-run and repair drivers still call
-  the temporary CLI delegate with legacy flags and need migration before use.
+  the temporary CLI delegate with legacy flags and needed migration. The
+  manual full-run driver now invokes `appsec-analyzer assess` with an explicit
+  USD budget and verifies `appsec-analyzer results` plus current assessment
+  deliverables. Its source contract has four passing offline tests; `sh -n`
+  accepted the shell script, and `make e2e-full` without a budget failed before
+  a model call. It was not run live. The old `--rerender` repair driver and
+  Advisor-plugin evaluation driver were removed, with their obsolete
+  full-run artifact assertions; the controller does not support `--rerender`
+  and the standalone package does not include the old evaluation skill.
+  The existing offline controller and public CLI tests remain the active
+  regression checks. The old frozen fixture format remains replayable but
+  its live freeze procedure is historical.
 - Package inventory searches found no Analyzer runtime imports or subprocess
   calls for the Claude prompt steering hook, legacy session banner, or old
   plugin status tool. Those three plugin-only modules remain in the filtered

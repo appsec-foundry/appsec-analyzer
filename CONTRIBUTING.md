@@ -63,22 +63,16 @@ CI runs lint and validators once, then the complete suite on Python 3.10, 3.11, 
 
 #### Manual full-run (end-to-end) test
 
-Run the manual end-to-end check when a change needs evidence from live model behavior or Claude Code integration, such as agent dispatch, phase interaction, or host hook delivery. Deterministic renderer, schema, and scanner changes use the targeted tests and fixture replay below unless they also change that integration. Run the prescribed live checks at release boundaries.
+Run the manual end-to-end check only when live Claude CLI behavior needs qualification. Offline controller and public CLI tests cover the migrated assessment contract without model charges. Live qualification was not performed during Phase A.
 
 > [!IMPORTANT]
-> This check calls Claude Code and consumes model budget. The synthetic quick fixture typically costs about $0.30–1.00 with API billing or 30–50% of a Pro five-hour usage window. It is not part of the normal CI suite.
+> This check calls Claude Code and consumes model budget. Supply an explicit cost ceiling. It is not part of the normal CI suite.
 
 ```bash
-make e2e-full
+make e2e-full BUDGET=3
 ```
 
-or, from inside a Claude Code session in this repository:
-
-```text
-/e2e-full
-```
-
-The driver runs the full pipeline against a clean synthetic repository and checks output schemas, evidence, exports, security boundaries, and expected findings.
+The driver runs `appsec-analyzer assess` against a clean synthetic repository, then uses `appsec-analyzer results` to verify the published artifact digests and expected deliverables. The output directory is printed and retained under `/tmp` for review. The budget value is an example, not a spending authorization.
 
 Additional targets cover specific paths:
 
@@ -86,12 +80,12 @@ Additional targets cover specific paths:
 |---|---|
 | `make e2e-full-standard` | Include the full QA stage. |
 | `make e2e-full-thorough` | Include QA and architecture review. |
-| `make e2e-full-repair` | Verify report repair after a deliberate corruption. |
-| `make e2e-full-eval` | Add the semantic-quality evaluation. |
+
+The old repair driver required `--rerender`, which the combined assessment controller does not support. The old evaluation driver invoked an Advisor plugin skill. Their history remains in Git; neither is a standalone Analyzer operation.
 
 `make e2e-fixture-suite` checks all external language and architecture fixtures. It requires the sibling `appsec-advisor-fixtures` checkout.
 
-Use `make e2e-full-keep` to rerun assertions against the previous E2E output without another model call.
+Use `appsec-analyzer results --output <printed-output-directory>` to recheck a completed run without another model call.
 
 The deterministic assessment controller has its own checks:
 
@@ -203,7 +197,10 @@ python3 scripts/runtime/diagnostic_bundle.py collect --run /out --into . --repo-
 python3 scripts/runtime/diagnostic_bundle.py inspect --bundle appsec-diag-<id>.tgz          # maintainer triage
 ```
 
-`threat_fixture.py` captures and replays completed runs without another scan. See the [threat fixture runbook](docs/internal/runbooks/threat-fixture.md).
+`threat_fixture.py` replays existing frozen fixtures without another model
+call. Its [historical freeze runbook](docs/internal/runbooks/threat-fixture.md)
+documents an Advisor-era workflow; new Analyzer runs do not expose the
+runtime-sidecar retention needed to create that format.
 
 `runtime/diagnostic_bundle.py` creates a scrubbed bundle for maintainer triage. Inspect every bundle before sharing it.
 

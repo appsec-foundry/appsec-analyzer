@@ -1,6 +1,7 @@
 # E2E fixture suite
 
-A frozen run-directory that exercises the plugin pipeline without invoking an LLM.
+A frozen Advisor-era run directory exercises historical renderer and validator
+replays without invoking a model. It is not a current Analyzer result bundle.
 
 `frozen-run/` is the canonical output of a (synthetic) Juice-Shop-style scan:
 
@@ -22,27 +23,17 @@ and `.known-bad-libs-findings.json` (Phase 10 emitters) — those sidecars
 are not part of this frozen fixture; tests for them live in
 `test_emit_sca_practice.py` and the live emitters self-detect repo state.
 
-`synthetic-repo/` is the code-bearing live-LLM fixture. It contains deliberately
+`synthetic-repo/` is the code-bearing live assessment fixture. It contains deliberately
 planted SQL/command injection, SSRF, missing object authorization, hardcoded
 secrets, an LLM prompt boundary, multi-tenancy/B2B actor signals, and weak CI
-configuration. `run-full.sh` scans a clean, standalone-Git `_last-repo/` copy
-so ignored local `docs/security/` state and the enclosing plugin repository
-cannot contaminate recon.
+configuration. `run-full.sh` assesses a fresh standalone Git copy through
+`appsec-analyzer assess`, with an explicit budget and output under `/tmp`.
 
-`oracle/expected-signals.json` lives outside the scanned repo. The live E2E uses
-it for a recall floor, required planted findings, secret-leak canaries, and the
-prompt-injection sentinel.
+`oracle/expected-signals.json` lives outside the scanned repo. The offline
+controller and fixture tests use the relevant expected signals.
 
-## Refreshing the fixture
+## Current manual run
 
-To regenerate from a real run (future work), do:
-
-```bash
-./scripts/run-headless.sh \
-    --repo examples/juice-shop \
-    --output /tmp/juice-run \
-    --assessment-depth quick
-cp -r /tmp/juice-run/* tests/fixtures/e2e/frozen-run/
-```
-
-Then re-run `pytest tests/test_e2e_pipeline.py` to confirm the suite still passes.
+After installing the package, run `make e2e-full BUDGET=<USD>` only when a
+live Claude CLI run is authorized. The old frozen-run files must not be
+replaced with current output because their consumers test the historical format.
