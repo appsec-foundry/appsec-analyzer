@@ -27,6 +27,7 @@ USER_DOCS = (
     "configuration.md",
     "model-selection.md",
     "profiles.md",
+    "providers.md",
     "headless-mode.md",
     "security-requirements-audit-skill.md",
     "threat-dragon-export.md",

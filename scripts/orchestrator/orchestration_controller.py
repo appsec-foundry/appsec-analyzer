@@ -918,7 +918,7 @@ def _assessment_session(
 
     cfg = resolve_config.resolve_assessment(scope, arguments, PLUGIN_ROOT, model=model)
     cfg["max_parallel"] = budget.max_parallel
-    if api_profile is not None and run_profile is not None:
+    if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
 
         api_profile = resolved_api_profile(run_profile["models"]["stride_analyzer"])
@@ -939,6 +939,7 @@ def _assessment_session(
             "max_request_bytes": api_profile.max_request_bytes,
             "gateway_route_revision": api_profile.gateway_route_revision,
             "pinned_ip": api_profile.pinned_ip,
+            "deployment_id": api_profile.deployment_id,
         }
     # The resolver leaves this role to the dispatch default, as the single-repository run does.
     if not cfg.get("actor_discovery_model"):
@@ -3570,6 +3571,9 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
     by_model: dict[str, list[str]] = {}
     for role, key in sorted({**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}.items()):
         selected = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {}).get("model", cfg.get(key))
+        settings = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {})
+        if settings.get("adapter") in ("lite", "bedrock"):
+            selected = settings["requested_model"]
         if selected:
             by_model.setdefault(str(selected), []).append(role)
 
@@ -3658,6 +3662,14 @@ def _assessment_intro(
         ("Artifacts", _assessment_artifacts(cfg)) if cfg is not None else ("", ""),
         ("Options", _assessment_options(ns, cfg)) if cfg is not None else ("", ""),
     ]
+    host = (cfg or {}).get("host_profile") or {}
+    if host.get("kind") in ("lite", "bedrock"):
+        plan.append(
+            (
+                "Model host",
+                f"{host['kind']}: {host['endpoint']}\nselected excerpts, context and answers leave this machine; live quality unqualified",
+            )
+        )
     return [
         ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(ns.repo)),
         ("Output", output),
@@ -4355,7 +4367,7 @@ def assess_repositories(
         console.start_ticker()
     say = progress or (console.step if console else (lambda text: None))
     budget = _assessment_budget(ns, rest, subscription=(run_profile or {}).get("adapter") == "codex-cli")
-    if run_profile is not None and run_profile["adapter"] == "openai":
+    if run_profile is not None and run_profile["adapter"] in ("openai", "lite", "bedrock"):
         from appsec_analyzer.profiles import call_reservation
 
         budget.call_usd = min(budget.max_usd, max(budget.call_usd, call_reservation(run_profile)))

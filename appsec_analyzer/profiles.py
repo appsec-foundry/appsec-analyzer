@@ -23,7 +23,7 @@ from yaml.tokens import AliasToken, AnchorToken
 from appsec_analyzer import resource_root
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
 
-BUILTINS = ("claude", "codex", "codex-cli")
+BUILTINS = ("claude", "codex", "codex-cli", "lite", "bedrock")
 DEPTHS = ("quick", "standard", "thorough")
 OUTPUTS = ("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks")
 ROLES = (
@@ -82,7 +82,7 @@ def reject_source_paths(paths, repositories) -> None:
             raise ProfileError("profile files must be outside the analyzed repositories")
 
 
-def read_document(path: Path, *, repositories=()) -> dict:
+def read_document(path: Path, *, repositories=(), operator_connection=False) -> dict:
     """Read bounded data without links, YAML aliases, duplicate keys, or tags."""
     path = path.expanduser().absolute()
     reject_source_paths([path], repositories)
@@ -104,6 +104,10 @@ def read_document(path: Path, *, repositories=()) -> dict:
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MAX_BYTES:
                 raise ProfileError("profile must be a bounded, singly linked regular file")
+            if operator_connection and (
+                info.st_mode & 0o022 or (hasattr(os, "getuid") and info.st_uid not in (0, os.getuid()))
+            ):
+                raise ProfileError("providers.yaml must be operator-owned and not writable by group or others")
             raw = stream.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise ProfileError("profile exceeds 64 KiB")
@@ -206,10 +210,14 @@ def model_settings(selection: str, depth: str, *, home=None, repositories=()) ->
     }
 
 
-def resolve_model(settings: dict, adapter: str, *, saved_model: str | None = None) -> dict:
+def resolve_model(settings: dict, adapter: str, *, saved_model: str | None = None, connection=None) -> dict:
     requested = settings.get("model")
     if not requested:
         raise ProfileError("every model role needs a model default or override")
+    if adapter in ("lite", "bedrock"):
+        from appsec_analyzer.providers import resolve
+
+        return resolve(settings, adapter, connection)
     result = {**settings, "requested_model": requested}
     if adapter in ("openai", "codex-cli"):
         registry = catalog()
@@ -270,8 +278,16 @@ def resolve_scan(
     max_calls=None,
     repositories=(),
     home=None,
+    model_override=None,
 ) -> dict:
     home = home or config_home()
+    from appsec_analyzer.providers import selection as provider_selection
+
+    prefixed = provider_selection(selection)
+    if prefixed:
+        if model_override is not None and model_override != selection:
+            raise ProfileError("profile model prefix conflicts with --model")
+        model_override, selection = selection, prefixed[0]
     scan, source, files = _select(selection, "scan", home=home, repositories=repositories)
     # An explicit scan file finds model files only in its sibling model-profiles
     # directory, so a shared team configuration does not depend on user defaults.
@@ -309,6 +325,18 @@ def resolve_scan(
     model = model_settings(
         settings["model_profile"], settings["assessment_depth"], home=model_home, repositories=repositories
     )
+    connection = None
+    if model["adapter"] in ("lite", "bedrock"):
+        from appsec_analyzer.providers import load
+
+        connection, connection_path = load(model["adapter"], home=home, repositories=repositories)
+        files.append(connection_path)
+        if model_override is not None:
+            for role, values in model["definitions"].items():
+                values["model"] = model_override
+                model["origins"][role]["model"] = "CLI"
+    elif model_override is not None:
+        raise ProfileError("model selection prefix conflicts with the selected provider")
     if model["adapter"] == "codex-cli":
         if budget is not None or "budget" in scan:
             raise ProfileError(
@@ -328,8 +356,14 @@ def resolve_scan(
     elif max_calls is not None or "max_calls" in scan:
         raise ProfileError("max_calls is available only with codex-cli")
     definition = {"scan": scan, "models": model["layers"], "settings": settings}
+    if connection is not None:
+        definition["provider_connection"] = connection
+        definition["model_override"] = model_override
     fingerprint = hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
-    resolved = {role: resolve_model(values, model["adapter"]) for role, values in model["definitions"].items()}
+    resolved = {
+        role: resolve_model(values, model["adapter"], connection=connection)
+        for role, values in model["definitions"].items()
+    }
     return {
         "schema_version": 1,
         "name": selection if NAME.fullmatch(selection) else Path(selection).stem,
@@ -349,17 +383,22 @@ def api_profile(settings: dict):
     from appsec_analyzer.api_hosts import ApiProfile
 
     return ApiProfile(
-        kind="openai",
-        endpoint="https://api.openai.com/v1/responses",
-        key_env="OPENAI_API_KEY",
+        kind=settings.get("adapter", "openai"),
+        endpoint=settings.get("endpoint", "https://api.openai.com/v1/responses"),
+        key_env={"lite": "LITELLM_API_KEY", "bedrock": "AWS_BEARER_TOKEN_BEDROCK"}.get(
+            settings.get("adapter"), "OPENAI_API_KEY"
+        ),
         model=settings["model"],
         input_usd_per_million=settings["input_usd_per_million"],
         output_usd_per_million=settings["output_usd_per_million"],
         price_revision=settings["price_revision"],
-        reasoning_effort=settings["reasoning_effort"],
+        reasoning_effort=settings.get("reasoning_effort"),
         max_output_tokens=settings.get("max_output_tokens"),
         model_output_limit=settings["model_output_limit"],
         max_request_bytes=240_000,
+        gateway_route_revision=settings.get("gateway_route_revision"),
+        deployment_id=settings.get("deployment_id"),
+        pinned_ip=settings.get("pinned_ip"),
     )
 
 
@@ -416,6 +455,9 @@ def apply_runtime_profile(profile: dict, cfg: dict, arguments: list[str], *, mod
     keys = {**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}
     legacy = dict(cfg)
     for role, settings in profile["models"].items():
+        if profile["adapter"] in ("lite", "bedrock") and cfg.get("opus_disabled"):
+            if settings.get("model_family") != "non-opus" or "opus" in settings["model"].lower():
+                raise ProfileError("provider model is not approved under the organization Opus restriction")
         if profile["adapter"] == "claude-cli":
             # Preserve the existing environment/CLI/depth routing where the
             # operator did not select their own model value.

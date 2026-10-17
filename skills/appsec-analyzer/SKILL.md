@@ -45,7 +45,9 @@ Select `--profile codex-cli` for ChatGPT plan usage through Codex CLI 0.163.0 on
 
 The built-in `codex` and `codex-cli` model profiles use `gpt-luna` with low reasoning effort for `recon_scanner`. All other roles use `gpt-sol` with the existing depth-dependent effort. Operator model defaults and role overrides take precedence; this routing has offline coverage and no live assessment quality qualification.
 
-Use `appsec-analyzer capabilities` before suggesting a different profile; API profiles remain unqualified until their model, route, cost, and depth are established, and the gateway is unavailable through the public CLI. Do not make a paid model call without authorization. Use
+For LiteLLM, select `--model "lite claude"` or `--profile "lite claude"`; for native Bedrock select `--profile bedrock` or `--model "bedrock claude"`. Require an operator-owned `providers.yaml` outside analyzed repositories, the external `LITELLM_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK` credential, and explicit USD spending authorization. Do not infer prices or gateway deployments. Native Bedrock uses bearer API keys, not an AWS access-key pair. See [provider setup and limits](../../docs/providers.md). Both adapters are unqualified for live assessment quality and apply only to full assessments.
+
+Use `appsec-analyzer capabilities` before suggesting a different profile; API profiles remain unqualified until their model, route, cost, and depth are established, and the legacy generic gateway is unavailable through the public CLI. Do not make a paid model call without authorization. Use
 `appsec-analyzer status|progress|stop|results --output <assessment-directory>`
 for lifecycle operations. An interrupted compatible assessment resumes with
 `assess --resume`; `--rebuild` starts over.

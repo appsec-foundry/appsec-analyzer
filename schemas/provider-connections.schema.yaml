@@ -1,0 +1,76 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+additionalProperties: false
+required: [schema_version]
+properties:
+  schema_version:
+    const: 1
+  lite:
+    type: object
+    additionalProperties: false
+    required: [endpoint, route_revision, price_revision, models]
+    properties:
+      endpoint: {type: string, maxLength: 2048}
+      pinned_ip: {type: string, maxLength: 45}
+      route_revision: &revision
+        type: string
+        pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+      price_revision: *revision
+      models:
+        type: object
+        minProperties: 1
+        maxProperties: 128
+        propertyNames: &alias
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required: [model, deployment_id, max_output_tokens, input_usd_per_million, output_usd_per_million]
+          properties:
+            model: *alias
+            deployment_id: *revision
+            model_family: &family
+              enum: [opus, non-opus]
+            max_output_tokens: &output
+              type: integer
+              minimum: 1
+              maximum: 128000
+            input_usd_per_million: &price
+              type: number
+              exclusiveMinimum: 0
+              maximum: 1000000
+            output_usd_per_million: *price
+            reasoning_efforts:
+              type: array
+              uniqueItems: true
+              maxItems: 6
+              items:
+                enum: [none, low, medium, high, xhigh, max]
+  bedrock:
+    type: object
+    additionalProperties: false
+    required: [region, route_revision, price_revision, models]
+    properties:
+      region:
+        type: string
+        pattern: ^(us|eu|ap|ca|sa|me|af|il|mx)-(north|south|east|west|central|northeast|northwest|southeast|southwest)-[1-9]$
+      route_revision: *revision
+      price_revision: *revision
+      models:
+        type: object
+        minProperties: 1
+        maxProperties: 128
+        propertyNames: *alias
+        additionalProperties:
+          type: object
+          additionalProperties: false
+          required: [model, max_output_tokens, input_usd_per_million, output_usd_per_million]
+          properties:
+            model_family: *family
+            model:
+              type: string
+              pattern: ^[A-Za-z0-9][A-Za-z0-9.:-]{0,127}$
+            max_output_tokens: *output
+            input_usd_per_million: *price
+            output_usd_per_million: *price

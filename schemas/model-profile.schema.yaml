@@ -13,18 +13,22 @@ properties:
     - claude
     - codex
     - codex-cli
+    - lite
+    - bedrock
   adapter:
     enum:
     - openai
     - claude-cli
     - codex-cli
+    - lite
+    - bedrock
   defaults: &id001
     type: object
     additionalProperties: false
     properties:
       model:
         type: string
-        pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+        pattern: ^(?:(?:lite|bedrock) )?[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$
       reasoning_effort:
         enum:
         - none

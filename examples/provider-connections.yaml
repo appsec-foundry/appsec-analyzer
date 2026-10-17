@@ -1,0 +1,26 @@
+# Illustrative configuration. Replace deployment ids, prices, model limits and
+# region with values verified for your gateway and AWS account before use.
+schema_version: 1
+lite:
+  endpoint: https://gateway.example/v1/responses
+  route_revision: team-routing-v1
+  price_revision: operator-reviewed-prices-v1
+  models:
+    claude:
+      model: claude
+      deployment_id: replace-with-litellm-deployment-id
+      model_family: non-opus
+      max_output_tokens: 64000
+      input_usd_per_million: 3
+      output_usd_per_million: 15
+bedrock:
+  region: eu-central-1
+  route_revision: team-bedrock-v1
+  price_revision: operator-reviewed-prices-v1
+  models:
+    claude:
+      model: anthropic.claude-sonnet-4-6
+      model_family: non-opus
+      max_output_tokens: 64000
+      input_usd_per_million: 3
+      output_usd_per_million: 15

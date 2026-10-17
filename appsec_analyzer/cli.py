@@ -21,7 +21,13 @@ from appsec_analyzer import ENGINE_VERSION, INTERFACE_VERSION, resource_root
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, MAX_PARALLEL
 
 # Operator-selected built-ins only; repository content cannot select a provider.
-_PROFILE_HOSTS = {"claude": "claude-cli", "codex": "openai", "codex-cli": "codex-cli"}
+_PROFILE_HOSTS = {
+    "claude": "claude-cli",
+    "codex": "openai",
+    "codex-cli": "codex-cli",
+    "lite": "lite",
+    "bedrock": "bedrock",
+}
 _LEGACY_CODEX_PROFILES = ("codex-quick", "codex-standard", "codex-thorough")
 
 
@@ -55,6 +61,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         command.add_argument("--budget", type=_positive_budget)
         command.add_argument("--max-calls", type=int, metavar="N")
         command.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
+        command.add_argument("--model", help="Provider selection, for example 'lite claude' or 'bedrock claude'")
         command.add_argument(
             "--outputs",
             nargs="+",
@@ -162,7 +169,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     )
     parser.add_argument(
         "--host",
-        choices=("claude-cli", "openai", "gateway", "codex-cli"),
+        choices=("claude-cli", "openai", "gateway", "codex-cli", "lite", "bedrock"),
         help="Legacy provider selection; --profile selects the host automatically",
     )
     parser.add_argument(
@@ -171,7 +178,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         help=(
             "Override the bundled scan profile with NAME_OR_FILE"
             if organization
-            else "Scan profile name or external YAML file (scan default: claude; built-ins: claude, codex, codex-cli)"
+            else "Scan profile name or external YAML file (default: claude; built-ins: claude, codex, codex-cli, lite, bedrock; also 'lite MODEL')"
         ),
     )
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
@@ -210,7 +217,11 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--progress-file", metavar="PATH")
-    parser.add_argument("--model", metavar="MODEL")
+    parser.add_argument(
+        "--model",
+        metavar="MODEL",
+        help="Model selection; 'lite NAME' or 'bedrock NAME' selects a configured provider model",
+    )
     parser.add_argument(
         "--reasoning-model", choices=("sonnet", "opus-cheap", "opus", "sonnet-economy", "haiku-economy")
     )
@@ -293,6 +304,13 @@ def _capabilities() -> dict:
                 "claude-cli": {"adapter": "compatibility", "qualified": False, "profiles": ["claude"]},
                 "openai": {"adapter": "responses", "qualified": False, "profiles": ["codex", *_LEGACY_CODEX_PROFILES]},
                 "gateway": {"adapter": "offline-only", "qualified": False},
+                "lite": {"adapter": "responses", "qualified": False, "profiles": ["lite"], "model_prefix": "lite "},
+                "bedrock": {
+                    "adapter": "converse",
+                    "qualified": False,
+                    "profiles": ["bedrock"],
+                    "model_prefix": "bedrock ",
+                },
                 "codex-cli": {
                     "adapter": "cli",
                     "billing": "chatgpt-subscription",
@@ -502,11 +520,21 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
     if getattr(ns, "run_profile", None):
         return
     from appsec_analyzer.profiles import OUTPUTS, resolve_scan
+    from appsec_analyzer.providers import selection as provider_selection
 
     selection = ns.profile
+    model_prefix = provider_selection(ns.model) if ns.model else None
+    if selection is None and ns.host is None and model_prefix:
+        selection = model_prefix[0]
     if selection in _LEGACY_CODEX_PROFILES or (selection is None and ns.host):
         host = _assessment_host(ns)
-        selection = {"openai": "codex", "claude-cli": "claude", "codex-cli": "codex-cli"}.get(host)
+        selection = {
+            "openai": "codex",
+            "claude-cli": "claude",
+            "codex-cli": "codex-cli",
+            "lite": "lite",
+            "bedrock": "bedrock",
+        }.get(host)
         if not selection:
             raise ValueError(f"{host} has no configured model/depth profile")
     if not selection:
@@ -523,6 +551,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         outputs=ns.outputs,
         abuse_case_files=ns.abuse_case_file,
         repositories=ns.repo or [str(Path.cwd())],
+        model_override=ns.model if model_prefix or selection in ("lite", "bedrock") else None,
     )
     selected = set(profile["settings"]["outputs"]) | {"markdown", "yaml"}
     for output in OUTPUTS[2:]:
@@ -569,6 +598,23 @@ def _assess(ns: argparse.Namespace) -> int:
         if ns.model and ns.model not in (selected["model"], selected["requested_model"]):
             raise ValueError("--model differs from the selected Codex CLI profile")
         ns.model = selected["model"]
+    elif host in ("lite", "bedrock"):
+        from appsec_analyzer.api_hosts import ApiTransportError, credential
+        from appsec_analyzer.profiles import api_profile as make_api_profile
+
+        if ns.reasoning_model or any(getattr(ns, f"{role}_model") for role in ("stride", "triage", "merger")):
+            raise ValueError("use a model profile for provider role and reasoning overrides")
+        selected = ns.run_profile["models"]["stride_analyzer"]
+        if ns.model and ns.model not in (selected["model"], selected["requested_model"]):
+            raise ValueError("--model differs from the selected provider profile; use a provider-prefixed model")
+        api_profile = make_api_profile(selected)
+        ns.model = selected["model"]
+        try:
+            credential(api_profile)
+        except ApiTransportError:
+            raise ValueError(
+                f"{api_profile.key_env} is required and must contain a valid external credential"
+            ) from None
     elif host != "claude-cli":
         raise ValueError(f"{host} has no configured model/depth profile")
     if ns.keep_runtime_files and ns.output:
@@ -817,6 +863,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     max_calls=ns.max_calls,
                     outputs=ns.outputs,
                     max_parallel=ns.max_parallel,
+                    model_override=ns.model,
                 )
                 if ns.profile_action == "validate":
                     depths = [ns.assessment_depth] if ns.assessment_depth else list(DEPTHS)
@@ -828,6 +875,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                             max_calls=ns.max_calls,
                             outputs=ns.outputs,
                             max_parallel=ns.max_parallel,
+                            model_override=ns.model,
                         )
                     document = {
                         "valid": True,

@@ -145,6 +145,8 @@ You can also create [your own scan and model profiles](docs/profiles.md), includ
 
 The built-in `codex` and `codex-cli` model profiles use Luna with low reasoning effort for reconnaissance and Sol for all other roles. Operator model overrides take precedence. This routing has offline tests; live assessment quality remains unqualified.
 
+To use an existing LiteLLM gateway, configure the separate connection and run `appsec-analyzer scan --model "lite claude" --budget 20`. Native Amazon Bedrock uses `--profile bedrock` and an external Bedrock API key. Both support per-role model profiles and require verified connection and price settings. See [LiteLLM and Bedrock setup](docs/providers.md).
+
 Component analysis runs at most two components at once by default. Set `max_parallel` in a scan profile or pass `--max-parallel 4` to override it for a run. Accepted values are integers from 1 to 16; higher values can encounter provider rate limits.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
@@ -215,7 +217,7 @@ Repeated `--repo` arguments combine repositories into one system. You can also s
 
 Repositories are treated as untrusted input by default. Repository content cannot authorize tools or select provider credentials. Keep credentials outside repository files and Git URLs, and treat reports and intermediate files as sensitive.
 
-The Claude CLI adapter is available. The experimental OpenAI profiles have offline protocol and budget tests, but have not completed live assessment qualification. The gateway adapter is not available through the public CLI. See the [security policy](SECURITY.md) for boundaries, data handling, and vulnerability reporting.
+The Claude CLI adapter is available. The experimental OpenAI, LiteLLM and Bedrock profiles have offline protocol and budget tests, but have not completed live assessment qualification. The legacy generic gateway remains unavailable through the public CLI. See the [security policy](SECURITY.md) for boundaries, data handling, and vulnerability reporting.
 
 ## Documentation
 

@@ -54,4 +54,4 @@ Existing `--host claude-cli` and `--host openai` calls remain supported. The old
 
 `--org-profile` selects separate organization assessment settings. The requirements audit continues to use `--host claude-cli`.
 
-Offline protocol, boundary, and budget tests do not establish assessment quality. The `codex` and `codex-cli` profiles have not completed live end-to-end qualification at any depth. User model combinations also remain unqualified. The gateway adapter has no fixed public route and remains unavailable through the CLI.
+Offline protocol, boundary, and budget tests do not establish assessment quality. The `codex`, `codex-cli`, `lite`, and `bedrock` profiles have not completed live end-to-end qualification at any depth. User model combinations also remain unqualified. The legacy generic gateway remains unavailable through the CLI; the separate LiteLLM adapter uses an explicitly configured operator connection. See [LiteLLM and Bedrock setup](providers.md) for model prefixes, authentication, pricing and limits.

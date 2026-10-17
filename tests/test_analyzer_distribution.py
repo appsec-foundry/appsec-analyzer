@@ -18,6 +18,7 @@ GUIDES = (
     "configuration.md",
     "model-selection.md",
     "profiles.md",
+    "providers.md",
     "headless-mode.md",
     "security-requirements-audit-skill.md",
     "threat-dragon-export.md",
@@ -119,6 +120,13 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert "appsec_analyzer/docs/security-assessment.md" in wheel_files
     for relative in (
         "docs/profiles.md",
+        "docs/providers.md",
+        "data/model-profiles/lite.yaml",
+        "data/model-profiles/bedrock.yaml",
+        "data/scan-profiles/lite.yaml",
+        "data/scan-profiles/bedrock.yaml",
+        "schemas/provider-connections.schema.yaml",
+        "examples/provider-connections.yaml",
         "data/model-catalog.yaml",
         "data/model-profiles/codex.yaml",
         "data/model-profiles/codex-cli.yaml",

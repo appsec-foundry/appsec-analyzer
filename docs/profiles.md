@@ -17,6 +17,8 @@ The built-in `codex` and `codex-cli` model profiles use Luna for `recon_scanner`
 
 Profiles apply to `scan` and `assess`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
 
+Additional built-ins are `lite` for LiteLLM Responses and `bedrock` for native Bedrock Converse. They require a separate operator-owned connection file and external credentials. The model prefix `lite claude` selects a configured gateway model; `bedrock claude` selects a configured Bedrock model. See [provider setup and limits](providers.md). Both remain unqualified for live assessment quality.
+
 ## Use your ChatGPT plan with Codex CLI
 
 Select `codex-cli` to run full assessments through the Codex CLI's existing ChatGPT login. It is an experimental connection with offline transport and full-controller tests; live assessment quality has not been qualified. Your account or workspace must allow the selected model and Codex usage. This profile uses ChatGPT plan allowance or available credits; Analyzer cannot report the remaining allowance or enforce a monetary ceiling.
@@ -143,7 +145,7 @@ Then set `model_profile: team-sol` in the scan profile. This example demonstrate
 
 The Recon override above matches the built-in OpenAI profiles. To use Sol for Recon too, set `roles.recon_scanner.model: gpt-sol` in your model profile.
 
-`base` accepts only `codex` or `claude`. User profiles cannot inherit from other user profiles. Alternatively, a complete model profile can specify `adapter: openai` or `adapter: claude-cli` and supply its own defaults. Do not combine `base` and `adapter`.
+`base` accepts `claude`, `codex`, `codex-cli`, `lite`, or `bedrock`. User profiles cannot inherit from other user profiles. Alternatively, a complete model profile can specify `adapter: openai`, `claude-cli`, `codex-cli`, `lite`, or `bedrock` and supply its own defaults. Do not combine `base` and `adapter`. LiteLLM and Bedrock role models require their provider prefix and an alias in the separate connection file.
 
 The user definition is applied after the built-in definition. Within each definition, settings are applied in this order: `defaults`, `depths.<depth>.defaults`, `roles.<role>`, then `depths.<depth>.roles.<role>`. Each block may set `model`, `reasoning_effort`, and, for OpenAI, an optional `max_output_tokens`. A field you omit retains its earlier value.
 

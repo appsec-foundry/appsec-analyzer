@@ -804,6 +804,8 @@ requirements:
 
   REQ-016:
     applies_to:
+      - appsec_analyzer/providers.py
+      - schemas/provider-connections.schema.yaml
       - appsec_analyzer/api_hosts.py
       - scripts/runtime/analyst_host.py
       - scripts/runtime/multi_repo_discovery.py
@@ -826,6 +828,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/providers.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
       - docs/security-assessment.md
@@ -833,6 +836,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_provider_backends.py::test_changed_connection_cannot_resume_saved_work
       - tests/test_multi_repo_discovery.py::test_oversized_request_is_not_presented_as_fixed_by_resume
       - tests/test_codex_cli.py::test_activity_is_streamed_before_completion_without_model_text
       - tests/test_multi_repo_controller.py::test_a_silent_model_call_reports_missing_updates_without_inventing_a_cause
@@ -897,6 +901,8 @@ requirements:
 
   REQ-018:
     applies_to:
+      - appsec_analyzer/providers.py
+      - schemas/provider-connections.schema.yaml
       - appsec_analyzer/organization.py
       - schemas/organization-distribution.schema.yaml
       - examples/organization-distribution/**
@@ -927,6 +933,7 @@ requirements:
       - EX-1
       - EX-2
     documents:
+      - docs/providers.md
       - docs/organization-distributions.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
@@ -940,6 +947,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_provider_backends.py::test_provider_profiles_resolve_offline_at_all_depths
+      - tests/test_provider_backends.py::test_custom_profile_can_select_provider_models_per_role
+      - tests/test_provider_backends.py::test_cli_prefix_reaches_controller
+      - tests/test_provider_backends.py::test_provider_models_preserve_organization_opus_restriction
       - tests/test_organization_distribution.py::test_bundled_defaults_apply_before_assessment_without_environment_or_cwd_lookup
       - tests/test_organization_distribution.py::test_explicit_operator_choices_override_distribution_defaults
       - tests/test_organization_distribution.py::test_installed_profiles_reach_actual_runtime_resolution
@@ -1010,6 +1021,8 @@ requirements:
 
   REQ-020:
     applies_to:
+      - appsec_analyzer/providers.py
+      - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
       - data/model-catalog.yaml
@@ -1019,12 +1032,14 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/providers.md
       - docs/profiles.md
       - docs/configuration.md
       - docs/model-selection.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_provider_backends.py::test_capabilities_show_provider_availability_without_live_qualification
       - tests/test_public_scan_cli.py::test_capabilities_distinguish_adapters_from_live_qualification
 
   REQ-021:
@@ -1116,6 +1131,8 @@ requirements:
 
   REQ-023:
     applies_to:
+      - appsec_analyzer/providers.py
+      - schemas/provider-connections.schema.yaml
       - scripts/runtime/assessment_host.py
       - scripts/contexts/multi_repo_analysis.py
       - appsec_analyzer/codex_cli.py
@@ -1140,6 +1157,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/providers.md
       - specs/changes/codex-cli-subscription/proposal.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
@@ -1149,6 +1167,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_provider_backends.py::test_lite_wire_checks_deployment_and_uses_gateway_charge
+      - tests/test_provider_backends.py::test_lite_unknown_route_or_cost_never_becomes_an_accepted_answer
+      - tests/test_provider_backends.py::test_bedrock_converse_wire_and_accounting
+      - tests/test_provider_backends.py::test_bedrock_rejects_incomplete_tool_or_unaccounted_responses
+      - tests/test_provider_backends.py::test_provider_budget_and_cancellation_stop_before_transmission
       - tests/test_codex_cli.py::test_request_capacity_includes_instructions_schema_and_utf8
       - tests/test_assessment_host.py::test_host_capacity_bounds_reads_and_includes_the_complete_request
       - tests/test_assessment_host.py::test_invalid_host_context_limits_fail_before_dispatch
@@ -1362,6 +1385,8 @@ requirements:
 
   REQ-031:
     applies_to:
+      - appsec_analyzer/providers.py
+      - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
       - scripts/runtime/remote_repositories.py
@@ -1374,12 +1399,19 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/providers.md
       - docs/profiles.md
       - README.md
       - SECURITY.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_provider_backends.py::test_unsafe_operator_connections_are_rejected
+      - tests/test_provider_backends.py::test_other_users_cannot_write_provider_connection
+      - tests/test_provider_backends.py::test_connection_cannot_be_owned_by_source_or_linked
+      - tests/test_provider_backends.py::test_provider_dns_cannot_reach_internal_or_metadata_destinations
+      - tests/test_provider_backends.py::test_provider_does_not_follow_redirects
+      - tests/test_provider_backends.py::test_invalid_credentials_stop_before_checkout
       - tests/test_codex_cli_wire.py::test_real_codex_has_no_tools_and_ignores_project_and_user_configuration
       - tests/test_codex_cli.py::test_invalid_or_tool_output_is_rejected
       - tests/test_profiles.py::test_symlinks_large_files_and_source_owned_profiles_are_rejected
@@ -1420,6 +1452,8 @@ requirements:
 
   REQ-033:
     applies_to:
+      - appsec_analyzer/providers.py
+      - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
       - README.md
       - SECURITY.md
@@ -1427,12 +1461,14 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/providers.md
       - docs/profiles.md
       - README.md
       - SECURITY.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_provider_backends.py::test_startup_discloses_provider_destination
       - tests/test_codex_cli.py::test_structured_reply_and_isolated_configuration
       - tests/test_api_hosts.py::test_wire_decoder_preserves_absent_and_null_and_requests_no_tools
 

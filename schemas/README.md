@@ -105,3 +105,5 @@ downstream consumer.
 ## Operator profiles
 
 `scan-profile.schema.yaml` validates scan defaults, USD budgets, exports, and report attributes. `model-profile.schema.yaml` validates model defaults and role/depth overrides. Both use `schema_version: 1`. The CLI also checks model capabilities and operator file boundaries; see [scan and model profiles](../docs/profiles.md).
+
+`provider-connections.schema.yaml` validates the separate operator-owned LiteLLM and Bedrock connection file with `schema_version: 1`. It permits bounded connection, model and price data, excludes credentials and executable fields, and keeps these settings outside analysis profiles and source repositories. See [provider connections](../docs/providers.md).

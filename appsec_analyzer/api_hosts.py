@@ -1,8 +1,7 @@
-"""Offline-testable, tool-less Responses API transport for fixed host profiles.
+"""Bounded, tool-less Responses and Bedrock Converse exchanges.
 
-This adapter does not qualify any model or gateway route. A caller must supply
-an independently reviewed profile and keep the public assessment gate closed
-until complete live qualification has been recorded.
+Connections and model prices come from installed or operator-owned definitions.
+Offline protocol coverage never establishes live model quality.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ import time
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Callable
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from appsec_analyzer import resource_root
 
@@ -38,6 +37,27 @@ _WIRE_SCHEMA = {
     "required": ["payload_json"],
     "properties": {"payload_json": {"type": "string"}},
 }
+
+
+def _json(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("ambiguous JSON")
+            result[key] = value
+        return result
+
+    def invalid(value):
+        raise ValueError("non-finite JSON")
+
+    def finite(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("non-finite JSON")
+        return number
+
+    return json.loads(data, object_pairs_hook=unique, parse_constant=invalid, parse_float=finite)
 
 
 class ApiTransportError(TransportError):
@@ -76,10 +96,11 @@ class ApiProfile:
     max_request_bytes: int = MAX_REQUEST_BYTES
     gateway_route_revision: str | None = None
     pinned_ip: str | None = None
+    deployment_id: str | None = None
 
     def __post_init__(self) -> None:
         url = urlsplit(self.endpoint)
-        if self.kind not in ("openai", "gateway"):
+        if self.kind not in ("openai", "gateway", "lite", "bedrock"):
             raise ValueError("unsupported API host kind")
         if (
             url.scheme != "https"
@@ -89,14 +110,38 @@ class ApiProfile:
             or url.password
             or url.query
             or url.fragment
-            or not url.path.endswith("/v1/responses")
+            or any(ord(char) <= 32 or ord(char) >= 127 for char in self.endpoint)
+            or "%" in self.endpoint
+            or ".." in url.path
+            or "//" in url.path
+            or (self.kind != "bedrock" and not url.path.endswith("/v1/responses"))
         ):
             raise ValueError("API endpoint must be a fixed HTTPS Responses URL")
         if self.kind == "openai" and (url.hostname != "api.openai.com" or url.path != "/v1/responses"):
             raise ValueError("direct OpenAI calls use the official Responses endpoint")
         if self.kind == "gateway" and not self.gateway_route_revision:
             raise ValueError("gateway profile requires a fixed route revision")
-        if self.key_env not in ("OPENAI_API_KEY", "APPSEC_GATEWAY_API_KEY"):
+        if self.kind == "lite" and (not self.gateway_route_revision or not self.deployment_id):
+            raise ValueError("LiteLLM requires a route revision and deployment id")
+        if self.kind == "bedrock" and (
+            not re.fullmatch(
+                r"bedrock-runtime\.(?:us|eu|ap|ca|sa|me|af|il|mx)-(?:north|south|east|west|central|northeast|northwest|southeast|southwest)-[1-9]\.amazonaws\.com",
+                url.hostname or "",
+            )
+            or url.path
+            or self.pinned_ip
+            or self.reasoning_effort is not None
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]{0,127}", self.model)
+            or ".." in self.model
+        ):
+            raise ValueError("Bedrock requires a regional runtime endpoint and a supported model id")
+        approved_key = {
+            "openai": "OPENAI_API_KEY",
+            "gateway": "APPSEC_GATEWAY_API_KEY",
+            "lite": "LITELLM_API_KEY",
+            "bedrock": "AWS_BEARER_TOKEN_BEDROCK",
+        }
+        if self.key_env != approved_key[self.kind]:
             raise ValueError("API credentials must use an approved environment variable")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", self.model):
             raise ValueError("model identifier is invalid")
@@ -124,7 +169,21 @@ class ApiProfile:
             raise ValueError("request byte cap must be positive and bounded")
         if self.pinned_ip:
             address = ipaddress.ip_address(self.pinned_ip)
-            if self.kind == "openai" or address.is_loopback or address.is_link_local or address.is_multicast:
+            permitted_private = any(
+                address in ipaddress.ip_network(network)
+                for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+                if ipaddress.ip_network(network).version == address.version
+            )
+            if (
+                self.kind not in ("gateway", "lite")
+                or not (address.is_global or permitted_private)
+                or address.is_multicast
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_unspecified
+                or address.is_reserved
+                or getattr(address, "is_site_local", False)
+            ):
                 raise ValueError("private pin is unavailable for this destination")
 
     @property
@@ -138,7 +197,12 @@ def _public_addresses(host: str) -> tuple[str, ...]:
     except OSError:
         raise ApiTransportError("dns_unavailable") from None
     addresses = tuple(sorted({row[4][0] for row in rows}))
-    if not addresses or any(not ipaddress.ip_address(ip).is_global for ip in addresses):
+    if not addresses or any(
+        not ipaddress.ip_address(ip).is_global
+        or ipaddress.ip_address(ip).is_multicast
+        or getattr(ipaddress.ip_address(ip), "is_site_local", False)
+        for ip in addresses
+    ):
         raise ApiTransportError("destination_denied")
     return addresses
 
@@ -155,6 +219,14 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
 
 
+def credential(profile: ApiProfile) -> str:
+    """Validate external credentials without exposing them in diagnostics."""
+    value = os.environ.get(profile.key_env)
+    if not value or len(value) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in value):
+        raise ApiTransportError("authentication_failed")
+    return value
+
+
 class ResponsesTransport:
     def __init__(self, profile: ApiProfile, ceiling: float):
         if type(ceiling) not in (int, float) or not math.isfinite(ceiling) or ceiling <= 0:
@@ -167,9 +239,7 @@ class ResponsesTransport:
             raise HostCancelled("API call cancelled before transmission")
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise ApiTransportError("invalid_timeout")
-        credential = os.environ.get(self.profile.key_env)
-        if not credential or len(credential) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in credential):
-            raise ApiTransportError("authentication_failed")
+        token = credential(self.profile)
         if type(schema) is not dict or type(system) is not str or type(prompt) is not str:
             raise ApiTransportError("invalid_request")
         # The wire schema is deliberately separate from the canonical contract.
@@ -194,6 +264,20 @@ class ResponsesTransport:
             request["max_output_tokens"] = self.profile.max_output_tokens
         if self.profile.reasoning_effort:
             request["reasoning"] = {"effort": self.profile.reasoning_effort}
+        if self.profile.kind == "lite":
+            request.update(num_retries=0, disable_fallbacks=True)
+        if self.profile.kind == "bedrock":
+            request = {
+                "system": [{"text": instructions}],
+                "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                "inferenceConfig": {"maxTokens": self.profile.output_token_bound},
+                "outputConfig": {
+                    "textFormat": {
+                        "type": "json_schema",
+                        "structure": {"jsonSchema": {"schema": json.dumps(_WIRE_SCHEMA), "name": "appsec_exchange"}},
+                    }
+                },
+            }
         body = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(body) > self.profile.max_request_bytes:
             raise ApiTransportError("request_too_large")
@@ -207,22 +291,36 @@ class ResponsesTransport:
         if bound > self.ceiling:
             raise ApiTransportError("budget_exhausted")
         url = urlsplit(self.profile.endpoint)
+        path = (
+            "/model/" + quote(self.profile.model, safe="") + "/converse" if self.profile.kind == "bedrock" else url.path
+        )
         address = self.profile.pinned_ip or _public_addresses(url.hostname or "")[0]
         connection = _PinnedHTTPS(url.hostname or "", address, timeout=min(timeout_s, 10))
         result: list[object] = []
 
         def send() -> None:
             try:
+                headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+                if self.profile.kind == "lite":
+                    headers["x-litellm-num-retries"] = "0"
                 connection.request(
                     "POST",
-                    url.path,
+                    path,
                     body=body,
-                    headers={"Authorization": "Bearer " + credential, "Content-Type": "application/json"},
+                    headers=headers,
                 )
                 reply = connection.getresponse()
                 data = reply.read(MAX_REPLY_BYTES + 1)
                 retry_after = _retry_after(reply.getheader("Retry-After")) if reply.status == 429 else None
-                result.append((reply.status, data, retry_after))
+                metadata = (
+                    {
+                        "deployment": reply.getheader("x-litellm-model-id"),
+                        "cost": reply.getheader("x-litellm-response-cost"),
+                    }
+                    if self.profile.kind == "lite"
+                    else {}
+                )
+                result.append((reply.status, data, retry_after, metadata))
             except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
                 result.append(exc)
             finally:
@@ -241,7 +339,7 @@ class ResponsesTransport:
             worker.join(timeout=min(0.1, max(0.01, deadline - time.monotonic())))
         if not result or isinstance(result[0], Exception):
             raise ApiTransportError("transport")
-        status, data, retry_after = result[0]
+        status, data, retry_after, metadata = result[0]
         if len(data) > MAX_REPLY_BYTES:
             raise ApiTransportError("response_too_large")
         if status in (401, 403):
@@ -256,7 +354,7 @@ class ResponsesTransport:
             raise ApiTransportError("invalid_request")
         # Keep token exhaustion distinct from malformed structured output.
         try:
-            truncated = json.loads(data)
+            truncated = _json(data)
             if (
                 isinstance(truncated, dict)
                 and truncated.get("status") == "incomplete"
@@ -264,12 +362,36 @@ class ResponsesTransport:
                 and truncated["incomplete_details"].get("reason") == "max_output_tokens"
             ):
                 raise ApiTransportError("output_token_limit")
-        except (json.JSONDecodeError, UnicodeError):
+        except (ValueError, UnicodeError, RecursionError):
             pass
         try:
-            response = json.loads(data)
+            response = _json(data)
             if type(response) is not dict:
                 raise ValueError("response is not an object")
+            if self.profile.kind == "bedrock":
+                if response.get("stopReason") == "max_tokens":
+                    raise ApiTransportError("output_token_limit")
+                message = response["output"]["message"]
+                if response.get("stopReason") != "end_turn" or message.get("role") != "assistant":
+                    raise ValueError("incomplete Bedrock response")
+                if any(response["usage"].get(key, 0) for key in ("cacheReadInputTokens", "cacheWriteInputTokens")):
+                    raise ValueError("unexpected Bedrock cache accounting")
+                response = {
+                    "status": "completed",
+                    "usage": {
+                        "input_tokens": response["usage"]["inputTokens"],
+                        "output_tokens": response["usage"]["outputTokens"],
+                    },
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {"type": "output_text", "text": item["text"]} if set(item) == {"text"} else {}
+                                for item in message["content"]
+                            ],
+                        }
+                    ],
+                }
             if response.get("status") != "completed":
                 raise ValueError("incomplete response")
             usage = response["usage"]
@@ -294,15 +416,28 @@ class ResponsesTransport:
             ]
             if len(content) != 1 or content[0].get("type") != "output_text":
                 raise ValueError("refusal or ambiguous output")
-            wire = json.loads(content[0]["text"])
+            wire = _json(content[0]["text"])
             if type(wire) is not dict or set(wire) != {"payload_json"} or type(wire["payload_json"]) is not str:
                 raise ValueError("wire schema mismatch")
-            payload = json.loads(wire["payload_json"])
+            payload = _json(wire["payload_json"])
             measured = (
                 input_tokens * self.profile.input_usd_per_million + output_tokens * self.profile.output_usd_per_million
             ) / 1_000_000
+            if self.profile.kind == "lite":
+                if metadata.get("deployment") != self.profile.deployment_id:
+                    raise ValueError("gateway deployment changed")
+                cost = metadata.get("cost")
+                if (
+                    type(cost) is not str
+                    or len(cost) > 64
+                    or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", cost)
+                ):
+                    raise ValueError("gateway cost unavailable")
+                measured = float(cost)
+                if not math.isfinite(measured) or measured < 0:
+                    raise ValueError("gateway cost invalid")
             if measured > self.ceiling:
                 raise ValueError("cost ceiling exceeded")
-        except (KeyError, TypeError, ValueError, AttributeError):
+        except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
             raise ApiTransportError("invalid_response") from None
         return HostReply(payload=payload, usd=measured)

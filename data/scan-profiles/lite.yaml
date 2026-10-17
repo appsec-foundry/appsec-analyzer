@@ -1,0 +1,5 @@
+schema_version: 1
+model_profile: lite
+assessment_depth: standard
+budget: 20
+outputs: [markdown, yaml]
