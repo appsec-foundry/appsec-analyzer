@@ -1,6 +1,7 @@
 # Phase A extraction record
 
-Status: in progress, 2026-10-17. Phase B is outside this assignment. All
+Status: offline Phase A preview prepared, 2026-10-17. Live provider
+qualification and the compatibility gaps below remain open. Phase B is outside this assignment. All
 implementation, tests, documentation, and commits belong to this repository;
 `appsec-advisor` is a read-only source. No push or publication is authorized.
 
@@ -227,12 +228,20 @@ assessment completion.
   Markdown, and figures, and `results` verified each digest. The redundant
   public `--strict-urls` switch was removed because untrusted preflight
   already enforces it and the controller did not accept that extra flag.
+- A fresh installed wheel built after that correction repeated the complete
+  fake-host assessment with SARIF, Threat Dragon JSON, pentest tasks, YAML,
+  Markdown, and four figures. `results` verified hashes for all nine
+  deliverables. Provider-free installed `scan`, audit with scripted host,
+  status, progress after cleanup, and refusal of unqualified API/gateway
+  selections were also exercised. Local wheel, source distribution, checksums,
+  and release notes are kept outside the checkout; no tag, push, upload, or
+  GitHub setting changed.
 
 ## Milestones
 
 | Milestone | State | Evidence and next step |
 | --- | --- | --- |
-| A1–A2 inventory and history | Imported, verification ongoing | Primary and supplemental filtered lineages, maps, blob comparison, historical samples above; finish scoped secret triage and current-tree exclusions. |
-| A3–A5 provider boundary | Offline adapter in progress | Responses/gateway transport and negative offline tests exist; qualification, complete pipeline replay, and public API routing remain open. |
-| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths, focused analyst delegation, independent bounded requirements audit, and installed fake-host assessment exist; some launcher development consumers and installed resume checks remain open. |
-| A7 local release preparation | Open | Build and inspect wheel and sdist; record unresolved qualification and compatibility limits. No source-repository correction, push, or publication. |
+| A1–A2 inventory and history | Complete within scoped review | Primary and supplemental filtered lineages, maps, byte comparison, historical samples, and redacted pattern review above. The pattern review cannot guarantee absence of every secret. |
+| A3–A5 provider boundary | Offline implementation complete | Responses/gateway transports and negative contract tests exist. Live model/route qualification and public API routing remain open by operator instruction. |
+| A6 standalone CLI and package | Core complete; compatibility gaps open | Installed scan, fake-host assessment and resume, state operations, exports, focused analyst entry, and bounded local-catalog audit work. Older full/repair drivers and inherited test-group routing remain open. |
+| A7 local release preparation | Local artifacts complete | Wheel and sdist built from a separate clone, inventoried, installed, and smoke-tested; checksums and release notes remain local. No source-repository correction, push, or publication. |
