@@ -1,117 +1,153 @@
-# AppSec Analyzer
+# appsec-analyzer
 
-AppSec Analyzer is a Python scanning and security assessment engine extracted from
-[AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor). It accepts local
-Git checkouts, keeps a frozen source view for each run, and writes results outside
-the analyzed checkout. Start a full assessment with live progress using:
+[![Version](https://img.shields.io/badge/version-0.1.0a0-orange.svg)](engine.json)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](setup.py)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](#reports-and-exports)
+
+AppSec Analyzer is a command-line tool for reviewing application security from source code. It maps components, data flows, and trust boundaries, examines security controls, and produces findings with code references and suggested fixes.
+
+Use it when taking over an unfamiliar codebase, preparing a security review, or deciding what to fix next. It works with one Git repository or several repositories that form a system.
+
+The tool combines rule-based source scanners with model-backed analysis. A source scan runs without an AI account. A full security assessment uses Claude CLI by default and requires an explicit spending limit.
+
+> [!NOTE]
+> **Alpha.** Commands and report formats may change. Live assessment quality is still being qualified; review findings before acting on them.
+
+[Install](#install) · [Quick start](#quick-start) · [Reports](#reports-and-exports) · [More commands](#more-commands) · [Security](#security-and-data-use) · [Documentation](#documentation) · [Contributing](#contributing)
+
+## What does it check?
+
+A full assessment helps answer:
+
+- How do components communicate, and where does data cross a trust boundary?
+- Which security controls are present, missing, or incorrectly implemented?
+- Which weaknesses and attack paths are supported by the code?
+- What should the team fix, and how can it verify the fix?
+
+The assessment covers implementation weaknesses and design risks. It connects findings to the application architecture and separates supported findings from unresolved questions. You can add business context, security requirements, and organization settings to guide the analysis.
+
+Source code cannot establish how an application behaves in production. Deployment controls, business assumptions, and findings still need review by the team.
+
+## Install
+
+Requires **Python 3.10+** and **Git**. Install with `pip` from a checkout of this repository:
+
+```sh
+git clone https://github.com/appsec-foundry/appsec-analyzer.git
+cd appsec-analyzer
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+appsec-analyzer version
+```
+
+The shell examples use bash/zsh. Keep the environment active when running the commands below.
+
+A full assessment also needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The source scan needs neither. See [host configuration](docs/configuration.md) for provider setup and the experimental OpenAI adapter.
+
+## Quick start
+
+Replace `/path/to/project` with the path to the Git repository you want to examine.
+
+### 1. Run a source scan
+
+Start with a scan that makes no model calls:
+
+```sh
+appsec-analyzer scan-sources --repo /path/to/project
+```
+
+It prints observations from the applicable authorization, mass-assignment, and configuration scanners, along with their coverage. These observations are unverified; this command does not perform a full security assessment. Add `--json` for machine-readable output.
+
+### 2. Run a full assessment
+
+With Claude CLI configured, run:
 
 ```sh
 appsec-analyzer scan --repo /path/to/project --hard-budget 20
 ```
 
-`scan` uses Claude CLI by default and runs the complete headless assessment:
-source admission, component and trust-boundary analysis, STRIDE, evidence review,
-consolidation, validation, and report publication. It requires an explicit hard
-USD budget. `assess` runs the same workflow with an explicit `--host` selection.
+This command sends selected source excerpts and supplied context to the model provider and makes paid model calls. `--hard-budget 20` sets a USD 20 spending limit, not an estimate or a guarantee that the assessment will finish within that amount. If the remaining budget cannot cover required work, the run preserves progress and reports an incomplete assessment.
 
-`scan-sources` runs deterministic source authorization, authorization confirmation,
-mass assignment, and applicable configuration/IaC scanners. It requires no
-Claude installation, provider credentials, or model calls. It prints a readable
-summary and unverified findings by default; `--json` prints the complete
-machine-readable result. `--output` also saves that result as `scan-result.json`.
-The JSON result says
-`assessment_status: not_run`; a scanner finding is an observation, not a verified
-exploit or complete component assessment.
+The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
-At this pre-release stage the Claude CLI compatibility adapter is available.
-The OpenAI Responses host offers explicit Codex assessment profiles for each
-depth. These have offline protocol and budget tests, but their assessment quality
-has not been qualified by a completed live run. The fixed gateway adapter remains
-unavailable through the public command.
+The default depth is `standard`. Use `--assessment-depth quick` or `--assessment-depth thorough` to change the analysis depth. See [hosts, models, and cost](docs/model-selection.md) before a paid run.
 
-## Install locally
+### 3. Inspect and continue a run
 
-Python 3.10+ and Git are required. From this checkout, in an isolated environment:
+Use the output directory reported by the assessment in place of `/path/to/assessment`:
 
 ```sh
-python3 -m venv /tmp/appsec-analyzer-venv
-/tmp/appsec-analyzer-venv/bin/pip install .
-/tmp/appsec-analyzer-venv/bin/appsec-analyzer version
+appsec-analyzer status --output /path/to/assessment
+appsec-analyzer results --output /path/to/assessment
 ```
 
-For a wheel built locally, install its exact path instead of `.`. This checkout
-is a development extraction; no package has been published by this work.
-
-## Quickstart
+`status` shows the run state. `results` lists published files after checking their recorded hashes. To continue an interrupted run with compatible source and settings:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project --hard-budget 20 --output /private/assessment
-appsec-analyzer scan-sources --repo /path/to/project --output /private/source-scan
-appsec-analyzer assess --repo /path/to/project --host claude-cli \
-  --hard-budget 20 --output /private/assessment
-appsec-analyzer scan --repo /path/to/project --host openai \
-  --profile codex-standard --hard-budget 20 --output /private/openai-assessment
-appsec-analyzer status --output /private/assessment
-appsec-analyzer progress --output /private/assessment
-appsec-analyzer stop --output /private/assessment
-appsec-analyzer results --output /private/assessment
+appsec-analyzer scan --repo /path/to/project --hard-budget 20 \
+  --output /path/to/assessment --resume
 ```
 
-For `scan-sources --output`, create an output directory outside all selected
-checkouts first. Without `--output`, its readable summary is printed to stdout;
-use `scan-sources --json` for JSON on stdout. Full assessments default to a
-private directory under the user's `appsec-analyzer/assessments` data directory.
-`--resume` continues an interrupted compatible assessment; `--rebuild` starts
-again. Optional `--sarif`, `--threatdragon`, `--html`, `--pdf`, and
-`--pentest-tasks` request exports. External PDF/HTML tools may be required.
+Use `progress` to inspect progress from another terminal and `stop` to request a stop, each with `--output /path/to/assessment`. See [command-line operation](docs/headless-mode.md) for unattended runs and recovery.
 
-The focused design/change/hypothesis analyst has a distinct entry under the same
-program: `appsec-analyzer analyst design|review|hypothesis|answer|cancel|forget`.
-See [Threat Analyst](docs/threat-analyst.md). A requirements check **within** a
-full assessment is selected with `assess --requirements`. The separate audit
-grades a local catalog against bounded source excerpts:
+## Reports and exports
+
+The Markdown report describes the architecture, security controls, findings, open questions, and prioritized remediation. The YAML file contains the structured assessment.
+
+Request additional formats when starting an assessment:
 
 ```sh
-appsec-analyzer audit-requirements --repo /path/to/project \
-  --requirements /path/to/requirements.yaml --output /private/audit \
-  --host claude-cli --hard-budget 5 --md --gate
+appsec-analyzer scan --repo /path/to/project --hard-budget 20 --sarif --html
 ```
 
-Use a fresh, existing output directory outside the checkout. The audit needs
-Claude CLI access and does not run a full assessment. `--demo` selects the
-packaged sample catalog; see the [audit guide](docs/security-requirements-audit-skill.md).
+| Flag | Output |
+| --- | --- |
+| `--sarif` | SARIF 2.1.0 findings for compatible code-scanning tools. |
+| `--html` | HTML report. Requires Pandoc. |
+| `--pdf` | PDF report. Requires Pandoc and WeasyPrint; diagrams may also need Mermaid CLI and Chrome. |
+| `--threatdragon` | OWASP Threat Dragon model. |
+| `--pentest-tasks` | Tasks for follow-up penetration testing. |
 
-## Contracts and limits
+Exports run as part of the assessment. There is currently no public command to export an existing result without rerunning analysis.
 
-- The JSON scan contract is [deterministic-scan-result.schema.json](schemas/deterministic-scan-result.schema.json).
-  The assessment lifecycle is [multi-repo-state.schema.json](schemas/multi-repo-state.schema.json).
-- `status`, `progress`, `stop`, and `results` use interface version 1. `results`
-  verifies recorded hashes of published deliverables before listing them.
-- Untrusted repository mode is the default. Repository-owned host configuration,
-  escaping source links, source changes, invalid evidence, and incompatible
-  resumed state stop a run rather than silently widening its scope.
-- Source excerpts and supplied business context are sent to the selected model
-  host during `scan`, `assess`, or focused analysis. `scan-sources` sends no
-  source to a model host. Provider retention and gateway routing require
-  operator review before use.
-- The engine cannot observe production-only controls or prove runtime behavior.
-  Review findings with the owning team before remediation or risk acceptance.
+To choose where results are stored, create a directory outside every selected repository and pass it with `--output`. For `scan-sources`, this saves `scan-result.json` in addition to printing the summary.
 
-See [assessment operation](docs/security-assessment.md), [configuration](docs/configuration.md),
-[model selection](docs/model-selection.md), [headless use](docs/headless-mode.md), and the
-[Phase A extraction record](docs/internal/extraction/phase-a-record.md). Earlier
-Advisor guides are retained as [historical reference](docs/history/advisor/INDEX.md);
-their plugin commands are not Analyzer installation instructions.
+## More commands
 
-## Development and provenance
+Use the same CLI for a combined assessment, a focused security question, or a requirements audit.
 
-Run focused checks with `python3 -m pytest tests/test_public_scan_cli.py
-tests/test_public_assessment_operations.py tests/test_api_hosts.py
-tests/test_requirements_audit_cli.py`, or use `make test-analyzer`. Build local
-wheel and source distribution with `python3 -m build --no-isolation --outdir
-/tmp/appsec-analyzer-dist`, then inspect and install them in a separate
-environment. See [the extraction record](docs/internal/extraction/phase-a-record.md)
-for the committed source revision, filtered commit map, exclusions, and open
-qualification work, and [local release preparation](docs/local-release-preparation.md)
-for archive checks and qualification limits. This project preserves the original Apache 2.0
-[license](LICENSE) and source history.
+| Task | Command | Guide |
+| --- | --- | --- |
+| Assess several repositories together | `scan --repo /path/to/api --repo /path/to/client --hard-budget 30` | [Security assessment](docs/security-assessment.md) |
+| Select the model host explicitly | `assess --repo /path/to/project --host claude-cli --hard-budget 20` | [Hosts and models](docs/model-selection.md) |
+| Review a design, code change, or threat hypothesis | `analyst design`, `analyst review`, `analyst hypothesis` | [Threat Analyst](docs/threat-analyst.md) |
+| Check a security requirements catalog, optionally as a CI gate | `audit-requirements` | [Requirements audit](docs/security-requirements-audit-skill.md) |
+| Show available scanners and provider qualification | `capabilities` | [Configuration](docs/configuration.md) |
+
+Prefix each command with `appsec-analyzer`. Add `--help` to see its arguments. Focused analysis and requirements audits also make paid model calls; their guides explain the required inputs and budget controls. `scan` and `assess` run the same full assessment; `assess` requires an explicit `--host`.
+
+Repeated `--repo` arguments combine repositories into one system. You can also supply explicit HTTPS or SSH Git URLs. Fetching a remote repository requires network access, including for a source scan.
+
+## Security and data use
+
+**Model-backed commands send source excerpts and context to the selected provider.** This includes full assessments, focused analysis, and requirements audits. Check your organization's rules and the provider's data-handling terms before analyzing confidential code. `scan-sources` does not send source to a model.
+
+Repositories are treated as untrusted input by default. Repository content cannot authorize tools or select provider credentials. Keep credentials outside repository files and Git URLs, and treat reports and intermediate files as sensitive.
+
+The Claude CLI adapter is available. The experimental OpenAI profiles have offline protocol and budget tests, but have not completed live assessment qualification. The gateway adapter is not available through the public CLI. See the [security policy](SECURITY.md) for boundaries, data handling, and vulnerability reporting.
+
+## Documentation
+
+- [Security assessment](docs/security-assessment.md): scope, depth, output, and recovery.
+- [Configuration](docs/configuration.md) and [organization profiles](docs/org-profiles.md): settings for local and team use.
+- [Hosts, models, and cost](docs/model-selection.md): provider support and spending controls.
+- [Command-line operation](docs/headless-mode.md): unattended runs and lifecycle commands.
+- [Documentation index](docs/README.md): all current guides and maintainer references.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and tests, and [product requirements](requirements.md) for intended behavior. Read [AGENTS.md](AGENTS.md) before changing runtime behavior or report contracts.
+
+AppSec Analyzer grew out of [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor) and is distributed under the [Apache 2.0 license](LICENSE).
