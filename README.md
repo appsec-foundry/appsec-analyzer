@@ -31,10 +31,27 @@ Source code cannot establish how an application behaves in production. Deploymen
 
 ## Install
 
-Requires **Python 3.10+** and **Git**. Install with `pip` from a checkout of this repository:
+Requires **Python 3.10+**, **Git**, and [pipx installed and on your PATH](https://pipx.pypa.io/stable/). Install the current preview directly from the repository in one command:
 
 ```sh
-git clone https://github.com/appsec-foundry/appsec-analyzer.git
+pipx install "git+https://github.com/appsec-foundry/appsec-analyzer.git@dev"
+```
+
+This command requires the `dev` branch to be available in the GitHub repository and accessible to you. pipx manages a separate virtual environment and exposes `appsec-analyzer` on your PATH. No manual clone or environment activation is needed. Verify the installation with `appsec-analyzer version`.
+
+If you prefer `pip`, run this in an activated virtual environment:
+
+```sh
+python -m pip install "git+https://github.com/appsec-foundry/appsec-analyzer.git@dev"
+```
+
+<details>
+<summary>Install from a local checkout</summary>
+
+To install local changes, use the checkout workflow instead:
+
+```sh
+git clone --branch dev https://github.com/appsec-foundry/appsec-analyzer.git
 cd appsec-analyzer
 python3 -m venv .venv
 . .venv/bin/activate
@@ -42,7 +59,11 @@ python -m pip install .
 appsec-analyzer version
 ```
 
-The shell examples use bash/zsh. Keep the environment active when running the commands below.
+If you already have a checkout, start with `cd appsec-analyzer`. With pipx installed, you can also run `pipx install .` from the checkout. The `pip` workflow above uses bash/zsh; keep its virtual environment active when running the commands below.
+
+</details>
+
+Installing by package name with `pip install appsec-analyzer` requires a release on PyPI. The current preview is listed as unpublished in [local release preparation](docs/local-release-preparation.md), which also describes installation from a locally built wheel.
 
 A full assessment also needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The source scan needs neither. See [host configuration](docs/configuration.md) for provider setup and the experimental OpenAI adapter.
 
