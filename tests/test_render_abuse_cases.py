@@ -48,6 +48,132 @@ def _load():
 rac = _load()
 
 
+def test_missing_verdict_is_unchecked_in_yaml_and_compact_report(tmp_path):
+    case = {
+        "id": "AC-T-999",
+        "title": "Unexamined chain",
+        "source": "mandatory",
+        "chain": [{"step": 1, "description": "Read another account"}],
+    }
+    stub = {"abuse_case_id": case["id"], "step_verdicts": [], "note": "no verifier verdict"}
+    (tmp_path / ".abuse-case-verdicts.json").write_text(json.dumps({"verdicts": [stub]}))
+    (tmp_path / ".abuse-case-matches.json").write_text(
+        json.dumps(
+            {"matches": [{"abuse_case_id": case["id"], "title": case["title"], "structural_verdict": "candidate"}]}
+        )
+    )
+    model = rac.render_case(case, stub, {}, [])
+    unchecked = rac.build_unverified_candidates(tmp_path)
+    analysis = rac.build_canonical_analysis(tmp_path, [model], [], unverified=unchecked)
+    assert analysis["status"] == "not_run"
+    assert analysis["cases"][0]["verification_complete"] is False
+    assert analysis["cases"][0]["unverified_steps"] == [1]
+    assert [row["id"] for row in unchecked] == [case["id"]]
+    markdown = rac.render_fragment([model], unverified=unchecked)
+    assert "Not verified" in markdown
+    assert 'id="ac-t-999"' in markdown
+    assert "**Attack chain**" not in markdown
+    assert "### AC-T-999" not in markdown
+
+
+def test_budget_stub_passes_export_validation_without_claiming_verification(tmp_path):
+    _setup(tmp_path, {"verdicts": [{"abuse_case_id": "AC-T-001", "step_verdicts": [], "note": "no verifier verdict"}]})
+    (tmp_path / ".abuse-case-matches.json").write_text(
+        json.dumps(
+            {
+                "matches": [
+                    {
+                        "abuse_case_id": "AC-T-001",
+                        "structural_verdict": "candidate",
+                        "step_matches": [{"step": n, "required": True} for n in (1, 2, 3)],
+                    }
+                ]
+            }
+        )
+    )
+    assert rac.main(["--output-dir", str(tmp_path)]) == 0
+    analysis = yaml.safe_load((tmp_path / "threat-model.yaml").read_text())["abuse_case_analysis"]
+    assert analysis["status"] == "not_run"
+    assert analysis["cases"][0]["verification_complete"] is False
+    assert analysis["cases"][0]["unverified_steps"] == [1, 2, 3]
+    assert analysis["cases"][0]["blocking_mitigation_ids"] == []
+    assert analysis["not_performed"][0]["id"] == "AC-T-001"
+
+
+def test_review_task_and_unconfirmed_fix_are_not_chain_blockers():
+    case = {"id": "AC-T-999", "title": "Chain", "chain": [{"step": 1}]}
+    finding = {"id": "T-001", "title": "A suspect sink", "risk": "High"}
+    measures = [
+        {"id": "M-001", "kind": "review", "title": "Manual review", "threat_ids": ["T-001"]},
+        {"id": "M-002", "kind": "fix", "title": "Remove unsafe sink", "threat_ids": ["T-001"]},
+    ]
+    match = {1: {"matched_finding_id": "T-001"}}
+    pending = rac.render_case(case, {"step_verdicts": []}, {"F-001": finding}, measures, match)
+    assert pending["blocking_mitigations"] == []
+    decided = rac.render_case(
+        case,
+        {"chain_verdict": "fully_viable", "step_verdicts": [{"step": 1, "verdict": "confirmed", "state": "decided"}]},
+        {"F-001": finding},
+        measures,
+        match,
+    )
+    assert [m["id"] for m in decided["blocking_mitigations"]] == ["M-002"]
+    markdown = rac.render_fragment([decided])
+    assert "breaks the chain" not in markdown
+    assert "severs the chain" not in markdown
+
+
+def test_fix_targets_confirmed_step_when_finding_also_matches_unchecked_step():
+    model = rac.render_case(
+        {"id": "AC-T-999", "chain": [{"step": 1}, {"step": 2}]},
+        {"step_verdicts": [{"step": 2, "verdict": "confirmed"}]},
+        {"F-001": {"id": "T-001", "risk": "High"}},
+        [{"id": "M-001", "kind": "fix", "threat_ids": ["T-001"]}],
+        {n: {"matched_finding_id": "T-001"} for n in (1, 2)},
+    )
+    assert model["blocking_mitigations"][0]["breaks_at_step"] == 2
+
+
+def test_coverage_text_cannot_inject_markup_or_table_rows():
+    text = rac._coverage_cell("<img src=x onerror=alert(1)> | [click](https://example.org)\nnext")
+    assert "<img" not in text
+    assert "\\|" in text
+    assert "\\[click\\]" in text
+    assert "\n" not in text
+
+
+@pytest.mark.parametrize("step", [{}, {"verdict": "unknown"}, {"verdict": "confirmed", "state": "pending"}])
+def test_unchecked_step_cannot_retain_a_stale_positive_verdict(tmp_path, step):
+    model = rac.render_case(
+        {"id": "AC-T-999", "chain": [{"step": 1}]},
+        {"chain_verdict": "fully_viable", "step_verdicts": [{"step": 1, **step}]},
+        {},
+        [],
+    )
+    analysis = rac.build_canonical_analysis(tmp_path, [model], [])
+    assert analysis["status"] == "not_run"
+    assert analysis["cases"][0]["chain_verdict"] == "inconclusive"
+    assert analysis["cases"][0]["steps"][0]["verdict"] == "inconclusive"
+    assert model["rows"][0]["status_icon"] == "?"
+
+
+def test_reasoned_inconclusive_is_checked_and_retains_its_reason(tmp_path):
+    case = {"id": "AC-T-999", "title": "Chain", "chain": [{"step": 1}]}
+    model = rac.render_case(
+        case,
+        {
+            "step_verdicts": [
+                {"step": 1, "verdict": "inconclusive", "state": "decided", "reason": "Deployment policy is unknown"}
+            ]
+        },
+        {},
+        [],
+    )
+    analysis = rac.build_canonical_analysis(tmp_path, [model], [])
+    assert analysis["cases"][0]["verification_complete"] is True
+    assert "Deployment policy is unknown" in rac.render_fragment([model])
+
+
 def test_stale_matcher_identity_does_not_render_dead_finding_link():
     case = {
         "id": "AC-T-999",
@@ -89,8 +215,20 @@ _THREAT_MODEL = {
         {"id": "T-002", "title": "Mass Assignment on Role", "risk": "High"},
     ],
     "mitigations": [
-        {"id": "M-007", "title": "Replace unsafe HTML rendering", "priority": "P1", "threat_ids": ["T-010"]},
-        {"id": "M-009", "title": "Use an HttpOnly session cookie", "priority": "P1", "threat_ids": ["T-046"]},
+        {
+            "id": "M-007",
+            "kind": "fix",
+            "title": "Replace unsafe HTML rendering",
+            "priority": "P1",
+            "threat_ids": ["T-010"],
+        },
+        {
+            "id": "M-009",
+            "kind": "fix",
+            "title": "Use an HttpOnly session cookie",
+            "priority": "P1",
+            "threat_ids": ["T-046"],
+        },
     ],
 }
 
@@ -288,8 +426,10 @@ def test_report_orders_cases_by_verified_risk_and_preserves_export_order(tmp_pat
         assert [case["id"] for case in exported] == expected
         assert [case["combined_risk"] for case in exported[:3]] == ["Critical", "High", "High"]
         md = (tmp_path / ".fragments" / "abuse-cases.md").read_text()
-        cards, settled = expected[:5], expected[5]
+        cards, unresolved, settled = expected[:4], expected[4], expected[5]
         assert [md.index(f"### {cid}") for cid in cards] == sorted(md.index(f"### {cid}") for cid in cards)
+        assert f"### {unresolved}" not in md
+        assert f'<a id="{unresolved.lower()}"></a>{unresolved}' in md
         assert md.index("**Confirmed attack paths**") < md.index("**Unresolved scenarios**")
         assert md.index("**Unresolved scenarios**") < md.index("**Checked without finding**")
         # A case that holds is one table row with its anchor, not a card.
@@ -326,7 +466,7 @@ def test_a_case_that_holds_is_one_row_with_its_reason(step_verdicts, chain, resu
     assert expected_reason in row
 
 
-def test_an_open_case_keeps_its_card():
+def test_only_confirmed_open_case_keeps_its_card():
     case = {"id": "REPO-AC-102", "kind": "descriptive", "title": "Self-approval", "check": "Check it."}
     for v in ("confirmed", "inconclusive"):
         verdict = {
@@ -334,7 +474,12 @@ def test_an_open_case_keeps_its_card():
             "step_verdicts": [{"step": 1, "verdict": v}],
         }
         md = rac.render_fragment([rac.render_case(case, verdict, {}, [])])
-        assert "### REPO-AC-102" in md and "Checked without finding" not in md
+        assert "Checked without finding" not in md
+        if v == "confirmed":
+            assert "### REPO-AC-102" in md
+        else:
+            assert "### REPO-AC-102" not in md
+            assert "Not verified" in md and 'id="repo-ac-102"' in md
 
 
 def test_fragment_markdown_structure(tmp_path: Path):
@@ -350,11 +495,11 @@ def test_fragment_markdown_structure(tmp_path: Path):
     assert "| Step | Finding | Evidence | Outcome | Status |" not in md
     assert "[F-010](#f-010)" in md  # chain step links to §8 dual anchor
     assert "[M-007](#m-007)" in md  # blocking mitigation links to §10
-    # Blocking mitigations render as an explained bullet list, not a table.
-    assert md.count("implementing any single mitigation listed under a case severs the chain") == 1
-    assert "Implementing any single mitigation below" not in md
+    # Fix suggestions are not evidence that an attack chain has been blocked.
+    assert md.count("Proposed fixes address confirmed steps") == 1
+    assert "severs the chain" not in md
     assert "| Mitigation | Addresses | Breaks chain at |" not in md
-    assert "breaks the chain at **Step 1**" in md
+    assert "at **Step 1**. Validate the fix" in md
     assert "[§8 Findings Register](#8-findings-register)" in md
     # summary table verdict cell
     assert "⚠ Fully viable" in md
@@ -426,9 +571,9 @@ def test_unverified_step_adds_provisional_caveat(tmp_path: Path):
     }
     _setup(tmp_path, verdicts)
     models = rac.build_models(tmp_path, None)
-    assert models[0]["unverified_steps"] == [2]
+    assert models[0]["unverified_steps"] == [2, 3]  # absent optional step is also unchecked
     md = rac.render_fragment(models)
-    assert "Not verified end-to-end" in md and "step 2" in md
+    assert "Not verified end-to-end" in md and "steps 2, 3" in md
     assert "provisional" in md
 
 
@@ -457,6 +602,7 @@ def test_reasoned_inconclusive_step_has_no_caveat(tmp_path: Path):
                         "evidence": {},
                         "controls_found": [],
                     },
+                    {"step": 3, "verdict": "inconclusive", "reason": "Session revocation policy is not configured."},
                 ],
             }
         ],
@@ -950,12 +1096,12 @@ def test_matched_candidates_without_a_verdict_are_reported_as_not_verified(tmp_p
     analysis = rac.build_canonical_analysis(out, [], [], [], unverified)
     assert analysis["status"] == "not_run"
     assert {r["id"] for r in analysis["not_performed"]} == {"AC-T-001", "AC-T-006"}
-    # A candidate that received a verdict is a result, not a gap.
+    # An empty verdict stub is still a gap, not a completed check.
     (out / ".abuse-case-verdicts.json").write_text(
         json.dumps({"verdicts": [{"abuse_case_id": "AC-T-001", "step_verdicts": []}]}), encoding="utf-8"
     )
-    assert [r["id"] for r in rac.build_unverified_candidates(out)] == ["AC-T-006"]
-    assert rac.build_canonical_analysis(out, [], [], [], rac.build_unverified_candidates(out))["status"] == "completed"
+    assert [r["id"] for r in rac.build_unverified_candidates(out)] == ["AC-T-001", "AC-T-006"]
+    assert rac.build_canonical_analysis(out, [], [], [], rac.build_unverified_candidates(out))["status"] == "not_run"
 
 
 def test_unrated_risk_is_reserved_for_unlinked_descriptive_cases():

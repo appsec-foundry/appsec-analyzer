@@ -32,6 +32,17 @@ def _load():
 mac = _load()
 
 
+@pytest.mark.parametrize("cwe", ["CWE-863", "CWE-862", "CWE-269"])
+def test_token_role_step_rejects_coupon_even_with_same_cwe_and_file(cwe):
+    catalog = yaml.safe_load((REPO_ROOT / "data/abuse-cases/technical.yaml").read_text())
+    case = next(c for c in catalog["abuse_cases"] if c["id"] == "AC-T-003")
+    step = case["chain"][1]
+    coupon = dict(_finding("T-058", "Coupon tool executes any model-chosen discount", file="routes/chat.ts"), cwe=cwe)
+    assert not mac.match_step(step, [coupon], prefer_files=frozenset({"routes/chat.ts"}))["matched"]
+    token = dict(_finding("T-059", "Authorization uses req.user.role from the token", file="routes/auth.ts"), cwe=cwe)
+    assert mac.match_step(step, [coupon, token])["matched_finding_id"] == "T-059"
+
+
 def _finding(fid, text, controls="", file="src/x.ts", line=10):
     return {
         "t_id": fid,
@@ -195,13 +206,13 @@ def test_step_never_binds_a_finding_outside_the_runtime_surface(file):
 
 def test_a_lone_family_only_match_is_not_bound():
     """A finding that shares only the declared step CWE's family is not the
-    step, even without a competitor; the step's own CWE or a mechanism phrase
-    still binds, and so does a family match in a file the chain runs through."""
+    step, even without a competitor. Even an exact broad CWE or a shared file
+    needs a matching mechanism."""
     step = _step(2, "CWE-(863|862|266|269)")
     step["probe"]["sink_patterns"].append("req\\.user\\.role")
     step["finding"] = {"cwe": "CWE-863"}
     coupon = dict(_finding("T-046", "Tool call lacks a discount ceiling", file="routes/assistant.py"), cwe="CWE-862")
-    own_cwe = dict(_finding("T-020", "Admin route trusts the token", file="app/admin.go"), cwe="CWE-863")
+    own_cwe = dict(_finding("T-020", "Admin route trusts req.user.role", file="app/admin.go"), cwe="CWE-863")
     mechanism = dict(
         _finding("T-021", "Handler reads req.user.role from the token", file="app/admin.go"), cwe="CWE-862"
     )
@@ -209,7 +220,7 @@ def test_a_lone_family_only_match_is_not_bound():
     assert not mac.match_step(step, [coupon])["matched"]
     assert mac.match_step(step, [coupon, own_cwe])["matched_finding_id"] == "T-020"
     assert mac.match_step(step, [coupon, mechanism])["matched_finding_id"] == "T-021"
-    assert mac.match_step(step, [coupon], prefer_files=frozenset({"routes/assistant.py"}))["matched"]
+    assert not mac.match_step(step, [coupon], prefer_files=frozenset({"routes/assistant.py"}))["matched"]
 
 
 def test_context_dependent_jwt_cwe_needs_jwt_mechanism_evidence():

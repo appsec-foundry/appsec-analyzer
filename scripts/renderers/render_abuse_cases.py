@@ -30,6 +30,7 @@ if not __package__:
 
 import argparse
 import functools
+import html
 import importlib.util
 import json
 import subprocess
@@ -181,10 +182,11 @@ _PRESEED_REASON_PREFIXES = ("pre-seed", "preseed")
 
 
 def _step_unverified(sv: dict) -> bool:
-    """True when a step verdict is an untouched write-first pre-seed.
+    """True when a step has no completed verifier decision.
 
     Canonical definition lives in ``verify_abuse_cases._is_untouched_preseed_step``
-    (kept in sync deliberately — both scripts are standalone). A step is untouched
+    for pre-seeded inconclusive steps; rendering also rejects missing or unknown
+    verdicts and pending decisions. A step is untouched
     when it is still ``inconclusive`` AND either declares itself pending, or
     carries neither a ``reason`` nor an evidence ``excerpt``. Such a step is NOT a
     reasoned "couldn't decide" — it was never examined — so a chain that carries
@@ -197,10 +199,12 @@ def _step_unverified(sv: dict) -> bool:
     "was decided" (2026-08-01 juice-shop AC-T-002 rendered a wholly-unverified
     Critical chain as a plain ``? Inconclusive``).
     """
-    if (sv.get("verdict") or "") != "inconclusive":
-        return False
+    if sv.get("verdict") not in {"confirmed", "blocked", "refuted", "inconclusive"}:
+        return True
     if (sv.get("state") or "").strip().lower() == "pending":
         return True
+    if sv["verdict"] != "inconclusive":
+        return False
     reason = (sv.get("reason") or "").strip().lower()
     if reason.startswith(_PRESEED_REASON_PREFIXES):
         return True
@@ -239,6 +243,9 @@ def _blocking_mitigations(matched_ids: list[str], step_of_fid: dict[str, int], m
     out = []
     matched_set = set(matched_ids)
     for m in mitigations:
+        # A review task or an untyped legacy recommendation is not a fix.
+        if m.get("kind") != "fix":
+            continue
         # §10 Mitigation Register keys anchors off `m_id` (falling back to `id`);
         # mirror that exactly so blocking-mitigation links resolve to #m-nnn.
         mid = (m.get("m_id") or m.get("id") or "").upper()
@@ -292,7 +299,6 @@ def render_case(
     # after a mid-chain turn-ceiling cut-off). A chain carrying one is only
     # provisionally verified — surfaced as a caveat in the render below so the
     # "viable" verdict is not read as a fully-checked end-to-end result.
-    unverified_steps = sorted(n for n, sv in sv_by_step.items() if n is not None and _step_unverified(sv))
 
     rows = []
     matched_findings: list[dict] = []
@@ -322,12 +328,14 @@ def render_case(
             fid = ""
         if finding:
             matched_findings.append(finding)
-            step_of_fid.setdefault(fid, n)
+            if sv.get("verdict") == "confirmed" and not _step_unverified(sv):
+                step_of_fid.setdefault(fid, n)
         loc = ""
         if ev.get("file"):
             loc = f"{ev['file']}:{ev['line']}" if ev.get("line") else str(ev["file"])
         semantic_verdict = str(sv.get("verdict") or "inconclusive")
-        if semantic_verdict not in {"confirmed", "blocked", "refuted", "inconclusive"}:
+        unverified = _step_unverified(sv)
+        if unverified:
             semantic_verdict = "inconclusive"
         evidence_ref = None
         if ev.get("file"):
@@ -345,20 +353,24 @@ def render_case(
                 "finding_sev": _severity(finding),
                 "evidence": loc,
                 "outcome": step.get("description") or step.get("grants") or "",
-                "status_icon": _step_status_icon(sv.get("verdict", ""), sv.get("controls_found") or []),
+                "status_icon": _step_status_icon(semantic_verdict, sv.get("controls_found") or []),
                 "verdict": semantic_verdict,
                 "evidence_ref": evidence_ref,
                 "controls_found": [
                     str(control).strip() for control in (sv.get("controls_found") or []) if str(control).strip()
                 ],
-                "unverified": _step_unverified(sv),
+                "unverified": unverified,
                 "reason": " ".join(str(sv.get("reason") or "").split())[:240],
             }
         )
 
     matched_ids = [r["fid"] for r in rows if r["fid"]]
+    if not rows or all(row["unverified"] for row in rows):
+        chain_verdict = "inconclusive"
     combined = _combined_risk(matched_findings, chain_verdict, case)
-    blocking = _blocking_mitigations(matched_ids, step_of_fid, mitigations)
+    unverified_steps = [row["step"] for row in rows if row["unverified"]]
+    confirmed_ids = [row["fid"] for row in rows if row["verdict"] == "confirmed" and not row["unverified"]]
+    blocking = _blocking_mitigations(confirmed_ids, step_of_fid, mitigations)
 
     return {
         "id": cid,
@@ -440,7 +452,7 @@ def build_canonical_analysis(
                 if model.get("source") == "descriptive"
                 else model.get("combined_risk") or "Informational",
                 "chain_verdict": model.get("chain_verdict") or "inconclusive",
-                "verification_complete": not any(step["unverified"] for step in steps),
+                "verification_complete": bool(steps) and not any(step["unverified"] for step in steps),
                 "unverified_steps": sorted({step["step"] for step in steps if step["unverified"]}),
                 "matched_finding_ids": list(dict.fromkeys(model.get("matched_finding_ids") or [])),
                 "blocking_mitigation_ids": list(
@@ -464,6 +476,11 @@ def build_canonical_analysis(
         for row in catalog_rows
         if row.get("id")
     ]
+    unchecked = [case for case in cases if not case["verification_complete"]]
+    if unchecked or unverified:
+        checked_steps = any(not step["unverified"] for case in cases for step in case["steps"])
+        status = "completed" if checked_steps else "not_run"
+        reason = "Abuse-case verification is incomplete; see per-case unverified steps and not_performed."
     analysis = {"status": status, "reason": reason, "cases": cases, "catalog_evaluated": evaluated}
     not_performed = [*(not_performed or []), *(unverified or [])]
     if not_performed:
@@ -543,9 +560,8 @@ def _case_markdown(m: dict) -> str:
         steps = ", ".join(str(s) for s in m["unverified_steps"])
         plural = "s" if len(m["unverified_steps"]) > 1 else ""
         out.append(
-            f"> ⚠ **Not verified end-to-end:** step{plural} {steps} reached the "
-            f"verifier's turn budget before investigation — this verdict is "
-            f"**provisional**; re-run to confirm the chain."
+            f"> ⚠ **Not verified end-to-end:** step{plural} {steps} have no completed "
+            f"verification. This verdict is **provisional**; the run summary records skipped work."
         )
         out.append("")
     out.append(f"**Goal:** {m['goal']}")
@@ -594,7 +610,7 @@ def _case_markdown(m: dict) -> str:
         out.append(m["combined_risk_rationale"])
         out.append("")
     if m["blocking_mitigations"]:
-        out.append("**Blocking mitigations**")
+        out.append("**Proposed fixes for confirmed steps**")
         out.append("")
         # Map each finding id to its title so the "Addresses" links carry a
         # short title rather than a bare ID (2026-06-02 user request).
@@ -612,9 +628,8 @@ def _case_markdown(m: dict) -> str:
                 for a in b["addresses"]
             )
             out.append(
-                f"- {label_m}: remediating {addr} breaks the chain at "
-                f"**Step {b['breaks_at_step']}**, removing the link the rest of "
-                f"the chain depends on."
+                f"- {label_m}: addresses {addr} at **Step {b['breaks_at_step']}**. "
+                "Validate the fix against this step before treating the chain as blocked."
             )
         out.append("")
     return "\n".join(out).rstrip()
@@ -679,10 +694,7 @@ _VERIFICATION_GROUPS = {
 }
 
 # Stated once for the section instead of under every case's list.
-_BLOCKING_NOTE = (
-    "_Blocking mitigations: implementing any single mitigation listed under a case "
-    "severs the chain at the named step, so the end-to-end abuse can no longer complete._"
-)
+_BLOCKING_NOTE = "_Proposed fixes address confirmed steps; their effectiveness still requires validation._"
 _LEGEND = (
     "_Verdict: ⚠ Fully viable — no effective control blocks this chain · "
     "◐ Partially blocked — at least one step has a compensating control but the "
@@ -754,8 +766,15 @@ def render_fragment(
     unverified: list[dict] | None = None,
 ) -> str:
     parts: list[str] = [HEADING, ""]
-    if unverified:
-        parts += [_unverified_block(unverified), ""]
+    unchecked_models = [m for m in models if not m["rows"] or all(r["unverified"] for r in m["rows"])]
+    unchecked = {r["id"]: r for r in unverified or []}
+    for model in unchecked_models:
+        unchecked.setdefault(
+            model["id"], {"id": model["id"], "title": model["title"], "reason": "verification did not run"}
+        )
+    if unchecked:
+        parts += [_unverified_block(list(unchecked.values())), ""]
+    models = [m for m in models if m not in unchecked_models]
     coverage = _business_coverage(catalog_rows or [], not_performed or [], rejected or [])
     catalog_rows = [r for r in catalog_rows or [] if r.get("source") != "descriptive"]
     if models:
@@ -763,20 +782,27 @@ def render_fragment(
         open_models = [model for model in models if not _held(model)]
         parts += [_INTRO, ""]
         for verdict, label in _VERIFICATION_GROUPS.items():
+            if verdict == "inconclusive":
+                continue
             group = [model for model in open_models if model["chain_verdict"] == verdict]
             if group:
                 parts += [f"**{label}**", "", _summary_table(group), ""]
+        unresolved = [m for m in open_models if m["chain_verdict"] == "inconclusive"]
+        if unresolved:
+            parts += ["**Unresolved scenarios**", "", _unresolved_table(unresolved), ""]
         if settled:
             parts += ["**Checked without finding**", "", _settled_table(settled), ""]
         parts += [_LEGEND, ""]
         if any(m["blocking_mitigations"] for m in open_models):
             parts += [_BLOCKING_NOTE, ""]
         for m in open_models:
+            if m["chain_verdict"] == "inconclusive":
+                continue
             parts.append("---")
             parts.append("")
             parts.append(_case_markdown(m))
             parts.append("")
-    elif not unverified:
+    elif not unchecked:
         parts += [
             "_No abuse-case chain was verified end-to-end on this codebase. "
             "The evaluation below records which technical abuse cases "
@@ -796,6 +822,31 @@ def render_fragment(
         parts.append(coverage)
         parts.append("")
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _coverage_cell(value: object) -> str:
+    """Keep model-authored text inside one inert Markdown table cell."""
+    text = html.escape(" ".join(str(value).split()))
+    for char in ("\\", "`", "*", "_", "[", "]", "|"):
+        text = text.replace(char, "\\" + char)
+    return text
+
+
+def _unresolved_table(models: list[dict]) -> str:
+    out = ["| Case | Findings | Unresolved evidence |", "|------|----------|---------------------|"]
+    for model in models:
+        details = []
+        for row in model["rows"]:
+            reason = "not verified" if row["unverified"] else row.get("reason") or row["verdict"]
+            location = f" ({row['evidence']})" if row.get("evidence") else ""
+            details.append(_coverage_cell(f"Step {row['step']}: {reason}{location}"))
+        details.extend(_coverage_cell(question) for question in model.get("open_questions") or [])
+        detail = "<br/>".join(details)
+        findings = ", ".join(f"[{fid}](#{fid.lower()})" for fid in model["matched_finding_ids"]) or "No matched finding"
+        out.append(
+            f'| <a id="{model["id"].lower()}"></a>{model["id"]} — {_coverage_cell(model["title"])} | {findings} | {detail} |'
+        )
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -946,7 +997,11 @@ def build_unverified_candidates(output_dir: Path) -> list[dict]:
     except (OSError, json.JSONDecodeError):
         vdoc = {}
     verdicts = vdoc.get("verdicts") if isinstance(vdoc, dict) else None
-    decided = {v.get("abuse_case_id") for v in verdicts or [] if isinstance(v, dict)}
+    decided = {
+        v.get("abuse_case_id")
+        for v in verdicts or []
+        if isinstance(v, dict) and any(not _step_unverified(step) for step in v.get("step_verdicts") or [])
+    }
     matches = mdoc.get("matches") if isinstance(mdoc, dict) else None
     rows = [
         {
@@ -973,7 +1028,11 @@ def _unverified_block(rows: list[dict]) -> str:
         "not negative; re-run the assessment to verify them._",
         "",
     ]
-    out += [f"- {r['id']} — {r['title']}" for r in rows]
+    out += ["| Case | Reason |", "|------|--------|"]
+    out += [
+        f'| <a id="{r["id"].lower()}"></a>{r["id"]} — {_coverage_cell(r["title"])} | {_coverage_cell(r.get("reason") or "verification did not run")} |'
+        for r in rows
+    ]
     return "\n".join(out)
 
 

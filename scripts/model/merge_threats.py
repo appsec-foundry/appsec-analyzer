@@ -1724,6 +1724,61 @@ def _title_locator_key(t: dict) -> tuple | None:
     return (file_path, line, _normalize_title_keywords(title))
 
 
+def _dedupe_reviewed_scanner_sinks(threats: list[dict]) -> list[dict]:
+    """Reconcile a reviewed injection scan with one traced defect at its sink.
+
+    Categories describe a defect; they are not its identity. This narrow bridge
+    requires the exact injection CWE, repository/component and concrete sink,
+    verified evidence on both sides, and one confirmed model trace. Multiple
+    model candidates at that sink are ambiguous and stay separate. Broad CWE
+    families, nearby lines and model-authored control names cannot join here.
+    """
+    buckets: dict[tuple, list[dict]] = {}
+    for threat in threats:
+        if threat.get("evidence_check") != "verified" or threat.get("cwe") not in {
+            "CWE-78",
+            "CWE-89",
+            "CWE-94",
+            "CWE-95",
+            "CWE-1336",
+        }:
+            continue
+        ev = _primary_evidence(threat)
+        line = ev.get("line")
+        if not ev.get("file") or type(line) is not int or line <= 0:
+            continue
+        component = threat.get("component_id")
+        if not component:
+            continue
+        key = (ev.get("repository_id"), ev.get("sha256"), component, ev["file"], line, threat["cwe"])
+        buckets.setdefault(key, []).append(threat)
+    absorbed: set[int] = set()
+    for members in buckets.values():
+        models = [m for m in members if m.get("source") == "stride"]
+        scans = [m for m in members if m.get("source") == "source-scan" and m.get("source_check_id")]
+        if len(models) != 1 or not scans:
+            continue
+        survivor = models[0]
+        if survivor.get("evidence_tier") != "confirmed-exploitable":
+            continue
+        sink = (survivor.get("mechanism_trace") or {}).get("sink") or {}
+        evidence = _primary_evidence(survivor)
+        if any(sink.get(k) != evidence.get(k) for k in ("repository_id", "sha256", "file", "line")):
+            continue
+        if any(_risk_rank(scan.get("risk")) < _risk_rank(survivor.get("risk")) for scan in scans):
+            continue
+        merged = [survivor, *scans]
+        categories = {m.get("threat_category_id") for m in merged}
+        if any(not isinstance(c, str) or not _TH_ID_RE.match(c) for c in categories):
+            continue
+        _merge_member_metadata(survivor, merged, systemic=False)
+        survivor["additional_categories"] = sorted(
+            (categories | set(survivor.get("additional_categories") or [])) - {survivor["threat_category_id"]}
+        )
+        absorbed.update(id(scan) for scan in scans)
+    return [threat for threat in threats if id(threat) not in absorbed]
+
+
 def _dedupe_title_locator(threats: list[dict]) -> list[dict]:
     """Collapse findings with an identical normalized title at the same concrete
     evidence location, across CWE, threat category, component and STRIDE.
@@ -2187,9 +2242,12 @@ def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: boo
             if isinstance(scenario, str) and scenario.strip():
                 instance.setdefault("scenario", scenario.strip())
             instance.setdefault("component_id", member.get("component_id"))
+            for field in ("evidence_tier", "evidence_check", "threat_category_id"):
+                if member.get(field):
+                    instance.setdefault(field, member[field])
             source_ref = member.get("local_id") or member.get("source_scan_ref") or member.get("config_scan_ref")
             if source_ref:
-                instance["source_ref"] = source_ref
+                instance.setdefault("source_ref", source_ref)
             instances.append(instance)
             file_path = (instance.get("file") or "").strip()
             if file_path and file_path not in files:
@@ -2502,6 +2560,7 @@ def consolidate_findings(threats: list[dict]) -> list[dict]:
     # Normalize before consolidation captures per-instance severity and picks
     # a survivor; an over-cap analyst rating cannot win either decision.
     normalize_risks(threats)
+    threats = _dedupe_reviewed_scanner_sinks(threats)
     deduped = _dedupe_exact(threats)
     # Evidence-identity dedup (2026-06): collapse the cross-STRIDE /
     # cross-component duplicate (same file:line + CWE) that _exact_key and the

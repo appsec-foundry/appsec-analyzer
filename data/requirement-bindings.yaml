@@ -321,6 +321,8 @@ requirements:
       - tests/test_merge_threats.py::TestWeaknessRegister::test_known_vuln_becomes_vulnerability_management_weakness
       - tests/test_merge_threats.py::TestConsolidateByGroup::test_distinct_sql_sinks_in_one_component_stay_separate
       - tests/test_merge_threats.py::TestConsolidateByGroup::test_distinct_xss_sinks_need_explicit_shared_control
+      - tests/test_merge_threats.py::test_verified_scanner_sink_joins_traced_finding_across_categories
+      - tests/test_merge_threats.py::test_scanner_sink_reconciliation_preserves_distinct_or_unproven_findings
       - tests/test_multi_repo_assessment.py::test_combined_assessment_publishes_one_qualified_model
       - tests/test_discover_identity_providers.py::test_client_integrations_are_generic_and_evidenced
       - tests/test_discover_identity_providers.py::test_identity_provider_steps_carry_the_authentication_their_protocol_proves
@@ -482,6 +484,12 @@ requirements:
       - tests/test_promote_verified_abuse_cases.py::test_a_confirmed_step_verifies_the_finding_it_cites
       - tests/test_promote_verified_abuse_cases.py::test_a_finding_the_verifier_cites_is_bound_in_the_match_sidecar
       - tests/test_derive_abuse_cases.py::test_derived_cases_are_validated_bounded_and_deduplicated
+      - tests/test_render_abuse_cases.py::test_missing_verdict_is_unchecked_in_yaml_and_compact_report
+      - tests/test_render_abuse_cases.py::test_budget_stub_passes_export_validation_without_claiming_verification
+      - tests/test_render_abuse_cases.py::test_reasoned_inconclusive_is_checked_and_retains_its_reason
+      - tests/test_match_abuse_cases.py::test_token_role_step_rejects_coupon_even_with_same_cwe_and_file
+      - tests/test_validate_intermediate.py::test_unrun_abuse_cases_can_only_preserve_unchecked_results
+      - tests/test_resolve_abuse_cases.py::test_unchecked_derived_case_remains_available_for_a_later_check
       - tests/test_match_abuse_cases.py::test_derived_cases_run_only_at_thorough_within_their_own_limit
       - tests/test_build_threat_model_yaml.py::test_initial_abuse_analysis_distinguishes_pending_and_skipped_runs
 
@@ -540,6 +548,7 @@ requirements:
     guards:
       - tests/test_architect_review_runtime.py::test_final_gate_rejects_lost_corrections_and_clears_old_success
       - tests/test_validate_mitigation_quality.py::test_urgent_fix_requires_steps_and_verification
+      - tests/test_render_abuse_cases.py::test_review_task_and_unconfirmed_fix_are_not_chain_blockers
       - tests/test_validate_mitigation_quality.py::test_urgent_code_example_needs_a_source_location
       - tests/test_emit_finding_fix_mitigations.py::test_remediation_string_fallback_and_priority_rules
       - tests/test_actor_presentation.py::test_twenty_roles_form_one_evidenced_group

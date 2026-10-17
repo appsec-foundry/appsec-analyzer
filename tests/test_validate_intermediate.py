@@ -32,6 +32,38 @@ def _load_module(name: str, path: Path):
 vi = _load_module("validators.validate_intermediate", SCRIPT_PATH)
 
 
+@pytest.mark.parametrize(
+    "change", [None, "confirmed", "complete", "checked_step", "confirmed_step", "blocker", "skipped"]
+)
+def test_unrun_abuse_cases_can_only_preserve_unchecked_results(change):
+    case = {
+        "id": "AC-T-001",
+        "source": "descriptive",
+        "combined_risk": None,
+        "chain_verdict": "inconclusive",
+        "verification_complete": False,
+        "unverified_steps": [1],
+        "matched_finding_ids": [],
+        "blocking_mitigation_ids": [],
+        "steps": [{"step": 1, "finding_id": None, "verdict": "inconclusive", "unverified": True}],
+    }
+    analysis = {"status": "not_run", "cases": [case]}
+    if change == "confirmed":
+        case["chain_verdict"] = "fully_viable"
+    elif change == "complete":
+        case["verification_complete"] = True
+    elif change == "checked_step":
+        case["steps"][0]["unverified"] = False
+    elif change == "confirmed_step":
+        case["steps"][0]["verdict"] = "confirmed"
+    elif change == "blocker":
+        case["blocking_mitigation_ids"] = ["M-001"]
+    elif change == "skipped":
+        analysis["status"] = "skipped"
+    errors = vi._check_export_trace_invariants({"abuse_case_analysis": analysis})
+    assert bool(errors) == (change is not None)
+
+
 @pytest.mark.parametrize("scope", ["valid", "unknown-component", "unknown-asset", "skipped", "wrong-field"])
 def test_business_answer_trace_requires_matching_coverage_and_asset(scope):
     trace = {

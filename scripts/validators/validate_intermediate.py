@@ -1397,11 +1397,17 @@ def _check_export_trace_invariants(data: dict) -> list[str]:
     analysis = data.get("abuse_case_analysis")
     if isinstance(analysis, dict):
         cases = [row for row in (analysis.get("cases") or []) if isinstance(row, dict)]
-        if analysis.get("status") != "completed" and cases:
-            errors.append("abuse_case_analysis: non-completed status must not contain cases")
+        if analysis.get("status") == "skipped" and cases:
+            errors.append("abuse_case_analysis: skipped status must not contain cases")
         for case in cases:
             case_id = str(case.get("id") or "").strip() or "(unknown)"
             steps = [row for row in (case.get("steps") or []) if isinstance(row, dict)]
+            if analysis.get("status") == "not_run" and (
+                case.get("chain_verdict") != "inconclusive"
+                or case.get("blocking_mitigation_ids")
+                or any(row.get("unverified") is not True or row.get("verdict") != "inconclusive" for row in steps)
+            ):
+                errors.append(f"abuse_case_analysis {case_id}: not_run must contain only unchecked inconclusive cases")
             step_numbers = [row.get("step") for row in steps]
             if step_numbers != list(range(1, len(steps) + 1)):
                 errors.append(f"abuse_case_analysis {case_id}: step numbers must be contiguous from 1")
@@ -1427,7 +1433,7 @@ def _check_export_trace_invariants(data: dict) -> list[str]:
             }
             if unverified_steps != declared_unverified:
                 errors.append(f"abuse_case_analysis {case_id}: unverified_steps do not match step flags")
-            if case.get("verification_complete") != (not unverified_steps):
+            if case.get("verification_complete") != (bool(steps) and not unverified_steps):
                 errors.append(f"abuse_case_analysis {case_id}: verification_complete does not match step flags")
             if case.get("combined_risk") is None and (case.get("source") != "descriptive" or matched_findings):
                 errors.append(f"abuse_case_analysis {case_id}: only an unlinked descriptive case may be unrated")

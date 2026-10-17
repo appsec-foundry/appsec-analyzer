@@ -21,6 +21,8 @@ The verified finding owns the security claim, including privileged attributes, a
 
 Source observations retain relative production paths and positive line numbers. They exclude tests, generated code, dependencies, unsafe paths, and escaping symlinks. Refuted finding evidence cannot back a new finding-derived weakness. Refuted source sites are removed from implementation observations. Finding-derived observations attach only their admitted finding IDs; a bounded source sample does not restrict independently backed architecture scope.
 
+The merger can reconcile a verified source-scanner injection observation with one confirmed model finding even when their threat categories differ. Both must name the same exact injection CWE, repository revision, component, file, and line, and the model's mechanism trace must name that location as its sink. Multiple model candidates, a missing trace, different evidence verdicts, or a higher-rated scanner observation leave the findings separate. The survivor retains both classifications and each instance's source reference, evidence tier, and evidence-check status. Similar titles, nearby lines, and broad CWE families do not authorize this reconciliation.
+
 Dependencies describe inventory, not enforcement. Source directory names do not establish component identity or pervasiveness. Implementation observations carry no CVSS and preserve the existing finding severity when a confirmed instance is attached. Unrelated practices without curated mechanism guidance retain their own title and source scope instead of borrowing class-wide remediation.
 
 ## Scanner exclusions and delivery

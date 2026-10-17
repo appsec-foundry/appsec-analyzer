@@ -107,6 +107,8 @@ You can also create [your own scan and model profiles](docs/profiles.md), includ
 
 No `--host` argument is needed. The `codex` profile uses the OpenAI API, not a Codex CLI login, and has not completed live assessment qualification. See [profiles, models, and cost](docs/model-selection.md) before a paid run.
 
+`standard` also analyzes business logic. `thorough` can cost more without producing more verified results when later checks cannot fit the budget; see [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough).
+
 ### 3. Inspect and continue a run
 
 Use the output directory reported by the assessment in place of `/path/to/assessment`:

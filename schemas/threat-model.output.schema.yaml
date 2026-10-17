@@ -867,7 +867,10 @@ properties:
     additionalProperties: false
     required: [status, reason, cases, catalog_evaluated]
     properties:
-      status: {type: string, enum: [completed, skipped, not_run]}
+      status:
+        description: not_run may retain matched cases only with all steps unchecked and an inconclusive verdict. completed records processed verification; per-case flags identify any unchecked steps.
+        type: string
+        enum: [completed, skipped, not_run]
       reason: {type: [string, "null"], maxLength: 256}
       cases:
         type: array
@@ -897,6 +900,7 @@ properties:
               uniqueItems: true
               items: {type: string, pattern: "^F-[0-9]{3,}$"}
             blocking_mitigation_ids:
+              description: Explicit fix actions linked to confirmed steps, not proof that applying them blocks the chain. Review and investigation tasks are excluded.
               type: array
               uniqueItems: true
               items: {type: string, pattern: "^M-[0-9]{3,}$"}

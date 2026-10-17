@@ -521,7 +521,7 @@ def derived_cases(data: dict | None) -> list[dict]:
     listed but not checked again.
     """
     analysis = (data or {}).get("abuse_case_analysis")
-    if not isinstance(analysis, dict) or analysis.get("status") != "completed":
+    if not isinstance(analysis, dict) or analysis.get("status") not in {"completed", "not_run"}:
         return []
     found = []
     for record in analysis.get("cases") or []:
@@ -564,6 +564,10 @@ def recorded_outcomes(repo_root: Path | None) -> dict | None:
         for row in analysis.get("not_performed") or []:
             if isinstance(row, dict) and row.get("id"):
                 outcomes.setdefault(str(row["id"]), "not checked")
+    elif analysis.get("status") == "not_run":
+        for row in [*(analysis.get("cases") or []), *(analysis.get("not_performed") or [])]:
+            if isinstance(row, dict) and row.get("id"):
+                outcomes[str(row["id"])] = "not checked"
     return {
         "date": str(meta.get("generated") or "")[:10],
         "checked": analysis.get("status") == "completed",

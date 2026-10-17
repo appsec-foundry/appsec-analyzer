@@ -34,6 +34,16 @@ An OpenAI `--model` value must match the selected STRIDE model or its requested 
 
 Users can set models and reasoning effort in their own Claude model profiles. The adapter does not expose `max_output_tokens`; a Claude profile containing that field is rejected. The USD budget and existing execution bounds remain in force.
 
+### Choosing standard or thorough
+
+Start with `standard`. Both Sonnet and Opus can identify business logic problems, such as spending a wallet balance without a valid payment or changing another user's basket. `thorough` can find additional problems, but it changes both analysis limits and model selection; it does not guarantee that every finding is new, correct, or more thoroughly verified.
+
+In one comparison of the same Juice Shop source on 2026-10-17, a standard run using Sonnet for STRIDE cost USD 15.85 and a thorough run using Opus cost USD 28.01: about USD 12 more, or 77%. STRIDE is the component threat-analysis stage; its cost rose from USD 8.35 to USD 21.91. These were two runs of the inherited Advisor engine, not a price estimate or a controlled model benchmark for the current Analyzer release. Costs depend on the project, selected models, work limits, and retries.
+
+The thorough run identified additional cases involving negative basket quantities and expired discounts. Sonnet also found business logic problems, and some apparently new thorough findings were already present in the standard analysis but grouped together or rated below the report's severity threshold. More report entries do not necessarily mean more independent weaknesses.
+
+Both runs had a USD 30 limit. The thorough run spent enough on early analysis that later model checks, including all abuse-case verification, were skipped to preserve the report budget. Standard reported five confirmed abuse scenarios; all fourteen thorough scenarios remained inconclusive. Check the run summary for skipped work before treating a completed report as a fully verified assessment. A higher budget permits more work but does not guarantee better findings.
+
 ## Compatibility and qualification
 
 Existing `--host claude-cli` and `--host openai` calls remain supported. The old `--host openai --profile codex-quick|codex-standard|codex-thorough` forms also remain supported when their suffix matches `--assessment-depth`. Prefer `--profile codex` with a separate depth for new commands. If both profile and host are supplied, they must select the same adapter; conflicts fail before host preflight or repository retrieval.

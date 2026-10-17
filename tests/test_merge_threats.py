@@ -82,6 +82,64 @@ def _threat(**overrides):
 # ---------------------------------------------------------------------------
 
 
+def _reviewed_template_pair():
+    evidence = {"file": "repo-a/routes/profile.ts", "line": 87}
+    traced = _threat(
+        local_id="model-template",
+        component_id="app",
+        cwe="CWE-1336",
+        risk="Critical",
+        title="Stored name compiled as a template",
+        threat_category_id="TH-05",
+        evidence=dict(evidence),
+        evidence_check="verified",
+        evidence_tier="confirmed-exploitable",
+        mechanism_trace={"sink": dict(evidence)},
+    )
+    scanner = _threat(
+        local_id="scanner-template",
+        component_id="app",
+        cwe="CWE-1336",
+        title="Input compiled as template source",
+        source="source-scan",
+        source_check_id="INJ-NODE-008",
+        evidence=dict(evidence),
+        evidence_check="verified",
+        evidence_tier="insecure-practice",
+    )
+    return traced, scanner
+
+
+def test_verified_scanner_sink_joins_traced_finding_across_categories(mt):
+    traced, scanner = _reviewed_template_pair()
+    result = mt.consolidate_findings([scanner, traced])
+    assert len(result) == 1
+    finding = result[0]
+    assert finding["local_id"] == "model-template"
+    assert finding["evidence_tier"] == "confirmed-exploitable"
+    assert finding["additional_categories"] == ["TH-01"]
+    assert {i["source_ref"] for i in finding["instances"]} == {"model-template", "scanner-template"}
+    assert {i["evidence_tier"] for i in finding["instances"]} == {"confirmed-exploitable", "insecure-practice"}
+
+
+@pytest.mark.parametrize("change", ["other_repo", "other_sink", "other_cwe", "unverified", "no_trace", "two_models"])
+def test_scanner_sink_reconciliation_preserves_distinct_or_unproven_findings(mt, change):
+    traced, scanner = _reviewed_template_pair()
+    if change == "other_repo":
+        scanner["evidence"]["file"] = "repo-b/routes/profile.ts"
+    elif change == "other_sink":
+        scanner["evidence"]["line"] = 88
+    elif change == "other_cwe":
+        scanner["cwe"] = "CWE-94"
+    elif change == "unverified":
+        scanner["evidence_check"] = "ambiguous"
+    elif change == "no_trace":
+        traced.pop("mechanism_trace")
+    else:
+        scanner["source"] = "stride"
+    assert len(mt.consolidate_findings([scanner, traced])) == 2
+
+
 class TestExactDedup:
     def test_identical_threats_collapse(self, mt):
         t1 = _threat(source_scan_ref="SRC-001")

@@ -198,7 +198,7 @@ def _cwe_code(value: object) -> str:
 # itself establish a server-side interpreter or code-execution sink. The
 # matcher therefore requires an accompanying code or mechanism phrase from the
 # case probe before dispatching an expensive verifier for these CWEs.
-_CONTEXT_DEPENDENT_CWES = frozenset({"74", "284", "287", "347", "384"})
+_CONTEXT_DEPENDENT_CWES = frozenset({"74", "266", "269", "284", "287", "347", "384", "862", "863"})
 
 _RUNTIME_SURFACE_SIGNALS = frozenset({"has_auth_surface", "has_role_concept", "has_client_storage"})
 _NON_RUNTIME_EVIDENCE_PREFIXES = (

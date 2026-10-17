@@ -754,6 +754,27 @@ def test_list_ends_with_what_the_cases_are_and_how_to_add_or_check_one(tmp_path,
     assert "organization profile" not in footer
 
 
+def test_unchecked_derived_case_remains_available_for_a_later_check(tmp_path):
+    analysis = {
+        "status": "not_run",
+        "cases": [
+            {
+                "id": "MODEL-AC-001",
+                "title": "Coupon reuse",
+                "check": "Check whether a refund restores the coupon.",
+                "chain_verdict": "inconclusive",
+                "verification_complete": False,
+            }
+        ],
+    }
+    assert rac.derived_cases({"abuse_case_analysis": analysis})[0]["check"] == analysis["cases"][0]["check"]
+    (tmp_path / "docs" / "security").mkdir(parents=True)
+    (tmp_path / "docs" / "security" / "threat-model.yaml").write_text(yaml.safe_dump({"abuse_case_analysis": analysis}))
+    recorded = rac.recorded_outcomes(tmp_path)
+    assert recorded["checked"] is False
+    assert recorded["outcomes"] == {"MODEL-AC-001": "not checked"}
+
+
 def test_list_shows_the_outcome_the_threat_model_records_for_each_case(tmp_path, capsys):
     model = {
         "meta": {"generated": "2026-10-10T11:10:30Z"},
