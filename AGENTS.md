@@ -31,10 +31,13 @@ Use existing tests and run checks appropriate to changed behavior. Add intended 
 ```sh
 make test-analyzer
 python3 scripts/check_specs.py
+make check-specs BASE=<base-commit>
 PYTHONPATH=.:scripts python3 -m pytest tests/test_check_specs.py -q
 ```
 
 For other behavior, select explicit test files from the bindings and affected consumers. Include `PYTHONPATH=.:scripts` when tests import extracted domain packages directly. Run Ruff lint and format checks on changed Python files. Controller changes need offline controller tests; report changes need relevant golden replay and schema checks. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [repository review](docs/internal/analysis/repository-review-2026-10-17.md).
+
+Use an explicit comparison commit for `check-specs`, `check-analyzer`, and `release-check-analyzer`; `BASE=HEAD` covers only uncommitted changes. New or modified proposals use the four required YAML fields documented in CONTRIBUTING.md. Unchanged historical proposals retain their original format. The gate checks proposal coverage and ID retirement as well as the current catalog and acceptance sections; it does not establish semantic correctness or approval.
 
 The inherited test-group catalog, whole-suite collection, `make lint`, `make check`, and release targets contain stale Advisor dependencies. `tests/test_spec_guard.py` also contains a registration test for the excluded `.claude/settings.json`; the standalone catalog checker does not depend on that registration. Do not present these inherited checks as green release gates. Report their actual failures; use explicit tests for scoped verification. A full-suite diagnostic run must retain collection errors in its result.
 

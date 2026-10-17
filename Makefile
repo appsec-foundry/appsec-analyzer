@@ -68,11 +68,14 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 		tests/test_render_completion_summary.py::TestNextSteps \
 		tests/test_render_completion_summary.py::TestExportDeliverablesBackstop
 
+.PHONY: check-specs
+check-specs:  ## Validate requirements and changes: make check-specs BASE=<base-commit>
+	@$(PYTHON) scripts/check_specs.py --changed-against '$(subst ','"'"',$(BASE))'
+
 .PHONY: check-analyzer
-check-analyzer:  ## Standalone Analyzer offline release gate, including wheel and sdist inventory
+check-analyzer: check-specs  ## Standalone offline gate: make check-analyzer BASE=<base-commit>
 	@ruff check appsec_analyzer scripts tests setup.py
 	@$(MAKE) --no-print-directory test-analyzer
-	@$(PYTHON) scripts/check_specs.py
 	@PYTHONPATH="$(CURDIR):$(CURDIR)/scripts" $(PYTHON) -m pytest -q \
 		tests/test_check_specs.py \
 		tests/test_requirements_report.py \
@@ -82,7 +85,7 @@ check-analyzer:  ## Standalone Analyzer offline release gate, including wheel an
 		tests/test_analyzer_distribution.py
 
 .PHONY: release-check-analyzer
-release-check-analyzer: check-analyzer  ## Standalone offline distribution and controller gate
+release-check-analyzer: check-analyzer  ## Offline distribution/controller gate: BASE=<base-commit> required
 	@$(MAKE) --no-print-directory test-controller
 
 .PHONY: test

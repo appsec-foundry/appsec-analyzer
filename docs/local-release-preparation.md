@@ -4,11 +4,7 @@ This is an unpublished Phase A preview. Phase B Advisor integration is outside
 this repository's current assignment. Build from the `dev` branch in a separate
 temporary clone so checkout files and test artifacts cannot enter the archive:
 
-Run `make release-check-analyzer` before building. It checks the public
-standalone contracts and inventories a wheel and source archive, including
-incremental build cleanup and installed guide links. The inherited whole-suite
-and test-route catalog still need separate reconciliation before a full
-repository release gate can be claimed.
+Run `make release-check-analyzer BASE=<base-commit>` before building, replacing `<base-commit>` with the commit before the release changes under review. The comparison commit must be available in the checkout; using `HEAD` checks only uncommitted changes. The gate checks requirement changes and the public standalone contracts, and inventories a wheel and source archive, including incremental build cleanup and installed guide links. The inherited whole-suite and test-route catalog still need separate reconciliation before a full repository release gate can be claimed.
 
 ```sh
 git clone --no-hardlinks -b dev /path/to/appsec-analyzer /tmp/analyzer-release-source

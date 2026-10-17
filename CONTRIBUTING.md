@@ -15,15 +15,13 @@ The Makefile prefers `.venv/bin/python3`. Ruff is configured in `pyproject.toml`
 
 ## Verification
 
-The public standalone contract checks are offline and use fake model hosts:
+The public standalone contract checks are offline and use fake model hosts. Set `BASE` to the commit before the changes being reviewed, such as the merge-base with the target branch. The gate requires an explicit revision and fails if its history is unavailable. For uncommitted changes only:
 
 ```sh
-make check-analyzer
+make check-analyzer BASE=HEAD
 ```
 
-`check-analyzer` runs the public contract tests, catalog checks, current prompt
-and command examples, and a wheel/sdist inventory test. It does not claim the
-inherited whole-repository suite passes.
+`check-analyzer` first checks requirements, acceptance sections, proposals, and retired IDs against `BASE`, including committed, staged, unstaged, and untracked changes. It then runs the public contract tests, current prompt and command examples, and a wheel/sdist inventory test. It does not claim the inherited whole-repository suite passes. For a branch or release review, replace `HEAD` with the actual comparison commit; `HEAD` does not review already committed changes.
 
 Choose additional explicit test files for changed producers and consumers. Requirement bindings help locate them but do not prove that the selection is complete. For changed Python files, run `ruff check <files>` and `ruff format --check <files>`.
 
@@ -36,7 +34,7 @@ Choose additional explicit test files for changed producers and consumers. Requi
 | Requirements | Catalog, audit, and affected producer tests; record the change in `specs/changes/<name>/proposal.md`. |
 | Documentation | Check commands against CLI help and implementation, local links, and affected contracts. |
 
-The inherited group catalog in `scripts/run_tests.py` still reports missing tests and invalid routes. The inherited `make lint` and `make release-check` targets invoke missing Advisor files; use `make release-check-analyzer` for the standalone offline distribution gate. These are open extraction defects, not features to recreate automatically. The repository contains no `.github/` workflows or CODEOWNERS; earlier claims about a passing CI matrix did not apply here.
+The inherited group catalog in `scripts/run_tests.py` still reports missing tests and invalid routes. The inherited `make lint` and `make release-check` targets invoke missing Advisor files; use `make release-check-analyzer BASE=<base-commit>` for the standalone offline distribution gate. These are open extraction defects, not features to recreate automatically. The repository contains no `.github/` workflows or CODEOWNERS; earlier claims about a passing CI matrix did not apply here.
 
 The active context-routing tests build the Analyzer package and run in the standalone gate. Tests dedicated to excluded Advisor hooks, plugin packaging, status helpers, and release tools have been removed. The standalone requirements catalog checker works independently of Claude hook registration.
 
@@ -65,6 +63,25 @@ The driver calls the public CLI and checks published artifact digests. External 
 Write one observable user outcome per requirement, with a short label and a stable `REQ-NNN` ID. Do not renumber IDs when moving or reordering requirements. Keep detailed acceptance rules in the normative [acceptance contract](docs/internal/contracts/requirement-acceptance.md), and paths and exact test selectors in [data/requirement-bindings.yaml](data/requirement-bindings.yaml). Direct, partial, and advisory coverage describe the evidence's scope; they do not assert that a test currently passes.
 
 Record semantic changes to requirements or their acceptance rules and compatibility implications in `specs/changes/`. The [Analyzer scope migration](specs/changes/analyzer-user-requirements/proposal.md) and subsequent [plain-ID migration](specs/changes/plain-requirement-ids/proposal.md) map the inherited catalog to the current one. Binding schema version 2 uses plain IDs for active requirements and permits the earlier format only for retirements. Keep retired IDs so old references cannot acquire a new meaning. Update current guides and public examples when commands or availability change.
+
+Each active requirement needs exactly one nonempty `## REQ-NNN: Title` section in the acceptance contract. The checker rejects missing, duplicate, or inactive sections. Comparing against `BASE` also requires removed requirements to appear in `retired_ids`, preserves earlier retirements, and rejects reuse even if an old retirement was deleted from the current bindings.
+
+Start each new or modified `specs/changes/<name>/proposal.md` with these four YAML fields, replacing the example text and IDs with the actual change:
+
+```yaml
+---
+reason: Explain the user need or defect behind the change.
+affected_ids: [REQ-018]
+compatibility: Explain what changes for existing users and saved artifacts.
+verification: Name the checks and relevant intended and negative cases.
+---
+```
+
+The fields must contain nonempty text and a list of unique known IDs. The changed proposals together must name every requirement whose outcome or acceptance text changed, including added and removed IDs. Changed or removed decision-register rows use their decision IDs. Use `affected_ids: []` for changes to introductory text or tooling that alter no requirement or decision entry. Historical proposals that are unchanged relative to `BASE` keep their original format. Deleted, unreadable, or linked proposals cannot satisfy the check.
+
+The checker conservatively requires a proposal for any edit to the requirement catalog or acceptance contract, including editorial edits. It checks structure and declared IDs; reviewers still judge rationale, compatibility, semantic coverage, and authorization. A proposal is not proof of approval or passing tests. Requirements remain product outcomes; introduce individually referenced acceptance criteria for complex requirements when they are next changed rather than renumbering the catalog now.
+
+For the specification checks alone, run `make check-specs BASE=<base-commit>`. The equivalent command is `python3 scripts/check_specs.py --changed-against <base-commit>`. Without that option, `python3 scripts/check_specs.py` checks only the current catalog, bindings, and acceptance sections; it does not check change history. Use `python3 scripts/check_specs.py --for appsec_analyzer/cli.py` to find requirements and test references for a file. These checks do not execute the referenced tests or establish requirement completion.
 
 For report sections, follow the [section runbook](docs/internal/runbooks/adding-a-section.md) and [schema invariants](docs/internal/contracts/schema-invariants.md). Inspect golden changes before regeneration; do not edit expected output to conceal a producer defect.
 

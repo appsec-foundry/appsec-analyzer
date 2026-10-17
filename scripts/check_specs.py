@@ -44,6 +44,21 @@ DECISION_RE = re.compile(r"^[A-Z]{2,3}-\d+$")
 DECISION_ROW_RE = re.compile(r"^\|\s*([A-Z]{2,3}-\d+)\s*\|(.*)$")
 TECHNICAL_FIELD_RE = re.compile(r"\*\*(?:Applies to|Source|Guard):\*\*")
 PROPOSAL_RE = re.compile(r"^specs/changes/[^/]+/proposal\.md$")
+ACCEPTANCE_RE = re.compile(r"^## (REQ-[^:\s]+):\s+(.+)$")
+MAX_DOCUMENT_BYTES = 1024 * 1024
+PROPOSAL_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["reason", "affected_ids", "compatibility", "verification"],
+    "properties": {
+        **{key: {"type": "string", "pattern": r"\S"} for key in ("reason", "compatibility", "verification")},
+        "affected_ids": {
+            "type": "array",
+            "uniqueItems": True,
+            "items": {"type": "string", "pattern": r"^(REQ-([A-Z]{2,5}-)?[0-9]{3}|[A-Z]{2,3}-[0-9]+)$"},
+        },
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -106,6 +121,76 @@ def parse(text: str) -> list[Entry]:
 def load_binding_document(path: Path = BINDINGS) -> object:
     """Load the binding YAML without silently normalizing an empty document."""
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def read_document(path: str) -> str:
+    """Read a bounded UTF-8 document confined to this checkout."""
+    candidate = ROOT / path
+    if not safe_binding_pattern(path) or not _inside_root(candidate, ROOT):
+        raise ValueError(f"{path!r}: document escapes the repository")
+    if any(part.is_symlink() for part in (candidate, *candidate.parents) if part != ROOT and ROOT in part.parents):
+        raise ValueError(f"{path!r}: document must not be a link")
+    if not candidate.is_file():
+        raise ValueError(f"{path!r}: cannot read a regular document")
+    try:
+        with candidate.open("rb") as stream:
+            data = stream.read(MAX_DOCUMENT_BYTES + 1)
+        if len(data) > MAX_DOCUMENT_BYTES:
+            raise ValueError(f"{path!r}: document exceeds 1 MiB")
+        return data.decode("utf-8")
+    except (OSError, UnicodeError):
+        raise ValueError(f"{path!r}: cannot read a UTF-8 document") from None
+
+
+def acceptance_entries(text: str) -> list[Entry]:
+    """Parse requirement sections; preserve duplicates for validation."""
+    entries = []
+    current = None
+    body = []
+    fence = None
+    for number, line in enumerate(text.splitlines(), start=1):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence is not None:
+            if current is not None:
+                body.append(line.strip())
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+                fence = None
+            continue
+        if marker:
+            fence = marker.group(1)
+        if not marker and line.startswith("## "):
+            if current is not None:
+                entries.append(Entry(current[0], current[2], current[1], " ".join(body).strip()))
+            match = ACCEPTANCE_RE.fullmatch(line)
+            if not match or not match.group(2).strip():
+                raise ValueError(f"{ACCEPTANCE_PATH}:{number}: expected '## REQ-NNN: Title'")
+            current = (match.group(1), number, match.group(2).strip())
+            body = []
+        elif current is not None:
+            body.append(line.strip())
+    if current is not None:
+        entries.append(Entry(current[0], current[2], current[1], " ".join(body).strip()))
+    return entries
+
+
+def validate_acceptance(entries: list[Entry], text: str) -> list[str]:
+    """Require exactly one nonempty acceptance section per active ID."""
+    sections = acceptance_entries(text)
+    active = {entry.rid for entry in entries}
+    seen = set()
+    problems = []
+    for section in sections:
+        where = f"{ACCEPTANCE_PATH}:{section.line} {section.rid}"
+        if section.rid in seen:
+            problems.append(f"{where}: duplicate acceptance section")
+        seen.add(section.rid)
+        if section.rid not in active:
+            problems.append(f"{where}: acceptance section names inactive requirement")
+        if not section.text:
+            problems.append(f"{where}: empty acceptance section")
+    for rid in sorted(active - seen):
+        problems.append(f"{ACCEPTANCE_PATH}: missing acceptance section for {rid}")
+    return problems
 
 
 def binding_schema_problems(document: object, schema_path: Path = BINDING_SCHEMA) -> list[str]:
@@ -309,16 +394,41 @@ def register_entries(text: str) -> tuple[dict[str, str], list[str]]:
     return rows, prose
 
 
+def _git(*args: str) -> str:
+    """Run read-only Git commands without shell interpretation or external diffs."""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        raise ValueError("cannot read Git history (command failed or timed out)") from None
+    if result.returncode:
+        raise ValueError("cannot read Git history; check the base revision and available history")
+    return result.stdout
+
+
+def resolve_revision(ref: str) -> str:
+    """Resolve an explicit revision to a commit before using it in Git arguments."""
+    return _git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").strip()
+
+
 def _file_at(ref: str, path: str) -> str | None:
-    """Return ``path`` as of ``ref``, or ``None`` when it did not exist there."""
-    result = subprocess.run(
-        ["git", "show", f"{ref}:{path}"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.stdout if result.returncode == 0 else None
+    """Distinguish absent historical documents from unreadable Git history."""
+    listing = _git("ls-tree", "-z", ref, "--", path)
+    if not listing:
+        return None
+    metadata, _ = listing.rstrip("\x00").split("\t", 1)
+    mode, kind, oid = metadata.split()
+    if kind != "blob" or mode not in {"100644", "100755"}:
+        raise ValueError(f"{path!r}: historical document must be a regular file")
+    if int(_git("cat-file", "-s", oid)) > MAX_DOCUMENT_BYTES:
+        raise ValueError(f"{path!r}: historical document exceeds 1 MiB")
+    return _git("cat-file", "blob", oid)
 
 
 def register_change_needing_approval(ref: str | None) -> str | None:
@@ -349,12 +459,56 @@ def register_change_needing_approval(ref: str | None) -> str | None:
     return None
 
 
-def unapproved_changes(paths: list[str], ref: str | None = None) -> list[str]:
-    """Return held changes that need the operator and carry no proposal."""
+def proposal_ids(path: str) -> set[str]:
+    """Validate the four required fields in a changed proposal's YAML front matter."""
+    lines = read_document(path).splitlines()
+    if not lines or lines[0] != "---" or "---" not in lines[1:]:
+        raise ValueError(
+            f"{path!r}: proposal needs YAML front matter with reason, affected_ids, compatibility, verification"
+        )
+    header = "\n".join(lines[1 : lines.index("---", 1)])
+    try:
+        node = yaml.compose(header)
+        if isinstance(node, yaml.MappingNode):
+            keys = [key.value for key, _ in node.value if isinstance(key, yaml.ScalarNode)]
+            if len(keys) != len(node.value) or len(keys) != len(set(keys)):
+                raise ValueError(f"{path!r}: duplicate or invalid proposal field")
+        metadata = yaml.safe_load(header)
+    except (yaml.YAMLError, RecursionError):
+        raise ValueError(f"{path!r}: invalid proposal YAML") from None
+    if not Draft202012Validator(PROPOSAL_SCHEMA).is_valid(metadata):
+        raise ValueError(
+            f"{path!r}: invalid proposal fields; require nonempty reason, compatibility, verification and an affected_ids list"
+        )
+    return set(metadata["affected_ids"])
+
+
+def unapproved_changes(
+    paths: list[str],
+    ref: str | None = None,
+    affected_ids: set[str] | None = None,
+    known_ids: set[str] | None = None,
+) -> list[str]:
+    """Require valid changed proposals covering the affected requirement/decision IDs.
+
+    A proposal records a change; this check cannot establish user approval.
+    """
     touched = [path for path in paths if path in HELD_PATHS]
-    if not touched or any(PROPOSAL_RE.fullmatch(path) for path in paths):
-        return []
+    proposals = [path for path in paths if PROPOSAL_RE.fullmatch(path)]
     problems: list[str] = []
+    recorded = set()
+    for path in proposals:
+        try:
+            ids = proposal_ids(path)
+            if known_ids is not None and ids - known_ids:
+                problems.append(f"{path!r}: unknown affected IDs: {', '.join(sorted(ids - known_ids))}")
+            recorded.update(ids)
+        except ValueError as error:
+            problems.append(str(error))
+    if proposals:
+        for rid in sorted((affected_ids or set()) - recorded):
+            problems.append(f"{rid}: changed ID is not recorded in a valid changed proposal")
+        return problems
     for path in touched:
         if path == REGISTER_PATH:
             reason = register_change_needing_approval(ref)
@@ -367,24 +521,35 @@ def unapproved_changes(paths: list[str], ref: str | None = None) -> list[str]:
 
 def changed_since(ref: str) -> list[str]:
     """Return tracked and untracked paths that differ from ``ref``."""
-    result = subprocess.run(
-        ["git", "diff", "--name-only", ref],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise ValueError(result.stderr.strip() or f"cannot diff against {ref}")
-    untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    lines = result.stdout.splitlines() + untracked.stdout.splitlines()
-    return [line.strip() for line in lines if line.strip()]
+    tracked = _git("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", ref, "--")
+    untracked = _git("ls-files", "--others", "--exclude-standard", "-z")
+    return sorted(set(path for path in (tracked + untracked).split("\x00") if path))
+
+
+def changed_requirement_ids(ref: str, entries: list[Entry], document: dict) -> tuple[set[str], list[str]]:
+    """Compare normative entries and keep the retirement history monotonic."""
+    previous = parse(_file_at(ref, "requirements.md") or "")
+    old_acceptance = acceptance_entries(_file_at(ref, ACCEPTANCE_PATH) or "")
+    current_acceptance = acceptance_entries(read_document(ACCEPTANCE_PATH))
+    affected = set()
+    for old, new in ((previous, entries), (old_acceptance, current_acceptance)):
+        before = {entry.rid: (entry.section, " ".join(entry.text.split())) for entry in old}
+        after = {entry.rid: (entry.section, " ".join(entry.text.split())) for entry in new}
+        affected.update(rid for rid in before.keys() | after.keys() if before.get(rid) != after.get(rid))
+    previous_bindings = yaml.safe_load(_file_at(ref, "data/requirement-bindings.yaml") or "{}")
+    if not isinstance(previous_bindings, dict):
+        raise ValueError("base revision has invalid requirement bindings")
+    old_retired = previous_bindings.get("retired_ids", [])
+    if not isinstance(old_retired, list) or any(not isinstance(rid, str) for rid in old_retired):
+        raise ValueError("base revision has invalid retired_ids")
+    old_retired = set(old_retired)
+    retired = set(document["retired_ids"])
+    active = {entry.rid for entry in entries}
+    removed = {entry.rid for entry in previous} - active
+    problems = [f"{rid}: removed requirement must be recorded in retired_ids" for rid in sorted(removed - retired)]
+    problems += [f"{rid}: historical retired ID must be preserved" for rid in sorted(old_retired - retired)]
+    problems += [f"{rid}: historical retired ID cannot be reused" for rid in sorted(old_retired & active)]
+    return affected, problems
 
 
 def _load_current() -> tuple[list[Entry], object]:
@@ -393,10 +558,10 @@ def _load_current() -> tuple[list[Entry], object]:
     if not BINDINGS.exists():
         raise ValueError(f"{BINDINGS} is missing")
     try:
-        document = load_binding_document()
-    except yaml.YAMLError as error:
-        raise ValueError(f"{BINDINGS}: invalid YAML: {error}") from error
-    return parse(CATALOG.read_text(encoding="utf-8")), document
+        document = yaml.safe_load(read_document("data/requirement-bindings.yaml"))
+    except (yaml.YAMLError, RecursionError):
+        raise ValueError("data/requirement-bindings.yaml: invalid YAML") from None
+    return parse(read_document("requirements.md")), document
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -405,27 +570,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--changed-against",
         dest="ref",
-        help="fail when a held change against this ref needs the operator and has no proposal",
+        help="also check changes, proposal fields, affected IDs and retirements against an explicit base commit",
     )
     args = parser.parse_args(argv)
-
-    if args.ref:
-        try:
-            problems = unapproved_changes(changed_since(args.ref), args.ref)
-        except ValueError as error:
-            print(str(error), file=sys.stderr)
-            return 2
-        for problem in problems:
-            print(problem, file=sys.stderr)
-        return 1 if problems else 0
+    if args.ref is not None and not args.ref.strip():
+        print("an explicit base revision is required; set BASE=<base-commit> for the Make gate", file=sys.stderr)
+        return 2
 
     try:
         entries, document = _load_current()
+        problems = validate(entries, document, root=ROOT)
+        problems.extend(validate_acceptance(entries, read_document(ACCEPTANCE_PATH)))
+        if args.ref and not problems:
+            ref = resolve_revision(args.ref)
+            paths = changed_since(ref)
+            affected, history_problems = changed_requirement_ids(ref, entries, document)
+            known_ids = {entry.rid for entry in entries} | set(document["retired_ids"]) | known_decisions(ROOT)
+            if REGISTER_PATH in paths:
+                before, _ = register_entries(_file_at(ref, REGISTER_PATH) or "")
+                after, _ = register_entries(read_document(REGISTER_PATH))
+                affected.update(rid for rid in before if before[rid] != after.get(rid))
+                known_ids.update(before)
+            problems.extend(history_problems)
+            problems.extend(unapproved_changes(paths, ref, affected, known_ids))
+    except (yaml.YAMLError, RecursionError):
+        print("invalid YAML in requirement history", file=sys.stderr)
+        return 2
     except (OSError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 2
 
-    problems = validate(entries, document)
     if problems:
         for problem in problems:
             print(problem, file=sys.stderr)
