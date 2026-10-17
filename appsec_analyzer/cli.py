@@ -19,6 +19,10 @@ import yaml
 
 from appsec_analyzer import ENGINE_VERSION, INTERFACE_VERSION, resource_root
 
+# Operator-selected built-ins only; repository content cannot select a provider.
+_PROFILE_HOSTS = {"claude": "claude-cli", "codex": "openai"}
+_LEGACY_CODEX_PROFILES = ("codex-quick", "codex-standard", "codex-thorough")
+
 
 def _engine_imports() -> None:
     scripts = str(resource_root() / "scripts")
@@ -32,19 +36,20 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
     scan = commands.add_parser(
-        "scan", help="Run the full headless security assessment with live progress",
+        "scan",
+        help="Run the full headless security assessment with live progress",
         description="Assess the selected repository with live progress and publish security reports.",
         epilog="Example: appsec-analyzer scan (USD 20 budget); override with --budget USD",
     )
-    _add_assessment_arguments(scan, default_repo=True, default_host=True)
+    _add_assessment_arguments(scan, default_repo=True)
     sources = commands.add_parser("scan-sources", help="Run deterministic source scanners without a model")
     sources.add_argument("--repo", action="append", required=True, metavar="PATH")
     sources.add_argument("--output", metavar="DIR", help="Existing directory outside every selected checkout")
     sources.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
     sources.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     sources.add_argument("--json", action="store_true", help="Print the complete machine-readable result")
-    assess = commands.add_parser("assess", help="Run a full semantic assessment with explicit model host")
-    _add_assessment_arguments(assess, default_repo=False, default_host=False)
+    assess = commands.add_parser("assess", help="Run a full semantic assessment with an explicit model profile")
+    _add_assessment_arguments(assess, default_repo=False)
 
     for name, help_text in (
         ("status", "Inspect a versioned assessment state"),
@@ -96,7 +101,9 @@ def _pentest_target(value: str) -> str:
         raise argparse.ArgumentTypeError("must be an HTTP or HTTPS URL without control characters")
     try:
         parsed = urlsplit(value)
-        valid = parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+        valid = (
+            parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+        )
         _ = parsed.port
     except ValueError:
         valid = False
@@ -111,13 +118,25 @@ def _slug(value: str) -> str:
     return value
 
 
-def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool, default_host: bool) -> None:
-    parser.add_argument("--repo", action="append", required=not default_repo, metavar="PATH",
-                        help="Repository to assess (default: current directory)" if default_repo else "Repository to assess")
-    parser.add_argument("--host", choices=("claude-cli", "openai", "gateway"),
-                        required=not default_host, default="claude-cli" if default_host else None)
-    parser.add_argument("--profile", choices=("codex-quick", "codex-standard", "codex-thorough"),
-                        help="Pinned OpenAI model profile (default: codex-<assessment-depth>)")
+def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool) -> None:
+    parser.add_argument(
+        "--repo",
+        action="append",
+        required=not default_repo,
+        metavar="PATH",
+        help="Repository to assess (default: current directory)" if default_repo else "Repository to assess",
+    )
+    parser.add_argument(
+        "--host",
+        choices=("claude-cli", "openai", "gateway"),
+        help="Legacy provider selection; --profile selects the host automatically",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=(*_PROFILE_HOSTS, *_LEGACY_CODEX_PROFILES),
+        help="Model profile: claude or codex; models depend on --assessment-depth "
+        "(scan default: claude; legacy codex-<depth> names require --host openai)",
+    )
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
     parser.add_argument(
         "--budget",
@@ -136,15 +155,31 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--progress-file", metavar="PATH")
     parser.add_argument("--model", metavar="MODEL")
-    parser.add_argument("--reasoning-model", choices=("sonnet", "opus-cheap", "opus", "sonnet-economy", "haiku-economy"))
+    parser.add_argument(
+        "--reasoning-model", choices=("sonnet", "opus-cheap", "opus", "sonnet-economy", "haiku-economy")
+    )
     parser.add_argument("--project", metavar="NAME")
     parser.add_argument("--width", type=int, metavar="COLUMNS")
-    parser.add_argument("--slug", nargs="?", const="__auto__", type=_slug, metavar="NAME",
-                        help="Also publish copies with this filename suffix; bare flag chooses one")
-    parser.add_argument("--pentest-format", choices=("generic", "strix"), default="generic",
-                        help="Format for --pentest-tasks (default: generic)")
-    parser.add_argument("--pentest-target", type=_pentest_target, metavar="URL",
-                        help="HTTP(S) target URL to include in exported pentest tasks")
+    parser.add_argument(
+        "--slug",
+        nargs="?",
+        const="__auto__",
+        type=_slug,
+        metavar="NAME",
+        help="Also publish copies with this filename suffix; bare flag chooses one",
+    )
+    parser.add_argument(
+        "--pentest-format",
+        choices=("generic", "strix"),
+        default="generic",
+        help="Format for --pentest-tasks (default: generic)",
+    )
+    parser.add_argument(
+        "--pentest-target",
+        type=_pentest_target,
+        metavar="URL",
+        help="HTTP(S) target URL to include in exported pentest tasks",
+    )
     parser.add_argument("--org-profile", metavar="FILE")
     parser.add_argument("--preset", metavar="NAME")
     parser.add_argument("--no-org-profile", action="store_true")
@@ -155,11 +190,21 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument("--evidence-verifier-cap", type=int, metavar="N")
     parser.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
     parser.add_argument("--context", metavar="SOURCE")
-    parser.add_argument("--keep-runtime-files", action="store_true",
-                        help="Retain private intermediate assessment files for debugging")
-    for flag in ("sarif", "threatdragon", "pdf", "html", "pentest-tasks",
-                 "no-requirements", "skip-context", "no-qa",
-                 "ignore-legacy", "migrate-legacy"):
+    parser.add_argument(
+        "--keep-runtime-files", action="store_true", help="Retain private intermediate assessment files for debugging"
+    )
+    for flag in (
+        "sarif",
+        "threatdragon",
+        "pdf",
+        "html",
+        "pentest-tasks",
+        "no-requirements",
+        "skip-context",
+        "no-qa",
+        "ignore-legacy",
+        "migrate-legacy",
+    ):
         parser.add_argument("--" + flag, action="store_true")
 
 
@@ -171,9 +216,8 @@ def _capabilities() -> dict:
         "scan_sources": {"available": True, "model_calls": False},
         "assessment": {
             "providers": {
-                "claude-cli": {"adapter": "compatibility", "qualified": False},
-                "openai": {"adapter": "responses", "qualified": False,
-                           "profiles": ["codex-quick", "codex-standard", "codex-thorough"]},
+                "claude-cli": {"adapter": "compatibility", "qualified": False, "profiles": ["claude"]},
+                "openai": {"adapter": "responses", "qualified": False, "profiles": ["codex", *_LEGACY_CODEX_PROFILES]},
                 "gateway": {"adapter": "offline-only", "qualified": False},
             }
         },
@@ -233,27 +277,35 @@ def _scan_local(ns: argparse.Namespace) -> int:
                     path = finding["file"]
                     if path not in view.files or type(finding.get("line")) is not int or finding["line"] < 1:
                         raise ValueError("a scanner finding cites source outside the admitted snapshot")
-                    records.append({
-                        "scanner": name.removeprefix(".").removesuffix("-findings.json"),
-                        "source_sha256": hashlib.sha256(view.files[path]).hexdigest(),
-                        "finding": finding,
-                    })
+                    records.append(
+                        {
+                            "scanner": name.removeprefix(".").removesuffix("-findings.json"),
+                            "source_sha256": hashlib.sha256(view.files[path]).hexdigest(),
+                            "finding": finding,
+                        }
+                    )
             if config is not None:
                 for finding in config["findings"]:
-                    paths = finding.get("searched_files") if finding.get("evidence_kind") == "absence" else [finding["file"]]
+                    paths = (
+                        finding.get("searched_files")
+                        if finding.get("evidence_kind") == "absence"
+                        else [finding["file"]]
+                    )
                     if not isinstance(paths, list) or any(p not in view.files for p in paths):
                         raise ValueError("a config finding cites source outside the admitted snapshot")
                     records.append({"scanner": "config-iac", "finding": finding})
-            repositories.append({
-                "repository_id": view.repository_id,
-                "label": view.root.name,
-                "head": view.head,
-                "state_sha256": view.state_sha256,
-                "captured_files": len(view.files),
-                "excluded_files": list(view.exclusions),
-                "config_iac_applicable": config is not None,
-                "findings": records,
-            })
+            repositories.append(
+                {
+                    "repository_id": view.repository_id,
+                    "label": view.root.name,
+                    "head": view.head,
+                    "state_sha256": view.state_sha256,
+                    "captured_files": len(view.files),
+                    "excluded_files": list(view.exclusions),
+                    "config_iac_applicable": config is not None,
+                    "findings": records,
+                }
+            )
         scope.verify_unchanged()
         result = {
             "interface_version": INTERFACE_VERSION,
@@ -292,11 +344,13 @@ def _scan_summary(result: dict, *, output: str | None) -> str:
     lines = ["Deterministic scan completed."]
     for repository in result["repositories"]:
         findings = repository["findings"]
-        lines.extend([
-            f"\nRepository: {_terminal_field(repository['label'])}",
-            f"Files scanned: {repository['captured_files']}; excluded: {len(repository['excluded_files'])}",
-            f"Scanner findings: {len(findings)} (unverified)",
-        ])
+        lines.extend(
+            [
+                f"\nRepository: {_terminal_field(repository['label'])}",
+                f"Files scanned: {repository['captured_files']}; excluded: {len(repository['excluded_files'])}",
+                f"Scanner findings: {len(findings)} (unverified)",
+            ]
+        )
         for record in findings:
             finding = record["finding"]
             severity = _terminal_field(finding.get("severity", "Unknown"))
@@ -307,10 +361,12 @@ def _scan_summary(result: dict, *, output: str | None) -> str:
             lines.append(f"  {severity}: {location}: {title}")
     if output:
         lines.append(f"\nComplete JSON result: {_terminal_field(Path(output) / 'scan-result.json')}")
-    lines.extend([
-        "\nFull assessment was not run.",
-        "For the full assessment: appsec-analyzer scan --repo PATH --budget USD",
-    ])
+    lines.extend(
+        [
+            "\nFull assessment was not run.",
+            "For the full assessment: appsec-analyzer scan --repo PATH --budget USD",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -338,40 +394,58 @@ def _write_result(directory: Path, payload: str) -> None:
         os.close(fd)
 
 
+def _assessment_host(ns: argparse.Namespace) -> str:
+    """Resolve operator options before host preflight or source retrieval."""
+    if ns.profile in _PROFILE_HOSTS:
+        host = _PROFILE_HOSTS[ns.profile]
+        if ns.host is not None and ns.host != host:
+            raise ValueError(f"--profile {ns.profile} conflicts with --host {ns.host}")
+        return host
+    if ns.profile:
+        if ns.host != "openai":
+            raise ValueError("legacy --profile codex-<depth> requires --host openai; use --profile codex")
+        if ns.profile != f"codex-{ns.assessment_depth}":
+            raise ValueError("legacy --profile must match --assessment-depth; use --profile codex")
+    if ns.host is not None:
+        return ns.host
+    if ns.command == "scan":
+        return _PROFILE_HOSTS["claude"]
+    raise ValueError("assess requires --profile (claude or codex) or a legacy --host")
+
+
 def _assess(ns: argparse.Namespace) -> int:
+    host = _assessment_host(ns)
     _engine_imports()
     api_profile = None
-    if ns.host == "openai":
+    if host == "openai":
         from appsec_analyzer.codex_profiles import CODEX_PROFILES
 
-        chosen = ns.profile or f"codex-{ns.assessment_depth}"
-        if chosen != f"codex-{ns.assessment_depth}":
-            raise ValueError("--profile must match --assessment-depth")
         api_profile = CODEX_PROFILES[ns.assessment_depth]
         if ns.model and ns.model != api_profile.model:
             raise ValueError("--model differs from the selected OpenAI profile")
         if ns.reasoning_model or any(getattr(ns, f"{role}_model") for role in ("stride", "triage", "merger")):
-            raise ValueError("Claude reasoning and role-model overrides cannot be used with --host openai")
-    elif ns.profile:
-        raise ValueError("--profile requires --host openai")
-    elif ns.host != "claude-cli":
-        raise ValueError(f"{ns.host} has no configured model/depth profile")
+            raise ValueError("Claude reasoning and role-model overrides cannot be used with the OpenAI profile")
+    elif host != "claude-cli":
+        raise ValueError(f"{host} has no configured model/depth profile")
     if ns.keep_runtime_files and ns.output:
         output = Path(ns.output).absolute()
         try:
             info = output.stat()
-            private = (output.resolve(strict=True) == output and stat.S_ISDIR(info.st_mode)
-                       and info.st_mode & 0o077 == 0
-                       and (not hasattr(os, "getuid") or info.st_uid == os.getuid()))
+            private = (
+                output.resolve(strict=True) == output
+                and stat.S_ISDIR(info.st_mode)
+                and info.st_mode & 0o077 == 0
+                and (not hasattr(os, "getuid") or info.st_uid == os.getuid())
+            )
         except OSError:
             private = False
         if not private:
             raise ValueError("--keep-runtime-files requires an existing private --output directory (mode 0700)")
-    # The host-specific preflight runs only after explicit host selection.
+    # The host-specific preflight runs only after resolving the selected profile.
     from orchestrator.orchestration_controller import assess_main
     from runtime.remote_repositories import checkout_arguments
 
-    if ns.host == "claude-cli":
+    if host == "claude-cli":
         from appsec_analyzer.hosts import claude_preflight
 
         claude_preflight()
@@ -379,12 +453,33 @@ def _assess(ns: argparse.Namespace) -> int:
     args = ["--repo", repositories[0]]
     for repo in repositories[1:]:
         args += ["--repo", repo]
-    args += ["--hard-budget", str(ns.hard_budget), "--assessment-depth", ns.assessment_depth,
-             "--trust-mode", ns.trust_mode]
-    for flag in ("output", "progress_file", "model", "reasoning_model", "project", "width",
-                 "pentest_format", "pentest_target",
-                 "org_profile", "preset", "stride_model", "triage_model", "merger_model",
-                 "max_duration", "fail_on", "evidence_verifier_cap", "context"):
+    args += [
+        "--hard-budget",
+        str(ns.hard_budget),
+        "--assessment-depth",
+        ns.assessment_depth,
+        "--trust-mode",
+        ns.trust_mode,
+    ]
+    for flag in (
+        "output",
+        "progress_file",
+        "model",
+        "reasoning_model",
+        "project",
+        "width",
+        "pentest_format",
+        "pentest_target",
+        "org_profile",
+        "preset",
+        "stride_model",
+        "triage_model",
+        "merger_model",
+        "max_duration",
+        "fail_on",
+        "evidence_verifier_cap",
+        "context",
+    ):
         if value := getattr(ns, flag):
             args += ["--" + flag.replace("_", "-"), str(value)]
     if ns.requirements is not None:
@@ -395,9 +490,24 @@ def _assess(ns: argparse.Namespace) -> int:
         args.append("--slug")
         if ns.slug != "__auto__":
             args.append(ns.slug)
-    for flag in ("resume", "rebuild", "quiet", "verbose", "sarif", "threatdragon", "pdf", "html",
-                 "pentest_tasks", "keep_runtime_files", "no_requirements", "skip_context", "no_qa",
-                 "ignore_legacy", "migrate_legacy", "no_org_profile"):
+    for flag in (
+        "resume",
+        "rebuild",
+        "quiet",
+        "verbose",
+        "sarif",
+        "threatdragon",
+        "pdf",
+        "html",
+        "pentest_tasks",
+        "keep_runtime_files",
+        "no_requirements",
+        "skip_context",
+        "no_qa",
+        "ignore_legacy",
+        "migrate_legacy",
+        "no_org_profile",
+    ):
         if getattr(ns, flag):
             args.append("--" + flag.replace("_", "-"))
     with checkout_arguments(args) as local_args:
@@ -452,9 +562,14 @@ def _inspect(ns: argparse.Namespace) -> int:
         entries = [json.loads(line) for line in data.splitlines()[-100:]]
         if any(not isinstance(row, dict) for row in entries):
             raise ValueError("assessment progress contains a non-object event")
-        document = {"interface_version": INTERFACE_VERSION, "kind": "assessment-progress",
-                    "run_id": state["run_id"], "assessment_status": state["status"],
-                    "feed_available": bool(data), "events": entries}
+        document = {
+            "interface_version": INTERFACE_VERSION,
+            "kind": "assessment-progress",
+            "run_id": state["run_id"],
+            "assessment_status": state["status"],
+            "feed_available": bool(data),
+            "events": entries,
+        }
     elif ns.command == "stop":
         from orchestrator.orchestration_controller import assess_stop
 
@@ -468,9 +583,13 @@ def _inspect(ns: argparse.Namespace) -> int:
         for name, expected in state["deliverables"].items():
             if _deliverable(output, name) != expected:
                 raise ValueError("assessment deliverable no longer matches its recorded digest")
-        document = {"interface_version": INTERFACE_VERSION, "kind": "assessment-results",
-                    "run_id": state["run_id"], "assessment_status": "complete",
-                    "deliverables": state["deliverables"]}
+        document = {
+            "interface_version": INTERFACE_VERSION,
+            "kind": "assessment-results",
+            "run_id": state["run_id"],
+            "assessment_status": "complete",
+            "deliverables": state["deliverables"],
+        }
     print(json.dumps(document, sort_keys=True))
     return 0
 
@@ -494,9 +613,16 @@ def _audit(ns: argparse.Namespace) -> int:
     try:
         with checkout_arguments(["--repo", ns.repo, "--output", ns.output]) as local:
             code, result = audit_repository(
-                repo=local[1], output=ns.output, catalog_path=catalog, model=ns.model,
-                hard_budget=ns.hard_budget, category_filter=ns.category, demo=ns.demo,
-                gate=ns.gate, gate_on=ns.gate_on, priority_floor=ns.priority_floor,
+                repo=local[1],
+                output=ns.output,
+                catalog_path=catalog,
+                model=ns.model,
+                hard_budget=ns.hard_budget,
+                category_filter=ns.category,
+                demo=ns.demo,
+                gate=ns.gate,
+                gate_on=ns.gate_on,
+                priority_floor=ns.priority_floor,
                 write_md=ns.md,
             )
     except (HostCancelled, TransportError) as exc:

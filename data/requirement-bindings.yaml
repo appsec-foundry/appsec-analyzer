@@ -857,6 +857,7 @@ requirements:
       - scripts/contexts/resolve_analyst_catalog.py
       - scripts/runtime/resolve_org_profile.py
       - appsec_analyzer/cli.py
+      - appsec_analyzer/codex_profiles.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions:
       - EX-1
@@ -867,6 +868,8 @@ requirements:
       - docs/internal/contracts/org-profile-invariants.md
       - docs/threat-analyst.md
       - docs/configuration.md
+      - docs/model-selection.md
+      - specs/changes/model-profile-depth/proposal.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
@@ -878,6 +881,11 @@ requirements:
       - tests/test_analyst_controller.py::test_organization_required_packages_apply_to_every_invoked_analysis
       - tests/test_analyst_controller.py::test_an_invalid_organization_profile_rejects_the_analysis
       - tests/test_public_assessment_operations.py::test_assess_rejects_missing_operator_profile_before_host_call
+      - tests/test_public_assessment_operations.py::test_openai_codex_profile_reaches_full_controller_without_claude_preflight
+      - tests/test_public_assessment_operations.py::test_claude_profile_preserves_controller_model_resolution
+      - tests/test_public_assessment_operations.py::test_codex_profile_selects_the_model_configured_for_each_depth
+      - tests/test_public_assessment_operations.py::test_codex_profile_invalid_combinations_fail_before_host
+      - tests/test_public_assessment_operations.py::test_assess_requires_explicit_profile_or_legacy_host
 
   REQ-019:
     applies_to:

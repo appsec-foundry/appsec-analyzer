@@ -1,4 +1,4 @@
-"""Pinned OpenAI Responses profiles for tool-less code assessment.
+"""Depth configurations of the built-in codex assessment profile.
 
 These are selectable configurations, not a claim of live assessment quality.
 The request cap keeps input below the model's long-context price threshold.
@@ -13,7 +13,7 @@ CODEX_PROFILES = {
     depth: ApiProfile(
         kind="openai",
         endpoint=_ENDPOINT,
-        model="gpt-6.1-sol",
+        model=model,
         key_env="OPENAI_API_KEY",
         # Include the possible 1.25x cache-write charge in the ceiling.
         input_usd_per_million=2.5,
@@ -23,9 +23,9 @@ CODEX_PROFILES = {
         reasoning_effort=effort,
         max_request_bytes=240_000,
     )
-    for depth, effort, output_tokens in (
-        ("quick", "low", 16_384),
-        ("standard", "medium", 24_576),
-        ("thorough", "high", 32_768),
+    for depth, model, effort, output_tokens in (
+        ("quick", "gpt-6.1-sol", "low", 16_384),
+        ("standard", "gpt-6.1-sol", "medium", 24_576),
+        ("thorough", "gpt-6.1-sol", "high", 32_768),
     )
 }

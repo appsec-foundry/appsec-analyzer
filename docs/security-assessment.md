@@ -12,20 +12,15 @@ snapshot; production behavior and business intent require human review.
 appsec-analyzer scan --repo /path/to/project \
   --budget 20 --assessment-depth standard
 appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
-  --host claude-cli --budget 30 --output /private/system-assessment
+  --profile claude --budget 30 --output /private/system-assessment
 ```
 
-The supported depths are `quick`, `standard`, and `thorough`. They change work
-limits and the Claude role defaults. `--model` pins all roles; `--stride-model`,
-`--triage-model`, and `--merger-model` override specific roles. Check
-[model selection](model-selection.md) before spending.
+The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model`, `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
 
 The spending limit defaults to USD 20 for both `scan` and `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 
-For OpenAI Responses, choose `--host openai`; its default profile follows the
-assessment depth (`codex-quick`, `codex-standard`, or `codex-thorough`). An explicit
-`--profile` must match the depth. The profiles use a fixed model and reasoning
-setting, so Claude role overrides do not apply.
+For OpenAI Responses, choose `--profile codex` and a separate `--assessment-depth`. The profile supplies the connection, model, reasoning, and output cap for that depth, so no `--host` is needed. Claude role overrides do not apply. Existing host and depth-profile calls remain compatible as described in [model selection](model-selection.md).
+
 `scan` also accepts the headless export options `--pentest-tasks`,
 `--pentest-format strix`, `--pentest-target URL`, and `--slug NAME`.
 `--keep-runtime-files` retains intermediate files for debugging; an explicit

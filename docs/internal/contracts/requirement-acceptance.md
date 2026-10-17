@@ -76,6 +76,8 @@ Let users deliberately rebuild. Preserve accepted work and earlier-result histor
 
 Accept documented and validated operator settings and organization profiles. Report conflicting or unsupported options. Repository declarations cannot choose provider credentials or weaken required analysis inputs, and configuration must not suppress evidence-supported findings.
 
+For full assessments, let operators select a built-in model profile independently of analysis depth. The profile determines the provider connection and resolves model settings for the selected depth. `scan` defaults to the Claude profile and standard depth; `assess` requires an explicit profile or compatible legacy host selection. Preserve documented legacy host and depth-profile calls, reject conflicting selections before host preflight or repository retrieval, and keep model profiles separate from organization settings. Repository content cannot define or select a model profile.
+
 ## REQ-019: Handle version changes clearly
 
 Version public interfaces and incompatible artifact or organization-contract changes. Provide explicit migration or rejection for incompatible state.

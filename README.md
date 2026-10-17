@@ -65,7 +65,7 @@ If you already have a checkout, start with `cd appsec-analyzer`. With pipx insta
 
 Installing by package name with `pip install appsec-analyzer` requires a release on PyPI. The current preview is listed as unpublished in [local release preparation](docs/local-release-preparation.md), which also describes installation from a locally built wheel.
 
-A full assessment also needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The source scan needs neither. See [host configuration](docs/configuration.md) for provider setup and the experimental OpenAI adapter.
+A full assessment with the default `claude` profile needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The experimental `codex` profile uses `OPENAI_API_KEY` instead. The source scan needs neither. See [profile configuration](docs/configuration.md) for provider setup.
 
 ## Quick start
 
@@ -95,7 +95,13 @@ This command sends selected source excerpts and supplied context to the model pr
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
-The default depth is `standard`. Use `--assessment-depth quick` or `--assessment-depth thorough` to change the analysis depth. See [hosts, models, and cost](docs/model-selection.md) before a paid run.
+The default profile is `claude` and the default depth is `standard`. Select the model profile separately from the analysis depth; the profile supplies the connection and model settings for that depth. For example, with `OPENAI_API_KEY` configured:
+
+```sh
+appsec-analyzer scan --profile codex --assessment-depth thorough --budget 20
+```
+
+No `--host` argument is needed. The `codex` profile uses the OpenAI API, not a Codex CLI login, and has not completed live assessment qualification. See [profiles, models, and cost](docs/model-selection.md) before a paid run.
 
 ### 3. Inspect and continue a run
 

@@ -63,7 +63,8 @@ def test_capabilities_distinguish_adapters_from_live_qualification() -> None:
     providers = document["assessment"]["providers"]
     assert providers["claude-cli"]["adapter"] == "compatibility"
     assert providers["openai"]["adapter"] == "responses"
-    assert providers["openai"]["profiles"] == ["codex-quick", "codex-standard", "codex-thorough"]
+    assert providers["claude-cli"]["profiles"] == ["claude"]
+    assert providers["openai"]["profiles"] == ["codex", "codex-quick", "codex-standard", "codex-thorough"]
     assert providers["gateway"]["adapter"] == "offline-only"
     assert all(provider["qualified"] is False for provider in providers.values())
 
@@ -116,6 +117,8 @@ def test_scan_bad_or_missing_options_show_text_errors() -> None:
         ("scan", "--hard-budget", "0"),
         ("scan", "--hard-budget", "nan"),
         ("scan", "--hard-budget", "20", "--assessment-depth", "invalid"),
+        ("scan", "--profile", "unknown-provider"),
+        ("assess", "--repo", ".", "--profile", "unknown-provider"),
         ("scan", "--hard-budget", "20", "--pentest-target", "file:///etc/passwd"),
         ("scan", "--hard-budget", "20", "--pentest-target", "http://localhost:3000\x01x"),
         ("scan", "--hard-budget", "20", "--slug", "../escape"),

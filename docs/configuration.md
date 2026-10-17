@@ -1,21 +1,16 @@
 # Configuration
 
-The public command is `appsec-analyzer`. `scan` takes local `--repo` paths, an optional existing `--output` directory, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory and the Claude CLI host. `assess` requires an explicit `--host` and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.
+The public command is `appsec-analyzer`. `scan` takes local `--repo` paths, an optional existing `--output` directory, `--profile`, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory, the `claude` profile, and `standard` depth. `assess` requires an explicit profile (or legacy `--host`) and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.
+
+Choose `--profile claude` for the Claude CLI or `--profile codex` for the experimental OpenAI API adapter. The profile determines the connection and model configuration for the separately selected `--assessment-depth quick|standard|thorough`; no `--host` argument is needed. These are built-in profiles, not files loaded from a repository or Codex CLI configuration. See [profiles, models, and cost](model-selection.md) for the depth settings and compatibility rules.
+
 An operator may pass `--org-profile FILE`, `--preset NAME`, or
 `--no-org-profile` to select or disable inherited assessment defaults. See
 [organization profiles](org-profiles.md).
 
 Full `scan` and `assess` are model-backed and default to a USD 20 spending limit; the separate `audit-requirements` command defaults to USD 5. Set `--budget USD` to override the default. The amount must be positive and finite; the requirements audit additionally requires at least USD 0.05. The CLI prints the selected limit to stderr before starting, leaving structured stdout unchanged. `--hard-budget` remains a compatible alias. These defaults do not vary with assessment depth and never enable unlimited spending.
 
-The Claude CLI host reads `APPSEC_CLAUDE_EXECUTABLE` (default `claude`) and
-uses a Claude login or externally configured Anthropic API credential.
-Credentials must remain outside repositories and reports. The direct OpenAI
-host uses `OPENAI_API_KEY` with a pinned `codex-<depth>` profile. It sends
-bounded source excerpts to `https://api.openai.com/v1/responses`, requests
-`store: false`, and gives the model no tools. The fixed gateway transport uses
-`APPSEC_GATEWAY_API_KEY` only in offline contract tests; public use remains
-blocked until a fixed route has been qualified. No repository may select a host,
-endpoint, credential name, or model by declaring it in source.
+The `claude` profile reads `APPSEC_CLAUDE_EXECUTABLE` (default `claude`) and uses a Claude login or externally configured Anthropic API credential. Credentials must remain outside repositories and reports. The `codex` profile uses `OPENAI_API_KEY` with pinned model settings for each depth. It sends bounded source excerpts to `https://api.openai.com/v1/responses`, requests `store: false`, and gives the model no tools. The fixed gateway transport uses `APPSEC_GATEWAY_API_KEY` only in offline contract tests; public use remains blocked until a fixed route has been qualified. No repository may select a profile, host, endpoint, credential name, or model by declaring it in source.
 
 The assessment resolver retains its tested role defaults and certain `APPSEC_*`
 model overrides from the extracted controller. A root `config.json` is not
