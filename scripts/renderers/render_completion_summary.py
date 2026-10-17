@@ -998,15 +998,14 @@ def build_next_steps(
     conditions live here with the code that applies them.
 
     Returns up to four actions: read, triage, inspect an actionable architect
-    review, or ask about the model.
+    review, and check source citations and coverage.
     Informational notices belong in `build_run_notes`.
 
     Technical follow-ups such as SARIF upload and a deeper re-run belong in
     `build_follow_ups`.
 
     Entry 0 is the report step and stays first (it is the one most readers
-    want), and the ask step stays last — it is the open-ended fallback, and it
-    follows the other focused steps. Each entry is a self-contained
+    want), and the source-review step stays last. Each entry is a self-contained
     imperative and starts capitalised; the list carries no conjunctions, so
     nothing has to read on from the entry above it.
 
@@ -1022,21 +1021,10 @@ def build_next_steps(
     # under it for a pointer the Management Summary already links to.
     lines.append(f'Open the report — {_report(output_dir)} → start at "Management Summary"')
 
-    # Triage — whenever the run surfaced findings, point at the consumer skill
-    # that turns them into a prioritised, owned remediation plan. Runs later and
-    # independently of this pipeline, so it fits any follow-up session.
+    # The standalone CLI publishes a report for review by the owning team.
     if sum(sev.values()):
-        lines.append("Triage the findings — /appsec-advisor:triage-security-assessment")
+        lines.append("Triage the findings with the owning team and assign remediation owners")
 
-    # Asking is the non-mutating default exploration path and must stay visible
-    # rather than sink into an easy-to-miss footer. Show the question, NOT
-    # `/appsec-advisor:ask-security-assessment`: that skill routes itself from any
-    # natural-language query about the model ("the default surface for every
-    # natural-language query", its own description), so naming the command
-    # implies a step the reader does not have to take. The question IS the
-    # invocation. triage-security-assessment is the opposite case — a triage console
-    # with modes that has to be started — so it keeps its command.
-    #
     # Architect review — only surface the dot-file when it contains actionable defects.
     # Advisory-only reviews (technical_defects=0, no repair plan) are internal
     # artefacts; everything important is already in threat-model.md.
@@ -1054,37 +1042,7 @@ def build_next_steps(
         if _arch_has_defects:
             lines.append(f"Read the architect review — {output_dir}/.architect-review.md")
 
-    # Name the addressee anyway. "just ask" said what to say without saying to
-    # whom, and the reader is looking at terminal output with no reason to
-    # assume the next prompt is the place.
-    #
-    # The examples get one line each rather than being joined into the lead-in.
-    # Run together ('ask me about it — e.g. "…?" or "…?"') the second question
-    # trailed off the end of the longest line in the block and read as an
-    # afterthought; stacked under the lead-in they are two visibly equal
-    # offers. Two of them, because one reads as *the* question to ask rather
-    # than as an instance of a kind.
-    #
-    # The closing line is what keeps them examples. Without it a reader takes a
-    # stacked pair as the menu — precisely the failure the "e.g." was carrying
-    # before, and it cannot carry it from inside the lead-in once the questions
-    # sit on their own lines.
-    #
-    # Keep the open-ended fallback last, after the focused review questions.
-    #
-    # The examples follow the findings, and lead with orientation before action,
-    # mirroring the two entries above (read it, then triage it). On a clean run
-    # "What should I fix first?" asks about findings the run did not produce.
-    examples = (
-        ("What are the most critical findings?", "What should I fix first?")
-        if sum(sev.values())
-        else ("What did the scan cover?", "What was out of scope?")
-    )
-    lines.append(
-        "\n".join(
-            ["Or just ask me:"] + [f'"{question}"' for question in examples] + ["… or anything else about the report"]
-        )
-    )
+    lines.append("Inspect source citations and coverage before accepting or fixing findings")
 
     # Cap at 5.
     return lines[:5]
@@ -1580,8 +1538,8 @@ def _unpriced_token_lines(unpriced: int) -> list[str]:
 # — which is how a `--pdf --html --pentest-tasks` run printed "Assessment
 # complete" while producing none of the three (juice-shop 2026-08-18).
 _REQUESTABLE_DELIVERABLES: tuple[tuple[str, str, str], ...] = (
-    ("write_sarif", "SARIF", "threat-model.sarif.json"),
-    ("write_threatdragon", "Threat Dragon", "threat-model.threatdragon.json"),
+    ("write_sarif", "SARIF", "security-assessment.sarif.json"),
+    ("write_threatdragon", "Threat Dragon", "security-assessment.threatdragon.json"),
     ("write_pentest_tasks", "Pentest tasks", "pentest-tasks.yaml"),
     ("write_pdf", "PDF", "threat-model.pdf"),
     ("write_html", "HTML", "threat-model.html"),
@@ -2696,8 +2654,8 @@ def patch_placeholders(output_dir: Path, stats: dict) -> int:
 
 # Mirrors orchestration_controller._YAML_DERIVED_EXPORTS. Keep the two in sync.
 _YAML_DERIVED_EXPORTS: tuple[tuple[str, str, str], ...] = (
-    ("write_sarif", "exporters/export_sarif.py", "threat-model.sarif.json"),
-    ("write_threatdragon", "exporters/export_threat_dragon.py", "threat-model.threatdragon.json"),
+    ("write_sarif", "exporters/export_sarif.py", "security-assessment.sarif.json"),
+    ("write_threatdragon", "exporters/export_threat_dragon.py", "security-assessment.threatdragon.json"),
 )
 
 

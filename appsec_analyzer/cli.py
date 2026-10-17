@@ -297,12 +297,14 @@ def _inspect(ns: argparse.Namespace) -> int:
     elif ns.command == "progress":
         from runtime.assessment_state import PROGRESS_NAME
 
-        data = _bounded_file(output / PROGRESS_NAME, 1_048_576)
+        feed = output / PROGRESS_NAME
+        data = _bounded_file(feed, 1_048_576) if os.path.lexists(feed) else b""
         entries = [json.loads(line) for line in data.splitlines()[-100:]]
         if any(not isinstance(row, dict) for row in entries):
             raise ValueError("assessment progress contains a non-object event")
         document = {"interface_version": INTERFACE_VERSION, "kind": "assessment-progress",
-                    "run_id": state["run_id"], "events": entries}
+                    "run_id": state["run_id"], "assessment_status": state["status"],
+                    "feed_available": bool(data), "events": entries}
     elif ns.command == "stop":
         from orchestrator.orchestration_controller import assess_stop
 

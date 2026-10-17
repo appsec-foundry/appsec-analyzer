@@ -929,7 +929,7 @@ class TestManualReviewStep:
         before = {path: path.read_bytes() for path in (model, report)}
         steps = rcs.build_next_steps(tmp_path, tmp_path, {"threats_by_sev": {"Critical": 1}}, {})
         assert len(steps) == 3
-        assert steps[-1].startswith("Or just ask me:")
+        assert steps[-1].startswith("Inspect source citations")
         rendered = "\n".join(rcs.render_next_steps(steps))
         assert "Open questions for the team" not in rendered
         assert "Top mitigations:" not in rendered
@@ -949,7 +949,7 @@ class TestManualReviewStep:
         assert len(steps) == 4
         assert not any(step.startswith(rcs.TEAM_QUESTIONS_HEADER) for step in steps)
         assert any(step.startswith("Read the architect review") for step in steps)
-        assert steps[-1].startswith("Or just ask me:")
+        assert steps[-1].startswith("Inspect source citations")
 
 
 class TestNextSteps:
@@ -972,64 +972,30 @@ class TestNextSteps:
     def test_always_line_1_present(self, tmp_path):
         lines = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(high=1), self._cfg())
         assert "Management Summary" in lines[0]
-        ask = next(l for l in lines if "ask me" in l)
-        # A bare skill link does not tell the reader what to ask it.
-        assert "What should I fix first?" in ask
+        assert lines[-1].startswith("Inspect source citations")
 
-    def test_the_ask_step_names_an_addressee(self, tmp_path):
-        # "just ask" said what to say without saying to whom, and the reader is
-        # looking at terminal output with no reason to assume the next prompt
-        # is the place.
+    def test_next_steps_name_no_plugin_command(self, tmp_path):
         lines = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(high=1), self._cfg())
-        assert any(l.startswith("Or just ask me:") for l in lines)
+        assert not any("/appsec-advisor:" in line for line in lines)
+        assert any("Triage the findings" in line for line in lines)
 
-    def test_the_ask_step_carries_two_examples_on_their_own_lines(self, tmp_path):
-        # One example reads as *the* question to ask rather than as an instance
-        # of a kind. Run together on the lead-in the second one trailed off the
-        # end of the longest line in the block; stacked they are equal offers.
+    def test_final_step_names_evidence_and_coverage(self, tmp_path):
         lines = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(high=1), self._cfg())
-        ask = next(l for l in lines if "ask me" in l)
-        assert ask.count("?") == 2
-        assert [part for part in ask.split("\n") if part.endswith('?"')] == [
-            '"What are the most critical findings?"',
-            '"What should I fix first?"',
-        ]
+        assert "citations" in lines[-1] and "coverage" in lines[-1]
 
-    def test_the_ask_step_marks_the_questions_as_examples(self, tmp_path):
-        # Without a closing line a stacked pair reads as the menu — the failure
-        # the old inline "e.g." was carrying, which it can no longer carry once
-        # the questions sit on their own lines.
-        lines = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(high=1), self._cfg())
-        ask = next(l for l in lines if "ask me" in l)
-        assert ask.split("\n")[-1] == "… or anything else about the report"
-
-    def test_the_ask_step_stays_last(self, tmp_path):
-        # The open-ended question examples follow the focused actions.
+    def test_source_review_step_stays_last(self, tmp_path):
         cfg = self._cfg(architect_review=True)
         (tmp_path / ".architect-review.md").write_text("x", encoding="utf-8")
         (tmp_path / ".architect-status.json").write_text('{"technical_defects": 3}', encoding="utf-8")
         lines = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(critical=2), cfg)
 
-        assert lines[-1].startswith("Or just ask me:"), "the ask step must stay last"
+        assert lines[-1].startswith("Inspect source citations")
         assert any("architect review" in l for l in lines), "the architect entry still renders"
 
-    def test_the_ask_examples_follow_the_findings(self, tmp_path):
-        # On a clean run "What should I fix first?" asks about findings the run
-        # did not produce.
+    def test_clean_run_has_no_triage_step(self, tmp_path):
         clean = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(), self._cfg())
-        ask = next(l for l in clean if "ask me" in l)
-        assert "What did the scan cover?" in ask
-        assert "What was out of scope?" in ask
-        assert not any("fix first" in l for l in clean)
-
-    def test_ask_step_does_not_name_the_skill_command(self, tmp_path):
-        # ask-security-assessment routes itself from any natural-language question
-        # about the model, so printing the slash command implies a step the
-        # reader does not have to take — the question is the invocation.
-        # triage-security-assessment is a console you start, so it keeps its command.
-        lines = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(high=1), self._cfg())
-        assert not any("ask-security-assessment" in l for l in lines)
-        assert any("triage-security-assessment" in l for l in lines)
+        assert not any("Triage the findings" in line for line in clean)
+        assert clean[-1].startswith("Inspect source citations")
 
     def test_every_alternative_is_a_self_contained_entry(self, tmp_path):
         # Nothing joins the bullets any more, so no entry may be a lowercase
@@ -1064,9 +1030,9 @@ class TestNextSteps:
 
     def test_triage_hint_only_when_findings_present(self, tmp_path):
         with_findings = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(high=1), self._cfg())
-        assert any("triage-security-assessment" in l for l in with_findings)
+        assert any("Triage the findings" in l for l in with_findings)
         clean = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(), self._cfg())
-        assert not any("triage-security-assessment" in l for l in clean)
+        assert not any("Triage the findings" in l for l in clean)
 
     def test_architect_review_shown_when_file_exists(self, tmp_path):
         (tmp_path / ".architect-review.md").write_text("# review\n")
@@ -2513,12 +2479,12 @@ class TestExportDeliverablesBackstop:
     def test_exports_threatdragon_when_requested(self, tmp_path: Path):
         self._seed(tmp_path, write_threatdragon=True)
         rcs._export_deliverables_if_configured(tmp_path)
-        assert (tmp_path / "threat-model.threatdragon.json").is_file()
+        assert (tmp_path / "security-assessment.threatdragon.json").is_file()
 
     def test_noop_when_not_requested(self, tmp_path: Path):
         self._seed(tmp_path, write_threatdragon=False)
         rcs._export_deliverables_if_configured(tmp_path)
-        assert not (tmp_path / "threat-model.threatdragon.json").exists()
+        assert not (tmp_path / "security-assessment.threatdragon.json").exists()
 
     def test_noop_when_no_config(self, tmp_path: Path, monkeypatch):
         calls = []
@@ -2528,7 +2494,7 @@ class TestExportDeliverablesBackstop:
 
     def test_leaves_an_existing_export_alone(self, tmp_path: Path, monkeypatch):
         self._seed(tmp_path, write_threatdragon=True)
-        (tmp_path / "threat-model.threatdragon.json").write_text('{"mine": true}', encoding="utf-8")
+        (tmp_path / "security-assessment.threatdragon.json").write_text('{"mine": true}', encoding="utf-8")
         calls = []
         monkeypatch.setattr(rcs.subprocess, "run", lambda *a, **k: calls.append(a[0]) or None)
         rcs._export_deliverables_if_configured(tmp_path)
@@ -2604,10 +2570,10 @@ class TestRequestedDeliverablesAreReported:
         mod = _load_module()
         assert sorted(mod.missing_deliverables(tmp_path, self.ALL_REQUESTED)) == [
             "pentest-tasks.yaml",
+            "security-assessment.sarif.json",
+            "security-assessment.threatdragon.json",
             "threat-model.html",
             "threat-model.pdf",
-            "threat-model.sarif.json",
-            "threat-model.threatdragon.json",
         ]
 
     def test_outputs_block_marks_them_missing(self, tmp_path):

@@ -68,3 +68,25 @@ def test_progress_and_stop_refuse_symlinked_state(tmp_path: Path) -> None:
         result = _run(command, output)
         assert result.returncode != 0
         assert result.stdout == ""
+
+
+def test_progress_reports_final_state_after_feed_cleanup(tmp_path: Path) -> None:
+    output = tmp_path / "out"
+    _state(output)
+    result = _run("progress", output)
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["assessment_status"] == "complete"
+    assert body["feed_available"] is False
+    assert body["events"] == []
+
+
+def test_progress_rejects_symlinked_feed(tmp_path: Path) -> None:
+    output = tmp_path / "out"
+    _state(output)
+    external = tmp_path / "external-feed.jsonl"
+    external.write_text('{"message":"untrusted"}\n', encoding="utf-8")
+    (output / ".assessment-progress.jsonl").symlink_to(external)
+    result = _run("progress", output)
+    assert result.returncode != 0
+    assert result.stdout == ""

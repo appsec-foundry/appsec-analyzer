@@ -774,7 +774,7 @@ def render_case_detail(
     found = [_line(f) for f in (record or {}).get("matched_finding_ids") or []]
     if found:
         out.append(f"  Finding:        /appsec-advisor:ask-security-assessment --id {found[0]}")
-        out.append(f"  Fix or accept:  /appsec-advisor:triage-security-assessment, then pick {', '.join(found)}")
+        out.append(f"  Fix or accept:  review these cases with their owners: {', '.join(found)}")
     if data is None:
         out.append("  Threat model:   /appsec-advisor:appsec-analyzer")
     out.append(_check_hint(cid, case, data))

@@ -17,7 +17,9 @@ prints its versioned JSON to stdout. The assessment command creates its
 private default destination if `--output` is omitted. A `stop` request preserves
 accepted assessment work for a compatible `--resume`. `--rebuild` starts over.
 The result and status contracts distinguish scanner-only output from completed,
-interrupted, and failed assessments.
+interrupted, and failed assessments. After normal cleanup removes the event
+feed, `progress` reports the final state with `feed_available: false` and no
+events; `status` and `results` remain available.
 
 The separate requirements audit uses `appsec-analyzer audit-requirements
 --repo /checkout --requirements /catalog.yaml --output /private/audit

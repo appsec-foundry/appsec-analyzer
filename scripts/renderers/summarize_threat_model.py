@@ -409,7 +409,7 @@ RECOMMEND_TEXT = {
 _NEXT_STEP_LINES = [
     "Ask        a question about a specific finding, coverage, or what to fix first",
     "           → /appsec-advisor:ask-security-assessment",
-    "Act        on the findings → /appsec-advisor:triage-security-assessment",
+    "Act        on the findings → review with their owners",
 ]
 
 # Posture flag of the report's `### Verdict`, in the report's own colours.
