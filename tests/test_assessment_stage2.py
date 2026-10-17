@@ -16,7 +16,10 @@ import model.emit_requirement_trace_to_model as emit_trace
 import yaml
 from model.build_threat_model_yaml import build_requirements_compliance
 from orchestrator import assessment_stage2 as stage2
+from runtime.analyst_host import HostReply
 from runtime.assessment_host import ExchangeError
+from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
+from runtime.multi_repo_scope import AssessmentScope, RepositoryView
 
 MODEL = """\
 components:
@@ -80,6 +83,8 @@ class FakeJobs:
     def __init__(self, replies):
         self.replies = replies
         self.calls = []
+        self.budget = AssessmentBudget(30.0, 2.0, 100, 7200)
+        self.budget.plan_completion()
 
     def execute(self, *, role, selector, instructions, context, schema, allowed_sources, validate, on_failure=None):
         self.calls.append({"role": role, "selector": selector, "allowed_sources": allowed_sources, "context": context})
@@ -159,9 +164,9 @@ def test_valid_replies_publish_gated_fragments_without_source_access(workspace):
     assert not (fragments / "ms-anti-patterns.json").exists()
     section6 = (fragments / "security-architecture.md").read_text(encoding="utf-8")
     assert "NARRATIVE_PLACEHOLDER" not in section6 and "```mermaid" in section6
-    assert [c["role"] for c in jobs.calls] == ["ms_renderer", "secarch_renderer"]
+    assert [c["role"] for c in jobs.calls] == ["secarch_renderer", "ms_renderer"]
     assert all(c["allowed_sources"] == frozenset() for c in jobs.calls)
-    assert len(receipts) == 3 and "skipped (no catalog)" in receipts[1]
+    assert len(receipts) == 3 and "skipped (no catalog)" in receipts[2]
 
 
 @pytest.mark.parametrize(
@@ -174,7 +179,7 @@ def test_valid_replies_publish_gated_fragments_without_source_access(workspace):
     ],
     ids=["wrong-colour", "uncited-critical", "unknown-ref", "attack-in-closing"],
 )
-def test_invalid_verdict_is_rejected_and_nothing_is_written(workspace, change):
+def test_invalid_verdict_is_rejected_and_no_summary_fragment_is_written(workspace, change):
     before = sorted(p.name for p in (workspace / ".fragments").iterdir())
     jobs = FakeJobs(_replies(workspace, verdict={**VERDICT, **change}))
 
@@ -182,7 +187,7 @@ def test_invalid_verdict_is_rejected_and_nothing_is_written(workspace, change):
         stage2.render(jobs, workspace)
 
     assert sorted(p.name for p in (workspace / ".fragments").iterdir()) == before
-    assert [c["role"] for c in jobs.calls] == ["ms_renderer"]
+    assert [c["role"] for c in jobs.calls] == ["secarch_renderer", "ms_renderer"]
 
 
 @pytest.mark.parametrize("defect", ["unknown", "missing", "duplicate"])
@@ -281,7 +286,42 @@ def test_filled_scaffold_needs_no_job(workspace):
     receipts = stage2.render(jobs, workspace)
 
     assert [c["role"] for c in jobs.calls] == ["ms_renderer"]
-    assert receipts[-1] == "stage2: security architecture already filled"
+    assert receipts[0] == "stage2: security architecture already filled"
+
+
+@pytest.mark.parametrize("already_filled", [False, True])
+def test_summary_uses_remaining_budget_after_required_report(workspace, tmp_path, already_filled):
+    replies = _replies(workspace)
+    if already_filled:
+        (workspace / ".fragments/security-architecture.md").write_text(
+            "## 6. Security Architecture\n\nNo placeholders remain.\n", encoding="utf-8"
+        )
+    scope = AssessmentScope(
+        (RepositoryView("repo-0123456789abcdef", tmp_path / "source", "a" * 40, "b" * 64, {}),),
+        workspace,
+    )
+    budget = AssessmentBudget(30.0, 2.0, 100, 7200)
+    budget.plan_completion()
+    budget.spent_usd = 28.0
+    calls = []
+
+    def factory(role, ceiling):
+        calls.append((role, ceiling))
+
+        class Host:
+            def invoke(self, *args):
+                selector = "stage2:security-architecture" if role == "secarch_renderer" else "stage2:management-summary"
+                return HostReply({"action": "complete", "reads": [], "artifact": replies[selector]}, 0.25)
+
+        return Host()
+
+    jobs = AssessmentJobs(scope, workspace / "jobs", budget, factory, lambda: False, lambda: None)
+    stage2.render(jobs, workspace)
+
+    assert calls == ([("ms_renderer", 2.0)] if already_filled else [("secarch_renderer", 2.0), ("ms_renderer", 1.75)])
+    assert json.loads((workspace / ".fragments/ms-verdict.json").read_text()) == VERDICT
+    assert not jobs.gaps and not budget.required
+    assert budget.spent_usd == pytest.approx(28.25 if already_filled else 28.50)
 
 
 CATALOG = """\
@@ -332,12 +372,12 @@ def test_catalog_yields_a_compliance_fragment_the_trace_emitter_accepts(catalog_
     fragment = (catalog_workspace / ".fragments" / "requirements-compliance.md").read_text(encoding="utf-8")
     assert "| SEC-001: Parameterized queries | ❌ FAIL | MUST |" in fragment and "[F-001](#f-001)" in fragment
     assert [c["selector"] for c in jobs.calls] == [
+        "stage2:security-architecture",
         "stage2:management-summary",
         "stage2:requirements-compliance",
-        "stage2:security-architecture",
     ]
     assert all(c["allowed_sources"] == frozenset() for c in jobs.calls)
-    assert "requirements compliance assessed 2" in receipts[1]
+    assert "requirements compliance assessed 2" in receipts[2]
     # The emitter's own parse; its final whole-model schema check needs a complete
     # model, which this minimal fixture deliberately is not.
     staging = tmp_path / "staging"

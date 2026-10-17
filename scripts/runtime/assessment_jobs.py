@@ -36,6 +36,7 @@ MAX_ASSESSMENT_SECONDS = 43_200
 # Local composition, validation and publication need time even after the last call.
 FINALIZATION_SECONDS = 120
 REPORT_JOB = "stage2:security-architecture"
+SUMMARY_JOB = "stage2:management-summary"
 
 
 def digest(value) -> str:
@@ -125,8 +126,12 @@ class AssessmentBudget(DiscoveryBudget):
             return available
         reserved, _ = self._reserve()
         available -= reserved
-        _group, role, optional = getattr(self._local, "job", (None, None, False))
-        if optional and available + 1e-9 < self._estimate(role)[0]:
+        group, role, optional = getattr(self._local, "job", (None, None, False))
+        # Once the required report is accepted, its unused reserve can fund
+        # the summary even below a full estimated job. Admission still caps
+        # every exchange at the actual remainder and enforces time/call limits.
+        finishing_summary = group == SUMMARY_JOB and role == "ms_renderer" and REPORT_JOB not in self.required
+        if optional and not finishing_summary and available + 1e-9 < self._estimate(role)[0]:
             return 0.0
         return available
 

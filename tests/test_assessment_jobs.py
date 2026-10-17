@@ -528,6 +528,73 @@ def test_optional_work_still_runs_with_sufficient_completion_budget(tmp_path):
     assert host.calls == 1 and jobs.gaps == []
 
 
+@pytest.mark.parametrize("remaining, expected_calls", [(1.75, 1), (0.05, 1), (0.049, 0), (0.0, 0)])
+def test_finishing_summary_uses_only_the_actual_remaining_budget(tmp_path, remaining, expected_calls):
+    from runtime.assessment_jobs import REPORT_JOB, SUMMARY_JOB
+
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(30.0, 2.0, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.accepted(REPORT_JOB, "secarch_renderer", 0.25)
+    jobs.budget.spent_usd = 30.0 - remaining
+    ceilings = []
+
+    def factory(role, ceiling):
+        ceilings.append(ceiling)
+        return host
+
+    jobs.host_factory = factory
+    result = jobs.execute(
+        **{**kwargs, "role": "ms_renderer", "selector": SUMMARY_JOB},
+        on_failure=lambda reason: {"result": "fallback"},
+    )
+    assert host.calls == expected_calls
+    assert result == {"result": "accepted" if expected_calls else "fallback"}
+    assert all(0.05 <= ceiling <= remaining for ceiling in ceilings)
+    assert jobs.budget.spent_usd <= 30.0
+
+
+@pytest.mark.parametrize("limit", ["pending_report", "time", "calls", "other_role"])
+def test_finishing_summary_still_obeys_completion_and_execution_limits(tmp_path, limit):
+    from runtime.assessment_jobs import FINALIZATION_SECONDS, REPORT_JOB, SUMMARY_JOB
+
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(30.0, 2.0, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.spent_usd = 28.25
+    if limit != "pending_report":
+        jobs.budget.accepted(REPORT_JOB, "secarch_renderer", 0.25)
+    if limit == "time":
+        jobs.budget.deadline = time.monotonic() + FINALIZATION_SECONDS
+    elif limit == "calls":
+        jobs.budget.calls = jobs.budget.max_calls
+    role = "other" if limit == "other_role" else "ms_renderer"
+    assert jobs.execute(
+        **{**kwargs, "role": role, "selector": SUMMARY_JOB},
+        on_failure=lambda reason: {"result": "fallback"},
+    ) == {"result": "fallback"}
+    assert host.calls == 0 and jobs.gaps[0]["budget"]
+
+
+def test_finishing_summary_corrections_stop_at_the_remaining_budget(tmp_path):
+    from runtime.assessment_jobs import REPORT_JOB, SUMMARY_JOB
+
+    def reject(artifact, ranges):
+        raise ExchangeError("correct the result")
+
+    jobs, host, kwargs, _ = setup(tmp_path, validate=reject)
+    jobs.budget = AssessmentBudget(30.0, 2.0, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.accepted(REPORT_JOB, "secarch_renderer", 0.25)
+    jobs.budget.spent_usd = 29.95
+    assert jobs.execute(
+        **{**kwargs, "role": "ms_renderer", "selector": SUMMARY_JOB},
+        on_failure=lambda reason: {"result": "fallback"},
+    ) == {"result": "fallback"}
+    assert host.calls == 1 and jobs.budget.spent_usd == pytest.approx(29.96)
+    assert jobs.gaps[0]["budget"] and not list(jobs.directory.glob("*.receipt.json"))
+
+
 def test_optional_work_protects_pending_analysis_and_uses_measured_job_cost(tmp_path):
     jobs, host, kwargs, _ = setup(tmp_path)
     jobs.budget.deadline += 3600

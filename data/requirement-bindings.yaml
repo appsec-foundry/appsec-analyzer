@@ -1058,6 +1058,7 @@ requirements:
       - scripts/runtime/budget_watchdog.py
       - scripts/runtime/resolve_config.py
       - scripts/runtime/assessment_jobs.py
+      - scripts/orchestrator/assessment_stage2.py
       - scripts/runtime/assessment_state.py
       - scripts/runtime/multi_repo_discovery.py
       - scripts/orchestrator/orchestration_controller.py
@@ -1083,6 +1084,10 @@ requirements:
       - tests/test_assessment_jobs.py::test_optional_work_preserves_the_report_budget
       - tests/test_assessment_jobs.py::test_optional_work_protects_pending_analysis_and_uses_measured_job_cost
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_the_report_and_local_finalization
+      - tests/test_assessment_jobs.py::test_finishing_summary_uses_only_the_actual_remaining_budget
+      - tests/test_assessment_jobs.py::test_finishing_summary_still_obeys_completion_and_execution_limits
+      - tests/test_assessment_jobs.py::test_finishing_summary_corrections_stop_at_the_remaining_budget
+      - tests/test_assessment_stage2.py::test_summary_uses_remaining_budget_after_required_report
       - tests/test_multi_repo_assessment.py::test_budget_stop_keeps_accepted_candidates_in_a_separate_incomplete_report
       - tests/test_multi_repo_assessment.py::test_budget_stop_uses_incomplete_exit_status
 

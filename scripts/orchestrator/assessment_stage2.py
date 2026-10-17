@@ -32,6 +32,7 @@ from model.build_threat_model_yaml import (
     build_requirements_provenance,
 )
 from runtime.assessment_host import ExchangeError
+from runtime.assessment_jobs import REPORT_JOB, SUMMARY_JOB
 from runtime.assessment_state import MAX_DELIVERABLE_BYTES
 from shared._atomic_io import atomic_write_text
 
@@ -283,7 +284,7 @@ def _management_summary(jobs, workspace: Path, override) -> str:
 
     artifact = jobs.execute(
         role="ms_renderer",
-        selector="stage2:management-summary",
+        selector=SUMMARY_JOB,
         instructions=_instructions("ms_renderer", adaptation, override),
         # The digest's model hash covers run timestamps; leaving it out keeps the
         # request identical on resume, so an accepted job is replayed.
@@ -778,6 +779,7 @@ def _security_architecture(jobs, workspace: Path, override) -> str:
     scaffold = _bounded_text(path)
     rows = placeholders(scaffold)
     if not rows:
+        jobs.budget.plan_required(REPORT_JOB, "secarch_renderer", 0)
         return "stage2: security architecture already filled"
     marked, cursor = [], 0
     for row in rows:
@@ -801,7 +803,7 @@ def _security_architecture(jobs, workspace: Path, override) -> str:
 
     artifact = jobs.execute(
         role="secarch_renderer",
-        selector="stage2:security-architecture",
+        selector=REPORT_JOB,
         instructions=_instructions("secarch_renderer", adaptation, override),
         context=context,
         schema=secarch_schema(rows),
@@ -826,10 +828,12 @@ def render(
 ) -> list[str]:
     """Author the model-owned Stage-2 fragments of a prepared workspace; return receipts."""
     workspace = Path(workspace)
+    # Settle the mandatory renderer first so the summary can use its actual
+    # unspent allowance instead of being skipped against a cold-role reserve.
+    progress("Stage 2: Security Architecture")
+    receipts = [_security_architecture(jobs, workspace, instructions)]
     progress("Stage 2: Management Summary")
-    receipts = [_management_summary(jobs, workspace, instructions)]
+    receipts.append(_management_summary(jobs, workspace, instructions))
     progress("Stage 2: Requirements Compliance")
     receipts.append(_requirements_compliance(jobs, workspace, instructions))
-    progress("Stage 2: Security Architecture")
-    receipts.append(_security_architecture(jobs, workspace, instructions))
     return receipts
