@@ -10,17 +10,18 @@ snapshot; production behavior and business intent require human review.
 
 ```sh
 appsec-analyzer scan --repo /path/to/project \
-  --hard-budget 20 --assessment-depth standard
+  --budget 20 --assessment-depth standard
 appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
-  --host claude-cli --hard-budget 30 --output /private/system-assessment
+  --host claude-cli --budget 30 --output /private/system-assessment
 ```
 
 The supported depths are `quick`, `standard`, and `thorough`. They change work
 limits and the Claude role defaults. `--model` pins all roles; `--stride-model`,
 `--triage-model`, and `--merger-model` override specific roles. Check
-[model selection](model-selection.md) before spending. A hard USD budget is
-required at the public CLI. The controller reserves completion work before
-optional model calls and records unavailable cost as a conservative charge.
+[model selection](model-selection.md) before spending.
+
+The spending limit defaults to USD 20 for both `scan` and `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
+
 For OpenAI Responses, choose `--host openai`; its default profile follows the
 assessment depth (`codex-quick`, `codex-standard`, or `codex-thorough`). An explicit
 `--profile` must match the depth. The profiles use a fixed model and reasoning

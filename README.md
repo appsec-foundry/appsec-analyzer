@@ -9,7 +9,7 @@ AppSec Analyzer is a command-line tool for reviewing application security from s
 
 Use it when taking over an unfamiliar codebase, preparing a security review, or deciding what to fix next. It works with one Git repository or several repositories that form a system.
 
-The tool combines rule-based source scanners with model-backed analysis. A source scan runs without an AI account. A full security assessment uses Claude CLI by default and requires an explicit spending limit.
+The tool combines rule-based source scanners with model-backed analysis. A source scan runs without an AI account. A full security assessment uses Claude CLI by default with a USD 20 spending limit, configurable with `--budget`.
 
 > [!NOTE]
 > **Alpha.** Commands and report formats may change. Live assessment quality is still being qualified; review findings before acting on them.
@@ -83,13 +83,15 @@ It prints observations from the applicable authorization, mass-assignment, and c
 
 ### 2. Run a full assessment
 
-With Claude CLI configured, run:
+With Claude CLI configured, run this from the Git repository you want to assess:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project --hard-budget 20
+appsec-analyzer scan
 ```
 
-This command sends selected source excerpts and supplied context to the model provider and makes paid model calls. `--hard-budget 20` sets a USD 20 spending limit, not an estimate or a guarantee that the assessment will finish within that amount. If the remaining budget cannot cover required work, the run preserves progress and reports an incomplete assessment.
+`scan` uses the current directory by default. To assess a different repository, add `--repo /path/to/project`.
+
+This command sends selected source excerpts and supplied context to the model provider and makes paid model calls. The default spending limit is **USD 20** for `scan` and `assess`. To choose another limit, use `appsec-analyzer scan --budget 10`. The CLI prints the selected limit before starting. This is a maximum, not an estimate or a guarantee that the assessment will finish within that amount. If the remaining budget cannot cover required work, the run preserves progress and reports an incomplete assessment. `--hard-budget` remains a compatible alias for `--budget`.
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
@@ -107,7 +109,7 @@ appsec-analyzer results --output /path/to/assessment
 `status` shows the run state. `results` lists published files after checking their recorded hashes. To continue an interrupted run with compatible source and settings:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project --hard-budget 20 \
+appsec-analyzer scan --repo /path/to/project --budget 20 \
   --output /path/to/assessment --resume
 ```
 
@@ -120,7 +122,7 @@ The Markdown report describes the architecture, security controls, findings, ope
 Request additional formats when starting an assessment:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project --hard-budget 20 --sarif --html
+appsec-analyzer scan --repo /path/to/project --budget 20 --sarif --html
 ```
 
 | Flag | Output |
@@ -141,8 +143,8 @@ Use the same CLI for a combined assessment, a focused security question, or a re
 
 | Task | Command | Guide |
 | --- | --- | --- |
-| Assess several repositories together | `scan --repo /path/to/api --repo /path/to/client --hard-budget 30` | [Security assessment](docs/security-assessment.md) |
-| Select the model host explicitly | `assess --repo /path/to/project --host claude-cli --hard-budget 20` | [Hosts and models](docs/model-selection.md) |
+| Assess several repositories together | `scan --repo /path/to/api --repo /path/to/client --budget 30` | [Security assessment](docs/security-assessment.md) |
+| Select the model host explicitly | `assess --repo /path/to/project --host claude-cli --budget 20` | [Hosts and models](docs/model-selection.md) |
 | Review a design, code change, or threat hypothesis | `analyst design`, `analyst review`, `analyst hypothesis` | [Threat Analyst](docs/threat-analyst.md) |
 | Check a security requirements catalog, optionally as a CI gate | `audit-requirements` | [Requirements audit](docs/security-requirements-audit-skill.md) |
 | Show available scanners and provider qualification | `capabilities` | [Configuration](docs/configuration.md) |

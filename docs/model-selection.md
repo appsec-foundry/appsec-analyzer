@@ -21,8 +21,8 @@ request is capped at 240,000 bytes, below the model's 272,000 input-token
 long-context price threshold. The dated standard-price snapshot uses a
 conservative $2.50 per million input tokens (including a possible cache-write
 charge) and $10 per million output tokens to reserve and account for costs.
-The hard budget remains mandatory. See the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
-and [pricing table](https://developers.openai.com/api/docs/pricing) before a paid run.
+
+The spending limit defaults to USD 20 for `scan` and `assess` at every depth; use `--budget USD` to override it. See the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [pricing table](https://developers.openai.com/api/docs/pricing) before a paid run.
 
 Offline wire, boundary, and cost checks do not establish assessment quality.
 These Codex profiles have not completed a live end-to-end qualification run;

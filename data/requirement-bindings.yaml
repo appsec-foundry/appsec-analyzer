@@ -1498,6 +1498,8 @@ requirements:
 
   REQ-FLW-008:
     applies_to:
+      - appsec_analyzer/cli.py
+      - appsec_analyzer/requirements_audit.py
       - scripts/run-headless.sh
       - scripts/runtime/budget_watchdog.py
       - scripts/runtime/resolve_config.py
@@ -1509,8 +1511,13 @@ requirements:
     documents:
       - docs/security-assessment.md
       - docs/headless-mode.md
+      - specs/changes/public-budget-defaults/proposal.md
     coverage: partial
     guards:
+      - tests/test_public_scan_cli.py::test_public_budget_reaches_assessment_controller
+      - tests/test_public_scan_cli.py::test_public_budget_reaches_requirements_audit
+      - tests/test_public_scan_cli.py::test_public_budget_rejects_invalid_values_before_host
+      - tests/test_public_scan_cli.py::test_public_budget_help_documents_default_and_alias
       - tests/test_run_headless_completion.py::test_the_hard_cut_is_derived_from_the_soft_budget
       - tests/test_run_headless_completion.py::test_an_explicit_hard_budget_wins_over_the_derived_one
       - tests/test_assessment_jobs.py::test_optional_work_preserves_the_report_budget

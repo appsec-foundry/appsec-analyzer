@@ -1,13 +1,11 @@
 # Configuration
 
-The public command is `appsec-analyzer`. `scan` takes local `--repo` paths,
-an optional existing `--output` directory, `--assessment-depth`, and
-`--trust-mode`. It defaults to the Claude CLI host and requires `--hard-budget`.
-`assess` requires an explicit `--host` and `--hard-budget`; `--help` lists the supported depth, model, context,
-requirements, resume, and export flags.
+The public command is `appsec-analyzer`. `scan` takes local `--repo` paths, an optional existing `--output` directory, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory and the Claude CLI host. `assess` requires an explicit `--host` and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.
 An operator may pass `--org-profile FILE`, `--preset NAME`, or
 `--no-org-profile` to select or disable inherited assessment defaults. See
 [organization profiles](org-profiles.md).
+
+Full `scan` and `assess` are model-backed and default to a USD 20 spending limit; the separate `audit-requirements` command defaults to USD 5. Set `--budget USD` to override the default. The amount must be positive and finite; the requirements audit additionally requires at least USD 0.05. The CLI prints the selected limit to stderr before starting, leaving structured stdout unchanged. `--hard-budget` remains a compatible alias. These defaults do not vary with assessment depth and never enable unlimited spending.
 
 The Claude CLI host reads `APPSEC_CLAUDE_EXECUTABLE` (default `claude`) and
 uses a Claude login or externally configured Anthropic API credential.

@@ -13,18 +13,20 @@ admitted snapshot.
 For a scanner-only request, invoke:
 
 ```sh
-appsec-analyzer scan --repo <absolute-local-path>
+appsec-analyzer scan-sources --repo <absolute-local-path> --json
 ```
 
-The result is deterministic JSON. State clearly that semantic analysis,
+With `--json`, the result is deterministic JSON. State clearly that semantic analysis,
 component assignment, and evidence verification did not run.
 
 For a full assessment, obtain an explicit host and hard USD budget from the
 operator, then invoke:
 
 ```sh
-appsec-analyzer assess --repo <absolute-local-path> --host claude-cli --hard-budget <usd>
+appsec-analyzer assess --repo <absolute-local-path> --host claude-cli --budget <usd>
 ```
+
+The CLI defaults to USD 20 for `scan` and `assess`; `--budget` overrides it and `--hard-budget` remains a compatible alias. A CLI default does not authorize this skill to spend: continue to obtain the user's spending authorization before making paid calls.
 
 Use `appsec-analyzer capabilities` before suggesting a different host; API and
 gateway profiles remain unqualified until their model, route, cost, and depth

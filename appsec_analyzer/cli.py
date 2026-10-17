@@ -34,7 +34,7 @@ def _parser() -> argparse.ArgumentParser:
     scan = commands.add_parser(
         "scan", help="Run the full headless security assessment with live progress",
         description="Assess the selected repository with live progress and publish security reports.",
-        epilog="Example: appsec-analyzer scan --repo /path/to/repo --hard-budget 30",
+        epilog="Example: appsec-analyzer scan (USD 20 budget); override with --budget USD",
     )
     _add_assessment_arguments(scan, default_repo=True, default_host=True)
     sources = commands.add_parser("scan-sources", help="Run deterministic source scanners without a model")
@@ -63,7 +63,15 @@ def _parser() -> argparse.ArgumentParser:
     source = audit.add_mutually_exclusive_group(required=True)
     source.add_argument("--requirements", metavar="FILE")
     source.add_argument("--demo", action="store_true")
-    audit.add_argument("--hard-budget", type=float, required=True, metavar="USD")
+    audit.add_argument(
+        "--budget",
+        "--hard-budget",
+        dest="hard_budget",
+        type=_positive_budget,
+        default=5.0,
+        metavar="USD",
+        help="Maximum model cost in USD (default: %(default)g)",
+    )
     audit.add_argument("--model", default="sonnet", metavar="MODEL")
     audit.add_argument("--category", metavar="FILTER")
     audit.add_argument("--md", action="store_true")
@@ -111,8 +119,15 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument("--profile", choices=("codex-quick", "codex-standard", "codex-thorough"),
                         help="Pinned OpenAI model profile (default: codex-<assessment-depth>)")
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
-    parser.add_argument("--hard-budget", type=_positive_budget, required=True, metavar="USD",
-                        help="Maximum model cost in USD; required for a full scan")
+    parser.add_argument(
+        "--budget",
+        "--hard-budget",
+        dest="hard_budget",
+        type=_positive_budget,
+        default=20.0,
+        metavar="USD",
+        help="Maximum model cost in USD (default: %(default)g)",
+    )
     parser.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
     parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     parser.add_argument("--resume", action="store_true")
@@ -294,7 +309,7 @@ def _scan_summary(result: dict, *, output: str | None) -> str:
         lines.append(f"\nComplete JSON result: {_terminal_field(Path(output) / 'scan-result.json')}")
     lines.extend([
         "\nFull assessment was not run.",
-        "For the full assessment: appsec-analyzer scan --repo PATH --hard-budget USD",
+        "For the full assessment: appsec-analyzer scan --repo PATH --budget USD",
     ])
     return "\n".join(lines) + "\n"
 
@@ -493,6 +508,8 @@ def _audit(ns: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     ns = _parser().parse_args(argv)
     try:
+        if ns.command in ("scan", "assess", "audit-requirements"):
+            print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
         if ns.command == "version":
             print(json.dumps({"engine_version": ENGINE_VERSION, "interface_version": INTERFACE_VERSION}))
             return 0

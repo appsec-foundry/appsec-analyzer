@@ -10,8 +10,10 @@ provider dependency.
 mkdir -p /private/audit
 appsec-analyzer audit-requirements --repo /checkout \
   --requirements /catalog.yaml --output /private/audit \
-  --host claude-cli --hard-budget 5 --md --gate
+  --host claude-cli --budget 5 --md --gate
 ```
+
+The audit makes paid model calls with a default spending limit of USD 5. Use `--budget USD` to change the limit; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting.
 
 The output directory must exist, be outside the checkout, and have no prior
 audit result. The command writes `.requirements-audit.json` and, with `--md`,
