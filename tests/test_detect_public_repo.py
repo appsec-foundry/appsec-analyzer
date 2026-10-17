@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -174,6 +173,7 @@ def test_main_repairs_non_dict_meta(tmp_path: Path):
 @pytest.mark.parametrize("public", [True, False])
 def test_rebuilt_public_source_grouping_survives_enrichment(tmp_path, host, project, public):
     from model.enrichment_pass import valid_receipt
+    from orchestrator.orchestration_controller import _run_auto_emitter_pass
     from renderers.figure1_dfd import scenarios_from_attack_paths
 
     repo = _repo(
@@ -191,12 +191,7 @@ def test_rebuilt_public_source_grouping_survives_enrichment(tmp_path, host, proj
     for _rebuild in range(2):
         # A rebuild deliberately discards prior meta; the real pass must restore it.
         (out / "threat-model.yaml").write_text(yaml.safe_dump(model))
-        completed = subprocess.run(
-            ["bash", str(ROOT / "scripts/auto_emitter_pass.sh"), str(out), str(repo), str(ROOT), "false"],
-            capture_output=True,
-            text=True,
-        )
-        assert completed.returncode == 0, completed.stderr
+        _run_auto_emitter_pass(out, {"repo_root": str(repo)}, [])
         current = yaml.safe_load((out / "threat-model.yaml").read_text())
         assert (current["meta"].get("public_source_repo") is True) is public
         assert valid_receipt(current)

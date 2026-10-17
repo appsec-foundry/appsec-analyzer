@@ -177,14 +177,14 @@ class TestYamlResolutionAndValidation:
 
         assert scan_excludes._yaml_path() == override
 
-    def test_yaml_path_uses_plugin_root_when_present(self, tmp_path, monkeypatch):
+    def test_yaml_path_uses_bundled_data_even_with_plugin_root(self, tmp_path, monkeypatch):
         data_dir = tmp_path / "data"
         data_dir.mkdir()
-        plugin_yaml = _write_yaml(data_dir / "scan-excludes.yaml", _minimal_excludes())
+        _write_yaml(data_dir / "scan-excludes.yaml", _minimal_excludes())
         monkeypatch.delenv("SCAN_EXCLUDES_YAML", raising=False)
         monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))
 
-        assert scan_excludes._yaml_path() == plugin_yaml
+        assert scan_excludes._yaml_path() == scan_excludes._DEFAULT_YAML
 
     def test_loader_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="scan-excludes.yaml not found"):

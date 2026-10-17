@@ -263,7 +263,7 @@ def test_plugin_data_file_and_rule_loading_errors(tmp_path: Path, monkeypatch) -
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(plugin))
     assert (
         acc._plugin_data_file("ARCH_COVERAGE_RULES_YAML", tmp_path / "default.yaml", "architecture-coverage-rules.yaml")
-        == plugin_rule
+        == tmp_path / "default.yaml"
     )
     monkeypatch.delenv("CLAUDE_PLUGIN_ROOT")
 

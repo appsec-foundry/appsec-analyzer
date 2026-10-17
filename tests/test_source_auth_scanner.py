@@ -1471,9 +1471,9 @@ def test_no_sidecar_is_non_fatal(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_controller_invokes_scanner_in_prepass() -> None:
+def test_controller_invokes_scanner_in_deterministic_render() -> None:
     text = CONTROLLER.read_text(encoding="utf-8")
-    start = text.index("def _prepasses(")
+    start = text.index("def _assessment_render(")
     block = text[start : text.index("\ndef ", start + 1)]
     assert "analyzers/source_auth_scanner.py" in block, (
         "the controller must invoke analyzers/source_auth_scanner.py in the deterministic "
@@ -1630,9 +1630,9 @@ def test_scan_repo_skips_outside_and_universally_excluded_paths(tmp_path: Path, 
     assert [f.file for f in findings] == ["src/bad.js"]
 
 
-def test_discover_plugin_root_prefers_env_and_returns_none_when_unresolved(tmp_path: Path, monkeypatch) -> None:
+def test_discover_plugin_root_ignores_env_and_returns_none_when_unresolved(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path))
-    assert S._discover_plugin_root() == tmp_path
+    assert S._discover_plugin_root() == REPO_ROOT
 
     monkeypatch.delenv("CLAUDE_PLUGIN_ROOT")
     script = tmp_path / "elsewhere" / "scripts" / "analyzers/source_auth_scanner.py"

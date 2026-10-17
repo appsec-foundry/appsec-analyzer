@@ -232,11 +232,6 @@ def _plugin_data_file(env_var: str, default: Path, filename: str) -> Path:
     override = os.environ.get(env_var)
     if override:
         return Path(override)
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if plugin_root:
-        cand = Path(plugin_root) / "data" / filename
-        if cand.is_file():
-            return cand
     return default
 
 

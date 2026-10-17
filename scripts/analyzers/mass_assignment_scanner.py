@@ -443,9 +443,6 @@ def emit_sidecar(output_dir: Path, findings: list[Finding]) -> Path:
 
 
 def _discover_plugin_root() -> Path | None:
-    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if env and Path(env).is_dir():
-        return Path(env)
     here = Path(__file__).resolve().parents[2]
     if (here / "data").is_dir():
         return here

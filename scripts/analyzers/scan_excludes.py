@@ -163,17 +163,11 @@ _ASSESSMENT_PRODUCT_PATTERNS = (
 def _yaml_path() -> Path:
     """Resolve the scan-excludes.yaml location.
 
-    Priority: SCAN_EXCLUDES_YAML env var (test override) →
-    $CLAUDE_PLUGIN_ROOT/data/scan-excludes.yaml → sibling of this script.
+    Priority: SCAN_EXCLUDES_YAML env var (test override) → bundled data.
     """
     override = os.environ.get("SCAN_EXCLUDES_YAML")
     if override:
         return Path(override)
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if plugin_root:
-        candidate = Path(plugin_root) / "data" / "scan-excludes.yaml"
-        if candidate.is_file():
-            return candidate
     return _DEFAULT_YAML
 
 

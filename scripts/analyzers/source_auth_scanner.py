@@ -2273,11 +2273,7 @@ def emit_sidecar(
 
 
 def _discover_plugin_root() -> Path | None:
-    """Resolve plugin root from CLAUDE_PLUGIN_ROOT or the script location."""
-    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if env and Path(env).is_dir():
-        return Path(env)
-    # scripts/ sits directly under plugin root
+    """Resolve bundled scanner data from the installed resource location."""
     here = Path(__file__).resolve().parents[2]
     if (here / "data").is_dir():
         return here

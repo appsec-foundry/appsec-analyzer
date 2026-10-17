@@ -105,10 +105,10 @@ assessment completion.
   `assess`, `status`, `progress`, `stop`, `results`, and a focused `analyst`
   delegation. `scan` does not read provider credentials. API transports have
   offline wire, budget, destination, and failure tests but no approved public
-  model profile. Requirements-audit migration remains open: the old launcher
-  used a plugin skill with broad Bash/Agent permissions and cannot safely be
-  exposed as an Analyzer audit without a bounded controller. The temporary
-  shell file in this repository only delegates to `appsec-analyzer assess`.
+  model profile. A distinct bounded requirements-audit controller replaces
+  the old plugin-skill audit for local catalogs; the historical remote catalog
+  and resume modes remain unimplemented. The temporary shell file in this
+  repository only delegates to `appsec-analyzer assess`.
 - Default assessment and analyst state paths now use `appsec-analyzer`. The
   old Advisor data directory is not silently reused; historical data import
   behavior still needs installed-artifact verification.
@@ -152,6 +152,22 @@ assessment completion.
   distinct from the focused Threat Analyst and independent Requirements Audit.
   Plugin metadata and read/write hooks have no Analyzer runtime consumer and
   were removed; direct CLI source and output boundaries have their own tests.
+- A standalone `audit-requirements` entry now handles one local validated
+  catalog and one admitted checkout. It uses bounded model-directed reads,
+  accepts conclusive verdicts only with citations to served source lines,
+  applies the existing deterministic summary and gate, and publishes its
+  versioned result only after schema and source-state checks. It cannot resume
+  an interrupted audit or fetch Advisor's remote catalog sources. A fresh
+  output directory avoids mistaking an earlier verdict for the current run.
+  Its Markdown output escapes model-authored text. Offline fake-host tests
+  cover the successful gate and missing-evidence, invalid-source, stale-output,
+  and invalid-model failures; no live audit was charged or qualified.
+- The active deterministic scanners now choose packaged data independently of
+  `CLAUDE_PLUGIN_ROOT`. Affected scanner regression tests found three tests
+  that asserted the retired plugin override; they now assert the bundled-data
+  behavior. A fourth test expected an older controller function and was
+  aligned with the current deterministic render stage without reducing its
+  scanner-wiring check.
 
 ## Milestones
 
@@ -159,5 +175,5 @@ assessment completion.
 | --- | --- | --- |
 | A1–A2 inventory and history | Imported, verification ongoing | Primary and supplemental filtered lineages, maps, blob comparison, historical samples above; finish scoped secret triage and current-tree exclusions. |
 | A3–A5 provider boundary | Offline adapter in progress | Responses/gateway transport and negative offline tests exist; qualification, complete pipeline replay, and public API routing remain open. |
-| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths, focused analyst delegation, and wheel smoke checks exist; requirements audit, some launcher consumers, installed assessment and resume checks remain open. |
+| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths, focused analyst delegation, independent bounded requirements audit, and wheel smoke checks exist; some launcher development consumers, installed assessment, and resume checks remain open. |
 | A7 local release preparation | Open | Build and inspect wheel and sdist; record unresolved qualification and compatibility limits. No source-repository correction, push, or publication. |
