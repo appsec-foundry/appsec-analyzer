@@ -55,7 +55,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import runtime.plugin_meta as plugin_meta
+import runtime.engine_meta as engine_meta
 import shared._yaml_io as _yaml_io
 import yaml  # noqa: F401  (kept for downstream callers writing yaml)
 from contexts.prepare_trust_boundary_context import (
@@ -1466,7 +1466,7 @@ def _bootstrap_yaml_from_merged(output_dir: Path) -> bool:
             }
         )
 
-    analysis_version = plugin_meta.load_meta()["analysis_version"]
+    analysis_version = engine_meta.load_meta()["analysis_version"]
     stub: dict = {
         "meta": {"analysis_version": analysis_version, "_bootstrap": True},
         "threat_categories": [],

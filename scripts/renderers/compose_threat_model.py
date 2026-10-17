@@ -14020,14 +14020,14 @@ def _read_live_plugin_meta() -> tuple[str | None, int | None]:
     plugin.json. Used by the Run Statistics appendix to overwrite stale
     pairs that an old Stage-1 run may have baked into meta:.
     """
-    plugin_json = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+    plugin_json = PLUGIN_ROOT / "engine.json"
     if not plugin_json.is_file():
         return None, None
     try:
         data = json.loads(plugin_json.read_text(encoding="utf-8")) or {}
     except (OSError, json.JSONDecodeError):
         return None, None
-    pv = data.get("version") or None
+    pv = data.get("engine_version") or None
     av = data.get("analysis_version")
     if isinstance(av, str):
         try:

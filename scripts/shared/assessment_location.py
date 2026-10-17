@@ -2,7 +2,7 @@
 
 Every producer and consumer resolves the same directory through this module:
 ``<base>/<repo-name>-<hash8>``, where ``<base>`` is the platform data directory
-plus ``appsec-advisor/assessments``. The hash comes from the normalized
+plus ``appsec-analyzer/assessments``. The hash comes from the normalized
 ``origin`` remote, or from the canonical repository root when there is no
 usable remote, so clones and worktrees of one remote share one assessment.
 
@@ -37,7 +37,7 @@ from pathlib import Path
 
 from shared.artifact_names import ArtifactSetError, artifact_stem, report_path
 
-APP_DIRECTORY = "appsec-advisor"
+APP_DIRECTORY = "appsec-analyzer"
 ASSESSMENTS_DIRECTORY = "assessments"
 NAME_LIMIT = 40
 LEGACY_DIRECTORY = Path("docs") / "security"
@@ -141,15 +141,15 @@ def assessment_directory(name: str, base: Path | None = None) -> Path:
 
 
 def private_directory(directory: Path, base: Path) -> Path:
-    """Create ``directory`` and the ``appsec-advisor`` levels under it with mode 0700.
+    """Create ``directory`` and the ``appsec-analyzer`` levels under it with mode 0700.
 
     Refuses when ``directory`` is not below ``base`` or when any level from the
-    ``appsec-advisor`` directory down is a symlink, not a directory, owned by
+    ``appsec-analyzer`` directory down is a symlink, not a directory, owned by
     another user, or open to group or others.
     """
     app_root = base.parent if base.name == ASSESSMENTS_DIRECTORY else base
     if app_root.name != APP_DIRECTORY:
-        raise LocationError("the assessment base must end in appsec-advisor/assessments")
+        raise LocationError("the assessment base must end in appsec-analyzer/assessments")
     try:
         relative = directory.relative_to(app_root)
     except ValueError as exc:

@@ -466,11 +466,11 @@ def _check_compatibility(profile: dict, plugin_version: str) -> list[str]:
 
 
 def _read_plugin_version() -> str:
-    meta = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+    meta = PLUGIN_ROOT / "engine.json"
     if not meta.exists():
         return "0.0.0"
     try:
-        return json.loads(meta.read_text()).get("version", "0.0.0")
+        return json.loads(meta.read_text()).get("engine_version", "0.0.0")
     except (json.JSONDecodeError, OSError):
         return "0.0.0"
 

@@ -96,7 +96,7 @@ def test_two_worktrees_never_share_a_job_directory(tmp_path, state_root):
 
 
 def test_default_state_root_follows_xdg(tmp_path):
-    assert st.default_state_root({"XDG_STATE_HOME": str(tmp_path)}) == tmp_path / "appsec-advisor" / "analyst"
+    assert st.default_state_root({"XDG_STATE_HOME": str(tmp_path)}) == tmp_path / "appsec-analyzer" / "analyst"
 
 
 def test_loosened_or_symlinked_repository_directory_is_refused(repo, state_root, tmp_path):

@@ -473,20 +473,37 @@ def _script_failure(name: str, args: list[str]) -> str | None:
 
 def _run_auto_emitter_pass(output_dir: Path, cfg: dict[str, Any], receipts: list[str]) -> None:
     """Apply the shared deterministic YAML enrichment before quality gates."""
-    try:
-        _run_external(
-            [
-                "bash",
-                str(SCRIPT_DIR / "auto_emitter_pass.sh"),
-                str(output_dir),
-                str(cfg.get("repo_root") or output_dir),
-                str(PLUGIN_ROOT),
-                "true" if cfg.get("dry_run") else "false",
-            ]
-        )
-    except ControllerError as exc:
-        receipts.append(f"auto_emitter_pass.sh: {BEST_EFFORT_FAILURE}")
-        _append_event(output_dir, "ORCHESTRATION_GATE_WARN", str(exc), level="WARN")
+    if cfg.get("dry_run"):
+        return
+    repo_root = str(cfg.get("repo_root") or output_dir)
+    # The former shell pass ran these fixed producers in this order. Keep each
+    # best-effort producer isolated, but require the final signed receipt: a
+    # missing or stale receipt makes publication fail closed.
+    steps = (
+        ("validators/guard_evidence_verification.py", (str(output_dir),)),
+        ("validators/validate_evidence_lines.py", (str(output_dir), "--repo-root", repo_root)),
+        ("model/emit_meta_findings.py", (str(output_dir),)),
+        ("model/emit_review_mitigations.py", (str(output_dir),)),
+        ("model/emit_config_scan_mitigations.py", (str(output_dir),)),
+        ("model/emit_finding_fix_mitigations.py", (str(output_dir),)),
+        ("model/emit_clean_finding_titles.py", (str(output_dir),)),
+        ("model/emit_general_mitigation_titles.py", (str(output_dir),)),
+        ("model/backfill_scanner_remediation.py", (str(output_dir),)),
+        ("model/hydrate_mitigation_details.py", (str(output_dir),)),
+        ("model/sanitize_perimeter_claims.py", (str(output_dir),)),
+        ("model/reclassify_components.py", (str(output_dir),)),
+        ("model/enforce_control_taxonomy.py", (str(output_dir),)),
+        ("model/emit_auth_coverage.py", (str(output_dir), "--repo-root", repo_root)),
+        ("model/emit_threat_vektors.py", (str(output_dir),)),
+        ("model/emit_severity_rationale.py", (str(output_dir),)),
+        ("analyzers/detect_open_registration.py", (str(output_dir),)),
+        ("analyzers/detect_public_repo.py", (str(output_dir), "--repo-root", repo_root)),
+        ("model/enrich_asset_links.py", (str(output_dir),)),
+        ("validators/secret_scan.py", ("--mask", str(output_dir / "threat-model.yaml"))),
+    )
+    for name, args in steps:
+        _best_effort_script(output_dir, name, list(args), receipts)
+    _run_script("model/enrichment_pass.py", [str(output_dir)])
 
 
 def _enrich_and_gate_yaml(output_dir: Path, cfg: dict[str, Any], receipts: list[str]) -> None:
@@ -868,7 +885,7 @@ def _assessment_runtime_fingerprint() -> str:
                 if len(rows) >= 10_000 or metadata.st_size > 2_097_152 or total > 67_108_864:
                     raise ControllerError("assessment runtime exceeds its fingerprint bounds")
                 rows.append((path.relative_to(PLUGIN_ROOT).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()))
-    for relative in ("config.json", ".claude-plugin/plugin.json"):
+    for relative in ("engine.json",):
         path = PLUGIN_ROOT / relative
         if not stat.S_ISREG(path.lstat().st_mode) or path.stat().st_size > 2_097_152:
             raise ControllerError("assessment runtime metadata is not a bounded regular file")
@@ -877,7 +894,8 @@ def _assessment_runtime_fingerprint() -> str:
 
 
 @contextmanager
-def _assessment_session(scope, arguments, *, budget, host_factory, resume=False, model=None, rebuild=False):
+def _assessment_session(scope, arguments, *, budget, host_factory, resume=False, model=None, rebuild=False,
+                        api_profile=None):
     """Admit one owned analysis session without selecting a primary source root.
 
     The caller qualifies its trusted transport first. This controller chooses
@@ -888,6 +906,19 @@ def _assessment_session(scope, arguments, *, budget, host_factory, resume=False,
     from runtime.assessment_state import CACHE_NAME, RUN_DIAGNOSTIC_NAMES, AssessmentPaused, AssessmentState
 
     cfg = resolve_config.resolve_assessment(scope, arguments, PLUGIN_ROOT, model=model)
+    if api_profile is not None:
+        # The selected host owns every model role. A Claude default or an
+        # environment override may not silently cross the provider boundary.
+        from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
+
+        for key in set(SEMANTIC_ROLE_MODEL_KEYS.values()) | set(RENDERER_MODEL_KEYS.values()):
+            cfg[key] = api_profile.model
+        cfg["host_profile"] = {
+            "kind": api_profile.kind, "endpoint": api_profile.endpoint,
+            "model": api_profile.model, "price_revision": api_profile.price_revision,
+            "gateway_route_revision": api_profile.gateway_route_revision,
+            "pinned_ip": api_profile.pinned_ip,
+        }
     # The resolver leaves this role to the dispatch default, as the single-repository run does.
     if not cfg.get("actor_discovery_model"):
         cfg["actor_discovery_model"] = model or os.environ.get("APPSEC_ACTOR_DISCOVERY_MODEL") or "sonnet"
@@ -4117,7 +4148,7 @@ def _private_destination(output: str) -> str:
     return output
 
 
-def assess_repositories(argv: list[str], *, host_factory=None, progress=None) -> dict[str, Any]:
+def assess_repositories(argv: list[str], *, host_factory=None, progress=None, api_profile=None) -> dict[str, Any]:
     """Assess several selected local checkouts as one system and publish one model."""
     import contextlib
     import io
@@ -4187,9 +4218,18 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None) ->
     ).strip()
     with tempfile.TemporaryDirectory(prefix="appsec-hosts-") as hosts:
         _assessment_host_root_outside(Path(hosts), scope)
-        factory = host_factory or _assessment_cli_host_factory(
-            Path(hosts), scope.output / ".assessment-work" / "host-events"
-        )
+        if host_factory is not None and api_profile is not None:
+            raise CallError("select one assessment host")
+        if api_profile is not None:
+            from appsec_analyzer.api_hosts import ResponsesTransport
+
+            if ns.model and ns.model != api_profile.model:
+                raise CallError("the requested model differs from the selected API profile")
+            factory = lambda role, model, ceiling: ResponsesTransport(api_profile, ceiling)
+        else:
+            factory = host_factory or _assessment_cli_host_factory(
+                Path(hosts), scope.output / ".assessment-work" / "host-events"
+            )
         if progress is None and not ns.quiet:
             # Per-call detail lines show that a long model call is still alive.
             plain = factory
@@ -4215,7 +4255,8 @@ def assess_repositories(argv: list[str], *, host_factory=None, progress=None) ->
             infos.append(imported)
         try:
             session = _assessment_session(
-                scope, rest, budget=budget, host_factory=factory, resume=ns.resume, model=ns.model, rebuild=ns.rebuild
+                scope, rest, budget=budget, host_factory=factory, resume=ns.resume, model=ns.model, rebuild=ns.rebuild,
+                api_profile=api_profile,
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)
@@ -4625,12 +4666,16 @@ def assess_stop(output_dir: Path) -> dict[str, Any]:
     """
     import signal
 
-    from runtime.assessment_state import STATE_NAME, STOP_NAME, AssessmentState
+    from runtime.assessment_state import STATE_NAME, STOP_NAME, AssessmentState, _read_state, _real_directory
     from shared._atomic_io import atomic_write_text
 
     lock = output_dir / ".appsec-lock"
     try:
-        state = json.loads((output_dir / STATE_NAME).read_text(encoding="utf-8"))
+        _real_directory(output_dir)
+        state = _read_state(output_dir / STATE_NAME)
+        lock_meta = lock.lstat()
+        if not stat.S_ISREG(lock_meta.st_mode) or lock_meta.st_nlink != 1:
+            raise OSError("assessment lock is not a regular file")
     except (OSError, ValueError):
         raise CallError("no controller assessment was found in this output directory") from None
     run_id = state.get("run_id") if isinstance(state, dict) else None

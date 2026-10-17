@@ -265,7 +265,7 @@ def _write_archive(src_dir: Path, tgz: Path) -> None:
 
 def _plugin_version() -> str | None:
     try:
-        return json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text()).get("version")
+        return json.loads((PLUGIN_ROOT / "engine.json").read_text()).get("engine_version")
     except (OSError, ValueError):
         return None
 

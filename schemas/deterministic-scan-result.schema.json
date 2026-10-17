@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appsec-foundry.github.io/appsec-analyzer/schemas/deterministic-scan-result-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interface_version", "kind", "scan_status", "assessment_status", "scope_sha256", "depth", "coverage", "repositories"],
+  "properties": {
+    "interface_version": {"const": 1},
+    "kind": {"const": "deterministic-scan"},
+    "scan_status": {"const": "completed"},
+    "assessment_status": {"const": "not_run"},
+    "scope_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "depth": {"enum": ["quick", "standard", "thorough"]},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scanners", "semantic_analysis", "component_assignment", "evidence_verification"],
+      "properties": {
+        "scanners": {"type": "array", "items": {"type": "string"}, "minItems": 4, "maxItems": 4, "uniqueItems": true},
+        "semantic_analysis": {"const": false},
+        "component_assignment": {"const": false},
+        "evidence_verification": {"const": false}
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repository_id", "label", "head", "state_sha256", "captured_files", "excluded_files", "config_iac_applicable", "findings"],
+        "properties": {
+          "repository_id": {"type": "string"},
+          "label": {"type": "string"},
+          "head": {"type": "string"},
+          "state_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "captured_files": {"type": "integer", "minimum": 0},
+          "excluded_files": {"type": "array", "items": {"type": "object"}},
+          "config_iac_applicable": {"type": "boolean"},
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scanner", "finding"],
+              "properties": {
+                "scanner": {"enum": ["source-auth", "authz-confirm", "mass-assignment", "config-iac"]},
+                "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "finding": {"type": "object"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

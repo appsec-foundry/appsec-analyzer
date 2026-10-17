@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from shared import assessment_location as loc  # noqa: E402
 
-TAIL = Path("appsec-advisor") / "assessments"
+TAIL = Path("appsec-analyzer") / "assessments"
 
 
 def test_linux_base_follows_xdg_and_ignores_an_empty_or_relative_value(tmp_path):
@@ -135,7 +135,7 @@ def test_a_destination_outside_the_base_is_refused(tmp_path):
     base, _ = _target(tmp_path)
     with pytest.raises(loc.LocationError, match="outside"):
         loc.private_directory(tmp_path / "repo" / "docs" / "security", base)
-    with pytest.raises(loc.LocationError, match="appsec-advisor/assessments"):
+    with pytest.raises(loc.LocationError, match="appsec-analyzer/assessments"):
         loc.private_directory(tmp_path / "x" / "y", tmp_path / "x")
 
 
@@ -209,6 +209,6 @@ def test_cli_creates_the_destination_privately_on_request(tmp_path, monkeypatch,
     assert not directory.exists()
     assert loc.main(["destination", "--repo", str(repo), "--create"]) == 0
     assert directory.is_dir() and directory.stat().st_mode & 0o777 == 0o700
-    (tmp_path / "data" / "appsec-advisor").chmod(0o755)
+    (tmp_path / "data" / "appsec-analyzer").chmod(0o755)
     assert loc.main(["destination", "--repo", str(repo), "--create"]) == 2
     assert "accessible to other users" in capsys.readouterr().err

@@ -1,4 +1,4 @@
-"""Provision operator-selected Git URLs for the existing headless runner.
+"""Provision operator-selected Git URLs for the Analyzer CLI.
 
 Only CLI selections authorize network access; repository content cannot add
 destinations. Private, stable temporary paths preserve the controller's source
@@ -399,36 +399,8 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if args[:1] == ["--credential"]:
         return _credential()
-    if args[:1] == ["--help"]:
-        print("Internal headless Git URL provisioning; use scripts/run-headless.sh --help")
-        return 0
-    runner = Path(__file__).resolve().parents[1] / "run-headless.sh"
-    old_handlers = {}
-
-    def interrupted(signum, frame):
-        raise KeyboardInterrupt
-
-    try:
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            old_handlers[sig] = signal.signal(sig, interrupted)
-        with checkout_arguments(args) as local_args:
-            env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV}
-            proc = subprocess.Popen([str(runner), *local_args], env=env, start_new_session=True)
-            try:
-                return _wait(proc)
-            finally:
-                _stop(proc)
-    except KeyboardInterrupt:
-        return 3
-    except (RemoteError, OSError, subprocess.SubprocessError, UnicodeError) as error:
-        # Do not echo raw Git output, argv, OS exceptions or credential helper output.
-        print(
-            str(error) if isinstance(error, RemoteError) else "Remote checkout could not be completed", file=sys.stderr
-        )
-        return 1
-    finally:
-        for sig, handler in old_handlers.items():
-            signal.signal(sig, handler)
+    print("Remote repository provisioning is internal; use appsec-analyzer scan or assess --repo URL", file=sys.stderr)
+    return 2
 
 
 def _wait(proc: subprocess.Popen) -> int:

@@ -47,10 +47,10 @@ SARIF_ABSENCE_LOCATIONS = 10
 
 
 def _default_tool_version() -> str:
-    """Read the packaged plugin version; avoid a second release-version copy."""
+    """Read the packaged engine version; avoid a second release-version copy."""
     try:
-        manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        version = manifest.get("version")
+        manifest = json.loads((ROOT / "engine.json").read_text(encoding="utf-8"))
+        version = manifest.get("engine_version")
         if isinstance(version, str) and version:
             return version
     except (OSError, json.JSONDecodeError):
@@ -62,7 +62,7 @@ SARIF_SCHEMA_URL = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
 )
 SARIF_VERSION = "2.1.0"
-TOOL_NAME = "appsec-advisor"
+TOOL_NAME = "appsec-analyzer"
 DEFAULT_TOOL_VERSION = _default_tool_version()
 
 RISK_TO_LEVEL = {

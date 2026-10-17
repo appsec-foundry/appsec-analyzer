@@ -304,13 +304,13 @@ def _read_recon_project(recon_path: Path) -> str | None:
 
 
 def _plugin_version(plugin_root: Path) -> tuple[str, int]:
-    """Read plugin_version + analysis_version from .claude-plugin/plugin.json."""
-    pj = plugin_root / ".claude-plugin" / "plugin.json"
+    """Read engine and analysis versions from the installed engine manifest."""
+    pj = plugin_root / "engine.json"
     if not pj.exists():
         return ("unknown", 1)
     try:
         d = json.loads(pj.read_text(encoding="utf-8"))
-        return (d.get("version", "unknown"), int(d.get("analysis_version", 1)))
+        return (d.get("engine_version", "unknown"), int(d.get("analysis_version", 1)))
     except (json.JSONDecodeError, ValueError):
         return ("unknown", 1)
 

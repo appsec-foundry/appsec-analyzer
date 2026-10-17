@@ -6,48 +6,20 @@ import json
 import shutil
 from pathlib import Path
 
-import baseline.baseline_state as baseline_state
 import renderers.compose_threat_model as compose
-import runtime.plugin_meta as plugin_meta
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
+ENGINE_JSON = REPO_ROOT / "engine.json"
 CONTRACT = REPO_ROOT / "data" / "sections-contract.yaml"
 COMPOSE_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "compose"
 
 
 def test_analysis_v5_declares_prior_read_compatibility() -> None:
-    manifest = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
+    manifest = json.loads(ENGINE_JSON.read_text(encoding="utf-8"))
 
     assert manifest["analysis_version"] == 5
     assert manifest["compatible_analysis_versions"] == [1, 2, 3, 4, 5]
-
-
-def test_v2_baseline_recommends_full_without_hard_failure() -> None:
-    manifest = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
-    meta = {
-        "analysis_version": manifest["analysis_version"],
-        "compatible_analysis_versions": manifest["compatible_analysis_versions"],
-    }
-
-    code, message = plugin_meta.classify_compat(2, meta)
-
-    assert code == plugin_meta.EXIT_COMPAT_RECOMMEND_FULL
-    assert "Incremental is still supported" in message
-    assert "--full" in message
-
-
-def test_v2_baseline_file_uses_upgrade_recommendation_path(tmp_path: Path, capsys) -> None:
-    output_dir = tmp_path / "output"
-    shutil.copytree(COMPOSE_FIXTURE, output_dir)
-
-    code = baseline_state.main(["check-compat", "--output-dir", str(output_dir)])
-
-    assert code == plugin_meta.EXIT_COMPAT_RECOMMEND_FULL
-    message = capsys.readouterr().err
-    assert "source=threat-model.yaml" in message
-    assert "baseline_version=2" in message
 
 
 def test_v2_report_remains_renderable_and_is_not_rewritten(tmp_path: Path) -> None:

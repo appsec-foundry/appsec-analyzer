@@ -6,8 +6,8 @@ outside any assessment output directory:
 
     <state root>/<repository key>/<job id>/
 
-The state root is ``$XDG_STATE_HOME/appsec-advisor/analyst`` (default
-``~/.local/state/appsec-advisor/analyst``) unless the caller passes one. The
+The state root is ``$XDG_STATE_HOME/appsec-analyzer/analyst`` (default
+``~/.local/state/appsec-analyzer/analyst``) unless the caller passes one. The
 repository key is a hash of the canonical repository path, so two worktrees
 never share jobs. Job ids are unpredictable. Directories are mode 0700 and
 must be owned by the current user; a loosened or foreign directory is refused,
@@ -103,7 +103,7 @@ def utc_now() -> str:
 def default_state_root(env: dict | None = None) -> Path:
     env = os.environ if env is None else env
     base = env.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(base) / "appsec-advisor" / "analyst"
+    return Path(base) / "appsec-analyzer" / "analyst"
 
 
 def repository_key(repo_root: Path) -> str:

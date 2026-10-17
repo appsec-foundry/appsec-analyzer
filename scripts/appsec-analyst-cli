@@ -62,7 +62,7 @@ def _model(value: str) -> str:
 def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repo", type=_path, required=True, help="Git working tree to analyze")
     parser.add_argument(
-        "--state-dir", type=_path, help="analyst state root (default: $XDG_STATE_HOME/appsec-advisor/analyst)"
+        "--state-dir", type=_path, help="analyst state root (default: $XDG_STATE_HOME/appsec-analyzer/analyst)"
     )
     parser.add_argument("--model", type=_model, default=DEFAULT_MODEL, help="model alias for the analysis session")
     parser.add_argument("--max-budget-usd", type=float, default=1.0, help="spend ceiling per model call")
@@ -203,7 +203,7 @@ def _abuse_case_claim(args: argparse.Namespace, parser: argparse.ArgumentParser)
     if not args.threat_model and not args.isolated and not advice:
         advice = (
             "  Note: without a threat model only the selected files are checked; "
-            "/appsec-advisor:appsec-analyzer adds earlier findings and their files.\n"
+            "appsec-analyzer assess adds earlier findings and their files.\n"
         )
     args.scope_summary = f"{scope}\n  Threat model: {model}\n  Analysis model: {args.model}\n{advice}"
 

@@ -1,0 +1,27 @@
+include LICENSE README.md engine.json
+recursive-include appsec_analyzer *.py
+recursive-include scripts/analyzers *.py
+recursive-include scripts/contexts *.py
+recursive-include scripts/exporters *.py
+recursive-include scripts/model *.py
+recursive-include scripts/orchestrator *.py
+recursive-include scripts/renderers *.py
+recursive-include scripts/repairs *.py
+recursive-include scripts/requirements *.py
+recursive-include scripts/runtime *.py
+recursive-include scripts/shared *.py
+recursive-include scripts/validators *.py
+recursive-include scripts/assets *.css
+include scripts/appsec-analyst-cli scripts/mermaid_validate.mjs
+exclude scripts/runtime/plugin_meta.py scripts/runtime/plugin_read_gate.py scripts/runtime/plugin_write_gate.py
+recursive-include agents *.md
+recursive-include data *.yaml *.json *.md
+recursive-include schemas *.yaml *.json *.md
+recursive-include templates *.j2 *.md
+recursive-include examples *.yaml *.json *.md *.sdd *.yml
+include skills/appsec-analyzer/SKILL.md skills/appsec-analyzer/business-context.md
+include skills/analyze-threats/references/analysis-contract.md
+include skills/audit-security-requirements/config.json
+recursive-include docs *.md
+global-exclude *.pyc *.pyo .DS_Store
+prune tests

@@ -131,8 +131,8 @@ def plugin_version() -> str:
     from pathlib import Path
 
     try:
-        manifest = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
-        return str(json.loads(manifest.read_text(encoding="utf-8")).get("version") or "")
+        manifest = Path(__file__).resolve().parents[2] / "engine.json"
+        return str(json.loads(manifest.read_text(encoding="utf-8")).get("engine_version") or "")
     except (OSError, ValueError, AttributeError):
         return ""
 

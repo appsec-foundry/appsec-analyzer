@@ -63,7 +63,7 @@ EXIT_OK = 0
 EXIT_NOT_COMPLETE = 2
 EXIT_CANCELLED = 130
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
-PLUGIN_VERSION_FILE = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+PLUGIN_VERSION_FILE = PLUGIN_ROOT / "engine.json"
 REQUEST_LIMITS = (
     "job_seconds",
     "call_seconds",
@@ -144,7 +144,7 @@ def _sha(value: object) -> str:
 
 def _plugin_version() -> str:
     try:
-        return str(json.loads(PLUGIN_VERSION_FILE.read_text(encoding="utf-8")).get("version") or "unknown")[:64]
+        return str(json.loads(PLUGIN_VERSION_FILE.read_text(encoding="utf-8")).get("engine_version") or "unknown")[:64]
     except (OSError, json.JSONDecodeError):
         return "unknown"
 

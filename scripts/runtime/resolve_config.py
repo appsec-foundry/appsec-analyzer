@@ -2127,26 +2127,12 @@ def _parse_duration(value: str) -> int:
 
 
 def _read_plugin_version(plugin_root: Path) -> str:
-    try:
-        r = subprocess.run(
-            ["python3", str(plugin_root / "scripts" / "runtime/plugin_meta.py"), "get", "plugin_version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return r.stdout.strip() or "unknown"
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
+    from runtime.engine_meta import load_meta
+
+    return load_meta()["engine_version"]
 
 
 def _read_analysis_version(plugin_root: Path) -> int:
-    try:
-        r = subprocess.run(
-            ["python3", str(plugin_root / "scripts" / "runtime/plugin_meta.py"), "get", "analysis_version"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return int(r.stdout.strip())
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return 0
+    from runtime.engine_meta import load_meta
+
+    return load_meta()["analysis_version"]
