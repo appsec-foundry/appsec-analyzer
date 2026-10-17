@@ -19,7 +19,9 @@ accepted assessment work for a compatible `--resume`. `--rebuild` starts over.
 The result and status contracts distinguish scanner-only output from completed,
 interrupted, and failed assessments.
 
-The old `scripts/run-headless.sh` instructions are retained only in the
-[historical guide](history/advisor/headless-mode.md). An independent
-requirements audit cannot currently be launched by this public command; a
-requirements check inside an assessment is selected with `--requirements`.
+The separate requirements audit uses `appsec-analyzer audit-requirements
+--repo /checkout --requirements /catalog.yaml --output /private/audit
+--host claude-cli --hard-budget 5`. Its versioned result reports
+`assessment_status: not_run`. Use `--gate` to make qualifying findings return
+exit status 1. The old `scripts/run-headless.sh` instructions are retained only
+in the [historical guide](history/advisor/headless-mode.md).

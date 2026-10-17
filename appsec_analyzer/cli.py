@@ -66,6 +66,20 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--output", required=True, metavar="DIR")
     analyst = commands.add_parser("analyst", help="Focused design, change, and hypothesis analysis")
     analyst.add_argument("args", nargs=argparse.REMAINDER)
+    audit = commands.add_parser("audit-requirements", help="Run a separate, bounded requirements audit")
+    audit.add_argument("--repo", required=True, metavar="PATH")
+    audit.add_argument("--output", required=True, metavar="DIR")
+    audit.add_argument("--host", choices=("claude-cli",), required=True)
+    source = audit.add_mutually_exclusive_group(required=True)
+    source.add_argument("--requirements", metavar="FILE")
+    source.add_argument("--demo", action="store_true")
+    audit.add_argument("--hard-budget", type=float, required=True, metavar="USD")
+    audit.add_argument("--model", default="sonnet", metavar="MODEL")
+    audit.add_argument("--category", metavar="FILTER")
+    audit.add_argument("--md", action="store_true")
+    audit.add_argument("--gate", action="store_true")
+    audit.add_argument("--gate-on", choices=("fail", "partial"), default="fail")
+    audit.add_argument("--priority-floor", choices=("MUST", "SHOULD", "MAY"), default="MUST")
     return parser
 
 
@@ -77,10 +91,11 @@ def _capabilities() -> dict:
         "assessment": {
             "providers": {
                 "claude-cli": {"adapter": "compatibility", "qualified": False},
-                "openai": {"adapter": "pending", "qualified": False},
-                "gateway": {"adapter": "pending", "qualified": False},
+                "openai": {"adapter": "offline-only", "qualified": False},
+                "gateway": {"adapter": "offline-only", "qualified": False},
             }
         },
+        "requirements_audit": {"available": True, "host": "claude-cli", "qualified": False},
     }
 
 
@@ -213,9 +228,10 @@ def _assess(ns: argparse.Namespace) -> int:
     if ns.host != "claude-cli":
         raise ValueError(f"{ns.host} has no qualified model/depth profile")
     # The host-specific preflight runs only after explicit host selection.
-    from appsec_analyzer.hosts import claude_preflight
     from orchestrator.orchestration_controller import assess_main
     from runtime.remote_repositories import checkout_arguments
+
+    from appsec_analyzer.hosts import claude_preflight
 
     claude_preflight()
     args = ["--repo", ns.repo[0]]
@@ -313,6 +329,30 @@ def _analyst(ns: argparse.Namespace) -> int:
     return runpy.run_path(str(script), run_name="appsec_analyzer.analyst")["main"](ns.args)
 
 
+def _audit(ns: argparse.Namespace) -> int:
+    _engine_imports()
+    from runtime.analyst_host import HostCancelled, TransportError
+    from runtime.remote_repositories import checkout_arguments
+
+    from appsec_analyzer.hosts import claude_preflight
+    from appsec_analyzer.requirements_audit import audit_repository
+
+    claude_preflight()
+    catalog = (resource_root() / "examples/appsec-requirements-example.yaml") if ns.demo else Path(ns.requirements)
+    try:
+        with checkout_arguments(["--repo", ns.repo, "--output", ns.output]) as local:
+            code, result = audit_repository(
+                repo=local[1], output=ns.output, catalog_path=catalog, model=ns.model,
+                hard_budget=ns.hard_budget, category_filter=ns.category, demo=ns.demo,
+                gate=ns.gate, gate_on=ns.gate_on, priority_floor=ns.priority_floor,
+                write_md=ns.md,
+            )
+    except (HostCancelled, TransportError) as exc:
+        raise ValueError(f"requirements audit stopped: {getattr(exc, 'reason', 'interrupted')}") from None
+    print(json.dumps(result, sort_keys=True))
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     ns = _parser().parse_args(argv)
     try:
@@ -330,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
             return _inspect(ns)
         if ns.command == "analyst":
             return _analyst(ns)
+        if ns.command == "audit-requirements":
+            return _audit(ns)
         raise ValueError(f"{ns.command} is not implemented")
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"appsec-analyzer: {exc}", file=sys.stderr)

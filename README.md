@@ -59,9 +59,18 @@ again. Optional `--sarif`, `--threatdragon`, `--html`, `--pdf`, and
 The focused design/change/hypothesis analyst has a distinct entry under the same
 program: `appsec-analyzer analyst design|review|hypothesis|answer|cancel|forget`.
 See [Threat Analyst](docs/threat-analyst.md). A requirements check **within** a
-full assessment is selected with `assess --requirements`; the independent
-requirements audit remains a migration gap and is not represented as a full
-assessment or a deterministic scan.
+full assessment is selected with `assess --requirements`. The separate audit
+grades a local catalog against bounded source excerpts:
+
+```sh
+appsec-analyzer audit-requirements --repo /path/to/project \
+  --requirements /path/to/requirements.yaml --output /private/audit \
+  --host claude-cli --hard-budget 5 --md --gate
+```
+
+Use a fresh, existing output directory outside the checkout. The audit needs
+Claude CLI access and does not run a full assessment. `--demo` selects the
+packaged sample catalog; see the [audit guide](docs/security-requirements-audit-skill.md).
 
 ## Contracts and limits
 
@@ -88,7 +97,8 @@ their plugin commands are not Analyzer installation instructions.
 ## Development and provenance
 
 Run focused checks with `python3 -m pytest tests/test_public_scan_cli.py
-tests/test_public_assessment_operations.py tests/test_api_hosts.py`. Build local
+tests/test_public_assessment_operations.py tests/test_api_hosts.py
+tests/test_requirements_audit_cli.py`. Build local
 wheel and source distribution with `python3 -m build --no-isolation --outdir
 /tmp/appsec-analyzer-dist`, then inspect and install them in a separate
 environment. See [the extraction record](docs/internal/extraction/phase-a-record.md)
