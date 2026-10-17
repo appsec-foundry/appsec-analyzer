@@ -77,6 +77,17 @@ analyze-verify:  ## Full pipeline + structural assertions against ANY repo (reca
 # Test groups and full-suite gates (no LLM)
 # ─────────────────────────────────────────────────────────────────────────────
 
+.PHONY: test-analyzer
+test-analyzer:  ## Current standalone CLI, audit, provider, state, and completion contracts (offline)
+	@PYTHONPATH="$(CURDIR):$(CURDIR)/scripts" $(PYTHON) -m pytest -q \
+		tests/test_public_scan_cli.py \
+		tests/test_public_assessment_operations.py \
+		tests/test_requirements_audit_cli.py \
+		tests/test_api_hosts.py \
+		tests/test_auto_emitter_pass.py \
+		tests/test_render_completion_summary.py::TestNextSteps \
+		tests/test_render_completion_summary.py::TestExportDeliverablesBackstop
+
 .PHONY: test
 test:  ## Run the standard pytest suite with coverage (no LLM)
 	@$(PYTHON) scripts/run_tests.py all -v --tb=short --cov=scripts --cov-report=term-missing; \

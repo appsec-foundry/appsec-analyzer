@@ -257,7 +257,6 @@ GROUPS = {
         hook_payload_contract
         hooks_schema
         lens_coverage
-        live_canary
         live_run_holder
         log_agent_end
         log_event
@@ -522,7 +521,6 @@ GROUPS = {
         yaml_io
     """),
     "tooling": _tests("""
-        acceptance_invocation
         audit_test_routes
         check_fragment_registry
         check_specs
@@ -1199,7 +1197,6 @@ SOURCE_TESTS = {
     """),
     "scripts/run-headless.sh": _tests("""
         remote_repositories
-        acceptance_invocation
         controller_e2e
         agent_logger
         budget_watchdog
@@ -3627,14 +3624,6 @@ SOURCE_TESTS = {
         run_path_guard
         stride_outputs
     """),
-    "scripts/acceptance_invocation.py": _tests("""
-        acceptance_invocation
-        check_target_specificity
-        gate_preconditions
-        requirements_verification
-        run_path_guard
-        stride_outputs
-    """),
     "scripts/runtime/acquire_lock.py": _tests("""
         acquire_lock_heartbeat
         assessment_state
@@ -3913,7 +3902,6 @@ SOURCE_TESTS = {
         check_target_specificity
         gate_preconditions
         hook_payload_contract
-        live_canary
         orchestration_controller
         requirements_verification
         run_issues_pipeline
@@ -4620,7 +4608,6 @@ SOURCE_TESTS = {
         guard_evidence_verification
         hook_payload_contract
         integration
-        live_canary
         log_agent_end
         log_event
         log_shape_contract
@@ -4815,14 +4802,6 @@ SOURCE_TESTS = {
         stride_outputs
         sync_baseline
         update_baseline
-    """),
-    "scripts/live_canary.py": _tests("""
-        check_target_specificity
-        gate_preconditions
-        live_canary
-        requirements_verification
-        run_path_guard
-        stride_outputs
     """),
     "scripts/contexts/load_related_repos.py": _tests("""
         build_threat_modeling_context

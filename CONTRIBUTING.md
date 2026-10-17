@@ -95,6 +95,12 @@ Use `make e2e-full-keep` to rerun assertions against the previous E2E output wit
 
 The deterministic assessment controller has its own checks:
 
+`make test-analyzer` runs the standalone CLI, provider boundary, audit, state,
+and completion checks offline. The inherited `scripts/run_tests.py` group
+catalog still names tests and plugin paths excluded by this extraction; its
+groups are not a reliable standalone gate until the catalog is reconciled.
+Use explicit `python3 -m pytest <affected tests>` for other changes.
+
 | Target | Purpose |
 |---|---|
 | `make test-controller` | Offline, no model cost, about 80 seconds: one in-process single-repository controller run over a small web application (a browser client calling its own API through guarded, public and unresolved routes), so route inventory, client-to-API flows, the architecture gate, abuse matching and publication run on real structure. Run it after any controller or deterministic-stage change. |

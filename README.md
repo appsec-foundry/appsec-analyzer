@@ -98,7 +98,7 @@ their plugin commands are not Analyzer installation instructions.
 
 Run focused checks with `python3 -m pytest tests/test_public_scan_cli.py
 tests/test_public_assessment_operations.py tests/test_api_hosts.py
-tests/test_requirements_audit_cli.py`. Build local
+tests/test_requirements_audit_cli.py`, or use `make test-analyzer`. Build local
 wheel and source distribution with `python3 -m build --no-isolation --outdir
 /tmp/appsec-analyzer-dist`, then inspect and install them in a separate
 environment. See [the extraction record](docs/internal/extraction/phase-a-record.md)
