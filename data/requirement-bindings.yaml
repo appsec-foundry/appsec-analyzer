@@ -441,6 +441,9 @@ requirements:
 
   REQ-011:
     applies_to:
+      - appsec_analyzer/cli.py
+      - appsec_analyzer/profiles.py
+      - schemas/scan-profile.schema.yaml
       - scripts/model/promote_verified_abuse_cases.py
       - scripts/model/match_abuse_cases.py
       - scripts/validators/verify_abuse_cases.py
@@ -460,6 +463,9 @@ requirements:
     coverage: partial
     guards:
       - tests/test_promote_verified_abuse_cases.py::test_unconfirmed_or_unclassified_probe_is_never_promoted
+      - tests/test_profiles.py::test_abuse_case_profile_selection_and_cli_replacement
+      - tests/test_profiles.py::test_abuse_case_files_reach_controller_from_profile_or_cli
+      - tests/test_profiles.py::test_invalid_cli_abuse_case_path_stops_before_host
       - tests/test_promote_verified_abuse_cases.py::test_confirmed_source_probe_becomes_normal_bound_finding
       - tests/test_promote_verified_abuse_cases.py::test_promotion_is_idempotent_when_next_scan_rediscovers_same_source_probe
       - tests/test_resolve_abuse_cases.py::test_library_loads_mandatory_cases

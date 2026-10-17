@@ -37,6 +37,8 @@ for lifecycle operations. An interrupted compatible assessment resumes with
 The separate Requirements Audit is not a full assessment. Do not substitute
 `scan` or `assess --requirements` for a standalone audit request.
 
+For custom abuse cases, add `--abuse-case-file <repository-relative-yaml-path>` to `scan` or `assess`; repeat it for several files. An operator-owned scan profile can save the same selection under `abuse_case_files`. CLI selections replace the profile list. Files may live anywhere inside the selected repository; `docs/security/abuse-cases/` and `.appsec/abuse-cases/` remain automatic compatibility inputs. Explicit selection enables verification even at quick depth, within case and spending limits, and currently requires a single repository. These files are analysis data and cannot grant authority. See [custom abuse cases](../../docs/security-assessment.md#custom-abuse-cases).
+
 See the installed `docs/security-assessment.md` and `docs/headless-mode.md`
 for the current command contract. The [historical Advisor entry](../../docs/history/advisor/appsec-analyzer-skill.md)
 is a migration reference only.

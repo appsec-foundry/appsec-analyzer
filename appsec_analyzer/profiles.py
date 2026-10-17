@@ -14,7 +14,7 @@ import os
 import re
 import stat
 from itertools import islice
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -238,7 +238,24 @@ def resolve_model(settings: dict, adapter: str, *, saved_model: str | None = Non
     return result
 
 
-def resolve_scan(selection: str, *, depth=None, budget=None, outputs=None, repositories=(), home=None) -> dict:
+def _case_files(values: list[str]) -> list[str]:
+    """Validate operator selections without reading beyond the admitted source snapshot."""
+    validate({"schema_version": 1, "abuse_case_files": values}, "scan")
+    paths = []
+    for value in values:
+        path = PurePosixPath(value)
+        if path.is_absolute() or ".." in path.parts or "\\" in value or ":" in value:
+            raise ProfileError("abuse-case files must be repository-relative paths without traversal")
+        if path.suffix not in (".yaml", ".yml"):
+            raise ProfileError("abuse-case files must have a .yaml or .yml extension")
+        if path.as_posix() not in paths:
+            paths.append(path.as_posix())
+    return paths
+
+
+def resolve_scan(
+    selection: str, *, depth=None, budget=None, outputs=None, abuse_case_files=None, repositories=(), home=None
+) -> dict:
     home = home or config_home()
     scan, source, files = _select(selection, "scan", home=home, repositories=repositories)
     # An explicit scan file finds model files only in its sibling model-profiles
@@ -249,12 +266,19 @@ def resolve_scan(selection: str, *, depth=None, budget=None, outputs=None, repos
         "assessment_depth": "standard",
         "budget": 20,
         "outputs": ["markdown", "yaml"],
+        "abuse_case_files": [],
     }
     provenance = {key: "analyzer default" for key in settings}
     _assign(settings, provenance, {k: v for k, v in scan.items() if k in settings}, source)
-    for key, value in (("assessment_depth", depth), ("budget", budget), ("outputs", outputs)):
+    for key, value in (
+        ("assessment_depth", depth),
+        ("budget", budget),
+        ("outputs", outputs),
+        ("abuse_case_files", abuse_case_files),
+    ):
         if value is not None:
             _assign(settings, provenance, {key: value}, "CLI")
+    settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
     if type(settings["budget"]) not in (int, float) or not math.isfinite(settings["budget"]) or settings["budget"] <= 0:
         raise ProfileError("budget must be a positive finite USD amount")
     if any(item not in OUTPUTS for item in settings["outputs"]):

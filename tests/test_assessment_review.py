@@ -536,11 +536,17 @@ abuse_cases:
 """
 
 
-def test_a_sole_repository_selects_shipped_business_and_per_scan_cases_with_the_real_matcher(tmp_path):
+@pytest.mark.parametrize("depth", ["standard", "quick"])
+@pytest.mark.parametrize(
+    "case_path", ["release/cases.yaml", "docs/security/abuse-cases/cases.yaml", ".appsec/abuse-cases/cases.yaml"]
+)
+def test_a_sole_repository_selects_shipped_business_and_per_scan_cases_with_the_real_matcher(
+    tmp_path, depth, case_path
+):
     """The controller's own matcher call: shipped business cases and the run's case file become candidates."""
     files = {
         "routes/export.js": b"module.exports = (req, res) => res.json(store.all(req.query.account))\n",
-        "release/cases.yaml": TEAM_CASES.encode(),
+        case_path: TEAM_CASES.encode(),
     }
     scope = Scope({SERVICE: files})
     scope.repositories[0].root = tmp_path / "checkout"
@@ -550,8 +556,8 @@ def test_a_sole_repository_selects_shipped_business_and_per_scan_cases_with_the_
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_bytes(data)
     workspace.mkdir()
-    case_files = review.scan_case_files(scope, names, [str(scope.repositories[0].root / "release/cases.yaml")])
-    cfg = {"repo_root": str(root), "output_dir": str(workspace), "mode": "full", "assessment_depth": "standard"}
+    case_files = review.scan_case_files(scope, names, [str(scope.repositories[0].root / case_path)])
+    cfg = {"repo_root": str(root), "output_dir": str(workspace), "mode": "full", "assessment_depth": depth}
     (workspace / ".skill-config.json").write_text(json.dumps({**cfg, "abuse_case_files": case_files}))
     components = [{"id": "api", "name": "API", "tier": "application", "paths": ["routes/export.js"]}]
     (workspace / ".components.json").write_text(json.dumps({"schema_version": 1, "components": components}))
@@ -587,7 +593,11 @@ def test_a_sole_repository_selects_shipped_business_and_per_scan_cases_with_the_
             rebuild=lambda: None,
             progress=lambda text: None,
         )
-    assert "AC-B-001" in listed and "REPO-AC-901" in listed
+    assert ("AC-B-001" in listed) == (depth == "standard")
+    assert "REPO-AC-901" in listed
+    matches = json.loads((workspace / ".abuse-case-matches.json").read_text())["matches"]
+    selected = [match for match in matches if match["abuse_case_id"] == "REPO-AC-901"]
+    assert len(selected) == 1 and selected[0]["requested"]
 
 
 def test_a_matcher_configuration_error_stops_the_run_instead_of_matching_nothing(abuse):

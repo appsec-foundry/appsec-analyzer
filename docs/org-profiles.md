@@ -29,10 +29,7 @@ reviewed by the operator.
 
 ## Business abuse cases
 
-Repository-owned cases under `docs/security/abuse-cases/` express business
-rules that source patterns cannot settle alone. A case can name the legitimate
-exceptions and questions that only an owner can answer. The verifier cites
-admitted source; an unresolved case is not reported as a pass.
+Business abuse cases express rules that source patterns cannot settle alone. Select a repository-owned YAML file with `--abuse-case-file PATH`, or save its repository-relative path in a scan profile's `abuse_case_files` list. No particular directory is required. The former `docs/security/abuse-cases/` and `.appsec/abuse-cases/` locations remain discoverable for compatibility. A case can name legitimate exceptions and questions that only an owner can answer. The verifier cites admitted source; an unresolved case is not reported as a pass. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for selection and limits.
 
 ```yaml
 schema_version: 2
@@ -49,9 +46,7 @@ abuse_cases:
       path_patterns: ["*expense*", "*approv*"]
 ```
 
-An organization profile can add cases with `ORG-AC-NNN` IDs. Selection is
-bounded by assessment depth and the packaged case limits. See the archived
-guide for the full field semantics and source matching rules.
+An organization profile can add cases with `ORG-AC-NNN` IDs through `abuse_cases.add`, a glob relative to the organization profile's directory, for example `abuse_cases: {add: "abuse-cases/*.yaml"}`. This provides organization-owned cases outside the source repository. Selection is bounded by assessment depth and the packaged case limits. See the archived guide for the full field semantics and source matching rules.
 
 For the original profile field explanations and plugin migration context, see
 the [archived Advisor guide](history/advisor/org-profiles.md). Its plugin

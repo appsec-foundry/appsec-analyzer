@@ -27,6 +27,8 @@ A full assessment helps answer:
 
 The assessment covers implementation weaknesses and design risks. It connects findings to the application architecture and separates supported findings from unresolved questions. You can add business context, security requirements, and organization settings to guide the analysis.
 
+To check your own business rules, select a YAML file with `--abuse-case-file review/abuse-cases.yaml`, or save the selection in a scan profile. Paths are relative to the repository being assessed; no special documentation directory is required. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases) for the format and limits.
+
 Source code cannot establish how an application behaves in production. Deployment controls, business assumptions, and findings still need review by the team.
 
 ## Install

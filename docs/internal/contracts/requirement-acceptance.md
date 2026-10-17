@@ -48,6 +48,8 @@ Accept validated business and organization context as data, identify its source 
 
 Let users configure abuse-case sources. Include enabled business cases at standard and thorough depth, with at most three model-derived cases at thorough depth. Distinguish confirmed, unproven, mitigated, unresolved, inapplicable, and unchecked cases; create findings only when supported by evidence.
 
+For a single repository, accept repeatable `--abuse-case-file` selections through `scan` and `assess`, and saved selections through the scan profile's `abuse_case_files` list. CLI selections replace that list. Resolve bounded YAML paths against the admitted repository root without requiring a documentation directory or granting access to host files. Retain automatic discovery at earlier repository locations for compatibility. Explicitly selected files request their enabled cases at every depth, including when the file is also automatically discovered, without loading the cases twice. Preserve case limits and report omissions. Reject unsupported multi-repository file selection and files outside the admitted source boundary.
+
 ## REQ-012: Explain what to fix
 
 Explain each finding in developer language: affected location, attack mechanism, harm, and required change. Provide prioritized, system-specific mitigations; urgent actions need concrete steps and verification criteria. State unresolved decisions explicitly.

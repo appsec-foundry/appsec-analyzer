@@ -1,6 +1,6 @@
 # Scan and model profiles
 
-A scan profile saves the settings you reuse: model selection, analysis depth, budget, output formats, and report attributes. A model profile chooses models and reasoning settings for individual analysis roles. Both are local YAML files. You can use the built-in profiles without creating either file.
+A scan profile saves the settings you reuse: model selection, analysis depth, budget, output formats, abuse-case files, and report attributes. A model profile chooses models and reasoning settings for individual analysis roles. Both are local YAML files. You can use the built-in profiles without creating either file.
 
 ## Start with the defaults
 
@@ -45,6 +45,20 @@ appsec-analyzer scan --profile release --assessment-depth quick --outputs markdo
 ```
 
 Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
+
+## Save an abuse-case selection
+
+Add `abuse_case_files` to a scan profile to reuse your case selection:
+
+```yaml
+schema_version: 1
+model_profile: claude
+abuse_case_files:
+  - review/abuse-cases.yaml
+  - policy/payment-cases.yml
+```
+
+Paths are relative to the selected repository root, regardless of where the profile lives. The files may be anywhere inside that repository, must be admitted YAML files, and currently require a single-repository assessment. Passing one or more `--abuse-case-file` options replaces the profile list. An empty profile list selects no extra files; it does not disable automatically discovered or organization cases. Explicit selections enable verification even at quick depth, within the normal spending and case limits. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for case authoring and compatibility paths. `profiles show` and `validate` check the path declarations without reading case contents; the assessment validates those files against its admitted source snapshot.
 
 ## Adjust models for individual tasks
 

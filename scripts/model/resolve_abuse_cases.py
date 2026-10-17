@@ -300,7 +300,7 @@ def resolve_abuse_case_sources(
     cases: list[dict] = []
     errors: list[str] = []
     rejected: list[dict] = []
-    loaded_paths: set[Path] = set()
+    loaded_paths: dict[Path, list[str]] = {}
     origin_of: dict[str, str] = {}
 
     def _reserved(path: Path, file_cases: list[dict]) -> list[str]:
@@ -353,7 +353,7 @@ def resolve_abuse_case_sources(
                 continue
             _admit(file_cases, "repo")
             known_ids.update(ids)
-            loaded_paths.add(path.resolve())
+            loaded_paths[path.resolve()] = ids
 
     if derived_case_file is not None and derived_case_file.is_file():
         file_cases, file_errors = _load_case_file(derived_case_file, schema, max_bytes)
@@ -390,9 +390,11 @@ def resolve_abuse_case_sources(
                 # Naming a file the repo-local layer already picked up is a
                 # redundant argument, not a duplicate definition — load it once.
                 if candidate in loaded_paths:
+                    for cid in loaded_paths[candidate]:
+                        origin_of[cid] = "explicit"
                     continue
-                loaded_paths.add(candidate)
                 file_cases, file_errors = _load_case_file(candidate, schema, max_bytes)
+                loaded_paths[candidate] = [case["id"] for case in file_cases]
                 _admit(file_cases, "explicit")
                 errors += file_errors + _reserved(candidate, file_cases)
 

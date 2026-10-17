@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 import yaml
@@ -90,6 +91,12 @@ def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
         {"endpoint": "https://untrusted.invalid"},
         {"outputs": ["shell"]},
         {"schema_version": 2},
+        {"abuse_case_files": "cases.yaml"},
+        {"abuse_case_files": ["../cases.yaml"]},
+        {"abuse_case_files": ["/private/cases.yaml"]},
+        {"abuse_case_files": ["cases.json"]},
+        {"abuse_case_files": ["cases.yaml\nspoofed"]},
+        {"abuse_case_files": [f"cases-{n}.yaml" for n in range(33)]},
         {"report": {"attributes": {"team": "bad\nheader"}}},
     ],
 )
@@ -119,6 +126,59 @@ def test_ambiguous_or_executable_yaml_is_rejected(home, body):
     path.write_text(body)
     with pytest.raises(profiles.ProfileError):
         profiles.resolve_scan("bad")
+
+
+def test_abuse_case_profile_selection_and_cli_replacement(home):
+    write(home, "scan", "release", {"schema_version": 1, "abuse_case_files": ["policy/cases.yaml"]})
+    saved = profiles.resolve_scan("release")
+    assert saved["settings"]["abuse_case_files"] == ["policy/cases.yaml"]
+    assert saved["origins"]["settings"]["abuse_case_files"].endswith("release.yaml")
+    override = profiles.resolve_scan("release", abuse_case_files=["./review/one.yml", "review/two.yaml"])
+    assert override["settings"]["abuse_case_files"] == ["review/one.yml", "review/two.yaml"]
+    assert override["origins"]["settings"]["abuse_case_files"] == "CLI"
+    assert override["definition_sha256"] != saved["definition_sha256"]
+    assert profiles.resolve_scan("release", abuse_case_files=[])["settings"]["abuse_case_files"] == []
+
+
+@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("override", [False, True])
+def test_abuse_case_files_reach_controller_from_profile_or_cli(home, tmp_path, monkeypatch, command, override):
+    from appsec_analyzer import hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+    from runtime import resolve_config
+
+    write(home, "scan", "release", {"schema_version": 1, "abuse_case_files": ["policy/cases.yaml"]})
+    observed = []
+    snapshots = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+
+    def assess(arguments, **kwargs):
+        observed.extend(arguments)
+        snapshots.append(kwargs["run_profile"])
+        return 0
+
+    monkeypatch.setattr(orchestration_controller, "assess_main", assess)
+    subprocess.run(["git", "init", "-q", str(tmp_path / "repo")], check=True)
+    args = [command, "--repo", str(tmp_path / "repo"), "--profile", "release", "--assessment-depth", "quick"]
+    if override:
+        args += ["--abuse-case-file", "review/a.yaml", "--abuse-case-file", "review/b.yml"]
+    assert cli.main(args) == 0
+    _, configuration_args = orchestration_controller._assessment_argument_parser().parse_known_args(observed)
+    ns = resolve_config.build_parser().parse_args(configuration_args)
+    expected = ["review/a.yaml", "review/b.yml"] if override else ["policy/cases.yaml"]
+    assert ns.abuse_case_file == expected
+    assert snapshots[0]["settings"]["abuse_case_files"] == expected
+    assert not resolve_config.resolve_abuse_case_verification(ns, "quick")["skip_abuse_case_verification"]
+
+
+@pytest.mark.parametrize("value", ["../case.yaml", "/tmp/case.yaml", "x/../../case.yaml", "x\\case.yaml", "case.py"])
+def test_invalid_cli_abuse_case_path_stops_before_host(home, monkeypatch, value):
+    from appsec_analyzer import hosts
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("no host"))
+    assert cli.main(["scan", "--abuse-case-file", value]) == 2
 
 
 def test_error_never_echoes_unknown_field_value(home, capsys):

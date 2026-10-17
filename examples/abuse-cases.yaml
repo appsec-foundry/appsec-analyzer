@@ -7,19 +7,21 @@
 #
 # Three ways to use this file:
 #
-#   1. Copy it to `<repo>/docs/security/abuse-cases/<name>.yaml` in the repository
-#      being analyzed. Every run picks it up, no flag needed. This is the
-#      normal case — the scenario is versioned with the code it describes.
-#   2. Pass it for a single scan: `--abuse-case-file .appsec/my-case.yaml`
-#      (repository-relative; a path outside the repository is rejected).
-#      This also switches abuse-case verification on at quick depth. Use it for
-#      a case you do not want on every run — a file already in
-#      `docs/security/abuse-cases/` is loaded either way.
+#   1. Save it anywhere in the repository and select it explicitly, for example:
+#      `appsec-analyzer scan --abuse-case-file review/my-case.yaml`.
+#      Paths are repository-relative; files outside the repository are rejected.
+#      Explicit selection enables verification even at quick depth.
+#   2. Save `abuse_case_files: [review/my-case.yaml]` in a scan profile for
+#      recurring assessments. CLI file selections replace that list.
 #   3. Ship it from an org profile via `abuse_cases.add`, using `ORG-AC-NNN`
 #      ids. See docs/org-profiles.md.
 #
-# Validated against schemas/abuse-cases.schema.yaml. An unparseable file, a
-# schema violation, or a `requires` no earlier step grants fails the run.
+# Existing docs/security/abuse-cases/ and .appsec/abuse-cases/ directories remain
+# automatically discovered for compatibility. Explicitly selecting such a file
+# requests its cases without loading them twice.
+#
+# Validated against schemas/abuse-cases.schema.yaml. An unparseable explicitly
+# selected file, schema violation, or dangling `requires` fails the run.
 
 schema_version: 1
 

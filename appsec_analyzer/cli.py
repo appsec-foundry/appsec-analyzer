@@ -218,6 +218,12 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
     parser.add_argument("--context", metavar="SOURCE")
     parser.add_argument(
+        "--abuse-case-file",
+        action="append",
+        metavar="PATH",
+        help="Repository-relative YAML case file; repeat for several files (replaces profile selection)",
+    )
+    parser.add_argument(
         "--keep-runtime-files", action="store_true", help="Retain private intermediate assessment files for debugging"
     )
     for flag in (
@@ -467,6 +473,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         depth=ns.assessment_depth if "assessment_depth" in explicit else None,
         budget=ns.hard_budget if "hard_budget" in explicit else None,
         outputs=ns.outputs,
+        abuse_case_files=ns.abuse_case_file,
         repositories=ns.repo or [str(Path.cwd())],
     )
     selected = set(profile["settings"]["outputs"]) | {"markdown", "yaml"}
@@ -477,6 +484,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
     profile["settings"]["outputs"] = [item for item in OUTPUTS if item in selected]
     ns.assessment_depth = profile["settings"]["assessment_depth"]
     ns.hard_budget = profile["settings"]["budget"]
+    ns.abuse_case_file = profile["settings"]["abuse_case_files"]
     for output in OUTPUTS[2:]:
         setattr(ns, output.replace("-", "_"), output in selected)
     ns.run_profile = profile
@@ -566,6 +574,8 @@ def _assess(ns: argparse.Namespace) -> int:
         args.append("--requirements")
         if ns.requirements:
             args.append(ns.requirements)
+    for path in ns.abuse_case_file:
+        args.append(f"--abuse-case-file={path}")
     if ns.slug is not None:
         args.append("--slug")
         if ns.slug != "__auto__":
