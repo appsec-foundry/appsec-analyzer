@@ -1,0 +1,4 @@
+# Install private wheels only from the approved offline wheelhouse.
+nordlicht-appsec==1.0.0
+appsec-analyzer==0.1.0a0
+-r requirements-dependencies.lock

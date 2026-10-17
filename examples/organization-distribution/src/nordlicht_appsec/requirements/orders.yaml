@@ -1,0 +1,9 @@
+source: nordlicht-demo
+description: Example catalog for a separate requirements audit; not a complete organization policy.
+categories:
+  - id: NL-ACCESS
+    title: Access to orders
+    requirements:
+      - id: NL-001
+        text: Every server-side access to an order must authorize the signed-in identity for the organization that owns the order.
+        priority: MUST

@@ -90,6 +90,8 @@ Replace `/path/to/project` with the target Git repository and `/path/to/assessme
 
 Installing by package name with `pip install appsec-analyzer` requires a release on PyPI. The current preview is listed as unpublished in [local release preparation](docs/local-release-preparation.md), which also describes installation from a locally built wheel.
 
+Organizations can ship a separate package with their scan, model and organization profiles included. Its own command selects those installed defaults automatically and uses an exact Analyzer dependency. The [organization packaging guide](docs/organization-distributions.md) walks through the installable Nordlicht example, internal releases, updates and CI use without an engine fork.
+
 A full assessment with the default `claude` profile needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The experimental `codex` profile uses `OPENAI_API_KEY` instead. To use your ChatGPT plan, select the experimental `codex-cli` profile with Codex CLI 0.163.0 and a ChatGPT login; see [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). The source scan needs neither. See [profile configuration](docs/configuration.md) for provider setup.
 
 ## Quick start

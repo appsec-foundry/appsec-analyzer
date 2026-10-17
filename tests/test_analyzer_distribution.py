@@ -23,6 +23,7 @@ GUIDES = (
     "threat-dragon-export.md",
     "local-release-preparation.md",
     "org-profiles.md",
+    "organization-distributions.md",
 )
 
 
@@ -126,10 +127,15 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         "schemas/model-profile.schema.yaml",
         "examples/profiles/release.yaml",
         "examples/model-profiles/team-sol.yaml",
+        "schemas/organization-distribution.schema.yaml",
+        "examples/organization-distribution/setup.cfg",
+        "examples/organization-distribution/src/nordlicht_appsec/cli.py",
+        "examples/organization-distribution/ci/gitlab-ci.yml.example",
     ):
         assert "appsec_analyzer/" + relative in wheel_files
         assert relative in source_files
     assert "appsec_analyzer/codex_cli.py" in wheel_files
+    assert "SECURITY.md" in source_files
     assert "appsec_analyzer/codex_cli.py" in source_files
     assert "appsec_analyzer/scripts/runtime/multi_repo_scope.py" in wheel_files
     assert "appsec_analyzer/data/stride-analysis-policy.md" in wheel_files

@@ -32,6 +32,7 @@ USER_DOCS = (
     "threat-dragon-export.md",
     "local-release-preparation.md",
     "org-profiles.md",
+    "organization-distributions.md",
 )
 _LOCAL_LINK = re.compile(r"\]\(([^)#]+)(?:#[^)]*)?\)")
 
@@ -40,8 +41,8 @@ def _ignore(directory: str, names: list[str]) -> set[str]:
     ignored = {
         name
         for name in names
-        if name in {"__pycache__", ".pytest_cache", ".venv", "node_modules", "dist", "build"}
-        or name.endswith((".pyc", ".pyo"))
+        if name in {"__pycache__", ".pytest_cache", ".venv", ".git", "node_modules", "dist", "build", "wheelhouse"}
+        or name.endswith((".pyc", ".pyo", ".egg-info"))
     }
     if Path(directory) == ROOT / "scripts":
         ignored.update(name for name in names if Path(directory, name).is_file() and name not in RUNTIME_ROOT_SCRIPTS)
@@ -95,6 +96,12 @@ class BuildAnalyzer(build_py):
         shutil.copy2(ROOT / "examples" / "appsec-requirements-example.yaml", examples)
         for folder in ("profiles", "model-profiles"):
             shutil.copytree(ROOT / "examples" / folder, examples / folder, dirs_exist_ok=True)
+        shutil.copytree(
+            ROOT / "examples/organization-distribution",
+            examples / "organization-distribution",
+            dirs_exist_ok=True,
+            ignore=_ignore,
+        )
         docs = package / "docs"
         docs.mkdir(parents=True, exist_ok=True)
         for name in USER_DOCS:

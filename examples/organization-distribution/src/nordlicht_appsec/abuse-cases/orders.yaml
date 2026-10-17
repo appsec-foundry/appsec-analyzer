@@ -1,0 +1,10 @@
+schema_version: 2
+abuse_cases:
+  - id: ORG-AC-001
+    kind: descriptive
+    title: Read an order belonging to another organization
+    check: Check whether a signed-in user can change an order ID to read an order belonging to another organization.
+    open_questions:
+      - Which roles may access orders across organizations?
+    scope_qualifier:
+      path_patterns: ["*order*"]

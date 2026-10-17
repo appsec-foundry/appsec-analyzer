@@ -4,6 +4,14 @@ Scope: the format and resolver are retained by Analyzer, but the plugin build bl
 
 This document maps org-profile changes across schema, resolution, packaging, runtime consumption, and tests. `schemas/org-profile.schema.yaml` is the structural source of truth; this file owns the cross-layer routing rules.
 
+## Standalone organization distributions
+
+The supported standalone packaging path is `appsec_analyzer/organization.py`, `schemas/organization-distribution.schema.yaml`, and the installable example under `examples/organization-distribution/`. An organization's console entry point explicitly identifies its own resource package. The manifest pins the exact engine and public interface and points to packaged scan/org YAML files. The existing scan resolver locates custom model profiles in the sibling `model-profiles/` directory. No source-owned discovery or arbitrary plugin import is added.
+
+The CLI accepts the validated distribution as an explicit argument to `main`. It applies bundled defaults only to `scan` and `assess`; explicit profile flags and `--no-org-profile` retain their meaning. `organization show` and `organization validate` run without provider calls. Bad package data stops startup instead of falling back. Bundled profiles reject Advisor-only integration declarations rather than implying that hooks, MCP, added skills, skill toggles, baseline installers or agent policy replacements execute in Analyzer.
+
+`tests/test_organization_distribution.py` checks intended and malformed inputs, source-boundary rejection, explicit overrides, preserved CI statuses, wheel/source contents, and an installation whose source checkout has been removed. The example's runtime and build locks are independent of engine source changes. Release provenance must retain engine/org commits because the current preview version is not unique to every source commit. See the [packaging and CI guide](../../organization-distributions.md).
+
 ## Change paths
 
 Every org-profile field must have a declared layer and follow that layer's complete path.

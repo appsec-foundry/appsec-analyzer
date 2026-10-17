@@ -86,6 +86,8 @@ Full-assessment scan profiles may set `max_parallel`, an integer from 1 to 16 wi
 
 ## REQ-019: Handle version changes clearly
 
+An independently packaged organization distribution may pin the engine and ship scan/model/org defaults through an explicit installed launcher. Resolve those resources from its package, never from the assessed checkout or by automatic plugin discovery. Require an exact engine and public-interface match, validate bounded data files and referenced profiles before dispatch, reject missing files, links, unsafe YAML, unsupported Advisor integration blocks and escaping paths, and fail without upstream fallback. Preserve explicit operator profile choices and existing organization restrictions. Expose model-free inspection and validation of the installed defaults, and test the wheel from outside the source checkout. Document that bundled defaults apply to full assessments and are not mandatory organization-wide enforcement.
+
 Version public interfaces and incompatible artifact or organization-contract changes. Provide explicit migration or rejection for incompatible state.
 
 ## REQ-020: Show which providers have been tested

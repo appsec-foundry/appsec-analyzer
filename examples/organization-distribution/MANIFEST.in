@@ -1,0 +1,4 @@
+include .gitignore README.md requirements.lock requirements-dependencies.lock requirements-build.lock
+recursive-include src/nordlicht_appsec *.yaml *.md
+recursive-include ci *.sh
+recursive-include ci *.example

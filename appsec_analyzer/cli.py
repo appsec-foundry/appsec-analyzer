@@ -37,9 +37,12 @@ def _engine_imports() -> None:
         sys.path.insert(0, scripts)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="appsec-analyzer")
+def _parser(*, organization=None) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=organization.command if organization else "appsec-analyzer")
     commands = parser.add_subparsers(dest="command", required=True)
+    if organization is not None:
+        org = commands.add_parser("organization", help="Inspect or validate the bundled defaults without model calls")
+        org.add_argument("action", choices=("show", "validate"))
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
     profiles = commands.add_parser("profiles", help="List, inspect, or validate profiles without model calls")
@@ -61,17 +64,26 @@ def _parser() -> argparse.ArgumentParser:
         "scan",
         help="Run the full headless security assessment with live progress",
         description="Assess the selected repository with live progress and publish security reports.",
-        epilog="Example: appsec-analyzer scan (USD 20 budget); override with --budget USD",
+        epilog=(
+            "Bundled organization and scan profiles are selected automatically; explicit options override defaults."
+            if organization
+            else "Example: appsec-analyzer scan (USD 20 budget); override with --budget USD"
+        ),
     )
-    _add_assessment_arguments(scan, default_repo=True)
+    _add_assessment_arguments(scan, default_repo=True, organization=organization)
     sources = commands.add_parser("scan-sources", help="Run deterministic source scanners without a model")
     sources.add_argument("--repo", action="append", required=True, metavar="PATH")
     sources.add_argument("--output", metavar="DIR", help="Existing directory outside every selected checkout")
     sources.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
     sources.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     sources.add_argument("--json", action="store_true", help="Print the complete machine-readable result")
-    assess = commands.add_parser("assess", help="Run a full semantic assessment with an explicit scan profile")
-    _add_assessment_arguments(assess, default_repo=False)
+    assess = commands.add_parser(
+        "assess",
+        help="Run a full semantic assessment"
+        if organization
+        else "Run a full semantic assessment with an explicit scan profile",
+    )
+    _add_assessment_arguments(assess, default_repo=False, organization=organization)
 
     for name, help_text in (
         ("status", "Inspect a versioned assessment state"),
@@ -140,7 +152,7 @@ def _slug(value: str) -> str:
     return value
 
 
-def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool) -> None:
+def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool, organization=None) -> None:
     parser.add_argument(
         "--repo",
         action="append",
@@ -156,7 +168,11 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument(
         "--profile",
         metavar="NAME_OR_FILE",
-        help="Scan profile name or external YAML file (scan default: claude; built-ins: claude, codex, codex-cli)",
+        help=(
+            "Override the bundled scan profile with NAME_OR_FILE"
+            if organization
+            else "Scan profile name or external YAML file (scan default: claude; built-ins: claude, codex, codex-cli)"
+        ),
     )
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
     parser.add_argument(
@@ -267,6 +283,11 @@ def _capabilities() -> dict:
         "scan": {"available": True, "model_calls": True},
         "scan_sources": {"available": True, "model_calls": False},
         "profiles": {"schema_version": 1, "user_defined": True, "inspection_model_calls": False},
+        "organization_distributions": {
+            "available": True,
+            "manifest_schema_version": 1,
+            "inspection_model_calls": False,
+        },
         "assessment": {
             "providers": {
                 "claude-cli": {"adapter": "compatibility", "qualified": False, "profiles": ["claude"]},
@@ -771,9 +792,18 @@ def _audit(ns: argparse.Namespace) -> int:
     return code
 
 
-def main(argv: list[str] | None = None) -> int:
-    ns = _parser().parse_args(argv)
+def main(argv: list[str] | None = None, *, organization=None) -> int:
+    ns = _parser(organization=organization).parse_args(argv)
     try:
+        if organization is not None:
+            if ns.command == "organization":
+                document = organization.describe()
+                if ns.action == "validate":
+                    document["valid"] = True
+                print(json.dumps(document, indent=2, sort_keys=True))
+                return 0
+            if ns.command in ("scan", "assess"):
+                organization.apply(ns)
         if ns.command == "profiles":
             from appsec_analyzer.profiles import DEPTHS, list_profiles, resolve_scan
 
@@ -811,7 +841,10 @@ def main(argv: list[str] | None = None) -> int:
         if ns.command == "audit-requirements":
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
         if ns.command == "version":
-            print(json.dumps({"engine_version": ENGINE_VERSION, "interface_version": INTERFACE_VERSION}))
+            version = {"engine_version": ENGINE_VERSION, "interface_version": INTERFACE_VERSION}
+            if organization is not None:
+                version["organization"] = organization.identity
+            print(json.dumps(version))
             return 0
         if ns.command == "capabilities":
             print(json.dumps(_capabilities(), sort_keys=True))

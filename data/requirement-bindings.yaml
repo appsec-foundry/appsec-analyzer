@@ -897,6 +897,9 @@ requirements:
 
   REQ-018:
     applies_to:
+      - appsec_analyzer/organization.py
+      - schemas/organization-distribution.schema.yaml
+      - examples/organization-distribution/**
       - appsec_analyzer/codex_cli.py
       - data/model-profiles/codex-cli.yaml
       - data/scan-profiles/codex-cli.yaml
@@ -924,6 +927,7 @@ requirements:
       - EX-1
       - EX-2
     documents:
+      - docs/organization-distributions.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
       - docs/security-assessment.md
@@ -936,6 +940,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_organization_distribution.py::test_bundled_defaults_apply_before_assessment_without_environment_or_cwd_lookup
+      - tests/test_organization_distribution.py::test_explicit_operator_choices_override_distribution_defaults
+      - tests/test_organization_distribution.py::test_installed_profiles_reach_actual_runtime_resolution
       - tests/test_codex_cli.py::test_public_subscription_selection
       - tests/test_codex_cli.py::test_subscription_profiles_reject_unenforceable_options
       - tests/test_profiles.py::test_user_defaults_role_depth_and_cli_precedence
@@ -964,6 +971,9 @@ requirements:
 
   REQ-019:
     applies_to:
+      - appsec_analyzer/organization.py
+      - schemas/organization-distribution.schema.yaml
+      - examples/organization-distribution/**
       - schemas/assessment-job-receipt.schema.json
       - schemas/scan-profile.schema.yaml
       - schemas/model-profile.schema.yaml
@@ -978,6 +988,7 @@ requirements:
     decisions:
       - EX-1
     documents:
+      - docs/organization-distributions.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
       - docs/internal/contracts/schema-invariants.md
@@ -985,6 +996,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_organization_distribution.py::test_incompatible_or_unknown_manifest_fields_fail_before_dispatch
+      - tests/test_organization_distribution.py::test_missing_bundled_resources_stop_without_fallback
+      - tests/test_organization_distribution.py::test_installed_wheel_uses_bundled_defaults_after_source_checkout_is_removed
       - tests/test_assessment_state.py::test_subscription_state_resume_and_monetary_tampering
       - tests/test_assessment_jobs.py::test_subscription_receipt_is_reused_without_inventing_cost
       - tests/test_profiles.py::test_invalid_scan_profiles_fail_before_host_or_checkout

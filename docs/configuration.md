@@ -1,5 +1,7 @@
 # Configuration
 
+An internal organization distribution can supply installed scan, model and organization defaults through its own command. See [organization packaging](organization-distributions.md) for the package manifest, override rules and CI setup. The upstream `appsec-analyzer` command keeps its existing defaults.
+
 The public command is `appsec-analyzer`. `scan` takes local `--repo` paths or explicitly selected HTTPS/SSH Git URLs, an optional existing `--output` directory, `--profile`, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory, the `claude` profile, and `standard` depth. `assess` requires an explicit profile (or legacy `--host`) and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.
 
 Choose `--profile claude` for the Claude CLI, `--profile codex` for the experimental OpenAI API adapter, or `--profile codex-cli` for the experimental Codex CLI connection with your ChatGPT login. A scan profile supplies the model profile, depth, USD budget, exports, and report attributes; explicit CLI options override those defaults. No `--host` argument is needed. Users can create YAML files under `~/.config/appsec-analyzer/profiles/` and `model-profiles/`, or select an external scan file. See [scan and model profiles](profiles.md) for the format, examples, and precedence, and [models and cost](model-selection.md) for provider defaults.

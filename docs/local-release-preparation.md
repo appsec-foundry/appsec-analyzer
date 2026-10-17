@@ -1,5 +1,7 @@
 # Local release preparation: 0.1.0a0
 
+For a separate internal package that includes organization defaults and pins this engine, follow [organization distribution packaging](organization-distributions.md). The source and wheel include the complete example under `examples/organization-distribution/`.
+
 This is an unpublished Phase A preview. Phase B Advisor integration is outside
 this repository's current assignment. Build from the `dev` branch in a separate
 temporary clone so checkout files and test artifacts cannot enter the archive:

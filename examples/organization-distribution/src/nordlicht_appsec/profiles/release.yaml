@@ -1,0 +1,11 @@
+schema_version: 1
+description: Nordlicht release assessment
+model_profile: nordlicht
+assessment_depth: thorough
+budget: 30
+max_parallel: 2
+outputs: [markdown, yaml, sarif]
+report:
+  attributes:
+    organization: Nordlicht
+    review_type: release

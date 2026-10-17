@@ -1,0 +1,7 @@
+schema_version: 1
+base: claude
+roles:
+  stride_analyzer:
+    model: sonnet
+  evidence_verifier:
+    model: sonnet

@@ -1,5 +1,7 @@
 # Organization profiles in Analyzer assessments
 
+To include your organization's profile in an internal installation and select it automatically, use a separate organization distribution. The [packaging guide](organization-distributions.md) includes a complete example, wheel builds, offline installation checks and CI instructions. The upstream engine remains a separate pinned dependency.
+
 An organization profile supplies assessment defaults such as depth, selected
 exports, budget guardrails, context documents, actors, and requirements. The
 engine validates a selected profile against

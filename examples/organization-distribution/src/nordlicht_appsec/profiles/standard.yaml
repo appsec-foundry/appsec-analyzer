@@ -1,0 +1,11 @@
+schema_version: 1
+description: Nordlicht standard assessment
+model_profile: nordlicht
+assessment_depth: standard
+budget: 20
+max_parallel: 2
+outputs: [markdown, yaml, sarif]
+report:
+  attributes:
+    organization: Nordlicht
+    configuration_version: 1.0.0

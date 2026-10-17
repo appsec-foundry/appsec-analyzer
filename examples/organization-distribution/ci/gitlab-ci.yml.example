@@ -1,0 +1,47 @@
+# Adapt in the assessed application's trusted pipeline, not in an untrusted MR.
+# Runner requirements: protected shell runner, Python 3.10, Git, supported Claude
+# executable/authentication, and a read-only mount of the approved release.
+stages: [security]
+
+appsec-assessment:
+  stage: security
+  tags: [appsec-trusted]
+  variables:
+    NORDLICHT_RELEASE_DIR: /opt/appsec-releases/nordlicht-1.0.0
+  rules:
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: manual
+    - when: never
+  allow_failure: false
+  before_script:
+    - |
+      set -eu
+      umask 077
+      RUNTIME_DIR="$(mktemp -d /tmp/nordlicht-ci.XXXXXX)"
+      cd "$NORDLICHT_RELEASE_DIR"
+      sha256sum --check SHA256SUMS
+      python3 -m venv "$RUNTIME_DIR"
+      "$RUNTIME_DIR/bin/python" -m pip install \
+        --no-index --no-deps --only-binary=:all: \
+        --find-links "$NORDLICHT_RELEASE_DIR/wheelhouse" \
+        -r "$NORDLICHT_RELEASE_DIR/requirements.lock"
+      "$RUNTIME_DIR/bin/python" -m pip check
+      export PATH="$RUNTIME_DIR/bin:$PATH"
+      export ASSESSMENT_REPO="$CI_PROJECT_DIR"
+      export ASSESSMENT_OUTPUT="$(dirname "$CI_PROJECT_DIR")/nordlicht-assessment-$CI_JOB_ID"
+  script:
+    - sh "$NORDLICHT_RELEASE_DIR/ci/assess.sh"
+  after_script:
+    - |
+      set -eu
+      umask 077
+      ASSESSMENT_OUTPUT="$(dirname "$CI_PROJECT_DIR")/nordlicht-assessment-$CI_JOB_ID"
+      REPORT_DIR="$(mktemp -d "$CI_PROJECT_DIR/appsec-reports.XXXXXX")"
+      for report in "$ASSESSMENT_OUTPUT"/security-assessment.*; do
+        if [ -f "$report" ]; then cp "$report" "$REPORT_DIR/"; fi
+      done
+  artifacts:
+    when: always
+    access: maintainer
+    expire_in: 1 week
+    paths: ["appsec-reports.*/"]

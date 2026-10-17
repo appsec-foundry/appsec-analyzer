@@ -68,11 +68,7 @@ skill_toggles:
   authnz-review:
     enabled: false
     reason: "AuthN/AuthZ reviews are restricted to the AppSec release job."
-  check-permissions: true
-  clean-run-state: true
-  fix-run-issues: true
   status: true
-  security-assessment-health: true
 
 presets:
   ci-fast:

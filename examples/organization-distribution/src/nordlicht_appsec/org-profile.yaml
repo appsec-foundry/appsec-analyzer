@@ -1,0 +1,27 @@
+api_version: appsec-advisor.org-profile/v2
+organization:
+  id: nordlicht
+  name: Nordlicht (fictional example)
+  profile_version: 1.0.0
+  owner: Application Security
+compatibility:
+  core: ">=0.1.0 <0.2.0"
+default_preset: standard
+branding:
+  report_title: Security assessment
+  contact_name: Nordlicht Application Security
+  contact_email: appsec@nordlicht.example
+llm_context:
+  documents:
+    - id: organization
+      path: context/organization.md
+      purpose: organization_background
+      max_bytes: 8000
+abuse_cases:
+  inherit_defaults: true
+  add: abuse-cases/*.yaml
+presets:
+  standard:
+    base_mode: standard
+    context:
+      document_ids: [organization]

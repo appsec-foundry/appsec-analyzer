@@ -468,17 +468,13 @@ def test_read_plugin_version_missing(monkeypatch, tmp_path):
 
 
 def test_read_plugin_version_bad_json(monkeypatch, tmp_path):
-    meta_dir = tmp_path / ".claude-plugin"
-    meta_dir.mkdir()
-    (meta_dir / "plugin.json").write_text("{not json")
+    (tmp_path / "engine.json").write_text("{not json")
     monkeypatch.setattr(vop, "PLUGIN_ROOT", tmp_path)
     assert vop._read_plugin_version() == "0.0.0"
 
 
 def test_read_plugin_version_ok(monkeypatch, tmp_path):
-    meta_dir = tmp_path / ".claude-plugin"
-    meta_dir.mkdir()
-    (meta_dir / "plugin.json").write_text('{"version": "9.9.9"}')
+    (tmp_path / "engine.json").write_text('{"engine_version": "9.9.9"}')
     monkeypatch.setattr(vop, "PLUGIN_ROOT", tmp_path)
     assert vop._read_plugin_version() == "9.9.9"
 

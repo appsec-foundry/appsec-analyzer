@@ -1,5 +1,7 @@
 # Scan and model profiles
 
+Profiles can also be shipped inside an [organization distribution](organization-distributions.md). Its launcher selects the bundled scan and organization profiles automatically; the bundled model profile is resolved alongside the scan profile. No profile files need to be copied into the assessed repository.
+
 A scan profile saves the settings you reuse: model selection, analysis depth, budget, output formats, abuse-case files, and report attributes. A model profile chooses models and reasoning settings for individual analysis roles. Both are local YAML files. You can use the built-in profiles without creating either file.
 
 ## Start with the defaults

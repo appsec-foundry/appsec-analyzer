@@ -1,0 +1,6 @@
+schema_version: 1
+engine_version: 0.1.0a0
+interface_version: 1
+command: nordlicht-appsec
+scan_profile: profiles/standard.yaml
+org_profile: org-profile.yaml

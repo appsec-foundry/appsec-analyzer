@@ -1,4 +1,4 @@
-include LICENSE README.md engine.json
+include LICENSE README.md SECURITY.md engine.json
 recursive-include appsec_analyzer *.py
 recursive-include scripts/analyzers *.py
 recursive-include scripts/contexts *.py
@@ -21,6 +21,8 @@ recursive-include data *.yaml *.json *.md
 recursive-include schemas *.yaml *.json *.md
 recursive-include templates *.j2 *.md
 recursive-include examples *.yaml *.json *.md *.sdd *.yml
+recursive-include examples/organization-distribution *.py *.toml *.cfg *.in *.lock *.sh *.example
+include examples/organization-distribution/.gitignore
 include skills/appsec-analyzer/SKILL.md skills/appsec-analyzer/business-context.md
 include skills/analyze-threats/references/analysis-contract.md
 include skills/audit-security-requirements/config.json
