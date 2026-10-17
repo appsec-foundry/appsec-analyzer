@@ -101,6 +101,17 @@ assessment completion.
   and paid-run budget are not supplied. The operator requested offline work;
   no paid provider calls are permitted. Provider support must remain marked
   unqualified until complete authorized live assessments establish it.
+- A versioned public CLI now has deterministic `scan`, Claude-compatible
+  `assess`, `status`, `progress`, `stop`, `results`, and a focused `analyst`
+  delegation. `scan` does not read provider credentials. API transports have
+  offline wire, budget, destination, and failure tests but no approved public
+  model profile. Requirements-audit migration remains open: the old launcher
+  used a plugin skill with broad Bash/Agent permissions and cannot safely be
+  exposed as an Analyzer audit without a bounded controller. The temporary
+  shell file in this repository only delegates to `appsec-analyzer assess`.
+- Default assessment and analyst state paths now use `appsec-analyzer`. The
+  old Advisor data directory is not silently reused; historical data import
+  behavior still needs installed-artifact verification.
 - A first path list omitted the focused-analysis and reviewer CLI programs and
   several fixture-development drivers. A new filter run from the frozen source
   bundle added their historical paths. The first local import and its two
@@ -113,6 +124,6 @@ assessment completion.
 | Milestone | State | Evidence and next step |
 | --- | --- | --- |
 | A1–A2 inventory and history | Imported, verification ongoing | Source and filtered revisions, path and commit maps, blob comparison, historical samples above; finish scoped secret triage and current-tree exclusions. |
-| A3–A5 provider boundary | Open | Preserve Claude replay, implement direct API and fixed gateway adapters, test schemas, authorization, budgets, cancellation, and failure cases offline. |
-| A6 standalone CLI and package | Open | Replace launcher, expose scan and assessment contracts, move resources into package, test installed artifact outside source trees. |
+| A3–A5 provider boundary | Offline adapter in progress | Responses/gateway transport and negative offline tests exist; qualification, complete pipeline replay, and public API routing remain open. |
+| A6 standalone CLI and package | In progress | Scan and assessment CLI, state operations, private state paths and focused analyst delegation exist; requirements audit, plugin dependencies, launcher consumer migration, and installed-artifact verification remain open. |
 | A7 local release preparation | Open | Build and inspect wheel and sdist; record unresolved qualification and compatibility limits. No source-repository correction, push, or publication. |

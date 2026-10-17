@@ -1,5 +1,16 @@
 # AppSec Analyzer extraction plan
 
+> **Assignment scope override (2026-10-17):** Only Phase A is authorized.
+> `appsec-advisor` is read-only; A7 source-repository corrections and every
+> Phase B plugin change are excluded. The public entries are
+> `appsec-analyzer scan --repo <path>` and `appsec-analyzer assess --repo <path>`.
+> The old `run-headless.sh` may not remain an independent orchestrator in the
+> new package. Preserve the separate requirements audit, retain live security
+> controls, and remove current-tree legacy only after checking all consumers.
+> Do not push, publish, make paid model calls, or treat an unqualified provider
+> as supported. The [extraction record](../extraction/phase-a-record.md)
+> tracks actual progress and open compatibility work.
+
 Status: implementation plan, 2026-10-17. Target: [appsec-foundry/appsec-analyzer](https://github.com/appsec-foundry/appsec-analyzer). Build the independent engine in that repository while the existing AppSec Advisor implementation remains operational. Switch the plugin to a qualified Analyzer release and remove duplicated implementation in a second phase.
 
 The plan combines the [provider-neutral engine design](design-provider-neutral-engine-2026-10-17.md) and [product architecture](../../proposals/appsec-product-architecture-concept.md), with relevant Git history preserved through `git filter-repo`. It changes their proposed sequencing: import the development history first, qualify providers in the destination repository, and package the engine there. Provider qualification still precedes a supported standalone release and plugin cutover. The existing Advisor runtime does not need an intermediate provider refactor.
