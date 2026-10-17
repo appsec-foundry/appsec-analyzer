@@ -1,31 +1,20 @@
-"""
-Characterization tests for scripts/auto_emitter_pass.sh (P3, 2026-06-20).
-
-The auto-emitter pass is the controller-owned deterministic enrichment tail.
-These tests pin its ordering and invocation contract:
-
-  * the script runs the SAME fixed sequence of deterministic emitters, in order;
-  * it honours the DRY_RUN=false guard and the tee-to-.agent-run.log contract;
-  * the compact controller calls the script instead of inlining the block.
-
-The emitters themselves are unit-tested elsewhere; here we only verify the
-orchestration wrapper (sequence, guard, logging, exit code) is intact.
-"""
+"""Deterministic enrichment remains ordered and publishes only with a receipt."""
 
 from __future__ import annotations
 
-import subprocess
+import json
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
-PLUGIN_ROOT = Path(__file__).parent.parent
-SCRIPT = PLUGIN_ROOT / "scripts" / "auto_emitter_pass.sh"
-CONTROLLER = PLUGIN_ROOT / "scripts" / "orchestrator/orchestration_controller.py"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from model.enrichment_pass import valid_receipt
+from orchestrator import orchestration_controller as controller
 
-# The exact emitter sequence lifted from the inline block — order is contractual
-# (comments in the script explain each "runs AFTER/BEFORE" dependency).
-EXPECTED_SEQUENCE = [
+EXPECTED_SEQUENCE = (
+    "validators/guard_evidence_verification.py",
     "validators/validate_evidence_lines.py",
     "model/emit_meta_findings.py",
     "model/emit_review_mitigations.py",
@@ -33,6 +22,7 @@ EXPECTED_SEQUENCE = [
     "model/emit_finding_fix_mitigations.py",
     "model/emit_clean_finding_titles.py",
     "model/emit_general_mitigation_titles.py",
+    "model/backfill_scanner_remediation.py",
     "model/hydrate_mitigation_details.py",
     "model/sanitize_perimeter_claims.py",
     "model/reclassify_components.py",
@@ -44,143 +34,70 @@ EXPECTED_SEQUENCE = [
     "analyzers/detect_public_repo.py",
     "model/enrich_asset_links.py",
     "validators/secret_scan.py",
-]
-
-MINIMAL_YAML = "meta: {}\nthreats: []\nsecurity_controls: []\nassets: []\nmitigations: []\n"
-
-
-def test_script_exists_with_shebang():
-    assert SCRIPT.exists(), "auto_emitter_pass.sh must exist"
-    assert SCRIPT.read_text(encoding="utf-8").startswith("#!/usr/bin/env bash")
+)
+MINIMAL = {"meta": {}, "threats": [], "security_controls": [], "assets": [], "mitigations": []}
 
 
-def test_emitter_sequence_preserved_in_order():
-    """The extracted script must run every emitter the inline block did, in the
-    same order — that is what makes the extraction byte-for-byte behaviour."""
-    body = SCRIPT.read_text(encoding="utf-8")
-    positions = []
-    for name in EXPECTED_SEQUENCE:
-        idx = body.find(name)
-        assert idx != -1, f"{name} missing from auto_emitter_pass.sh"
-        positions.append(idx)
-    assert positions == sorted(positions), "emitter calls are out of order vs the inline original"
+def _run(directory: Path, *, dry_run: bool = False) -> None:
+    controller._run_auto_emitter_pass(directory, {"repo_root": str(directory), "dry_run": dry_run}, [])
 
 
-def test_dry_run_guard_and_tee_contract_present():
-    body = SCRIPT.read_text(encoding="utf-8")
-    assert 'if [ "$DRY_RUN" = "false" ]; then' in body, "DRY_RUN=false guard must be preserved"
-    assert 'tee -a "$OUTPUT_DIR/.agent-run.log"' in body, "tee-to-log contract must be preserved"
-    assert "AUTO_EMITTER_START" in body and "AUTO_EMITTER_END" in body
+def test_order_dry_run_and_required_receipt(monkeypatch, tmp_path: Path) -> None:
+    calls = []
+    monkeypatch.setattr(controller, "_best_effort_script",
+                        lambda output, name, args, receipts: calls.append(name))
+    monkeypatch.setattr(controller, "_run_script", lambda name, args: calls.append(name))
+    _run(tmp_path, dry_run=True)
+    assert calls == []
+    _run(tmp_path)
+    assert tuple(calls) == (*EXPECTED_SEQUENCE, "model/enrichment_pass.py")
 
 
-def test_controller_calls_script_not_inline():
-    """The active context-v2 finalizer must retain the deterministic pass."""
-    controller = CONTROLLER.read_text(encoding="utf-8")
-    assert 'str(SCRIPT_DIR / "auto_emitter_pass.sh")' in controller
-    assert "_run_auto_emitter_pass(output_dir, cfg, receipts)" in controller
-    assert '"model/emit_meta_findings.py"' not in controller
+def test_a_failing_receipt_blocks_completion(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(controller, "_best_effort_script", lambda *args: None)
+
+    def fail(name, args):
+        raise controller.ControllerError("receipt unavailable")
+
+    monkeypatch.setattr(controller, "_run_script", fail)
+    with pytest.raises(controller.ControllerError, match="receipt unavailable"):
+        _run(tmp_path)
 
 
-def test_smoke_run_logs_markers_and_preserves_yaml(tmp_path):
-    """Golden-input smoke: a minimal valid yaml runs clean (exit 0), both markers
-    land in .agent-run.log, and the yaml still parses afterwards (best-effort
-    emitters never corrupt it)."""
-    yaml = pytest.importorskip("yaml")
-    (tmp_path / "threat-model.yaml").write_text(MINIMAL_YAML, encoding="utf-8")
-    res = subprocess.run(
-        ["bash", str(SCRIPT), str(tmp_path), str(tmp_path), str(PLUGIN_ROOT), "false"],
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 0, f"script must exit 0 (best-effort); stderr:\n{res.stderr}"
-    log = (tmp_path / ".agent-run.log").read_text(encoding="utf-8")
-    assert "AUTO_EMITTER_START" in log and "AUTO_EMITTER_END" in log
-    # yaml is still loadable — no emitter corrupted it.
-    assert yaml.safe_load((tmp_path / "threat-model.yaml").read_text(encoding="utf-8")) is not None
-
-
-def test_refuted_candidate_is_removed_before_emitters_derive_links(tmp_path):
-    """The active YAML never retains a refuted finding or its review card."""
-    yaml = pytest.importorskip("yaml")
-    data = yaml.safe_load(MINIMAL_YAML)
-    data["threats"] = [
-        {
-            "id": "T-001",
-            "title": "Refuted SQL injection",
-            "risk": "High",
-            "cwe": "CWE-89",
-            "source": "stride",
-            "component": "api",
-            "evidence": [{"file": "missing.ts", "line": 1}],
-            "evidence_check": "refuted",
-        }
-    ]
-    (tmp_path / "threat-model.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-
-    res = subprocess.run(
-        ["bash", str(SCRIPT), str(tmp_path), str(tmp_path), str(PLUGIN_ROOT), "false"],
-        capture_output=True,
-        text=True,
-    )
-
-    assert res.returncode == 0, res.stderr
-    written = yaml.safe_load((tmp_path / "threat-model.yaml").read_text(encoding="utf-8"))
+def test_refuted_candidate_is_removed_before_derivation(tmp_path: Path) -> None:
+    data = {**MINIMAL, "threats": [{
+        "id": "T-001", "title": "Refuted SQL injection", "risk": "High", "cwe": "CWE-89",
+        "source": "stride", "component": "api", "evidence": [{"file": "missing.ts", "line": 1}],
+        "evidence_check": "refuted",
+    }]}
+    path = tmp_path / "threat-model.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    _run(tmp_path)
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert written["threats"] == []
     assert not any(m.get("auto_source") == "evidence-check-refuted" for m in written["mitigations"])
-
-
-def test_smoke_dry_run_is_noop(tmp_path):
-    """DRY_RUN=true must skip the whole pass — no markers, no log."""
-    (tmp_path / "threat-model.yaml").write_text(MINIMAL_YAML, encoding="utf-8")
-    res = subprocess.run(
-        ["bash", str(SCRIPT), str(tmp_path), str(tmp_path), str(PLUGIN_ROOT), "true"],
-        capture_output=True,
-        text=True,
-    )
-    assert res.returncode == 0
-    log_path = tmp_path / ".agent-run.log"
-    log = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
-    assert "AUTO_EMITTER_START" not in log, "DRY_RUN=true must not run the emitter pass"
+    assert valid_receipt(written)
 
 
 @pytest.mark.parametrize("route", ["/register", "/auth/signup"])
-def test_repeated_pass_does_not_duplicate_cards_or_controls(tmp_path, route):
-    import json
-
-    import yaml
-    from model.enrichment_pass import valid_receipt
-
-    data = yaml.safe_load(MINIMAL_YAML)
-    data["threats"] = [
-        {
-            "id": "T-001",
-            "title": "Missing request validation",
-            "risk": "High",
-            "cwe": "CWE-20",
-            "mitigation_title": "Validate request fields",
-            "source": "stride",
-            "remediation": {
-                "steps": ["Validate incoming fields against the request schema."],
-                "verification": "Submit an unexpected field and confirm rejection.",
-            },
-        }
-    ]
+def test_repeated_pass_keeps_cards_and_controls_stable(tmp_path: Path, route: str) -> None:
+    data = {**MINIMAL, "threats": [{
+        "id": "T-001", "title": "Missing request validation", "risk": "High", "cwe": "CWE-20",
+        "mitigation_title": "Validate request fields", "source": "stride",
+        "remediation": {"steps": ["Validate incoming fields against the request schema."],
+                        "verification": "Submit an unexpected field and confirm rejection."},
+    }]}
     sidecar = {"routes": [{"method": "POST", "path": route}]}
-    inv_path = tmp_path / ".route-inventory.json"
-    inv_path.write_text(json.dumps(sidecar))
+    inventory = tmp_path / ".route-inventory.json"
+    inventory.write_text(json.dumps(sidecar), encoding="utf-8")
     path = tmp_path / "threat-model.yaml"
-    path.write_text(yaml.safe_dump(data))
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
     models = []
     for _ in range(2):
-        result = subprocess.run(
-            ["bash", str(SCRIPT), str(tmp_path), str(tmp_path), str(PLUGIN_ROOT), "false"],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
-        models.append(yaml.safe_load(path.read_text()))
+        _run(tmp_path)
+        models.append(yaml.safe_load(path.read_text(encoding="utf-8")))
         assert valid_receipt(models[-1])
     for key in ("threats", "mitigations", "security_controls"):
         assert len(models[0][key]) == len(models[1][key])
     assert models[1]["threats"][0]["vektor"]
-    assert json.loads(inv_path.read_text()) == sidecar
+    assert json.loads(inventory.read_text(encoding="utf-8")) == sidecar

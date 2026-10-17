@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import renderers.compose_threat_model as compose
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 ENGINE_JSON = REPO_ROOT / "engine.json"
 CONTRACT = REPO_ROOT / "data" / "sections-contract.yaml"
 COMPOSE_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "compose"
