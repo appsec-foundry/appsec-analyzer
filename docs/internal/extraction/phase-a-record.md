@@ -12,12 +12,12 @@ implementation, tests, documentation, and commits belong to this repository;
 - Destination before import: unborn `main`, no tracked or untracked project
   work. The destination remote advertised no branch heads when checked. The
   filtered history was imported to local `dev` without touching `main`.
-- Source lineage: 2,353 commits. Filtered lineage: 1,979 commits; 374 commits
+- Source lineage: 2,353 commits. Filtered lineage: 1,980 commits; 373 commits
   touched only excluded paths and disappeared. Filtered tip:
-  `634ef617b41bd82606b320e7f04b2a714fa047e0`.
+  `ca16392f389eb55a84cfcb0b680bf5c6adf61e49`.
 - Full original-to-filtered [commit map](commit-map.txt), [ref map](ref-map.txt),
-  and [selected current and historical paths](filter-paths.txt). The 1,676
-  selected paths include 376 historical-only names. `git filter-repo` does not
+  and [selected current and historical paths](filter-paths.txt). The 1,693
+  selected paths include 380 historical-only names. `git filter-repo` does not
   follow renames automatically, so those names were added from Git rename
   records before filtering.
 - Tool: upstream `newren/git-filter-repo` 2.47.0, installed from the PyPI
@@ -26,7 +26,7 @@ implementation, tests, documentation, and commits belong to this repository;
   The upstream [release](https://github.com/newren/git-filter-repo/releases/tag/v2.47.0)
   and [PyPI version](https://pypi.org/project/git-filter-repo/2.47.0/) were
   checked before filtering. Filter command, run **only** in a disposable full
-  clone: `git filter-repo --force --refs refs/heads/dev --paths-from-file
+  clone of the frozen source bundle: `git filter-repo --force --refs refs/heads/dev --paths-from-file
   /tmp/appsec-analyzer-filter-paths.txt`.
 - A complete source `dev` bundle was verified at
   `/tmp/appsec-analyzer-source-backup-20261017.bundle`. This is a local recovery
@@ -79,11 +79,11 @@ assessment completion.
 
 ## Verification and open items
 
-- Every selected current source-tip blob matched the filtered tip: 1,300 files,
+- Every selected current source-tip blob matched the filtered tip: 1,313 files,
   no missing, extra, or differing blobs. Sampled renamed commits retained
   their author, committer, dates, and messages. The filter's full commit map
   records all changed hashes and pruned commits.
-- A redacted pattern scan traversed 12,818 reachable blobs. It found 555
+- A redacted pattern scan traversed 12,881 reachable blobs. It found 555
   pattern matches, concentrated in secret-detection code, example prose, and
   synthetic tests; no candidate was an independently stored credential file.
   A `.env` fixture exists under `tests/fixtures/e2e/ci-pipeline/` and must be
@@ -101,6 +101,12 @@ assessment completion.
   and paid-run budget are not supplied. The operator requested offline work;
   no paid provider calls are permitted. Provider support must remain marked
   unqualified until complete authorized live assessments establish it.
+- A first path list omitted the focused-analysis and reviewer CLI programs and
+  several fixture-development drivers. A new filter run from the frozen source
+  bundle added their historical paths. The first local import and its two
+  follow-up commits remain on `import-v1`; their changes were cherry-picked
+  onto the corrected `dev` history. The source checkout's `dev` branch advanced
+  externally during this work; that later commit was not imported.
 
 ## Milestones
 

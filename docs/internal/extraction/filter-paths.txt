@@ -46,6 +46,8 @@ agents/shared/validation-routine.md
 agents/stride-lenses/mcp.md
 agents/stride-lenses/mobile.md
 agents/stride-lenses/rag.md
+bin/appsec-reviewer
+bin/appsec-reviewer-cli
 claude-plugin/agents/appsec-architect-reviewer.md
 claude-plugin/agents/appsec-recon-scanner.md
 claude-plugin/agents/appsec-threat-merger.md
@@ -76,6 +78,7 @@ claude-plugin/schemas/stride.schema.yaml
 claude-plugin/schemas/threat-model.output.schema.yaml
 claude-plugin/schemas/threats-merged.schema.yaml
 claude-plugin/schemas/triage-flags.schema.yaml
+claude-plugin/scripts/.gitignore-template
 claude-plugin/scripts/agent_logger.py
 claude-plugin/scripts/annotate_architecture.py
 claude-plugin/scripts/annotate_sequences.py
@@ -273,6 +276,7 @@ plugin/schemas/stride.schema.yaml
 plugin/schemas/threat-model.output.schema.yaml
 plugin/schemas/threats-merged.schema.yaml
 plugin/schemas/triage-flags.schema.yaml
+plugin/scripts/.gitignore-template
 plugin/scripts/agent_logger.py
 plugin/scripts/annotate_architecture.py
 plugin/scripts/annotate_sequences.py
@@ -446,6 +450,8 @@ schemas/trust-boundary-coverage.schema.json
 schemas/trust-boundary-diagnostics.schema.json
 schemas/trust-boundary-selection.schema.json
 schemas/weakness-signals.schema.json
+scripts/.gitignore-template
+scripts/README.md
 scripts/_artifact_stamp.py
 scripts/_atomic_io.py
 scripts/_boundary_adjacency.py
@@ -518,6 +524,8 @@ scripts/annotate_architecture.py
 scripts/annotate_sequences.py
 scripts/apply_content_repair.py
 scripts/apply_prose_fixes.py
+scripts/appsec-analyst-cli
+scripts/appsec-reviewer-cli
 scripts/appsec_status.py
 scripts/arch_coverage_to_threats.py
 scripts/architect_review.py
@@ -542,6 +550,7 @@ scripts/build_threat_modeling_context.py
 scripts/build_trust_boundary_assessment_input.py
 scripts/build_verify_diff.py
 scripts/business_context_preview.py
+scripts/calibrate_architect_review.py
 scripts/canonicalize_component_id.py
 scripts/check_fragment_registry.py
 scripts/check_permissions.py
@@ -594,6 +603,9 @@ scripts/detect_public_repo.py
 scripts/diagnostic_bundle.py
 scripts/discover_identity_providers.py
 scripts/dispatch_window.py
+scripts/e2e_cross_repo_fixture.sh
+scripts/e2e_fixture.sh
+scripts/e2e_spring_fixture.sh
 scripts/embedded_store_access.py
 scripts/emit_auth_coverage.py
 scripts/emit_clean_finding_titles.py
@@ -639,6 +651,7 @@ scripts/finalize_component_inventory.py
 scripts/flow_route_auth.py
 scripts/guard_evidence_verification.py
 scripts/handler_resolver.py
+scripts/harvest-config.example.json
 scripts/harvest-requirements.py
 scripts/harvest_requirements.py
 scripts/headless_usage.py
@@ -646,6 +659,7 @@ scripts/hook_payload.py
 scripts/hydrate_mitigation_details.py
 scripts/iac_resource_checks.py
 scripts/inline_code_formatter.py
+scripts/live_canary.py
 scripts/load_business_context.py
 scripts/load_related_repos.py
 scripts/log_agent_end.py
@@ -656,6 +670,7 @@ scripts/measure_run.py
 scripts/merge_threats.py
 scripts/mermaid_validate.mjs
 scripts/migrate_v3_to_v4.py
+scripts/mock-server.py
 scripts/model/__init__.py
 scripts/model/abuse_case_hypothesis.py
 scripts/model/aggregate_threat_summary.py
@@ -824,6 +839,8 @@ scripts/restore_preserved_sections.py
 scripts/review_threat_model.py
 scripts/route_inventory.py
 scripts/run-headless.sh
+scripts/run-interruptible.sh
+scripts/run-tests.sh
 scripts/run_summary.py
 scripts/run_tests.py
 scripts/run_timing.py
