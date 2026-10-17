@@ -982,6 +982,9 @@ def _assessment_session(
         for name in RUN_DIAGNOSTIC_NAMES:
             (scope.output / name).unlink(missing_ok=True)
         budget.plan_completion()
+        prompt_capacity = None
+        if (run_profile or {}).get("adapter") == "codex-cli":
+            from appsec_analyzer.codex_cli import prompt_capacity
         # Any session may adopt the cached accepted jobs of an unfinished earlier run.
         jobs = AssessmentJobs(
             scope,
@@ -991,6 +994,7 @@ def _assessment_session(
             state.should_stop,
             state.checkpoint,
             cache=state.directory / CACHE_NAME,
+            prompt_capacity=prompt_capacity,
         )
         from runtime.analyst_host import HostCancelled, HostTimeout
         from runtime.multi_repo_discovery import BudgetExhausted
@@ -1053,11 +1057,11 @@ def _write_run_issues(output: Path, cfg: dict[str, Any], issues: list[tuple[str,
 
 
 def _assessment_runtime_warning(state, *, running: bool = False) -> str | None:
-    """Disclose a plugin change during the run instead of discarding its report.
+    """Disclose an Analyzer runtime change instead of discarding its report.
 
     Every artifact was validated by the code that consumed it, so the report
-    stands; its parts may come from different plugin versions. Resuming stays
-    bound to the starting runtime through the state identity. A plugin tree
+    stands; its parts may come from different Analyzer versions. Resuming stays
+    bound to the starting runtime through the state identity. A runtime tree
     that cannot be fingerprinted mid-run, such as a file an editor replaces,
     is disclosed the same way instead of ending a run that may have published.
     Shown mid-run (``running``), it says the run goes on, so it never reads as
@@ -1070,7 +1074,10 @@ def _assessment_runtime_warning(state, *, running: bool = False) -> str | None:
     if current == state.identity["runtime_sha256"]:
         return None
     changed = (
-        "The plugin changed while this assessment ran, so parts of the report may come from different plugin versions."
+        "Analyzer code or analysis resources changed during this run. Results may combine different Analyzer versions."
+        if current is not None
+        else "Analyzer code and analysis resources could not be checked against the run's starting version. "
+        "A consistent Analyzer version cannot be confirmed."
     )
     if running:
         return (
@@ -1814,12 +1821,64 @@ def _assessment_stride(
         # MR-13: a route target reads its registration window even where
         # another component owns that file.
         job_allowed = allowed | analysis.related_sources(targets)
+
         # Lines the context cites from earlier stages (controls, flows,
         # boundaries) arrive with the first job's first packet: a job that
         # cites one it was never served is rejected and regenerates its whole
         # result. Only the first job reports what the context alone shows, so
         # the other jobs keep their room for targets and do not repeat it.
-        room = preload_room(context)
+        def stride_instructions(first=True, share=""):
+            return (
+                _assessment_role_instructions(
+                    "stride_analyzer",
+                    "Analyze the selected component across all six STRIDE categories. Return exactly one coverage "
+                    "disposition per category and consistent local finding IDs. Retrieve the component's source even "
+                    "when there are no findings. Attribute each finding to the component that owns its vulnerable "
+                    "control or sink, with exact qualified source anchors. Neighbor sources are permitted only for "
+                    "the supplied confirmed incident flows. A connection does not establish payload continuity, "
+                    "identity propagation or exploitation. Read both ends before asserting a cross-repository "
+                    "mechanism and retain its source-to-sink trace. "
+                    "The controller supplies each investigation_targets anchor's source"
+                    + (", and the lines the supplied controls, flows and boundaries cite," if first else "")
+                    + " in source_slices; follow its "
+                    "mechanism to the relevant control or sink. A target's routes lists every route it covers; "
+                    "decide them together, including their guards and handler; a target's related registration "
+                    "lines may lie in another component's file. A target's guard_lines name earlier guard "
+                    "registrations on its routes' paths, its imports the repository files its file imports, and "
+                    "its middleware the definitions of the middlewares its routes run; all are readable "
+                    "whichever component owns them. Small supporting slices are supplied "
+                    "when they fit; read any missing control or sink before leaving its target unresolved. "
+                    "Request all further source you need in one read "
+                    "action: the job allows one round of further reads, and each call re-analyzes the whole packet. "
+                    "Write each finding title without a file location; the controller appends the anchor's. "
+                    "Include a short action-style mitigation_title naming the primary technical fix. "
+                    "The controller derives each category's finding_ids and identity fields from your findings. "
+                    "Return one surface_coverage decision per target with its target_id, disposition and linked "
+                    "finding_ids; the controller adds the target anchor. Give a reason of at most 160 characters "
+                    "when the decision links no finding or the target has a review_question. Answer each "
+                    "review_question independently from the retrieved source: name the control, concrete gap, "
+                    "inapplicability or missing evidence. A finding on the same file does not answer another "
+                    "mechanism. These questions require decisions, not a minimum number of findings. "
+                    "Targets are investigation leads, never findings or proof of vulnerability. Use examined when "
+                    "you investigated the mechanism, not-applicable only with a source-backed reason, and unresolved "
+                    "when the read source cannot settle it; the run reports each unresolved target. The supplied assessment_depth "
+                    "and lens_ids are authoritative; the selected lens text follows these role instructions. "
+                    + requirement_rule
+                    + " Code examples are proposed remediation, never commands to execute. "
+                    + _STRIDE_TIER_RULE
+                    + " "
+                    + _STRIDE_CRITICAL_RULE
+                    + " Unproven practices retain their unproven tier and no CVSS."
+                    + (" " + share.rstrip() if share else ""),
+                )
+                + "\n\nSelected analysis lenses:\n"
+                + lens_policy
+            )
+
+        schema = analysis.contract("multi-repo-stride.schema.json")
+        schema["required"].append("surface_coverage")
+        context_limit = jobs.context_limit(stride_instructions(share="x" * 512), schema)
+        room = preload_room(context, max_context_bytes=context_limit)
         context_preload = analysis.evidence_preload(
             scope,
             source_rows([context["existing_controls"], incident, adjacent]),
@@ -1845,8 +1904,6 @@ def _assessment_stride(
             reserve_windows=len(context_preload),
         ) or [([], [])]
         jobs.budget.plan_required("stride:" + component["id"], "stride_analyzer", len(target_batches))
-        schema = analysis.contract("multi-repo-stride.schema.json")
-        schema["required"].append("surface_coverage")
         parts = []
         for index, (target_batch, preload) in enumerate(target_batches, 1):
             selector = (
@@ -1871,50 +1928,7 @@ def _assessment_stride(
                     role="stride_analyzer",
                     selector=selector,
                     budget_group="stride:" + component["id"],
-                    instructions=_assessment_role_instructions(
-                        "stride_analyzer",
-                        "Analyze the selected component across all six STRIDE categories. Return exactly one coverage "
-                        "disposition per category and consistent local finding IDs. Retrieve the component's source even "
-                        "when there are no findings. Attribute each finding to the component that owns its vulnerable "
-                        "control or sink, with exact qualified source anchors. Neighbor sources are permitted only for "
-                        "the supplied confirmed incident flows. A connection does not establish payload continuity, "
-                        "identity propagation or exploitation. Read both ends before asserting a cross-repository "
-                        "mechanism and retain its source-to-sink trace. "
-                        "The controller supplies each investigation_targets anchor's source"
-                        + (", and the lines the supplied controls, flows and boundaries cite," if first else "")
-                        + " in source_slices; follow its "
-                        "mechanism to the relevant control or sink. A target's routes lists every route it covers; "
-                        "decide them together, including their guards and handler; a target's related registration "
-                        "lines may lie in another component's file. A target's guard_lines name earlier guard "
-                        "registrations on its routes' paths, its imports the repository files its file imports, and "
-                        "its middleware the definitions of the middlewares its routes run; all are readable "
-                        "whichever component owns them. Small supporting slices are supplied "
-                        "when they fit; read any missing control or sink before leaving its target unresolved. "
-                        "Request all further source you need in one read "
-                        "action: the job allows one round of further reads, and each call re-analyzes the whole packet. "
-                        "Write each finding title without a file location; the controller appends the anchor's. "
-                        "Include a short action-style mitigation_title naming the primary technical fix. "
-                        "The controller derives each category's finding_ids and identity fields from your findings. "
-                        "Return one surface_coverage decision per target with its target_id, disposition and linked "
-                        "finding_ids; the controller adds the target anchor. Give a reason of at most 160 characters "
-                        "when the decision links no finding or the target has a review_question. Answer each "
-                        "review_question independently from the retrieved source: name the control, concrete gap, "
-                        "inapplicability or missing evidence. A finding on the same file does not answer another "
-                        "mechanism. These questions require decisions, not a minimum number of findings. "
-                        "Targets are investigation leads, never findings or proof of vulnerability. Use examined when "
-                        "you investigated the mechanism, not-applicable only with a source-backed reason, and unresolved "
-                        "when the read source cannot settle it; the run reports each unresolved target. The supplied assessment_depth "
-                        "and lens_ids are authoritative; the selected lens text follows these role instructions. "
-                        + requirement_rule
-                        + " Code examples are proposed remediation, never commands to execute. "
-                        + _STRIDE_TIER_RULE
-                        + " "
-                        + _STRIDE_CRITICAL_RULE
-                        + " Unproven practices retain their unproven tier and no CVSS."
-                        + (" " + share.rstrip() if share else ""),
-                    )
-                    + "\n\nSelected analysis lenses:\n"
-                    + lens_policy,
+                    instructions=stride_instructions(first, share),
                     context={**context, "investigation_targets": target_batch},
                     schema=schema,
                     allowed_sources=job_allowed,
@@ -1926,6 +1940,7 @@ def _assessment_stride(
                         job_allowed,
                         context={**context, "investigation_targets": target_batch},
                         component_sources=analysis.source_selection(components["components"]),
+                        max_context_bytes=context_limit,
                     ),
                     validate=lambda artifact, ranges, targets=target_batch: analysis.validate_stride(
                         scope,
@@ -3363,11 +3378,14 @@ class _AssessmentConsole:
         return f"{unit['done']}/{unit['total']} STRIDE jobs"
 
     def call(self, text: str, role: str | None = None, model: str | None = None) -> None:
-        """A model-call line: always for a stall or a rejection, every line with --verbose."""
+        """Show missing updates and timeouts; show every model-call line with --verbose."""
         label = self.ROLE_LABELS.get(role, (role or "").replace("_", " "))
         who = f"{label} [{model}]: " if role and model else (f"{label}: " if role else "")
         if "no model activity" in text or text.startswith("model call stopped"):
             self.record("⚠", f"{who}{text}")
+            return
+        if "no progress update for" in text or "intermediate activity is unavailable" in text:
+            self.record("·", f"{who}{text}")
             return
         if text.startswith("answer rejected"):
             # MR-17: a correction repairs itself; the phase's done line counts it,
@@ -3428,7 +3446,7 @@ class _ReportedTransport:
     """Report what each host call is doing without echoing model text.
 
     While a call runs, a line each minute says whether the model is thinking,
-    writing its result, or silent (waiting for the API); afterwards a line names
+    writing its result, or has provided no recent update; afterwards a line names
     the source ranges it requested or counts the lists in its result, with its
     duration. Paths are admitted repository files, shown printable
     only; result field names are reduced to identifier characters.
@@ -3443,12 +3461,19 @@ class _ReportedTransport:
         self.running, self.name = running, name
         self.phase, self.thinking, self.written, self.active = "starting", 0, 0, time.monotonic()
         self.started = self.active
-        if hasattr(inner, "on_event"):
+        self.activity_available = hasattr(inner, "on_event")
+        if self.activity_available:
             inner.on_event = self._observe
 
     def _observe(self, event):
         self.active = time.monotonic()
-        if event.get("type") == "system" and event.get("subtype") == "thinking_tokens":
+        if event.get("type") == "host_activity":
+            if event.get("phase") in ("thinking", "writing"):
+                self.phase = event["phase"]
+                count = event.get("characters", 0)
+                if type(count) is int and 0 <= count <= 1_048_576:
+                    self.written = count
+        elif event.get("type") == "system" and event.get("subtype") == "thinking_tokens":
             self.phase = "thinking"
             self.thinking = int(event.get("estimated_tokens") or 0)
         elif event.get("type") == "stream_event":
@@ -3462,12 +3487,14 @@ class _ReportedTransport:
     def state(self):
         """What the running call does right now."""
         quiet = round(time.monotonic() - self.active)
+        if not self.activity_available:
+            return "model call is running; intermediate activity is unavailable"
         if quiet >= self.SILENT_SECONDS:
-            return f"no model activity for {quiet} s (waiting for the API)"
+            return f"no progress update for {quiet} s; model call is still running"
         if self.phase == "writing":
             return f"model is writing its result (~{self.written:,} characters)"
         if self.phase == "thinking":
-            return f"model is thinking (~{self.thinking:,} tokens)"
+            return f"model is thinking (~{self.thinking:,} tokens)" if self.thinking else "model is thinking"
         return "waiting for the model's first response"
 
     def _status(self, minutes):

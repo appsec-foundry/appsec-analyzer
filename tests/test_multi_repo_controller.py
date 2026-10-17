@@ -749,6 +749,8 @@ def test_a_runtime_change_during_the_session_is_disclosed_not_fatal(tmp_path, mo
         assert controller._assessment_runtime_warning(state) is None
         current[0] = "b" * 64
         assert "--rebuild" in controller._assessment_runtime_warning(state)
+        assert "Analyzer code or analysis resources changed" in controller._assessment_runtime_warning(state)
+        assert "plugin" not in controller._assessment_runtime_warning(state)
         # Mid-run it says the run goes on, so it never reads as the run's end.
         assert "continues" not in controller._assessment_runtime_warning(state)
         assert "The assessment continues" in controller._assessment_runtime_warning(state, running=True)
@@ -779,6 +781,8 @@ def test_a_runtime_that_cannot_be_fingerprinted_mid_run_is_disclosed_not_fatal(t
         scope, ["--no-requirements"], budget=AssessmentBudget(1, 0.05, 10, 60), host_factory=lambda *args: None
     ) as (_, state, _):
         assert "--rebuild" in controller._assessment_runtime_warning(state)
+        assert "could not be checked" in controller._assessment_runtime_warning(state)
+        assert "resources changed" not in controller._assessment_runtime_warning(state)
     assert json.loads((scope.output / ".assessment-state.json").read_text())["status"] != "failed"
 
 
@@ -1027,7 +1031,7 @@ def test_each_model_call_reports_progress_without_echoing_model_text(monkeypatch
     assert not any("injected" in line or "\x1b" in line for line in lines)
 
 
-def test_a_silent_model_call_is_reported_as_waiting_for_the_api(monkeypatch):
+def test_a_silent_model_call_reports_missing_updates_without_inventing_a_cause(monkeypatch):
     import time as clock
 
     from orchestrator.orchestration_controller import _ReportedTransport
@@ -1044,7 +1048,27 @@ def test_a_silent_model_call_is_reported_as_waiting_for_the_api(monkeypatch):
     monkeypatch.setattr(_ReportedTransport, "HEARTBEAT_SECONDS", 0.1)
     monkeypatch.setattr(_ReportedTransport, "SILENT_SECONDS", 0)
     _ReportedTransport(Silent(), lines.append).invoke("s", "p", {}, 30, lambda: False)
-    assert any("no model activity for" in line and "(waiting for the API)" in line for line in lines)
+    assert any("no progress update for" in line and "model call is still running" in line for line in lines)
+    assert not any("API" in line or "no model activity" in line for line in lines)
+
+
+def test_a_host_without_activity_events_reports_that_limit():
+    from orchestrator.orchestration_controller import _ReportedTransport
+
+    status = _ReportedTransport(object(), lambda text: None).state()
+    assert status == "model call is running; intermediate activity is unavailable"
+
+
+def test_missing_updates_are_information_and_timeouts_remain_warnings(monkeypatch):
+    from orchestrator.orchestration_controller import _AssessmentConsole
+
+    records = []
+    monkeypatch.setattr(_AssessmentConsole, "record", lambda self, event, text: records.append((event, text)))
+    console = object.__new__(_AssessmentConsole)
+    console.call("2 min: no progress update for 120 s; model call is still running")
+    console.call("1 min: model call is running; intermediate activity is unavailable")
+    console.call("model call stopped after 300 s: it exceeded its time limit")
+    assert [event for event, _ in records] == ["·", "·", "⚠"]
 
 
 def test_each_cli_host_call_records_its_events_in_its_own_file(tmp_path):
@@ -1260,6 +1284,52 @@ def test_stride_and_review_jobs_receive_the_source_their_context_cites(tmp_path,
     assert stride and all(any(key[:2] == (rid, "app.py") and key[2] <= line <= key[3] for key in s) for s in stride)
     reviews = [slices for (role, _), slices in packets if role == "evidence_verifier"]
     assert reviews and all(reviews)
+
+
+def test_stride_batches_reserve_the_full_codex_request(tmp_path, monkeypatch):
+    from contexts import multi_repo_analysis as analysis
+    from runtime.assessment_host import _prompt, host_schema, instructions_with_rules, read_slice, response_schema
+
+    from appsec_analyzer import codex_cli
+
+    roots = [tmp_path / "edge", tmp_path / "service"]
+    for root in roots:
+        checkout(root)
+        source = root / "app.py"
+        source.write_text(source.read_text() + "value = request.args['input']\n" * 1600)
+    scope = admit([str(r) for r in roots], str(tmp_path / "out"))
+    host = Host(scope)
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(2, 0.05, 60, 120),
+        host.factory,
+        lambda: False,
+        lambda: None,
+    )
+    architecture = controller._assessment_architecture(scope, jobs, progress=lambda text: None)
+    jobs.prompt_capacity = codex_cli.prompt_capacity
+    monkeypatch.setattr(analysis, "analysis_lenses", lambda *args: ([], "policy " * 28_000))
+    observed = []
+
+    class Captured(Exception):
+        pass
+
+    def capture(**job):
+        assert job["role"] == "stride_analyzer"
+        system = instructions_with_rules(job["instructions"], job["schema"])
+        schema = host_schema(response_schema(job["schema"]))
+        slices = [read_slice(scope, *key) for key in job["preload"]]
+        prompt = _prompt({"context": job["context"], "source_slices": slices, "source_reads_remaining": 12})
+        assert len(prompt.encode()) <= codex_cli.prompt_capacity(system, schema)
+        assert "Selected analysis lenses:" in system and "policy " * 28_000 in system
+        observed.append(job)
+        raise Captured
+
+    monkeypatch.setattr(jobs, "execute", capture)
+    with pytest.raises(Captured):
+        controller._assessment_stride(scope, jobs, architecture, [], [], progress=lambda text: None)
+    assert observed and observed[0]["context"]["investigation_targets"]
 
 
 def _control_scope(tmp_path, names, count=6):

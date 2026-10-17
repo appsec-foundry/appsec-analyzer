@@ -71,6 +71,7 @@ def test_structured_reply_and_isolated_configuration(transport, monkeypatch):
         b"{}",
         b"[]",
         b"not json",
+        b"[" * 2000,
         events({}) + b"\n" + events({}),
         events({}).replace(b"agent_message", b"command_execution"),
         events({}).replace(b"turn.completed", b"turn.started"),
@@ -89,6 +90,102 @@ def test_usage_limit_is_redacted_and_has_no_optional_fallback(transport, monkeyp
         transport.invoke("trusted", "source", {}, 5, lambda: False)
     assert caught.value.reason == "quota_exhausted"
     assert "SOURCE_SECRET" not in str(caught.value)
+
+
+def test_activity_is_streamed_before_completion_without_model_text(transport, monkeypatch, tmp_path):
+    from orchestrator.orchestration_controller import _ReportedTransport
+
+    release = tmp_path / "activity-observed"
+    reasoning = (
+        json.dumps({"type": "item.started", "item": {"type": "reasoning", "text": "PRIVATE_SOURCE\u001b"}}).encode()
+        + b"\n"
+    )
+    output = events({"ok": "\u20ac"})
+    script = (
+        "import os, pathlib, time\n"
+        f"os.write(1, {reasoning[:15]!r})\n"
+        "time.sleep(0.05)\n"
+        f"os.write(1, {reasoning[15:]!r})\n"
+        "end = time.monotonic() + 3\n"
+        f"while not pathlib.Path({str(release)!r}).exists():\n"
+        " if time.monotonic() > end: raise SystemExit(9)\n"
+        " time.sleep(0.01)\n"
+        f"os.write(1, {output!r})\n"
+    )
+    monkeypatch.setattr(transport, "argv", lambda *args: [sys.executable, "-c", script])
+    reported = _ReportedTransport(transport, lambda text: None)
+    statuses = []
+
+    def observe(event):
+        statuses.append(event)
+        reported._observe(event)
+        if event["phase"] == "thinking":
+            assert reported.state() == "model is thinking"
+            release.touch()
+
+    transport.on_event = observe
+    reply = reported.invoke("trusted", "source", {}, 5, lambda: False)
+    assert reply.payload == {"ok": "\u20ac"}
+    assert statuses[0] == {"type": "host_activity", "phase": "thinking"}
+    assert statuses[1] == {
+        "type": "host_activity",
+        "phase": "writing",
+        "characters": len(json.dumps({"payload_json": json.dumps({"ok": "\u20ac"})})),
+    }
+    assert len(statuses) == 2
+    assert "PRIVATE_SOURCE" not in json.dumps(statuses)
+    assert "model is writing its result" in reported.state()
+
+
+def test_activity_ignores_invalid_untrusted_and_stderr_events(tmp_path):
+    statuses = []
+    lines = [
+        b"[]",
+        b"not json",
+        b"[" * 2000,
+        b'{"type":"item.updated","type":"item.started","item":{"type":"reasoning"}}',
+        b'{"type":"item.updated","item":{"type":"command_execution","text":"PRIVATE"}}',
+        b'{"type":"item.updated","item":{"type":"agent_message","text":123}}',
+        b'{"type":"item.updated","item":{"type":"agent_message","text":"\xe2\x82\xacPRIVATE"}}',
+    ]
+    data = b"\n".join(lines)
+    split = data.index(b"\xe2") + 1
+    script = (
+        "import os, time\n"
+        'os.write(2, b\'{"type":"item.started","item":{"type":"reasoning"}}\\n\')\n'
+        f"os.write(1, {data[:split]!r})\n"
+        "time.sleep(0.05)\n"
+        f"os.write(1, {data[split:]!r})\n"
+    )
+    code, out, _ = codex_cli._run(
+        [sys.executable, "-c", script], cwd=tmp_path, env=codex_cli.environment(), on_event=statuses.append
+    )
+    assert code == 0 and out == data
+    assert statuses == [{"type": "host_activity", "phase": "writing", "characters": 8}]
+
+
+def test_activity_callback_failure_does_not_change_reply(transport, monkeypatch):
+    def broken(event):
+        raise RuntimeError("observer unavailable")
+
+    transport.on_event = broken
+    payload = events({"ok": True})
+    monkeypatch.setattr(transport, "argv", lambda *args: [sys.executable, "-c", f"import os; os.write(1, {payload!r})"])
+    assert transport.invoke("trusted", "source", {}, 5, lambda: False).payload == {"ok": True}
+
+
+def test_request_capacity_includes_instructions_schema_and_utf8(transport, monkeypatch):
+    system, schema = "trusted \u20ac", {"type": "object", "description": "\u20ac"}
+    capacity = codex_cli.prompt_capacity(system, schema)
+    assert capacity + len(codex_cli._instructions(system, schema).encode()) == codex_cli.MAX_REQUEST_BYTES
+    calls = []
+    monkeypatch.setattr(codex_cli, "_run", lambda *args, **kwargs: (calls.append(kwargs) or 0, events({}), b""))
+    # Admission counts encoded bytes, including the trusted instructions.
+    transport.invoke(system, "\u20ac" + "x" * (capacity - 3), schema, 5, lambda: False)
+    assert len(calls) == 1
+    with pytest.raises(TransportError) as caught:
+        transport.invoke(system, "\u20ac" + "x" * (capacity - 2), schema, 5, lambda: False)
+    assert caught.value.reason == "request_too_large" and len(calls) == 1
 
 
 @pytest.mark.parametrize("budget,expected", [(None, 0), (20, 2)])

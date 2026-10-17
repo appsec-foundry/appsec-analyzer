@@ -268,6 +268,22 @@ def test_a_small_repository_keeps_its_complete_file_list():
     }
 
 
+def test_oversized_request_is_not_presented_as_fixed_by_resume(tmp_path):
+    class OversizedHost:
+        def invoke(self, *args):
+            raise TransportError("request exceeds its size limit", reason="request_too_large", usd=0.0)
+
+    limits = budget()
+    with pytest.raises(TransportError) as caught:
+        discovery.discover(
+            sources(tmp_path), host_factory=lambda ceiling: OversizedHost(), budget=limits, should_stop=lambda: False
+        )
+    assert caught.value.reason == "request_too_large"
+    assert "--resume alone does not fix it" in str(caught.value)
+    assert "rerun the same command" not in str(caught.value)
+    assert limits.calls == 1
+
+
 @pytest.mark.parametrize("count", [3_000, 12_000])
 def test_a_large_repository_lists_cited_and_source_files_first_and_counts_the_rest(count):
     from runtime.assessment_host import _prompt

@@ -232,7 +232,9 @@ def _ranges(slices) -> list[dict]:
 
 
 class AssessmentJobs:
-    def __init__(self, scope, directory, budget, host_factory, should_stop, checkpoint, *, cache=None):
+    def __init__(
+        self, scope, directory, budget, host_factory, should_stop, checkpoint, *, cache=None, prompt_capacity=None
+    ):
         """`cache` holds an earlier, unfinished run's accepted jobs (see assessment_state.CACHE_NAME).
 
         A cached job is adopted only when it still matches its request and
@@ -245,6 +247,7 @@ class AssessmentJobs:
         self.directory = Path(directory)
         self.budget = budget
         self.host_factory = host_factory
+        self.prompt_capacity = prompt_capacity
         self.should_stop = should_stop
         # MR-16: concurrent jobs share receipts, timing and the checkpoint file.
         self._lock = threading.RLock()
@@ -282,6 +285,11 @@ class AssessmentJobs:
         self.infos: list[dict] = []
         # Set by a concurrent caller after a failure: no further job starts (MR-16).
         self.halt = None
+
+    def context_limit(self, instructions, schema):
+        from runtime.assessment_host import context_capacity
+
+        return context_capacity(instructions, schema, self.prompt_capacity)
 
     def view(self):
         """Jobs for one concurrently analyzed component, with its own notes and gaps (MR-16).
@@ -487,6 +495,7 @@ class AssessmentJobs:
                     review=review,
                     normalize=normalize,
                     preload=preload,
+                    context_limit_bytes=self.context_limit(instructions, schema),
                 )
         except BudgetExhausted as exc:
             if on_failure is None or self.budget.unsettled or self.should_stop():

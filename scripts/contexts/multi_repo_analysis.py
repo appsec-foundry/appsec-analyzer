@@ -524,7 +524,9 @@ def review_targets(findings: list[dict], targets: list[dict]) -> list[dict]:
     return selected
 
 
-def supporting_preload(scope, targets, preload, allowed_sources, *, context, component_sources=frozenset()):
+def supporting_preload(
+    scope, targets, preload, allowed_sources, *, context, component_sources=frozenset(), max_context_bytes=None
+):
     """Add bounded guard, registration and direct-helper slices to a fixed job.
 
     Only already authorized, captured sources are eligible. Guards precede
@@ -539,7 +541,8 @@ def supporting_preload(scope, targets, preload, allowed_sources, *, context, com
     from validators.validate_fragment import _cited_line_problem
 
     result = list(preload)
-    room = min(MAX_SUPPORT_BYTES, max(0, preload_room(context) - served_bytes(scope, result)))
+    limit = {} if max_context_bytes is None else {"max_context_bytes": max_context_bytes}
+    room = min(MAX_SUPPORT_BYTES, max(0, preload_room(context, **limit) - served_bytes(scope, result)))
     slots = min(MAX_SUPPORT_WINDOWS, MAX_PRELOAD_WINDOWS - len(result))
     if room <= 0 or slots <= 0:
         return result

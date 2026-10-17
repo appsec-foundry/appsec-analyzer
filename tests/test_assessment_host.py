@@ -153,6 +153,52 @@ def test_a_read_that_would_overflow_the_next_packet_is_refused_back_not_fatal(tm
     assert "reached the size limit" in model.prompts[1]
 
 
+def test_host_capacity_bounds_reads_and_includes_the_complete_request(tmp_path):
+    from appsec_analyzer import codex_cli
+
+    instructions = "trusted " + "policy " * 4000
+    capacity = host.context_capacity(instructions, ARTIFACT, codex_cli.prompt_capacity)
+    assert capacity < host.MAX_CONTEXT_BYTES
+    model = Model([read(), complete()])
+    # The next source slice would exceed this host's capacity, though it fits
+    # the generic packet ceiling. It must be declined without enlarging either.
+    result = host.run_exchange(
+        model,
+        view(tmp_path),
+        instructions=instructions,
+        context={"pad": "x" * (capacity - host._FEEDBACK_RESERVE_BYTES - 120)},
+        artifact_schema=ARTIFACT,
+        allowed_sources=frozenset({(REPO, "app.py")}),
+        timeout_s=30,
+        should_stop=lambda: False,
+        context_limit_bytes=capacity,
+    )
+    assert not result.source_slices and len(model.prompts) == 2
+    assert "reached the size limit" in model.prompts[1]
+    system = host.instructions_with_rules(instructions, ARTIFACT)
+    schema = host.host_schema(host.response_schema(ARTIFACT))
+    for prompt in model.prompts:
+        assert len(prompt.encode()) <= codex_cli.prompt_capacity(system, schema)
+
+
+@pytest.mark.parametrize("limit", [-1, True, host.MAX_CONTEXT_BYTES + 1])
+def test_invalid_host_context_limits_fail_before_dispatch(tmp_path, limit):
+    model = Model([])
+    with pytest.raises(host.ExchangeError, match="context limit"):
+        host.run_exchange(
+            model,
+            view(tmp_path),
+            instructions="trusted",
+            context={},
+            artifact_schema=ARTIFACT,
+            allowed_sources=frozenset(),
+            timeout_s=30,
+            should_stop=lambda: False,
+            context_limit_bytes=limit,
+        )
+    assert model.prompts == []
+
+
 def test_repeated_reads_and_incomplete_results_are_not_silently_accepted(tmp_path):
     # A repeated slice is not served twice; the model is told to use it.
     model = Model([read(), read(), complete()])

@@ -34,6 +34,18 @@ MAX_BYTES = 1_048_576
 MAX_REQUEST_BYTES = 240_000
 
 
+def _instructions(system, schema):
+    return (
+        system + "\nReturn one JSON object with payload_json: a JSON string containing your response "
+        "to this canonical contract. Preserve null and absent fields exactly. Contract:\n" + json.dumps(schema)
+    )
+
+
+def prompt_capacity(system, schema):
+    """Prompt bytes left after the same instructions invoke will actually send."""
+    return max(0, MAX_REQUEST_BYTES - len(_instructions(system, schema).encode("utf-8")))
+
+
 def _json(data):
     def unique(pairs):
         result = {}
@@ -78,7 +90,33 @@ def environment() -> dict[str, str]:
     return {key: os.environ[key] for key in allowed if key in os.environ}
 
 
-def _run(argv, *, cwd, env, data=b"", timeout_s=10, should_stop=lambda: False):
+def _activity(line, on_event):
+    """Forward only fixed status values and counts, never model-controlled text."""
+    try:
+        event = _json(line)
+        if type(event) is not dict:
+            return
+        if event.get("type") not in ("item.started", "item.updated", "item.completed"):
+            return
+        item = event.get("item")
+        if type(item) is not dict:
+            return
+        if item.get("type") == "reasoning":
+            status = {"type": "host_activity", "phase": "thinking"}
+        elif item.get("type") == "agent_message":
+            text = item.get("text", "")
+            if type(text) is not str:
+                return
+            status = {"type": "host_activity", "phase": "writing", "characters": len(text)}
+        else:
+            return
+        on_event(status)
+    except Exception:
+        # Telemetry is optional; final response validation remains authoritative.
+        pass
+
+
+def _run(argv, *, cwd, env, data=b"", timeout_s=10, should_stop=lambda: False, on_event=None):
     if should_stop():
         raise HostCancelled("Codex call cancelled before transmission")
     try:
@@ -100,6 +138,7 @@ def _run(argv, *, cwd, env, data=b"", timeout_s=10, should_stop=lambda: False):
 
     threading.Thread(target=_feed, args=(proc.stdin, data), daemon=True).start()
     streams = {proc.stdout: bytearray(), proc.stderr: bytearray()}
+    activity_cursor = 0
     deadline = time.monotonic() + timeout_s
     try:
         with selectors.DefaultSelector() as selected:
@@ -114,10 +153,17 @@ def _run(argv, *, cwd, env, data=b"", timeout_s=10, should_stop=lambda: False):
                     chunk = os.read(key.fileobj.fileno(), 8192)
                     if not chunk:
                         selected.unregister(key.fileobj)
+                        if key.fileobj is proc.stdout and on_event:
+                            _activity(bytes(streams[proc.stdout][activity_cursor:]), on_event)
                         continue
                     streams[key.fileobj].extend(chunk)
                     if sum(map(len, streams.values())) > MAX_BYTES:
                         raise TransportError("Codex output exceeds its size limit", reason="response_too_large")
+                    if key.fileobj is proc.stdout and on_event:
+                        output = streams[proc.stdout]
+                        while (end := output.find(b"\n", activity_cursor)) >= 0:
+                            _activity(bytes(output[activity_cursor:end]), on_event)
+                            activity_cursor = end + 1
             while proc.poll() is None:
                 if should_stop():
                     raise HostCancelled("Codex call cancelled")
@@ -185,6 +231,7 @@ class CodexCliTransport:
         if effort not in ("none", "low", "medium", "high", "xhigh", "max"):
             raise ValueError("invalid Codex reasoning effort")
         self.work_root, self.model, self.effort, self.runtime = work_root, model, effort, runtime
+        self.on_event = None
 
     def argv(self, schema_path: Path, instructions_path: Path) -> list[str]:
         features = (
@@ -228,10 +275,7 @@ class CodexCliTransport:
             raise TransportError("Invalid Codex request", reason="invalid_request")
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise TransportError("Invalid Codex timeout", reason="invalid_request")
-        instructions = (
-            system + "\nReturn one JSON object with payload_json: a JSON string containing your response "
-            "to this canonical contract. Preserve null and absent fields exactly. Contract:\n" + json.dumps(schema)
-        )
+        instructions = _instructions(system, schema)
         data = prompt.encode("utf-8")
         if len(instructions.encode("utf-8")) + len(data) > MAX_REQUEST_BYTES:
             raise TransportError("Codex request exceeds its size limit", reason="request_too_large")
@@ -249,6 +293,7 @@ class CodexCliTransport:
                 data=data,
                 timeout_s=timeout_s,
                 should_stop=should_stop,
+                on_event=self.on_event,
             )
         try:
             events = [_json(line) for line in out.splitlines() if line]
@@ -284,6 +329,6 @@ class CodexCliTransport:
             if type(wire) is not dict or set(wire) != {"payload_json"} or type(wire["payload_json"]) is not str:
                 raise ValueError
             payload = _json(wire["payload_json"])
-        except (ValueError, KeyError, TypeError, UnicodeError):
+        except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
             raise TransportError("Invalid Codex structured response", reason="invalid_response") from None
         return HostReply(payload=payload, usd=None)

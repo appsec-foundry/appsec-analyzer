@@ -833,6 +833,13 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_discovery.py::test_oversized_request_is_not_presented_as_fixed_by_resume
+      - tests/test_codex_cli.py::test_activity_is_streamed_before_completion_without_model_text
+      - tests/test_multi_repo_controller.py::test_a_silent_model_call_reports_missing_updates_without_inventing_a_cause
+      - tests/test_multi_repo_controller.py::test_a_host_without_activity_events_reports_that_limit
+      - tests/test_multi_repo_controller.py::test_missing_updates_are_information_and_timeouts_remain_warnings
+      - tests/test_multi_repo_controller.py::test_a_runtime_change_during_the_session_is_disclosed_not_fatal
+      - tests/test_multi_repo_controller.py::test_a_runtime_that_cannot_be_fingerprinted_mid_run_is_disclosed_not_fatal
       - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
       - tests/test_rate_limit_pause.py::test_provider_reset_is_respected_or_stops_without_retry
       - tests/test_rate_limit_pause.py::test_shared_backoff_then_success_resets_failure_streak
@@ -1093,6 +1100,8 @@ requirements:
 
   REQ-023:
     applies_to:
+      - scripts/runtime/assessment_host.py
+      - scripts/contexts/multi_repo_analysis.py
       - appsec_analyzer/codex_cli.py
       - data/scan-profiles/codex-cli.yaml
       - schemas/assessment-job-receipt.schema.json
@@ -1124,6 +1133,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_codex_cli.py::test_request_capacity_includes_instructions_schema_and_utf8
+      - tests/test_assessment_host.py::test_host_capacity_bounds_reads_and_includes_the_complete_request
+      - tests/test_assessment_host.py::test_invalid_host_context_limits_fail_before_dispatch
+      - tests/test_multi_repo_controller.py::test_stride_and_review_jobs_receive_the_source_their_context_cites
+      - tests/test_multi_repo_controller.py::test_stride_batches_reserve_the_full_codex_request
       - tests/test_codex_cli.py::test_subscription_counts_calls_and_preserves_completion_reserve
       - tests/test_codex_cli.py::test_subscription_rejects_monetary_reply_and_counts_failure
       - tests/test_codex_cli.py::test_subscription_controller_publishes_validated_reports
@@ -1380,6 +1394,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_codex_cli.py::test_activity_is_streamed_before_completion_without_model_text
+      - tests/test_codex_cli.py::test_activity_ignores_invalid_untrusted_and_stderr_events
       - tests/test_codex_cli.py::test_usage_limit_is_redacted_and_has_no_optional_fallback
       - tests/test_redact_known_secrets.py::test_a_pattern_secret_left_in_the_model_blocks_publication
       - tests/test_redact_known_secrets.py::test_a_clean_report_passes_the_secret_gate

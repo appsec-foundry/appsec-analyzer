@@ -408,6 +408,12 @@ class DiscoveryBudget:
                 and (ceiling < self.call_usd or self.max_usd - self.spent_usd < MIN_CALL_USD)
             ):
                 raise CostBudgetExhausted("Model call exhausted the remaining assessment budget allowance") from exc
+            if exc.reason == "request_too_large":
+                raise TransportError(
+                    f"{exc}; the request must be reduced before retrying; --resume alone does not fix it",
+                    reason=exc.reason,
+                    usd=exc.usd,
+                ) from None
             raise TransportError(
                 f"{exc}; the run can continue: rerun the same command with --resume",
                 reason=exc.reason,
