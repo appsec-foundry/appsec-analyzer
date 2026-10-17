@@ -15,7 +15,7 @@ RETIRED_RUNTIME = {"plugin_meta.py", "plugin_read_gate.py", "plugin_write_gate.p
 USER_DOCS = (
     "security-assessment.md", "threat-analyst.md", "configuration.md",
     "model-selection.md", "headless-mode.md", "security-requirements-audit-skill.md",
-    "threat-dragon-export.md",
+    "threat-dragon-export.md", "local-release-preparation.md",
 )
 
 

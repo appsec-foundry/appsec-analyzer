@@ -103,5 +103,6 @@ wheel and source distribution with `python3 -m build --no-isolation --outdir
 /tmp/appsec-analyzer-dist`, then inspect and install them in a separate
 environment. See [the extraction record](docs/internal/extraction/phase-a-record.md)
 for the committed source revision, filtered commit map, exclusions, and open
-qualification work. This project preserves the original Apache 2.0
+qualification work, and [local release preparation](docs/local-release-preparation.md)
+for archive checks and qualification limits. This project preserves the original Apache 2.0
 [license](LICENSE) and source history.
