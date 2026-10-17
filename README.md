@@ -65,6 +65,29 @@ If you already have a checkout, start with `cd appsec-analyzer`. With pipx insta
 
 </details>
 
+<details>
+<summary>Run directly from a local checkout without installation</summary>
+
+You can run the CLI as a Python module without installing Analyzer or activating a virtual environment. This requires Python 3.10+, Git, and the runtime dependencies declared in [setup.py](setup.py) (`PyYAML>=6,<7`, `jsonschema>=4.20,<5`, and `Jinja2>=3.1,<4`) to be available to `python3`.
+
+From your Analyzer checkout, check the entry point:
+
+```sh
+cd /path/to/appsec-analyzer
+python3 -m appsec_analyzer.cli version
+python3 -m appsec_analyzer.cli scan --help
+```
+
+Replace `/path/to/appsec-analyzer` with your checkout path. For the commands below, replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` and keep your working directory at the Analyzer checkout. Select the repository to assess explicitly with `--repo`, because its default is the current directory. For example, with Claude CLI configured:
+
+```sh
+python3 -m appsec_analyzer.cli scan --repo /path/to/project --output /path/to/assessment
+```
+
+Replace `/path/to/project` with the target Git repository and `/path/to/assessment` with an existing result directory outside it. This runs the same paid assessment, sends selected source excerpts and context to the model provider, and uses the default USD 20 spending limit. Use `python3 -m appsec_analyzer.cli scan-sources --repo /path/to/project` for a source scan without model calls.
+
+</details>
+
 Installing by package name with `pip install appsec-analyzer` requires a release on PyPI. The current preview is listed as unpublished in [local release preparation](docs/local-release-preparation.md), which also describes installation from a locally built wheel.
 
 A full assessment with the default `claude` profile needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The experimental `codex` profile uses `OPENAI_API_KEY` instead. The source scan needs neither. See [profile configuration](docs/configuration.md) for provider setup.
