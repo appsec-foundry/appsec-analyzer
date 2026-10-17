@@ -1,5 +1,5 @@
 # Makefile — minimal entry points for maintainer workflows.
-# This is dev tooling, not a build system. The plugin itself ships no binaries.
+# This is development tooling; the package is built through Python packaging.
 #
 # Run `make help` for an overview.
 
@@ -8,7 +8,7 @@
 # Use .venv if present, otherwise fall back to system python3
 PYTHON ?= $(if $(wildcard .venv/bin/python3),.venv/bin/python3,python3)
 
-# Absolute path to this Makefile's directory (the plugin root), stable even
+# Absolute path to this Makefile's directory, stable even
 # when make is invoked from a different working directory.
 PLUGIN_ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
@@ -18,38 +18,23 @@ PLUGIN_ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # Triggered ONLY manually — after a non-trivial refactor or before a release.
 # Never wired into PR / push / cron hooks. See README "Manual full-run check".
 #
-# Auth: subscription (default, via `claude /login`) or ANTHROPIC_API_KEY.
-# Cost: ~30–50% of a Pro 5h-window OR ~$0.30–1.00 with haiku-tier API usage.
-# Time: ~10–15 min for `quick` depth on the bundled synthetic-repo fixture.
+# An explicit BUDGET is required. These targets are never part of offline gates.
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: e2e-full
 e2e-full:  ## Run the full E2E pipeline + assertions against the synthetic-repo fixture
-	@command -v claude >/dev/null 2>&1 || { \
-		echo "ERROR: 'claude' CLI not on PATH. Install Claude Code first."; exit 3; }
-	@./tests/e2e/run-full.sh --depth quick
+	@test -n "$(BUDGET)" || { echo "ERROR: set BUDGET=<USD> for this live run"; exit 2; }
+	@./tests/e2e/run-full.sh --depth quick --budget "$(BUDGET)"
 
 .PHONY: e2e-full-standard
 e2e-full-standard:  ## Standard depth with Stage-3 QA enabled (slower, higher fidelity)
-	@command -v claude >/dev/null 2>&1 || { \
-		echo "ERROR: 'claude' CLI not on PATH. Install Claude Code first."; exit 3; }
-	@./tests/e2e/run-full.sh --depth standard
+	@test -n "$(BUDGET)" || { echo "ERROR: set BUDGET=<USD> for this live run"; exit 2; }
+	@./tests/e2e/run-full.sh --depth standard --budget "$(BUDGET)"
 
 .PHONY: e2e-full-thorough
 e2e-full-thorough:  ## Thorough depth with Stage-3 QA and Stage-4 architect review
-	@command -v claude >/dev/null 2>&1 || { \
-		echo "ERROR: 'claude' CLI not on PATH. Install Claude Code first."; exit 3; }
-	@./tests/e2e/run-full.sh --depth thorough
-
-.PHONY: e2e-full-repair
-e2e-full-repair: e2e-full-standard  ## Build a clean standard seed, corrupt §7, and verify the live Re-Render Loop
-	@command -v claude >/dev/null 2>&1 || { \
-		echo "ERROR: 'claude' CLI not on PATH. Install Claude Code first."; exit 3; }
-	@./tests/e2e/run-repair.sh
-
-.PHONY: e2e-full-eval
-e2e-full-eval: e2e-full  ## Run the adversarial semantic-quality judge over a fresh full E2E result
-	@./tests/e2e/run-eval.sh
+	@test -n "$(BUDGET)" || { echo "ERROR: set BUDGET=<USD> for this live run"; exit 2; }
+	@./tests/e2e/run-full.sh --depth thorough --budget "$(BUDGET)"
 
 .PHONY: e2e-fixture-suite
 e2e-fixture-suite:  ## Run all six external language/architecture fixtures and their recall oracles
@@ -60,18 +45,11 @@ ci-triage:  ## Fetch a dispatched run's artifacts (fixture E2E or threat model) 
 	@test -n "$(RUN_ID)" || { echo "ERROR: set RUN_ID=<github run id>. List runs with: gh run list --workflow fixture-e2e-dispatch.yml -L 10"; exit 2; }
 	@./scripts/ci_triage.sh --run-id "$(RUN_ID)" --into "$(or $(INTO),.appsec-ci)"
 
-.PHONY: e2e-full-keep
-e2e-full-keep:  ## Re-run assertions against the previous _last-run/ output (no pipeline re-run)
-	@APPSEC_E2E_FULL=1 \
-	 APPSEC_E2E_OUTPUT_DIR="$(PWD)/tests/fixtures/e2e/_last-run" \
-	 $(PYTHON) -m pytest tests/test_full_run_e2e.py -v --tb=short
-
 .PHONY: analyze-verify
-analyze-verify:  ## Full pipeline + structural assertions against ANY repo (recall/oracle checks self-skip): make analyze-verify REPO=<path> [DEPTH=quick|standard|thorough]
-	@command -v claude >/dev/null 2>&1 || { \
-		echo "ERROR: 'claude' CLI not on PATH. Install Claude Code first."; exit 3; }
+analyze-verify:  ## Manual live assessment: make analyze-verify REPO=<path> BUDGET=<USD> [DEPTH=quick|standard|thorough]
 	@test -n "$(REPO)" || { echo "ERROR: set REPO=<path to repo to verify>, e.g. make analyze-verify REPO=/home/mrohr/juice-shop"; exit 2; }
-	@./tests/e2e/run-full.sh --repo "$(REPO)" --depth "$(or $(DEPTH),quick)"
+	@test -n "$(BUDGET)" || { echo "ERROR: set BUDGET=<USD> for this live run"; exit 2; }
+	@./tests/e2e/run-full.sh --repo "$(REPO)" --depth "$(or $(DEPTH),quick)" --budget "$(BUDGET)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test groups and full-suite gates (no LLM)
@@ -85,6 +63,7 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 		tests/test_requirements_audit_cli.py \
 		tests/test_api_hosts.py \
 		tests/test_auto_emitter_pass.py \
+		tests/test_full_run_e2e_driver.py \
 		tests/test_render_completion_summary.py::TestNextSteps \
 		tests/test_render_completion_summary.py::TestExportDeliverablesBackstop
 

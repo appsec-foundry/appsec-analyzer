@@ -1,281 +1,55 @@
 #!/bin/sh
-# ─────────────────────────────────────────────────────────────────────────────
-# run-full.sh — Manual full-run E2E driver for appsec-advisor.
-#
-# Runs scripts/run-headless.sh against a fixed synthetic repo, routes output
-# to tests/fixtures/e2e/_last-run/, then invokes the pytest assertion suite.
-#
-# Triggered ONLY manually — from `make e2e-full` or the /e2e-full slash command.
-# Never wire this into PR / push / cron hooks. See README "Manual full-run check".
-#
-# Auth: uses whatever `claude` is logged in with — subscription (default) or
-# ANTHROPIC_API_KEY if set. Pre-flight only checks the binary exists.
-#
-# Usage:
-#   tests/e2e/run-full.sh [--repo PATH] [--depth quick|standard|thorough] [--keep]
-#
-# Exit codes:
-#   0  pipeline + assertions passed
-#   1  pipeline failed (run-headless.sh non-zero exit)
-#   2  assertions failed
-#   3  pre-flight failed (missing claude binary / missing fixture repo)
-# ─────────────────────────────────────────────────────────────────────────────
-
+# Explicit, manual live assessment of the bundled fixture through the public CLI.
 set -eu
 
-PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DEFAULT_REPO="$PLUGIN_ROOT/tests/fixtures/e2e/synthetic-repo"
-OUTPUT_DIR="$PLUGIN_ROOT/tests/fixtures/e2e/_last-run"
-WORK_REPO="$PLUGIN_ROOT/tests/fixtures/e2e/_last-repo"
-
-REPO="$DEFAULT_REPO"
-DEPTH="quick"
-KEEP_PREVIOUS=0
-BUNDLED_ORACLE=0
-
-while [ $# -gt 0 ]; do
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+REPO="$ROOT/tests/fixtures/e2e/synthetic-repo"
+DEPTH=quick
+BUDGET=
+while [ "$#" -gt 0 ]; do
     case "$1" in
-        --repo)    REPO="$2"; shift 2 ;;
-        --depth)   DEPTH="$2"; shift 2 ;;
-        --keep)    KEEP_PREVIOUS=1; shift ;;
-        -h|--help) sed -n '3,30p' "$0"; exit 0 ;;
-        *)         echo "Unknown arg: $1" >&2; exit 3 ;;
+        --repo) REPO=$2; shift 2 ;;
+        --depth) DEPTH=$2; shift 2 ;;
+        --budget) BUDGET=$2; shift 2 ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-
-# ── Pre-flight ──────────────────────────────────────────────────────────────
-if ! command -v claude >/dev/null 2>&1; then
-    echo "ERROR: 'claude' CLI not on PATH. Install Claude Code first." >&2
-    exit 3
-fi
-if ! command -v git >/dev/null 2>&1; then
-    echo "ERROR: 'git' not on PATH; fixture isolation requires a standalone worktree." >&2
-    exit 3
-fi
-
-if [ ! -d "$REPO" ]; then
-    echo "ERROR: target repo not found: $REPO" >&2
-    exit 3
-fi
-
-if [ ! -x "$PLUGIN_ROOT/scripts/run-headless.sh" ]; then
-    echo "ERROR: scripts/run-headless.sh not executable" >&2
-    exit 3
-fi
-
-# The source fixture must be immutable and free of prior assessment state.
-# Local runs can leave ignored docs/security files under synthetic-repo; scan a
-# fresh scratch copy and strip that output tree so recon never consumes stale
-# logs, fragments, or threat models. Custom --repo paths are used as supplied.
-if [ "$REPO" = "$DEFAULT_REPO" ]; then
-    rm -rf "$WORK_REPO"
-    mkdir -p "$WORK_REPO"
-    cp -R "$DEFAULT_REPO/." "$WORK_REPO/"
-    rm -rf "$WORK_REPO/docs/security"
-    git -C "$WORK_REPO" init -q
-    git -C "$WORK_REPO" add -f .
-    git -C "$WORK_REPO" -c user.name=appsec-e2e -c user.email=e2e@invalid commit -qm "E2E fixture baseline"
-    REPO="$WORK_REPO"
-    BUNDLED_ORACLE=1
-fi
-
-# ── Optional export tooling (pdf/html need pandoc; pdf also weasyprint) ───────
-# Gated so the E2E never fails just because a CI box lacks the converters —
-# the matching pdf/html assertions skip themselves when the tool is absent.
-PDF_FLAG=""
-PDF_ATTEMPTED=0
-HTML_CAPABLE=0
-HTML_ATTEMPTED=0
-if command -v pandoc >/dev/null 2>&1; then
-    HTML_CAPABLE=1
-    if python3 -c 'import weasyprint' >/dev/null 2>&1; then
-        PDF_FLAG="--pdf"
-        PDF_ATTEMPTED=1
-    else
-        echo "  note: weasyprint missing → --pdf skipped (PDF assertions skip)." >&2
-    fi
-else
-    echo "  note: pandoc missing → HTML/PDF export skipped (those assertions skip)." >&2
-fi
-
-# ── Auth banner ─────────────────────────────────────────────────────────────
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-    AUTH_MODE="api-key"
-else
-    AUTH_MODE="subscription (~/.claude/)"
-fi
-
-cat <<EOF
-─────────────────────────────────────────────────────────────────────
-appsec-advisor — manual full-run E2E
-─────────────────────────────────────────────────────────────────────
-  repo:    $REPO
-  output:  $OUTPUT_DIR
-  depth:   $DEPTH
-  auth:    $AUTH_MODE
-─────────────────────────────────────────────────────────────────────
-EOF
-
-# ── Clean previous run unless --keep ────────────────────────────────────────
-if [ -d "$OUTPUT_DIR" ] && [ "$KEEP_PREVIOUS" -eq 0 ]; then
-    echo "→ wiping previous _last-run/"
-    rm -rf "$OUTPUT_DIR"
-fi
-mkdir -p "$OUTPUT_DIR"
-
-# ── Stage 1: run the threat-model pipeline ──────────────────────────────────
-echo ""
-echo "[1/2] running appsec-analyzer pipeline ..."
-START_TS=$(date +%s)
-
-# Wall-clock cap. A flat 1800s ceiling SIGTERM'd runs mid-pipeline when recon
-# API latency stalls: observed 2026-06-04 at standard depth (killed at 1803s
-# right after the Stage-2 renderer Phase-11 END, before exports) AND 2026-06-05
-# at QUICK depth (killed at 1803s @ Phase 10b, before render — recon/context ate
-# ~24min, see bug_recon_api_latency_stalls). "Quick fits in 1800s" only holds
-# when recon does NOT stall, so the cap must survive the slow case. 3000s gives
-# quick headroom; standard/thorough include the real Stage-3/4 review paths and
-# receive a larger ceiling. These are ceilings, not targets.
-case "$DEPTH" in
-    quick) MAXDUR=3000 ;;
-    standard) MAXDUR=3600 ;;
-    thorough) MAXDUR=4800 ;;
-    *) echo "ERROR: --depth must be quick, standard, or thorough" >&2; exit 3 ;;
-esac
-
-RUN_STATUS=0
-"$PLUGIN_ROOT/scripts/run-headless.sh" \
-    --repo "$REPO" \
-    --output "$OUTPUT_DIR" \
-    --full \
-    --assessment-depth "$DEPTH" \
-    --sarif \
-    --pentest-tasks \
-    --requirements "$PLUGIN_ROOT/examples/appsec-requirements-example.yaml" \
-    --keep-runtime-files \
-    $PDF_FLAG \
-    --max-duration "$MAXDUR" \
-    || RUN_STATUS=$?
-
-ELAPSED=$(( $(date +%s) - START_TS ))
-
-echo ""
-echo "→ pipeline exit code: $RUN_STATUS"
-echo "→ wall-time: ${ELAPSED}s"
-
-if [ "$RUN_STATUS" -ne 0 ]; then
-    echo ""
-    echo "PIPELINE FAILED — skipping assertions." >&2
-    echo "Artifacts (for debugging): $OUTPUT_DIR" >&2
-    exit 1
-fi
-
-# Defence-in-depth artifact gate: run-headless.sh now fails non-zero on empty
-# output, but the driver owns the "1 = pipeline failed" contract, so assert the
-# core artifacts exist independently rather than running ~25 assertions against
-# an empty dir (which reports as confusing assertion failures, not a clear
-# pipeline failure).
-if [ ! -s "$OUTPUT_DIR/threat-model.md" ] || [ ! -s "$OUTPUT_DIR/threat-model.yaml" ]; then
-    echo ""
-    echo "PIPELINE PRODUCED NO REPORT — threat-model.md/.yaml missing or empty." >&2
-    echo "Artifacts (for debugging): $OUTPUT_DIR" >&2
-    exit 1
-fi
-
-# ── Stage 1b: HTML export (best-effort; needs pandoc) ────────────────────────
-# PDF is produced in-pipeline via --pdf. A --html flag exists too, but here we
-# drive exporters/export_html.py directly to keep this deterministic (no LLM tokens).
-HTML_DONE=0
-if [ "$HTML_CAPABLE" -eq 1 ]; then
-    HTML_ATTEMPTED=1
-    echo ""
-    echo "[1b] exporting HTML ..."
-    if python3 "$PLUGIN_ROOT/scripts/exporters/export_html.py" \
-            --input "$OUTPUT_DIR/threat-model.md" \
-            --output "$OUTPUT_DIR/threat-model.html"; then
-        HTML_DONE=1
-    else
-        echo "HTML export failed (non-fatal)." >&2
-    fi
-fi
-
-# Persist driver-only facts so `make e2e-full-keep` replays the exact depth,
-# source repo, oracle profile, and converter expectations from the original
-# run instead of hard-coding quick mode or silently skipping failed exports.
-python3 - \
-    "$OUTPUT_DIR/.e2e-driver.json" \
-    "$REPO" \
-    "$DEFAULT_REPO" \
-    "$DEPTH" \
-    "$ELAPSED" \
-    "$PDF_ATTEMPTED" \
-    "$HTML_ATTEMPTED" \
-    "$HTML_DONE" \
-    "$BUNDLED_ORACLE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-(
-    path,
-    target_repo,
-    source_fixture,
-    depth,
-    elapsed,
-    pdf_attempted,
-    html_attempted,
-    html_succeeded,
-    bundled_oracle,
-) = sys.argv[1:]
-payload = {
-    "schema_version": 1,
-    "target_repo": target_repo,
-    "source_fixture": source_fixture,
-    "assessment_depth": depth,
-    "pipeline_elapsed_seconds": int(elapsed),
-    "pdf_attempted": pdf_attempted == "1",
-    "html_attempted": html_attempted == "1",
-    "html_succeeded": html_succeeded == "1",
-    "bundled_oracle": bundled_oracle == "1",
-}
-Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-PY
-
-# ── Stage 2: assertion suite ────────────────────────────────────────────────
-echo ""
-echo "[2/2] running assertion suite ..."
-echo ""
-
-ASSERT_STATUS=0
-APPSEC_E2E_FULL=1 \
-APPSEC_E2E_OUTPUT_DIR="$OUTPUT_DIR" \
-APPSEC_E2E_TARGET_REPO="$REPO" \
-APPSEC_E2E_DEPTH="$DEPTH" \
-APPSEC_E2E_PIPELINE_ELAPSED="$ELAPSED" \
-APPSEC_E2E_PDF="$PDF_ATTEMPTED" \
-APPSEC_E2E_HTML_ATTEMPTED="$HTML_ATTEMPTED" \
-APPSEC_E2E_HTML="$HTML_DONE" \
-    python3 -m pytest \
-        "$PLUGIN_ROOT/tests/test_full_run_e2e.py" \
-        -v --tb=short --no-header \
-    || ASSERT_STATUS=$?
-
-echo ""
-echo "─────────────────────────────────────────────────────────────────────"
-if [ "$ASSERT_STATUS" -eq 0 ]; then
-    echo "  RESULT: PASS  (pipeline ${ELAPSED}s, assertions OK)"
-    echo "  Artifacts: $OUTPUT_DIR"
-    echo "─────────────────────────────────────────────────────────────────────"
-    exit 0
-else
-    echo "  RESULT: FAIL  (pipeline OK but assertions failed)"
-    echo "  Artifacts: $OUTPUT_DIR"
-    echo ""
-    echo "  Next: triage with Claude —"
-    echo "    claude \"e2e-full failed. Read the pytest output above and the"
-    echo "    artifacts in $OUTPUT_DIR, identify which assertions failed, then"
-    echo "    root-cause against the PRODUCER, not the test (AGENTS.md §12 — fix"
-    echo "    the producer, never relax the assertion to make it pass).\""
-    echo "─────────────────────────────────────────────────────────────────────"
+case "$DEPTH" in quick|standard|thorough) ;; *) echo "Invalid depth" >&2; exit 2 ;; esac
+if [ -z "$BUDGET" ]; then
+    echo "An explicit --budget USD is required for this manual live run" >&2
     exit 2
 fi
+command -v appsec-analyzer >/dev/null 2>&1 || { echo "Install appsec-analyzer first" >&2; exit 2; }
+command -v git >/dev/null 2>&1 || { echo "git is required" >&2; exit 2; }
+[ -d "$REPO" ] || { echo "Repository does not exist: $REPO" >&2; exit 2; }
+
+RUN_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/appsec-analyzer-e2e.XXXXXX")
+OUTPUT="$RUN_ROOT/output"
+mkdir -m 700 "$OUTPUT"
+if [ "$REPO" = "$ROOT/tests/fixtures/e2e/synthetic-repo" ]; then
+    cp -R "$REPO/." "$RUN_ROOT/repository"
+    # Prior local runs may leave ignored output in the source fixture.
+    rm -rf "$RUN_ROOT/repository/docs/security"
+    git -C "$RUN_ROOT/repository" init -q
+    git -C "$RUN_ROOT/repository" add -f .
+    git -C "$RUN_ROOT/repository" -c user.name=appsec-e2e -c user.email=e2e@invalid commit -qm "E2E fixture baseline"
+    REPO="$RUN_ROOT/repository"
+fi
+
+echo "Manual assessment output: $OUTPUT"
+appsec-analyzer assess --host claude-cli --repo "$REPO" --output "$OUTPUT" \
+    --hard-budget "$BUDGET" --assessment-depth "$DEPTH" \
+    --requirements "$ROOT/examples/appsec-requirements-example.yaml" \
+    --sarif --pentest-tasks
+appsec-analyzer results --output "$OUTPUT" > "$RUN_ROOT/results.json"
+python3 - "$RUN_ROOT/results.json" <<'PY'
+import json
+import sys
+
+result = json.load(open(sys.argv[1], encoding="utf-8"))
+required = {"security-assessment.md", "security-assessment.yaml",
+            "security-assessment.sarif.json", "pentest-tasks.yaml"}
+assert result["assessment_status"] == "complete"
+assert required <= result["deliverables"].keys(), "missing expected deliverables"
+PY
+echo "Completed assessment and verified published results: $OUTPUT"
