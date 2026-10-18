@@ -427,8 +427,13 @@ class ResponsesTransport:
                 connection.close()
                 raise ApiTransportError("timeout")
             worker.join(timeout=min(0.1, max(0.01, deadline - time.monotonic())))
-        if not result or isinstance(result[0], Exception):
+        if not result:
             raise ApiTransportError("transport")
+        if isinstance(result[0], ssl.SSLError):
+            raise ApiTransportError("tls_failed")
+        if isinstance(result[0], Exception):
+            # A reset, refused or closed connection; a repeated call may succeed.
+            raise ApiTransportError("connection_failed")
         status, data, retry_after, metadata = result[0]
         if len(data) > MAX_REPLY_BYTES:
             raise ApiTransportError("response_too_large")

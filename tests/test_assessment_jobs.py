@@ -406,6 +406,64 @@ def test_a_transient_settled_failure_is_retried_until_the_call_succeeds(tmp_path
     assert jobs.budget.spent_usd == pytest.approx(0.01) and not jobs.budget.failed
 
 
+@pytest.mark.parametrize(
+    "reason", ["stream_disconnected", "connection_failed", "connection_timeout", "dns_unavailable"]
+)
+def test_a_dropped_connection_without_a_cost_report_is_repeated_once(tmp_path, no_retry_wait, reason):
+    # Codex subscriptions and API hosts report no cost for a failed call, so it counts as paid.
+    host = Refused(1, reason, usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    assert host.calls == 2 and [row["reason"] for row in jobs.budget.retries] == [reason]
+
+
+def test_a_connection_that_stays_down_stops_after_one_repeat(tmp_path, no_retry_wait):
+    from runtime.analyst_host import TransportError
+
+    host = Refused(10, "stream_disconnected", usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    with pytest.raises(TransportError, match="stream_disconnected.*--resume") as caught:
+        jobs.execute(**kwargs)
+    assert caught.value.reason == "stream_disconnected" and host.calls == 2
+
+
+@pytest.mark.parametrize("reason", ["authentication_failed", "quota_exhausted", "tls_error", "transport"])
+def test_an_account_configuration_or_unknown_failure_is_not_repeated(tmp_path, no_retry_wait, reason):
+    from runtime.analyst_host import TransportError
+
+    host = Refused(1, reason, usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    with pytest.raises(TransportError):
+        jobs.execute(**kwargs)
+    assert host.calls == 1
+
+
+def test_every_host_failure_code_has_exactly_one_retry_class():
+    """A failure code nobody classified must not silently become a run-ending error."""
+    import ast
+    from pathlib import Path
+
+    from runtime import multi_repo_discovery as policy
+    from runtime.assessment_diagnostics import FAILURE_CODES
+
+    classes = (policy.TRANSIENT_FAILURES, policy.NETWORK_FAILURES, policy.FATAL_FAILURES)
+    assert not any(a & b for i, a in enumerate(classes) for b in classes[i + 1 :])
+    produced = set(FAILURE_CODES)
+    root = Path(__file__).resolve().parents[1]
+    for source in (root / "appsec_analyzer").rglob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", getattr(node.func, "attr", ""))
+            if name == "ApiTransportError" and node.args and isinstance(node.args[0], ast.Constant):
+                produced.add(node.args[0].value)
+            if name in ("TransportError", "ApiTransportError"):
+                produced |= {
+                    kw.value.value for kw in node.keywords if kw.arg == "reason" and isinstance(kw.value, ast.Constant)
+                }
+    assert produced - set().union(*classes) == set()
+
+
 @pytest.mark.parametrize("optional", [False, True])
 def test_a_transient_failure_that_persists_still_stops_a_required_job(tmp_path, no_retry_wait, optional):
     from runtime.analyst_host import TransportError
@@ -617,6 +675,50 @@ def test_optional_work_protects_pending_analysis_and_uses_measured_job_cost(tmp_
     jobs.budget.accepted("stride:remaining", "stride_analyzer", 0.01, 1)
     assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "accepted"}
     assert host.calls == 1
+
+
+def test_one_expensive_batch_does_not_reserve_its_cost_for_every_pending_batch(tmp_path):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(10.0, 2.0, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", 10)
+    for usd in (0.6, 0.2, 0.2, 0.2):
+        jobs.budget.accepted("stride:done", "stride_analyzer", usd, 1)
+    jobs.budget.accepted("review:done", "architecture_analyst", 0.1, 1)
+    jobs.budget.spent_usd = 3.0
+    # 10 pending batches at 1.5 x the USD 0.30 average plus the USD 2 report
+    # leave USD 0.50; doubling the USD 0.60 outlier would reserve USD 14.
+    assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "accepted"}
+    assert host.calls == 1 and jobs.gaps == []
+    jobs.budget.spent_usd = 3.45
+    assert jobs.execute(**{**kwargs, "selector": "two"}, on_failure=lambda reason: {"result": "not reviewed"}) == {
+        "result": "not reviewed"
+    }
+    assert host.calls == 1 and jobs.gaps[0]["budget"]
+
+
+def test_optional_work_waits_for_pending_analysis_before_asking_for_more_budget(tmp_path):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(1.0, 0.05, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", 4)
+    jobs.budget.spent_usd = 0.73
+    asked = []
+    jobs.budget.on_budget_increase = asked.append
+    optional = dict(on_failure=lambda reason: {"result": "not reviewed"})
+    # The controller retries this budget gap once the analysis reserve is released.
+    assert jobs.execute(**kwargs, **optional) == {"result": "not reviewed"}
+    assert asked == [] and jobs.gaps[0]["budget"] and host.calls == 0
+    # Required analysis that cannot fit still asks.
+    jobs.budget.spent_usd = 0.99
+    with pytest.raises(ExchangeError, match="budget"):
+        jobs.execute(**{**kwargs, "role": "stride_analyzer", "selector": "stride:remaining"})
+    assert len(asked) == 1 and host.calls == 0
+    # Once only the report reserve remains, an optional shortfall asks too.
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", 0)
+    jobs.budget.spent_usd = 0.94
+    assert jobs.execute(**{**kwargs, "selector": "two"}, **optional) == {"result": "not reviewed"}
+    assert len(asked) == 2 and host.calls == 0
 
 
 @pytest.mark.parametrize(

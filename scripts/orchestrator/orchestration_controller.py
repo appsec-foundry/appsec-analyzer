@@ -4319,7 +4319,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
     from runtime.assessment_host import ExchangeError
     from runtime.assessment_state import AssessmentPaused
-    from runtime.multi_repo_discovery import BudgetExhausted
+    from runtime.multi_repo_discovery import NETWORK_FAILURES, BudgetExhausted
 
     before = _draft_stamp(argv)
     started = time.monotonic()
@@ -4390,6 +4390,16 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                 print(f"  Provider requested a cooldown of {exc.retry_after_s:.0f} s.", file=sys.stderr)
             print(
                 "  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
+                file=sys.stderr,
+            )
+            return ASSESS_PAUSED_EXIT
+        if isinstance(exc, TransportError) and exc.reason in NETWORK_FAILURES:
+            print(
+                f"⏸ assessment paused: provider connection lost ({exc.reason}); accepted steps are kept",
+                file=sys.stderr,
+            )
+            print(
+                "  Check connectivity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
                 file=sys.stderr,
             )
             return ASSESS_PAUSED_EXIT

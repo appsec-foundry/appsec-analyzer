@@ -182,7 +182,7 @@ Command-line options override the defaults from a scan profile. The most common 
 
 [Scan and model profiles](docs/profiles.md) explains how to store these settings and how to choose models per role. Check a profile with `appsec-analyzer profiles show NAME` or `appsec-analyzer profiles validate NAME`.
 
-When a provider rate-limits the run, Analyzer retries and then pauses with exit code 3 if the wait is too long. Accepted work is kept; rerun the same command with `--resume` once capacity is back. [Security assessment](docs/security-assessment.md) describes retries, coverage reporting, source-read failures, and diagnostics.
+When a provider rate-limits the run, Analyzer retries and then pauses with exit code 3 if the wait is too long. Accepted work is kept; rerun the same command with `--resume` once capacity is back. A dropped provider connection is repeated and pauses the run the same way if it stays down. [Security assessment](docs/security-assessment.md) describes retries, coverage reporting, source-read failures, and diagnostics.
 
 ## Reports and exports
 
