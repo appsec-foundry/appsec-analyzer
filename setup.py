@@ -23,6 +23,7 @@ RETIRED_RUNTIME = {
 RETIRED_ANALYZERS = {"security_steering.py"}
 USER_DOCS = (
     "security-assessment.md",
+    "security-score.md",
     "threat-analyst.md",
     "configuration.md",
     "model-selection.md",

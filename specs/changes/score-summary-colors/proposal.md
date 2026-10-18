@@ -1,0 +1,20 @@
+---
+reason: The operator requested a more prominent score, clearer findings and status colors, and inline repository typography consistent with the existing Analyzer terminal palette.
+affected_ids: [REQ-036]
+compatibility: Preserve score calculation, verdicts, exit codes, source controls, and structured result schemas. Reformat human output and apply the shared stdout color policy; JSON/YAML remain free of styling codes. Public finding titles retain their complete check name instead of the legacy 50-character truncation; the retained direct script keeps its existing title default.
+verification: Run summary, public score, retained scoring, shared terminal-style, installed-package, CLI documentation, and specification checks plus changed-file Ruff checks. Verify colored/plain content equivalence and table alignment, complete wrapped check titles and spaced finding blocks, stdout TTY detection independent of progress stderr, NO_COLOR and FORCE_COLOR precedence, dumb-terminal behavior, color-free structured output even on forced-color terminals, legacy title compatibility, and source-controlled terminal-injection defenses.
+---
+
+# Highlight the score and clarify findings
+
+Separate the headline score from the summary metadata with a short ruled block. Keep the limited-check qualifier next to the number and the absence of full analysis directly below it. Reuse the existing terminal Style helper and palette, including the retained red/orange/yellow/green score bands and severity colors. Add no safety labels or score gates. Color table values after padding so columns remain aligned; unscored areas and incomplete results stay visibly unscored.
+
+Give each finding its own spaced block with a colored severity, complete wrapped check title, and muted example location and occurrence count. Use terminal width for text wrapping, with bounded fallback dimensions. Public structured output retains complete titles too, without changing fields or scoring. The direct script's existing truncation stays its default through an optional full-title argument.
+
+Select text colors from stdout using the shared environment and terminal policy. Keep normal redirected output plain, allow explicit FORCE_COLOR, respect NO_COLOR precedence, and never apply styling to JSON/YAML. Source fields still pass through the existing redaction and control-character sanitization before trusted terminal styling is added.
+
+Apply the shared palette to progress status tokens using stderr's own terminal decision: running uses accent cyan, done green, failed/invalid red, and missing/cancelled yellow. Keep phase headings, step descriptions, and durations neutral. Load only the lightweight shared theme before the startup header so the repository can be styled immediately, then start progress before the heavier analysis runtime is prepared. Reuse the bundled theme without introducing a second palette or source access.
+
+Keep the complete sanitized repository path or URL on its existing line in both the startup header and summary. Use bold accent text for the final project segment and muted text for the parent path or URL prefix. Do not replace it with a basename, introduce an extra source line, or remove origin information. Plain output stays textually unchanged, and credential, control-character, and label-length protections remain in effect.
+
+Verification completed: all 342 focused summary, public score, retained scoring, terminal-style, installed-package, CLI documentation, and specification cases pass. Coverage includes inline repository emphasis without identity changes or credential exposure, real cancellation and cleanup, full finding titles with wrapping, independent stdout/stderr color decisions, disabled and forced color, unchanged column alignment after stripping styling, and color-free structured results. Changed Python files pass Ruff lint and format checks, current documentation links resolve, and specification change coverage validates against `69c2501f14f59746f4d96409135abbff9d30a256`. No live model calls or external Git retrieval were needed.

@@ -12,6 +12,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-001:** **Scan without an AI account.** A source scan runs without an AI account or paid model calls. Its output explains what the scanners checked, marks observations as unverified, and makes clear that a full assessment has not been run.
 
+- **REQ-036:** **Get a quick security indication.** A repository can receive a deterministic security score without model calls. The result explains its coverage and limits, retains visible findings when it cannot score, and identifies when scores can be compared across commits of the same repository.
+
 - **REQ-002:** **Choose what to assess.** An assessment can cover one repository or several that belong to the same system, supplied as local Git repositories or supported Git URLs. The user chooses the depth and result directory. Analyzer rejects scope restrictions it cannot honor.
 
 - **REQ-003:** **Know what was examined.** The report names the source versions and context used, along with anything excluded or left unchecked. Its conclusions apply to that examined source, not to later changes.

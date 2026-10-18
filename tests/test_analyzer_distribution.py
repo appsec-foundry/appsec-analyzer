@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GUIDES = (
     "security-assessment.md",
+    "security-score.md",
     "threat-analyst.md",
     "configuration.md",
     "model-selection.md",
@@ -52,6 +53,29 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert not other.exists()
     assert (package / "scripts" / "runtime" / "multi_repo_scope.py").is_file()
     assert (package / "data" / "stride-analysis-policy.md").is_file()
+    score_repo = tmp_path / "score-repository"
+    score_repo.mkdir()
+    (score_repo / "service.py").write_text("def service():\n    return 1\n")
+    for args in (
+        ["init", "-q"],
+        ["add", "."],
+        ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"],
+    ):
+        subprocess.run(["git", "-C", str(score_repo), *args], check=True, capture_output=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "appsec_analyzer.cli", "score", str(score_repo), "--json"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(build)},
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 2, result.stderr
+    import json
+
+    score = json.loads(result.stdout)
+    assert score["verdict"] == "undetermined" and score["score"] is None
+    assert set(score["scanner_status"].values()) == {"complete"}
     assert not (package / "agents" / "appsec-stride-analyzer-v2.md").exists()
     result = subprocess.run(
         [
@@ -110,7 +134,40 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     ]
     result = subprocess.run(archive_command, cwd=source, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    with zipfile.ZipFile(next(dist.glob("*.whl"))) as wheel:
+    wheel_path = next(dist.glob("*.whl"))
+    installed = tmp_path / "installed"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--no-index",
+            "--no-compile",
+            "--target",
+            str(installed),
+            str(wheel_path),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=45,
+        env={**os.environ, "PIP_CONFIG_FILE": os.devnull, "PIP_NO_INPUT": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+    result = subprocess.run(
+        [str(installed / "bin/appsec-analyzer"), "score", str(score_repo), "--json"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 2, result.stderr
+    installed_score = json.loads(result.stdout)
+    assert installed_score == score
+    with zipfile.ZipFile(wheel_path) as wheel:
         wheel_files = set(wheel.namelist())
     with tarfile.open(next(dist.glob("*.tar.gz"))) as source:
         source_files = {"/".join(name.split("/")[1:]) for name in source.getnames()}
@@ -119,6 +176,10 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         assert not any(path.endswith("runtime/plugin_read_gate.py") for path in files)
     assert "appsec_analyzer/docs/security-assessment.md" in wheel_files
     for relative in (
+        "docs/security-score.md",
+        "scripts/analyzers/security_score.py",
+        "data/security-score-indicators.yaml",
+        "schemas/security-score.schema.yaml",
         "docs/profiles.md",
         "docs/providers.md",
         "data/model-profiles/lite.yaml",
@@ -143,6 +204,8 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         assert "appsec_analyzer/" + relative in wheel_files
         assert relative in source_files
     assert "appsec_analyzer/codex_cli.py" in wheel_files
+    assert "appsec_analyzer/scoring.py" in wheel_files
+    assert "appsec_analyzer/scoring.py" in source_files
     assert "SECURITY.md" in source_files
     assert "appsec_analyzer/codex_cli.py" in source_files
     assert "appsec_analyzer/scripts/runtime/multi_repo_scope.py" in wheel_files

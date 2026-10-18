@@ -66,6 +66,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -337,7 +338,13 @@ def _load(path: Path, warnings: list[str], label: str) -> tuple[dict[str, Any], 
     return data, "complete"
 
 
-def collect(repo_root: Path, work_dir: Path) -> tuple[list[dict], list[dict], list[str], dict[str, str]]:
+def collect(
+    repo_root: Path,
+    work_dir: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+    completed: Callable[[str, str], None] | None = None,
+) -> tuple[list[dict], list[dict], list[str], dict[str, str]]:
     """Run and validate every required producer outside the target repository."""
     warnings: list[str] = []
     statuses: dict[str, str] = {}
@@ -373,10 +380,16 @@ def collect(repo_root: Path, work_dir: Path) -> tuple[list[dict], list[dict], li
     rules: list[dict] = []
     findings: list[dict] = []
     for label, argv, sidecar in scanners:
+        if progress is not None:
+            progress(label)
         if not _run(argv, warnings, label):
             statuses[label] = "failed"
+            if completed is not None:
+                completed(label, statuses[label])
             continue
         data, statuses[label] = _load(work_dir / sidecar, warnings, label)
+        if completed is not None:
+            completed(label, statuses[label])
         if statuses[label] != "complete":
             continue
         if label == "architecture-coverage":
@@ -410,15 +423,15 @@ def _contaminated_rules(rules: list[dict], repo_root: Path) -> list[str]:
     return sorted(contaminated)
 
 
-def finding_title(finding: dict) -> str:
+def finding_title(finding: dict, *, full: bool = False) -> str:
     """Prefer the producer's violation title; retain a legacy mitigation fallback."""
     title = str(finding.get("title") or finding.get("recommended_mitigation_title") or "")
     if finding.get("_scanner") != "config-iac":
         title = title.split(" — ")[0]
-    return title[:49] + "…" if len(title) > 50 else title
+    return title[:49] + "…" if not full and len(title) > 50 else title
 
 
-def top_findings(findings: list[dict], limit: int = TOP_FINDINGS) -> list[dict]:
+def top_findings(findings: list[dict], limit: int = TOP_FINDINGS, *, full_titles: bool = False) -> list[dict]:
     """The most severe distinct checks, each with one example location.
 
     Grouped by check rather than listed per hit: seventeen instances of one
@@ -440,7 +453,7 @@ def top_findings(findings: list[dict], limit: int = TOP_FINDINGS) -> list[dict]:
     rows = [
         {
             "severity": group["severity"],
-            "title": finding_title(group["finding"]),
+            "title": finding_title(group["finding"], full=full_titles),
             "count": group["count"],
             "location": _location(group["finding"]),
         }

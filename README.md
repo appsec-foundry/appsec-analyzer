@@ -108,6 +108,8 @@ appsec-analyzer scan-sources --repo /path/to/project
 
 It prints observations from the applicable authorization, mass-assignment, and configuration scanners, along with their coverage. These observations are unverified; this command does not perform a full security assessment. Add `--json` for machine-readable output.
 
+For a quick score without model calls, use `appsec-analyzer score /path/to/project`. Add `--json` or `--yaml` for structured output. Progress appears immediately on stderr with separate persistent status lines and timings for repository preparation and each scanner, a live running step in interactive terminals, and Git cloning when needed; stdout contains only the result. Status labels, score values, and finding severities use the shared Analyzer terminal colors, respecting `NO_COLOR` and `FORCE_COLOR`; JSON/YAML stay free of styling codes. The score uses its own four-scanner set and gives a limited indication from 0 to 100; it is not a risk rating or a full assessment. Too little applicable coverage produces `undetermined` instead of a number. See [security scoring](docs/security-score.md) for coverage, comparison limits, and exit codes.
+
 ### 2. Run a full assessment
 
 With Claude CLI configured, run this from the Git repository you want to assess:
@@ -205,6 +207,7 @@ Use the same CLI for a combined assessment, a focused security question, or a re
 
 | Task | Command | Guide |
 | --- | --- | --- |
+| Get a quick score without model calls | `score /path/to/project` | [Security score](docs/security-score.md) |
 | Assess several repositories together | `scan --repo /path/to/api --repo /path/to/client --budget 30` | [Security assessment](docs/security-assessment.md) |
 | Select the model host explicitly | `assess --repo /path/to/project --host claude-cli --budget 20` | [Hosts and models](docs/model-selection.md) |
 | Review a design, code change, or threat hypothesis | `analyst design`, `analyst review`, `analyst hypothesis` | [Threat Analyst](docs/threat-analyst.md) |
@@ -217,7 +220,7 @@ Repeated `--repo` arguments combine repositories into one system. You can also s
 
 ## Security and data use
 
-**Model-backed commands send source excerpts and context to the selected provider.** This includes full assessments, focused analysis, and requirements audits. Check your organization's rules and the provider's data-handling terms before analyzing confidential code. `scan-sources` does not send source to a model.
+**Model-backed commands send source excerpts and context to the selected provider.** This includes full assessments, focused analysis, and requirements audits. Check your organization's rules and the provider's data-handling terms before analyzing confidential code. `scan-sources` and `score` do not send source to a model; explicitly selected Git URLs still require network retrieval.
 
 Repositories are treated as untrusted input by default. Repository content cannot authorize tools or select provider credentials. Keep credentials outside repository files and Git URLs, and treat reports and intermediate files as sensitive.
 

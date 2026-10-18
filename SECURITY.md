@@ -13,6 +13,7 @@ Do not report vulnerabilities through public issues. Use the repository's privat
 | Operation | Source and external access | Local result |
 | --- | --- | --- |
 | `scan-sources` | Deterministic inspection; no model host or model credentials needed. An explicitly selected Git URL requires network retrieval. | Summary or JSON, optionally `scan-result.json`. Findings are unverified observations. |
+| `score REPO` | Four deterministic scanners inspect an admitted redacted source snapshot; no model calls. Explicit Git URLs require network retrieval through the same checkout boundary. | Text, JSON, or YAML on stdout; no files in the target checkout. A limited indication with visible coverage and unverified observations. |
 | `scan` / `assess` | Admitted source excerpts, architecture/context packets, and model responses pass through the selected Claude CLI or OpenAI host. | Validated `security-assessment.md`, YAML, figures, and requested exports. |
 | `audit-requirements` | Selected catalog text, filenames, and bounded source excerpts pass through Claude CLI. | Separate requirements verdict and optional Markdown report. |
 | `analyst` analysis / answer | Scoped source or supplied design, context, and answers pass through Claude CLI. Optional exploration uses a redacted source copy. | Private analyst job state and requested result files. |
@@ -25,6 +26,8 @@ The OpenAI adapter targets the fixed Responses endpoint and requests `store: fal
 ## Source and execution boundaries
 
 Repositories are untrusted by default. The full assessment and deterministic scan perform admission checks, freeze selected source, reject escaping paths and links, and verify source consistency. Source content and model replies cannot select an arbitrary tool, executable, credential, or output path. Structured source requests are validated and served by the controller from admitted files.
+
+The separate `score` command also admits and redacts source, confines scanners to a private regular-file snapshot, and rechecks source consistency before printing. Its score is not a risk rating or evidence of safety. Source-policy identity and coverage fingerprints limit comparison to compatible commits of one repository; see [security scoring](docs/security-score.md).
 
 Full assessments and audits use model sessions without executable tools. The Claude transport requests isolation from project settings, plugins, hooks, MCP configuration, and session persistence. Optional focused analyst exploration is a separate read-only mode. These controls have offline tests; the real host's enforcement still needs the live negative-control qualification in `tests/test_host_isolation_live.py`.
 

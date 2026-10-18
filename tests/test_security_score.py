@@ -350,6 +350,15 @@ def test_a_source_finding_is_named_by_its_weakness_class():
     assert ss.finding_title(_hit("High", "X", "SQL injection — request data in a query", "a.ts")) == "SQL injection"
 
 
+def test_full_top_finding_titles_preserve_legacy_defaults_and_grouping():
+    title = "JWT verify call missing algorithms allowlist with explicit signature algorithm verification"
+    findings = [_hit("Critical", "LONG", title, "a.ts"), _hit("Critical", "LONG", title, "b.ts")]
+    legacy = ss.top_findings(findings)
+    full = ss.top_findings(findings, full_titles=True)
+    assert legacy[0]["title"] == title[:49] + "…"
+    assert full == [{**legacy[0], "title": title}]
+
+
 def test_the_rendered_list_names_the_findings():
     result = ss.compute(_rules(*(["present"] * 5)), [])
     result["warnings"] = []
@@ -536,6 +545,8 @@ def test_https_repository_is_cloned_scanned_and_removed(monkeypatch, capsys, url
     checkouts = []
 
     def fake_clone(argv, **kwargs):
+        if "clone" not in argv:
+            return subprocess.CompletedProcess(argv, 1, "", "")
         checkout = Path(argv[-1])
         checkout.mkdir()
         (checkout / "source.txt").write_text("scan me", encoding="utf-8")
@@ -636,6 +647,8 @@ def test_clone_failure_stops_without_scanning(monkeypatch, capsys):
     checkouts = []
 
     def fake_clone(argv, **kw):
+        if "clone" not in argv:
+            return subprocess.CompletedProcess(argv, 1, "", "")
         checkout = Path(argv[-1])
         checkout.mkdir()
         checkouts.append(checkout)
@@ -673,6 +686,8 @@ def test_remote_checkout_with_escaping_symlink_is_not_scanned(monkeypatch, capsy
     checkouts = []
 
     def fake_clone(argv, **kw):
+        if "clone" not in argv:
+            return subprocess.CompletedProcess(argv, 1, "", "")
         checkout = Path(argv[-1])
         checkout.mkdir()
         (checkout / "source.txt").symlink_to(outside)

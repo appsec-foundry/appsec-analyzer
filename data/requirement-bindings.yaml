@@ -114,6 +114,79 @@ requirements:
       - tests/test_public_scan_cli.py::test_scan_output_writes_complete_json_and_prints_summary
       - tests/test_public_scan_cli.py::test_entry_skill_scanner_example_runs_without_a_model_host
 
+  REQ-036:
+    applies_to:
+      - appsec_analyzer/cli.py
+      - appsec_analyzer/scoring.py
+      - appsec_analyzer/score_progress.py
+      - scripts/analyzers/security_score.py
+      - data/security-score-indicators.yaml
+      - schemas/security-score.schema.yaml
+      - setup.py
+      - MANIFEST.in
+      - Makefile
+      - skills/appsec-analyzer/**
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - README.md
+      - docs/security-score.md
+      - docs/configuration.md
+      - docs/local-release-preparation.md
+      - SECURITY.md
+      - docs/security-assessment.md
+      - docs/headless-mode.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_public_score_cli.py::test_score_runs_without_model_and_preserves_target
+      - tests/test_public_score_cli.py::test_startup_is_visible_before_runtime_preparation_even_with_piped_stderr
+      - tests/test_public_score_cli.py::test_score_startup_identifies_repository_without_credentials_or_terminal_injection
+      - tests/test_public_score_cli.py::test_score_startup_expands_relative_selection_safely
+      - tests/test_public_score_cli.py::test_scanner_progress_is_visible_before_each_scanner_starts
+      - tests/test_public_score_cli.py::test_terminal_progress_refreshes_while_work_is_waiting_and_stops_on_error
+      - tests/test_public_score_cli.py::test_plain_progress_keeps_every_step_and_reports_measured_durations
+      - tests/test_public_score_cli.py::test_progress_retains_scanner_outcomes_and_never_marks_failed_checks_done
+      - tests/test_public_score_cli.py::test_readable_score_omits_excluded_file_details
+      - tests/test_score_summary.py::test_summary_orders_score_coverage_ranked_areas_and_findings_without_mutating_result
+      - tests/test_score_summary.py::test_unscored_critical_findings_are_prominent_even_with_high_headline
+      - tests/test_score_summary.py::test_unfinished_or_unsupported_scan_cannot_display_numeric_area_scores
+      - tests/test_score_summary.py::test_summary_retains_limitations_when_no_findings_are_reported
+      - tests/test_score_summary.py::test_summary_handles_no_applicable_areas_and_hides_internal_metadata
+      - tests/test_score_summary.py::test_summary_repository_identity_omits_url_credentials_and_parameters
+      - tests/test_score_summary.py::test_colored_summary_preserves_all_plain_content_and_alignment
+      - tests/test_score_summary.py::test_finding_blocks_wrap_full_titles_and_separate_locations_and_repetition_counts
+      - tests/test_score_summary.py::test_score_cli_uses_shared_color_policy_for_stdout_only
+      - tests/test_score_summary.py::test_structured_score_never_gets_color_even_on_forced_color_terminal
+      - tests/test_score_summary.py::test_progress_status_colors_preserve_plain_content_and_column_alignment
+      - tests/test_score_summary.py::test_progress_and_result_choose_colors_from_their_own_streams
+      - tests/test_score_summary.py::test_repository_emphasis_is_inline_preserves_identity_and_hides_url_credentials
+      - tests/test_public_score_cli.py::test_sparse_score_is_undetermined_with_findings_visible
+      - tests/test_public_score_cli.py::test_failed_required_scanner_withholds_score
+      - tests/test_public_score_cli.py::test_sigint_cancels_without_traceback_or_result_and_removes_temporary_files
+      - tests/test_public_score_cli.py::test_local_source_errors_explain_recovery_before_scanners
+      - tests/test_public_score_cli.py::test_scanner_failures_keep_findings_and_explain_why_score_is_withheld
+      - tests/test_public_score_cli.py::test_unexpected_score_errors_are_contained_without_publishing_or_exposing_details
+      - tests/test_public_score_cli.py::test_closed_stdout_pipe_exits_without_traceback
+      - tests/test_public_score_cli.py::test_missing_git_explains_prerequisite_without_traceback
+      - tests/test_public_score_cli.py::test_failed_remote_clone_is_actionable_private_and_cleans_up
+      - tests/test_public_score_cli.py::test_snapshot_masks_secrets_excludes_private_files_and_cannot_run_hooks
+      - tests/test_public_score_cli.py::test_escaping_link_is_rejected_before_scanners
+      - tests/test_public_score_cli.py::test_changed_source_is_not_published
+      - tests/test_public_score_cli.py::test_scanner_cannot_cite_outside_snapshot
+      - tests/test_public_score_cli.py::test_score_remote_uses_real_isolated_checkout_and_cleans_up
+      - tests/test_public_score_cli.py::test_score_rejects_invalid_sources_without_exposing_credentials
+      - tests/test_public_score_cli.py::test_temporary_storage_inside_repository_is_rejected
+      - tests/test_public_score_cli.py::test_source_admission_limits_apply_before_scanning
+      - tests/test_public_score_cli.py::test_terminal_output_cannot_render_repository_control_characters
+      - tests/test_public_score_cli.py::test_score_parser_exits_before_source_access
+      - tests/test_public_score_cli.py::test_score_is_discoverable_without_model
+      - tests/test_public_score_cli.py::test_missing_runtime_is_an_operational_error_without_internal_details
+      - tests/test_security_score.py::test_the_weaker_half_decides_the_headline
+      - tests/test_security_score.py::test_full_top_finding_titles_preserve_legacy_defaults_and_grouping
+      - tests/test_security_score.py::test_invalid_or_failed_producer_withholds_headline
+      - tests/test_analyzer_distribution.py::test_reused_build_drops_retired_resources_and_keeps_guide_links
+
   REQ-002:
     applies_to:
       - scripts/runtime/remote_repositories.py
@@ -1396,6 +1469,7 @@ requirements:
 
   REQ-031:
     applies_to:
+      - appsec_analyzer/scoring.py
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
@@ -1417,6 +1491,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_score_cli.py::test_escaping_link_is_rejected_before_scanners
+      - tests/test_public_score_cli.py::test_scanner_cannot_cite_outside_snapshot
+      - tests/test_public_score_cli.py::test_snapshot_masks_secrets_excludes_private_files_and_cannot_run_hooks
       - tests/test_provider_backends.py::test_unsafe_operator_connections_are_rejected
       - tests/test_provider_backends.py::test_other_users_cannot_write_provider_connection
       - tests/test_provider_backends.py::test_connection_cannot_be_owned_by_source_or_linked
@@ -1446,6 +1523,7 @@ requirements:
     applies_to:
       - scripts/runtime/assessment_diagnostics.py
       - scripts/runtime/analyst_host.py
+      - appsec_analyzer/scoring.py
       - appsec_analyzer/codex_cli.py
       - scripts/validators/secret_scan.py
       - scripts/validators/redact_known_secrets.py
@@ -1460,6 +1538,8 @@ requirements:
       - tests/test_assessment_diagnostics.py::test_reasons_keep_structural_detail_and_remove_values_locations_and_control_codes
       - tests/test_assessment_diagnostics.py::test_parallel_calls_keep_job_identity_and_never_log_inputs_or_answers
       - tests/test_analyst_host.py::test_cli_stderr_is_classified_without_exposing_it_or_losing_exit_status
+      - tests/test_public_score_cli.py::test_snapshot_masks_secrets_excludes_private_files_and_cannot_run_hooks
+      - tests/test_public_score_cli.py::test_terminal_output_cannot_render_repository_control_characters
       - tests/test_codex_cli.py::test_activity_is_streamed_before_completion_without_model_text
       - tests/test_codex_cli.py::test_activity_ignores_invalid_untrusted_and_stderr_events
       - tests/test_codex_cli.py::test_usage_limit_is_redacted_and_has_no_optional_fallback
@@ -1533,6 +1613,7 @@ requirements:
   REQ-035:
     applies_to:
       - scripts/runtime/assessment_diagnostics.py
+      - appsec_analyzer/scoring.py
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
       - scripts/orchestrator/orchestration_controller.py
@@ -1552,6 +1633,8 @@ requirements:
     guards:
       - tests/test_assessment_diagnostics.py::test_linked_diagnostic_directory_is_refused
       - tests/test_assessment_diagnostics.py::test_replaced_log_link_cannot_write_to_another_file
+      - tests/test_public_score_cli.py::test_temporary_storage_inside_repository_is_rejected
+      - tests/test_public_score_cli.py::test_score_runs_without_model_and_preserves_target
       - tests/test_codex_cli.py::test_structured_reply_and_isolated_configuration
       - tests/test_single_repo_controller.py::test_without_output_the_run_writes_to_a_private_application_directory
       - tests/test_single_repo_controller.py::test_a_destination_another_process_could_redirect_is_refused

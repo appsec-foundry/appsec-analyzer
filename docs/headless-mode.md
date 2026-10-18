@@ -5,6 +5,7 @@ Install the package, then invoke the same public program locally or in CI:
 ```sh
 appsec-analyzer scan --repo /checkout --budget 20 --output /private/assessment
 appsec-analyzer scan-sources --repo /checkout --output /private/source-scan
+appsec-analyzer score /checkout --json
 appsec-analyzer assess --repo /checkout --profile claude \
   --budget 20 --output /private/assessment --non-interactive
 appsec-analyzer scan --repo /checkout --profile codex \
@@ -36,6 +37,8 @@ The result and status contracts distinguish scanner-only output from completed,
 interrupted, and failed assessments. After normal cleanup removes the event
 feed, `progress` reports the final state with `feed_available: false` and no
 events; `status` and `results` remain available.
+
+`score REPO` runs without model calls or a result directory. It immediately shows three phases on stderr: repository preparation, security checks, and the result, with separate persistent status lines and durations for runtime loading, repository preparation, each scanner, and result validation. Interactive terminals refresh the running step while retaining completed steps; redirected stderr receives plain step start/completion lines. The final summary shows total time. Status labels use the shared terminal colors based on stderr; text results choose colors independently from stdout. `NO_COLOR` and `FORCE_COLOR` follow the shared policy, and JSON/YAML remain free of styling codes. Git cloning remains visible when needed. Stdout contains only the limited scanner-based indication as text, JSON (`--json`), or YAML (`--yaml`), without excluded-file lists or counts. Exit 0 means a score was computed, 2 means coverage was insufficient (`undetermined`) or the arguments were invalid, 1 means an operational error or incomplete scan, and 130 means cancellation by Ctrl+C. Cancellation ends the status without a traceback; an interrupted analysis publishes no result. A low computed score still exits 0; this command has no score-threshold CI gate. Explicit Git URLs use temporary checkouts. See [security scoring](security-score.md) for source admission, comparison limits, scanner coverage, and error recovery.
 
 Normal progress output records skipped optional model jobs immediately as `Coverage gap` warnings, including budget reservations, without requiring `--verbose`. Architect Review and abuse-case phase totals show actual review coverage separately from planned candidates. The final summary retains omitted work. `--quiet` suppresses live progress; see [assessment coverage and limits](security-assessment.md).
 

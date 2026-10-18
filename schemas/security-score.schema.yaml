@@ -4,6 +4,28 @@ type: object
 required: [verdict, score, repo, checks_total, checks_applicable, findings, findings_total, categories, top_findings, warnings, scanner_status, comparability, excluded_findings, unscored_findings]
 additionalProperties: false
 properties:
+  interface_version: {const: 1}
+  assessment_status: {const: not_run}
+  evidence_status: {const: unverified}
+  source:
+    type: object
+    additionalProperties: false
+    required: [head, state_sha256, dirty, captured_files]
+    properties:
+      head: {type: string, pattern: '^(?:[a-f0-9]{40}|[a-f0-9]{64})$'}
+      state_sha256: {$ref: '#/$defs/hash'}
+      dirty: {type: boolean}
+      captured_files: {$ref: '#/$defs/count'}
+      # Accepted in earlier saved results; new CLI output omits this field.
+      excluded_files:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [path, reason]
+          properties:
+            path: {type: string}
+            reason: {type: string}
   verdict:
     enum: [scored, undetermined, incomplete]
   score:
@@ -33,6 +55,7 @@ properties:
     additionalProperties: false
     properties:
       scoring_version: {const: 2}
+      source_policy: {const: analyzer-admitted-redacted-v1}
       catalog_fingerprint: {$ref: '#/$defs/hash'}
       coverage_fingerprint: {$ref: '#/$defs/hash'}
       applicable_rules:
@@ -63,6 +86,13 @@ properties:
         count: {$ref: '#/$defs/count'}
         location: {type: string}
 allOf:
+  - if:
+      required: [interface_version]
+    then:
+      required: [source, assessment_status, evidence_status]
+      properties:
+        comparability:
+          required: [source_policy]
   - if:
       properties: {verdict: {const: scored}}
     then:

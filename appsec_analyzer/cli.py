@@ -9,6 +9,7 @@ import math
 import os
 import re
 import runpy
+import shutil
 import stat
 import sys
 import tempfile
@@ -84,6 +85,19 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     sources.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
     sources.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     sources.add_argument("--json", action="store_true", help="Print the complete machine-readable result")
+    score = commands.add_parser(
+        "score",
+        help="Compute a deterministic security score without a model",
+        description="Compute a limited scanner-based score for one local Git checkout or explicit Git URL.",
+        epilog=(
+            "Text colors follow terminal settings (NO_COLOR/FORCE_COLOR). "
+            "Exit codes: 0 scored; 2 undetermined or invalid arguments; 1 incomplete scan or operational error; 130 cancelled."
+        ),
+    )
+    score.add_argument("repo", metavar="REPO", help="Top-level local Git checkout or HTTPS/SSH Git URL")
+    formats = score.add_mutually_exclusive_group()
+    formats.add_argument("--json", action="store_true", help="Print the complete machine-readable JSON result")
+    formats.add_argument("--yaml", action="store_true", help="Print the same result as YAML")
     assess = commands.add_parser(
         "assess",
         help="Run a full semantic assessment"
@@ -295,6 +309,7 @@ def _capabilities() -> dict:
         "engine_version": ENGINE_VERSION,
         "scan": {"available": True, "model_calls": True},
         "scan_sources": {"available": True, "model_calls": False},
+        "score": {"available": True, "model_calls": False, "scoring_version": 2},
         "profiles": {"schema_version": 1, "user_defined": True, "inspection_model_calls": False},
         "organization_distributions": {
             "available": True,
@@ -336,6 +351,67 @@ def _scan(ns: argparse.Namespace) -> int:
         local = argparse.Namespace(**vars(ns))
         local.repo = [local_args[i + 1] for i, item in enumerate(local_args[:-1]) if item == "--repo"]
         return _scan_local(local)
+
+
+def _score(ns: argparse.Namespace) -> int:
+    try:
+        return _run_score(ns)
+    except KeyboardInterrupt:
+        return 130
+    except BrokenPipeError:
+        # Prevent a second error when Python flushes a closed output pipe at exit.
+        with open(os.devnull, "w") as sink:
+            os.dup2(sink.fileno(), sys.stdout.fileno())
+        return 1
+    except Exception:  # noqa: BLE001 — public CLI boundary; never expose raw internal exceptions
+        print(
+            "appsec-analyzer: error: Security score could not finish. "
+            "Retry the command; if it persists, check the Analyzer installation and report the failing stage.",
+            file=sys.stderr,
+        )
+        return 1
+
+
+def _run_score(ns: argparse.Namespace) -> int:
+    from appsec_analyzer.score_progress import ScoreProgress
+
+    with ScoreProgress(repository=ns.repo) as progress:
+        try:
+            _engine_imports()
+            from renderers.term_style import Style
+
+            from appsec_analyzer.scoring import ScoreError, render_text, score_repository
+        except (ImportError, OSError, RuntimeError):
+            progress.finish("failed")
+            print(
+                "appsec-analyzer: error: Security score runtime resources are unavailable. "
+                "Check or reinstall Analyzer in the active Python environment.",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            result = score_repository(ns.repo, progress=progress)
+        except ScoreError as exc:
+            progress.finish("failed")
+            print(f"appsec-analyzer: error: {exc}", file=sys.stderr)
+            return 1
+        if ns.json:
+            output = json.dumps(result, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+        elif ns.yaml:
+            output = yaml.safe_dump(result, sort_keys=False, allow_unicode=False)
+        else:
+            output = (
+                render_text(
+                    result,
+                    style=Style.for_stream(sys.stdout),
+                    width=shutil.get_terminal_size(fallback=(88, 24)).columns,
+                )
+                + "\n"
+            )
+        progress.finish(result["verdict"])
+    print(output, end="", flush=True)
+    return {"scored": 0, "undetermined": 2, "incomplete": 1}[result["verdict"]]
 
 
 def _scan_local(ns: argparse.Namespace) -> int:
@@ -901,6 +977,8 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return 0
         if ns.command == "scan-sources":
             return _scan(ns)
+        if ns.command == "score":
+            return _score(ns)
         if ns.command in ("scan", "assess"):
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):

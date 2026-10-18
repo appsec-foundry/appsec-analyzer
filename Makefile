@@ -59,6 +59,9 @@ analyze-verify:  ## Manual live assessment: make analyze-verify REPO=<path> BUDG
 test-analyzer:  ## Current standalone CLI, audit, provider, state, and completion contracts (offline)
 	@PYTHONPATH="$(CURDIR):$(CURDIR)/scripts" $(PYTHON) -m pytest -q \
 		tests/test_public_scan_cli.py \
+		tests/test_public_score_cli.py \
+		tests/test_score_summary.py \
+		tests/test_security_score.py \
 		tests/test_public_assessment_operations.py \
 		tests/test_requirements_audit_cli.py \
 		tests/test_api_hosts.py \
