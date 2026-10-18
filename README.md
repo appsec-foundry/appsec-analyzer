@@ -279,12 +279,14 @@ The runtime architecture with its data flows and attack paths, shown as a detail
 </picture>
 </a>
 
-The build pipeline and the most severe supply-chain attacks on it:
+The build pipeline and the most severe supply-chain attacks on it, shown as a detail. Click the image to open the full diagram:
 
+<a href="docs/images/figure1b-example.svg">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1b-example-dark.svg">
-  <img src="docs/images/figure1b-example.svg" alt="Build pipeline and supply-chain attack paths in the Juice Shop assessment">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1b-example-crop-dark.svg">
+  <img src="docs/images/figure1b-example-crop.svg" alt="Detail of the build pipeline and supply-chain attack paths in the Juice Shop assessment">
 </picture>
+</a>
 
 Threat actors, their attack routes, and the business harm they can cause:
 
