@@ -771,7 +771,7 @@ def build_assessment(scope, components, receipt, flow_doc, source_context, depth
 
     The controller supplies measured, qualified source context. This function
     cannot invent a primary root or interpret missing measurements as false.
-    Model jobs receive a single-signal projection of the returned inventory.
+    Model jobs receive bounded signal projections of the returned inventory.
     """
     from shared.assessment_sources import source_rows
     from validators.validate_assessment_architecture import validate_flows, validate_source
@@ -930,28 +930,33 @@ def _assessment_input_fingerprint(body):
 
 
 def project_assessment_signal(assessment, signal_id, topology):
-    """Admit only the crossing endpoints and their cited context to one job.
+    """Compatibility projection for a single controller-selected signal."""
+    return project_assessment_signals(assessment, [signal_id], topology)
+
+
+def project_assessment_signals(assessment, signal_ids, topology):
+    """Admit only the selected crossings' endpoints and cited context to one job.
 
     ``topology`` is the canonical flow list with its connection identities;
     the bounded assessment input omits them.
     """
     from contexts.multi_repo_analysis import contract, scope_relays, source_selection
 
-    signal = next((row for row in assessment["signals"] if row["id"] == signal_id), None)
-    if signal is None:
-        raise ValueError("Boundary job requires a controller-selected crossing signal")
+    selected = set(signal_ids)
+    signals = [row for row in assessment["signals"] if row["id"] in selected]
+    if not selected or len(selected) != len(signal_ids) or len(signals) != len(selected):
+        raise ValueError("Boundary job requires distinct controller-selected crossing signals")
     if {row["id"] for row in topology} != {row["id"] for row in assessment["data_flows"]}:
         raise ValueError("Boundary job topology does not match its assessment input")
     result = copy.deepcopy(assessment)
-    ids = {signal["from"], signal["to"]} - {"external"}
-    connections = {
-        row["connection_id"] for row in topology if row["id"] in signal["flow_ids"] and row.get("connection_id")
-    }
+    ids = {signal[key] for signal in signals for key in ("from", "to")} - {"external"}
+    flow_ids = {fid for signal in signals for fid in signal["flow_ids"]}
+    connections = {row["connection_id"] for row in topology if row["id"] in flow_ids and row.get("connection_id")}
     result["components"] = scope_relays(
         [row for row in result["components"] if row["id"] in ids], topology, connections
     )
-    result["data_flows"] = [row for row in result["data_flows"] if row["id"] in signal["flow_ids"]]
-    result["signals"] = [copy.deepcopy(signal)]
+    result["data_flows"] = [row for row in result["data_flows"] if row["id"] in flow_ids]
+    result["signals"] = copy.deepcopy(signals)
     external_ids = {row[key] for row in result["data_flows"] for key in ("from_entity", "to_entity") if key in row}
     result["external_entities"] = [row for row in result["external_entities"] if row["id"] in external_ids]
     allowed = source_selection(result["components"])

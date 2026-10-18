@@ -169,6 +169,7 @@ class _AssessmentConsole:
         ("Reviewing evidenced cross-repository", "Architecture"),
         ("Analyzing local architecture", "Architecture"),
         ("Measuring the boundary source context", "Trust boundaries"),
+        ("Reviewing trust crossing batch", "Trust boundaries"),
         ("Reviewing trust crossing", "Trust boundaries"),
         ("Assessing controls", "Controls"),
         ("Running deterministic source scanners", "Threat analysis"),
@@ -202,6 +203,7 @@ class _AssessmentConsole:
     SUBJECTS = (
         "Discovering repository",
         "Analyzing local architecture",
+        "Reviewing trust crossing batch",
         "Reviewing trust crossing",
         "Assessing controls",
         "Analyzing all STRIDE categories",
@@ -219,6 +221,7 @@ class _AssessmentConsole:
     NOUNS = {
         "Discovering repository": "repository",
         "Analyzing local architecture": "repository",
+        "Reviewing trust crossing batch": "batch",
         "Reviewing trust crossing": "crossing",
         "Assessing controls": "component",
         "Analyzing all STRIDE categories": "component",

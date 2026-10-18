@@ -430,10 +430,10 @@ def test_quick_depth_keeps_every_agent_settings_file(repo):
 def test_every_agent_config_target_triggers_the_phase_2_5_surface_gate():
     """A repository with agent settings and no IaC file must still reach the
     config scan; otherwise the controller skips it and the checks never run."""
-    import orchestrator.orchestration_controller as orchestration_controller
+    from analyzers.iac_surface import _IAC_SURFACE_GLOBS
 
     catalog = yaml.safe_load(CATALOG.read_text(encoding="utf-8"))["checks"]
-    globs = set(orchestration_controller._IAC_SURFACE_GLOBS)
+    globs = set(_IAC_SURFACE_GLOBS)
     for check in catalog:
         if check["iac_type"] != "agent_config":
             continue

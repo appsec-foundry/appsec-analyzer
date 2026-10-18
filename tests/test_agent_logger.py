@@ -1286,6 +1286,7 @@ class TestVerboseMode:
 
     def test_no_verbose_no_stderr(self, tmp_path):
         """Without APPSEC_VERBOSE, stderr must be empty."""
+        (tmp_path / "config.json").write_text("{}", encoding="utf-8")
         event = make_post_tool_event(
             "Write",
             {
@@ -1293,7 +1294,7 @@ class TestVerboseMode:
                 "content": "hello",
             },
         )
-        rc, log, stderr = run_logger_verbose(event, tmp_path, verbose=False)
+        rc, log, stderr = run_logger_verbose(event, tmp_path, verbose=False, plugin_root=tmp_path)
         assert rc == 0
         assert "FILE_WRITE" in log  # file still written
         assert stderr.strip() == ""  # no stderr output
@@ -1331,6 +1332,9 @@ class TestVerboseMode:
 
     def test_verbose_false_values_do_not_activate(self, tmp_path):
         """APPSEC_VERBOSE=0, false, no should not activate verbose."""
+        plugin_root = tmp_path / "plugin"
+        plugin_root.mkdir()
+        (plugin_root / "config.json").write_text("{}", encoding="utf-8")
         event = make_post_tool_event(
             "Write",
             {
@@ -1340,7 +1344,7 @@ class TestVerboseMode:
         )
         for val in ("0", "false", "no"):
             env = os.environ.copy()
-            env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN_ROOT)
+            env["CLAUDE_PLUGIN_ROOT"] = str(plugin_root)
             env["APPSEC_VERBOSE"] = val
             result = subprocess.run(
                 [sys.executable, str(SCRIPT)],
@@ -1712,6 +1716,9 @@ class TestHighSignalMirror:
     def test_file_write_still_gated_on_verbose(self, tmp_path):
         """High-volume events must NOT start mirroring by default — that would
         flood the terminal with hundreds of per-fragment FILE_WRITE lines."""
+        plugin_root = tmp_path / "plugin"
+        plugin_root.mkdir()
+        (plugin_root / "config.json").write_text("{}", encoding="utf-8")
         event = make_post_tool_event(
             "Write",
             {
@@ -1719,7 +1726,7 @@ class TestHighSignalMirror:
                 "content": "hello",
             },
         )
-        rc, log, stderr = run_logger_verbose(event, tmp_path, verbose=False)
+        rc, log, stderr = run_logger_verbose(event, tmp_path, verbose=False, plugin_root=plugin_root)
         assert rc == 0
         assert "FILE_WRITE" in log
         assert stderr.strip() == "", f"FILE_WRITE must stay behind --verbose, got unexpected stderr: {stderr!r}"

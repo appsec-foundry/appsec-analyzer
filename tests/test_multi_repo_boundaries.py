@@ -16,6 +16,7 @@ from contexts.build_trust_boundary_assessment_input import (
     assessment_source_context,
     build_assessment,
     project_assessment_signal,
+    project_assessment_signals,
 )
 from contexts.prepare_trust_boundary_context import (
     _canonical_evidence,
@@ -302,6 +303,27 @@ def test_signal_projection_cannot_expand_sources_to_unrelated_components(tmp_pat
     assert len(assessment["components"]) == 3
     with pytest.raises(ValueError, match="controller-selected"):
         project_assessment_signal(assessment, "signal-model-selected", flows["data_flows"])
+
+
+@pytest.mark.parametrize("selection", [[], ["signal-foreign"], ["known", "known"]])
+def test_batch_projection_rejects_empty_unknown_or_duplicate_selection(tmp_path, selection):
+    scope, components, receipt, flows, context = crossing_input(tmp_path)
+    assessment = build_assessment(scope, components, receipt, flows, context, "standard")
+    selection = [assessment["signals"][0]["id"] if value == "known" else value for value in selection]
+    with pytest.raises(ValueError, match="controller-selected"):
+        project_assessment_signals(assessment, selection, flows["data_flows"])
+
+
+def test_batch_projection_excludes_unrelated_repository_sources(tmp_path):
+    scope, components, receipt, flows, context = crossing_input(tmp_path, names=("edge", "service", "unrelated"))
+    assessment = build_assessment(scope, components, receipt, flows, context, "standard")
+    projected = project_assessment_signals(assessment, [s["id"] for s in assessment["signals"]], flows["data_flows"])
+    assert {c["id"] for c in projected["components"]} == {"component-1", "component-2"}
+    assert all(
+        row["repository_id"] != scope.repositories[2].repository_id
+        for comp in projected["components"]
+        for row in comp["paths"]
+    )
 
 
 def test_assessment_input_rejects_foreign_source_context_and_missing_measurements(tmp_path):

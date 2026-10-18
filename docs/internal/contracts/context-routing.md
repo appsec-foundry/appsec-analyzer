@@ -61,6 +61,8 @@ candidate is indexed by an actor and goal. Trust boundaries remain separate
 because they use a dedicated bounded handoff and must not inherit the complete
 business or architecture context.
 
+The assessment controller groups trust-crossing signals into bounded batches as described in the [controller contract](orchestration-actions.md#agent-call-lifecycle-and-budget-telemetry). Each batch receives only the selected crossings' endpoint and relay components, associated flows and scoped source context. Batching does not admit unrelated component sources.
+
 Categories organize review but never grant access. `scope` limits the natural
 unit of a context, `delivery` decides whether an agent needs it, and
 `applies_to` prevents a component or candidate projection from becoming

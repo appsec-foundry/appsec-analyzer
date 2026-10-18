@@ -90,6 +90,8 @@ Use `--non-interactive` in CI and unattended scripts. Budget questions are also 
 
 Report authoring completes the required Security Architecture section first, then uses the remaining allowance for the Management Summary before requirements commentary. The summary can use less than a full estimated call allowance; the host still enforces its spending limit. If cost, time, call limits, or invalid model output prevent the summary, the report keeps its deterministic verdict and the run summary identifies the replacement.
 
+Trust-boundary classification groups related crossing signals into bounded batches to reduce repeated model calls. Every signal is still accounted for; uncertain crossings remain visible. Detailed control review and threat analysis follow in their own phases. Additional evidence reads or corrections can require further calls, so batching does not guarantee a fixed duration.
+
 For OpenAI Responses, choose `--profile codex` and a separate `--assessment-depth`. The profile supplies the connection, model, reasoning, and output cap for that depth, so no `--host` is needed. Claude role overrides do not apply. Existing host and depth-profile calls remain compatible as described in [model selection](model-selection.md).
 
 `scan` also accepts the headless export options `--pentest-tasks`,

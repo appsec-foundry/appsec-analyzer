@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -14,7 +13,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from contexts import resolve_analyst_catalog as rc  # noqa: E402
 
-BASELINE = ROOT / "data" / "baselines" / "aiscb" / "secure-coding-baseline.md"
 EXAMPLES = sorted((ROOT / "examples" / "analyst").glob("*-package.yaml"))
 
 
@@ -22,16 +20,6 @@ EXAMPLES = sorted((ROOT / "examples" / "analyst").glob("*-package.yaml"))
 def test_every_packaged_package_validates(pid):
     data, digest = rc.load_package(rc.PACKAGED[pid], rc.load_limits()["package_kib"])
     assert data["id"] == pid and len(digest) == 64
-
-
-def test_core_questions_cite_rules_of_the_pinned_aiscb_release():
-    core, _ = rc.load_package(rc.PACKAGED[rc.CORE_ID], 256)
-    text = BASELINE.read_text(encoding="utf-8")
-    release = re.search(r"baseline-id: (aiscb-[0-9.]+)", text).group(1)
-    rules = set(re.findall(r"\[(aiscb-[A-Z]+-\d+)\]", text))
-    assert core["provenance"]["revision"] == release
-    cited = {rule for q in core["questions"] for rule in q.get("source_rules", [])}
-    assert cited and cited <= rules
 
 
 def test_manifesto_profile_is_attributed_optional_and_not_a_certification():

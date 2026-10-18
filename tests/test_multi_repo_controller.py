@@ -835,12 +835,19 @@ class BoundaryHost:
                 ),
                 0.01,
             )
-        signal = context["signals"][0]
         candidates = []
-        if self.disposition == "boundary":
+        for index, signal in enumerate(context["signals"]):
+            if self.disposition != "boundary":
+                continue
+            allowed = {
+                (row["repository_id"], row["path"])
+                for component in context["components"]
+                if component["id"] in (signal["from"], signal["to"])
+                for row in component["paths"]
+            }
             candidates.append(
                 dict(
-                    candidate_key="candidate-request",
+                    candidate_key=f"candidate-request-{index}",
                     name="Request interpretation",
                     kind="network",
                     **{"from": signal["from"], "to": "foreign-component" if self.foreign else signal["to"]},
@@ -849,6 +856,7 @@ class BoundaryHost:
                     evidence=[
                         dict(repository_id=s["repository_id"], file=s["path"], line=1, sha256=s["sha256"])
                         for s in slices
+                        if (s["repository_id"], s["path"]) in allowed
                     ],
                     covered_signal_ids=[signal["id"]],
                     covered_flow_ids=signal["flow_ids"],
@@ -864,11 +872,14 @@ class BoundaryHost:
                 dict(
                     signal_id=signal["id"],
                     disposition=self.disposition,
-                    candidate_keys=[row["candidate_key"] for row in candidates],
+                    candidate_keys=[
+                        row["candidate_key"] for row in candidates if signal["id"] in row["covered_signal_ids"]
+                    ],
                     rationale="The retrieved receiver establishes an input interpretation point."
                     if candidates
                     else "The available implementation does not establish a separate enforcement condition.",
                 )
+                for signal in context["signals"]
             ],
         )
         return HostReply(dict(action="complete", reads=[], artifact=artifact), 0.01)
@@ -898,6 +909,7 @@ def test_controller_accounts_for_crossings_and_namespaces_candidate_keys(tmp_pat
         scope, jobs, architecture, context, "standard", progress=lambda text: None
     )
     assert len(assessment["signals"]) == len(candidates["dispositions"]) == 2
+    assert host.calls == 1
     assert len({row["candidate_key"] for row in candidates["candidates"]}) == 2
     assert {row["signal_id"] for row in candidates["dispositions"]} == {row["id"] for row in assessment["signals"]}
     calls = host.calls
@@ -975,6 +987,165 @@ def test_boundary_analyst_cannot_select_a_foreign_component(tmp_path):
             "standard",
             progress=lambda text: None,
         )
+
+
+def _many_boundary_crossings(tmp_path, count=17):
+    from model.finalize_component_inventory import component_inventory_fingerprint
+
+    from tests.test_multi_repo_boundaries import crossing_input
+
+    scope, components, receipt, flows, context = crossing_input(tmp_path)
+    bases = components["components"]
+    components["components"] = [
+        {**copy.deepcopy(bases[(i - 1) % len(bases)]), "id": f"component-{i}"} for i in range(1, count + 1)
+    ]
+    fingerprint = component_inventory_fingerprint(components["components"])
+    receipt.update(
+        component_inventory_fingerprint=fingerprint, component_ids=[c["id"] for c in components["components"]]
+    )
+    flow = flows["data_flows"][0]
+    flows["component_inventory_fingerprint"] = fingerprint
+    flows["data_flows"] = []
+    for index, component in enumerate(components["components"], 1):
+        row = copy.deepcopy(flow)
+        row.update(id=f"df-{index:03}", **{"from": "external", "to": component["id"]})
+        row.pop("connection_id")
+        row["evidence"] = [e for e in row["evidence"] if e["repository_id"] in component["repository_ids"]]
+        flows["data_flows"].append(row)
+    return scope, dict(components=components, finalization=receipt, data_flows=flows), context
+
+
+def test_boundary_batches_cover_seventeen_crossings_in_two_calls_and_resume(tmp_path):
+    scope, architecture, context = _many_boundary_crossings(tmp_path)
+    host = BoundaryHost()
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(1, 0.05, 20, 60),
+        lambda role, ceiling: host,
+        lambda: False,
+        lambda: None,
+    )
+    result = controller._assessment_boundary_candidates(
+        scope, jobs, architecture, context, "standard", progress=lambda text: None
+    )
+    assessment, candidates = result
+    assert host.calls == 2
+    assert len(assessment["signals"]) == len(candidates["dispositions"]) == 17
+    assert len({c["candidate_key"] for c in candidates["candidates"]}) == 17
+    assert (
+        controller._assessment_boundary_candidates(
+            scope, jobs, architecture, context, "standard", progress=lambda text: None
+        )
+        == result
+    )
+    assert host.calls == 2
+    batches = controller._assessment_boundary_batches(assessment, architecture["data_flows"]["data_flows"], 2)
+    assert len(batches) == 17  # Oversized combined context splits without losing signals.
+    assert {s["id"] for batch in batches for s in batch["signals"]} == {s["id"] for s in assessment["signals"]}
+
+
+def test_boundary_batch_progress_counts_batches_without_claiming_completed_signals():
+    console = controller._AssessmentConsole(False, write=lambda text: None, live=False)
+    console.step("Reviewing trust crossing batch: 12 signals (1/2)")
+    assert console.phase == "Trust boundaries"
+    assert console.current == "batch 1/2 · 12 signals"
+    assert console.fraction == 0
+    console.step("Reviewing trust crossing batch: 5 signals (2/2)")
+    assert console.current == "batch 2/2 · 5 signals"
+    assert console.fraction == 0.5
+
+
+def test_browser_and_external_signals_can_share_one_boundary_candidate(tmp_path):
+    from model.finalize_component_inventory import component_inventory_fingerprint
+
+    from tests.test_multi_repo_boundaries import crossing_input
+
+    scope, components, receipt, flows, context = crossing_input(tmp_path)
+    components["components"][0]["tier"] = "client"
+    fingerprint = component_inventory_fingerprint(components["components"])
+    receipt["component_inventory_fingerprint"] = flows["component_inventory_fingerprint"] = fingerprint
+    flow = flows["data_flows"][0]
+    flow.pop("connection_id")
+    inbound = copy.deepcopy(flow)
+    inbound.update(id="df-002", **{"from": "external"})
+    inbound["evidence"] = [inbound["evidence"][1]]
+    flows["data_flows"].append(inbound)
+
+    class SharedHost(BoundaryHost):
+        def invoke(self, *args):
+            reply = super().invoke(*args)
+            artifact = reply.payload["artifact"]
+            rows = artifact["candidates"]
+            shared = copy.deepcopy(next(c for c in rows if c["from"] == "external"))
+            shared["covered_signal_ids"] = [sid for c in rows for sid in c["covered_signal_ids"]]
+            shared["covered_flow_ids"] = [fid for c in rows for fid in c["covered_flow_ids"]]
+            artifact["candidates"] = [shared]
+            for disposition in artifact["dispositions"]:
+                disposition["candidate_keys"] = [shared["candidate_key"]]
+            return reply
+
+    host = SharedHost()
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(1, 0.05, 20, 60),
+        lambda role, ceiling: host,
+        lambda: False,
+        lambda: None,
+    )
+    assessment, result = controller._assessment_boundary_candidates(
+        scope,
+        jobs,
+        dict(components=components, finalization=receipt, data_flows=flows),
+        context,
+        "standard",
+        progress=lambda text: None,
+    )
+    assert len(assessment["signals"]) == len(result["dispositions"]) == 2
+    assert host.calls == len(result["candidates"]) == 1
+    assert len(result["candidates"][0]["covered_signal_ids"]) == 2
+
+
+@pytest.mark.parametrize("invalid", ["missing", "duplicate", "foreign", "other-endpoint", "other-source", "other-flow"])
+def test_boundary_batch_rejects_incomplete_or_foreign_dispositions(tmp_path, invalid):
+    scope, architecture, context = _many_boundary_crossings(tmp_path, count=3)
+
+    class InvalidHost(BoundaryHost):
+        def invoke(self, *args):
+            reply = super().invoke(*args)
+            artifact = reply.payload["artifact"]
+            if artifact is not None:
+                if invalid == "missing":
+                    artifact["dispositions"].pop()
+                elif invalid == "duplicate":
+                    artifact["dispositions"][-1] = copy.deepcopy(artifact["dispositions"][0])
+                elif invalid == "foreign":
+                    artifact["dispositions"][-1]["signal_id"] = "signal-foreign"
+                elif invalid == "other-endpoint":
+                    artifact["candidates"][0]["to"] = artifact["candidates"][1]["to"]
+                elif invalid == "other-source":
+                    artifact["candidates"][0]["evidence"] = copy.deepcopy(artifact["candidates"][1]["evidence"])
+                else:
+                    artifact["candidates"][0]["covered_flow_ids"] = artifact["candidates"][1]["covered_flow_ids"]
+            return reply
+
+    host = InvalidHost()
+    work = scope.output / ".assessment/jobs"
+    jobs = AssessmentJobs(
+        scope,
+        work,
+        AssessmentBudget(1, 0.05, 20, 60),
+        lambda role, ceiling: host,
+        lambda: False,
+        lambda: None,
+    )
+    with pytest.raises(ExchangeError):
+        controller._assessment_boundary_candidates(
+            scope, jobs, architecture, context, "standard", progress=lambda text: None
+        )
+    assert host.calls <= 6
+    assert not list(work.glob("*.receipt.json"))
 
 
 def test_each_model_call_reports_progress_without_echoing_model_text(monkeypatch):

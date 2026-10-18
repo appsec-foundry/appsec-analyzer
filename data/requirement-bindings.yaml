@@ -299,6 +299,7 @@ requirements:
 
   REQ-005:
     applies_to:
+      - scripts/orchestrator/orchestration_controller.py
       - scripts/contexts/build_architecture_analysis_context.py
       - scripts/model/build_threat_model_yaml.py
       - schemas/threat-model.output.schema.yaml
@@ -318,6 +319,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_controller.py::test_boundary_batches_cover_seventeen_crossings_in_two_calls_and_resume
+      - tests/test_multi_repo_controller.py::test_browser_and_external_signals_can_share_one_boundary_candidate
+      - tests/test_multi_repo_controller.py::test_boundary_batch_rejects_incomplete_or_foreign_dispositions
+      - tests/test_multi_repo_boundaries.py::test_batch_projection_rejects_empty_unknown_or_duplicate_selection
+      - tests/test_multi_repo_boundaries.py::test_batch_projection_excludes_unrelated_repository_sources
       - tests/test_query_threat_model.py::test_components_assets_boundaries_controls_are_indexed
       - tests/test_build_architecture_analysis_context.py::test_role_units_name_exactly_what_finalization_would_add
 

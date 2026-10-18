@@ -1458,8 +1458,38 @@ def _assessment_architecture(scope, jobs, *, progress):
     }
 
 
+def _assessment_boundary_batches(assessment, topology, context_limit):
+    """Keep related crossings together, bounded by count and serialized context."""
+    from contexts import multi_repo_analysis as analysis
+    from contexts.build_trust_boundary_assessment_input import project_assessment_signals
+
+    clients = {row["id"] for row in assessment["components"] if row["tier"] == "client"}
+
+    def order(signal):
+        source = "external" if signal["from"] in clients else signal["from"]
+        return source, signal["to"], signal["id"]
+
+    signals = sorted(assessment["signals"], key=order)
+    batches = []
+    position = 0
+    while position < len(signals):
+        size = min(12, len(signals) - position)
+        while True:
+            projection = project_assessment_signals(
+                assessment, [row["id"] for row in signals[position : position + size]], topology
+            )
+            view = {**projection, "components": analysis.model_components(projection["components"])}
+            # Leave room for cited source, further reads and correction feedback.
+            if size == 1 or len(json.dumps(view, ensure_ascii=False).encode()) <= min(65_536, context_limit // 2):
+                break
+            size = max(1, size // 2)
+        batches.append(projection)
+        position += size
+    return batches
+
+
 def _assessment_boundary_candidates(scope, jobs, architecture, source_context, depth, *, progress):
-    """Account for every derived crossing in a separate, bounded semantic job."""
+    """Account for every crossing in a small number of bounded semantic jobs."""
     import copy
 
     from contexts import multi_repo_analysis as analysis
@@ -1474,50 +1504,91 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
         source_context,
         depth,
     )
-    from runtime.assessment_host import MAX_PRELOAD_WINDOWS, preload_room
+    from runtime.assessment_host import MAX_PRELOAD_WINDOWS, Rejection, preload_room
+    from shared.assessment_sources import source_rows
+
+    instructions = _assessment_role_instructions(
+        "trust_boundary_analyst",
+        "Perform a concise trust-crossing classification of all supplied signals. This is the boundary "
+        "inventory before the separate control and threat analyses: identify the crossing, enforcement "
+        "point and required assumption without exhaustively auditing each control. A reviewed connection "
+        "establishes communication, not a trust boundary or effective control. Use the supplied source_slices "
+        "first; request additional evidence only when needed to decide, in one batched read action. "
+        "Repository membership never establishes a trust domain. Use same-trust, not-applicable or unresolved "
+        "when supported; uncertainty must remain visible. Every boundary candidate must state its falsifiable "
+        "assumption and cite retrieved qualified evidence. Return provisional candidate keys, never public "
+        "boundary IDs. Account for EVERY supplied signal exactly once. Signals that describe the same "
+        "crossing and enforcement point may reference one shared candidate; include all corresponding "
+        "covered_signal_ids and preserve their flow coverage. Keep distinct enforcement points separate.",
+    )
+    candidate_schema = analysis.contract("fragments/trust-boundary-candidates-v2.schema.json")
+    context_limit = jobs.context_limit(instructions, candidate_schema)
+    batches = _assessment_boundary_batches(assessment, architecture["data_flows"]["data_flows"], context_limit)
 
     candidates, dispositions, ranges = [], [], []
-    for index, signal in enumerate(assessment["signals"]):
-        projection = project_assessment_signal(assessment, signal["id"], architecture["data_flows"]["data_flows"])
+    for index, projection in enumerate(batches):
+        batch_id = _id("batch", *(row["id"] for row in projection["signals"]))
         allowed = analysis.source_selection(projection["components"])
-        cited = [
-            row for item in (*projection["signals"], *projection["data_flows"]) for row in item.get("evidence", [])
-        ]
+        cited = list(source_rows(projection))
         view = {**projection, "components": analysis.model_components(projection["components"])}
-        progress(f"Reviewing trust crossing: {signal['id']} ({index + 1}/{len(assessment['signals'])})")
+        progress(f"Reviewing trust crossing batch: {len(projection['signals'])} signals ({index + 1}/{len(batches)})")
+        schema = analysis.job_share(
+            candidate_schema,
+            "fragments/trust-boundary-candidates-v2.schema.json",
+            jobs=len(batches) - index,
+            used={"candidates": len(candidates)},
+        )
+        # Unequal batches still account for every signal; only candidates share capacity.
+        schema["properties"]["dispositions"]["maxItems"] = len(projection["signals"])
+        signal_scopes = {
+            row["id"]: project_assessment_signal(assessment, row["id"], architecture["data_flows"]["data_flows"])
+            for row in projection["signals"]
+        }
+
+        def validate(artifact, served):
+            analysis.validate_boundary_candidates(scope, projection, artifact, served, allowed)
+            for candidate in artifact["candidates"]:
+                sources, flow_ids = set(), set()
+                for signal_id in candidate["covered_signal_ids"]:
+                    selected = signal_scopes[signal_id]
+                    endpoints = {row["id"] for row in selected["components"]} | {"external"}
+                    if not {candidate["from"], candidate["to"]} <= endpoints:
+                        raise Rejection(
+                            "Boundary candidate endpoints do not belong to each covered crossing",
+                            [f"{candidate['candidate_key']}: use endpoints from {signal_id}"],
+                        )
+                    sources.update(analysis.source_selection(selected["components"]))
+                    flow_ids.update(row["id"] for row in selected["data_flows"])
+                if not set(candidate["covered_flow_ids"]) <= flow_ids:
+                    raise Rejection(
+                        "Boundary candidate flows do not belong to its covered crossings",
+                        [f"{candidate['candidate_key']}: cover only flows of its declared signals"],
+                    )
+                analysis.validate_retrieved_sources(scope, candidate, served, sources)
+
         exchange = jobs.exchange(
             role="trust_boundary_analyst",
-            selector="boundary:" + signal["id"],
-            instructions=_assessment_role_instructions(
-                "trust_boundary_analyst",
-                "Decide the one supplied crossing signal. A reviewed connection establishes communication, "
-                "not a trust boundary or effective control. Read the endpoints and actual enforcement before "
-                "classifying it. The controller supplies the cited source in source_slices; request any further "
-                "source in one read action. Repository membership never establishes a trust domain. Use same-trust, "
-                "not-applicable or unresolved when supported; uncertainty must remain visible. Every boundary "
-                "candidate must state its falsifiable assumption and cite retrieved qualified evidence. "
-                "Return provisional candidate keys, never public boundary IDs. Account for this signal "
-                "exactly once and keep candidate coverage consistent with its real endpoints and flow IDs.",
-            ),
+            selector="boundary:" + batch_id,
+            instructions=instructions,
             context=view,
-            schema=analysis.job_share(
-                analysis.contract("fragments/trust-boundary-candidates-v2.schema.json"),
-                "fragments/trust-boundary-candidates-v2.schema.json",
-                jobs=len(assessment["signals"]) - index,
-                used={"candidates": len(candidates)},
-            ),
+            schema=schema,
             allowed_sources=allowed,
             preload=analysis.evidence_preload(
-                scope, cited, allowed, room=preload_room(view), max_windows=MAX_PRELOAD_WINDOWS
+                scope,
+                cited,
+                allowed,
+                room=preload_room(view, max_context_bytes=context_limit),
+                max_windows=MAX_PRELOAD_WINDOWS,
+                before=10,
+                after=35,
+                max_lines=120,
             ),
-            validate=lambda artifact, ranges: analysis.validate_boundary_candidates(
-                scope, projection, artifact, ranges, allowed
-            ),
+            validate=validate,
         )
         document = exchange.artifact
         ranges.extend(exchange.source_slices)
         keys = {
-            row["candidate_key"]: _id("candidate", signal["id"], row["candidate_key"]) for row in document["candidates"]
+            row["candidate_key"]: _id("candidate", batch_id, row["candidate_key"]) for row in document["candidates"]
         }
         for row in copy.deepcopy(document["candidates"]):
             row["candidate_key"] = keys[row["candidate_key"]]

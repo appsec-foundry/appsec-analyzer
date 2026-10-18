@@ -2102,15 +2102,14 @@ def test_read_recon_project_variants(tmp_path):
 
 
 def test_plugin_version_variants(tmp_path):
-    # missing plugin.json
+    # missing engine manifest
     assert b._plugin_version(tmp_path) == ("unknown", 1)
     # valid
-    pj_dir = tmp_path / ".claude-plugin"
-    pj_dir.mkdir()
-    (pj_dir / "plugin.json").write_text(json.dumps({"version": "0.4.0", "analysis_version": 2}))
+    manifest = tmp_path / "engine.json"
+    manifest.write_text(json.dumps({"engine_version": "0.4.0", "analysis_version": 2}))
     assert b._plugin_version(tmp_path) == ("0.4.0", 2)
     # malformed JSON → fallback
-    (pj_dir / "plugin.json").write_text("{ bad")
+    manifest.write_text("{ bad")
     assert b._plugin_version(tmp_path) == ("unknown", 1)
 
 

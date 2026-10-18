@@ -5,6 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import validators.assert_completeness as completeness
+import pytest
+
+
+@pytest.fixture
+def plugin_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
 
 def _write_yaml(output_dir: Path, content: str) -> None:

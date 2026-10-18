@@ -209,7 +209,7 @@ def test_pilot_forged_confirmation_on_protected_code_is_not_admitted(tmp_path: P
 
 def test_documented_business_case_example_validates(tmp_path: Path):
     doc = (ROOT / "docs" / "org-profiles.md").read_text(encoding="utf-8")
-    section = doc.split("### Business abuse cases\n", 1)[1]
+    section = doc.split("## Business abuse cases\n", 1)[1]
     block = section.split("```yaml\n", 1)[1].split("```", 1)[0]
     target = tmp_path / "example.yaml"
     target.write_text(block, encoding="utf-8")
