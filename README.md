@@ -143,16 +143,35 @@ appsec-analyzer review /path/to/assessment --with codex --preview
 
 ## Workflow
 
-A typical assessment looks like this:
+This example takes one repository from a free first check to a reviewed assessment. It uses a fixed output directory so that every later command can find the same assessment.
 
-1. **Check quickly.** Run `score` or `scan-sources` to see whether the repository is worth a full run.
-2. **Check the setup.** Run `preflight --repo /path/to/project` to verify repository access and provider setup before spending budget. `scan` runs the same checks itself; see [preflight checks](docs/security-assessment.md#preflight-checks).
-3. **Assess.** Run `scan --repo /path/to/project`. Use `--budget 10` for another limit. The limit is a maximum, not an estimate; if it runs out, the run keeps its progress and reports the assessment as incomplete.
-4. **Follow and resume.** Use `status`, `progress`, or `stop` with `--output /path/to/assessment` from another terminal. Continue an interrupted or paused run with the same command plus `--output /path/to/assessment --resume`.
-5. **Review.** Run `review /path/to/assessment`. The assistant starts in read-only mode and is billed to its own account, separately from the scan budget. `--with codex` selects another assistant and `--preview` shows the handoff without model calls.
-6. **Export.** Run `export` if you need SARIF, HTML, PDF, or other formats later.
+```sh
+# 1. Free first check: no model calls, no cost.
+appsec-analyzer score /path/to/project
 
-Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository. To choose the location, pass `--output` with a directory outside every analyzed repository. See [command-line operation](docs/headless-mode.md) for unattended runs and recovery.
+# 2. Check repository access and provider setup. No assessment starts yet.
+appsec-analyzer preflight --repo /path/to/project
+
+# 3. Run the full assessment into a private directory outside the repository.
+mkdir -m 700 /path/to/assessment
+appsec-analyzer scan --repo /path/to/project --output /path/to/assessment
+
+# 4. From a second terminal: follow or stop the running assessment.
+appsec-analyzer progress --output /path/to/assessment
+
+# 5. Discuss the finished assessment with an AI coding assistant.
+appsec-analyzer review /path/to/assessment
+```
+
+Notes on the steps:
+
+1. `score` shows whether a full assessment is worth its cost. `scan-sources` lists the underlying scanner observations instead of a score.
+2. `preflight` is optional. `scan` runs the same checks before it starts; see [preflight checks](docs/security-assessment.md#preflight-checks).
+3. `scan` stops spending at USD 20 by default; `--budget 10` sets a different limit. The limit is a maximum, not an estimate. When it runs out, the run keeps its progress and reports the assessment as incomplete. If you omit `--output`, results go to a private directory under your user's `appsec-analyzer/assessments` data directory. An explicit `--output` must be a private directory outside every analyzed repository.
+4. `status` and `stop` take the same `--output` option. To continue an interrupted or paused run, repeat the `scan` command from step 3 and add `--resume`.
+5. `review` starts Claude Code or Codex in read-only mode. It uses the assistant's own account, not the scan budget. `--with` selects the assistant, and `--preview` shows the handoff without model calls.
+
+To get SARIF, HTML, PDF, or other formats later, use `export`; see [Reports and exports](#reports-and-exports). For unattended runs and recovery, see [command-line operation](docs/headless-mode.md).
 
 ## Security and data use
 
