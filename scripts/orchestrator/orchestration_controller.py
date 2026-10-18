@@ -3601,6 +3601,7 @@ def assess_repositories(
                         + ([("Diagnostics", str(jobs.diagnostics.path))] if ns.verbose and jobs.diagnostics else []),
                         sectioned=True,
                     )
+                    console.preflight(getattr(ns, "preflight_checks", ()))
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
                     noticed = []
 

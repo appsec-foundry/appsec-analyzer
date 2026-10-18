@@ -691,6 +691,27 @@ class _AssessmentConsole:
                     self._unstamped(f"{indent}{'':<{width}}  {line}")
         self.write("")
 
+    def preflight(self, checks) -> None:
+        """Completed start checks as a Preflight phase in the grid, before the first phase.
+
+        Console only: the checks finished before the run, so no progress event follows.
+        """
+        if not checks:
+            return
+        self._header()
+        now = self.clock()
+        name = f"{'Preflight':<{self._PHASE_WIDTH}}"
+        blank = f"{'':>8}  {'':>7}  {'':>6}"  # The empty PROGRESS, ELAPSED and LEFT columns.
+        for symbol, label, message in checks:
+            detail = f"{label}: {message}"
+            event = f"{symbol:<{self._EVENT_WIDTH}}"
+            head = f"{self.st(name, 'accent')}  {self.st(event, self.EVENT_ROLES.get(symbol) or 'muted')}  {blank}  "
+            if not self.st.enabled and self.max_columns is None:
+                indent, pieces = 0, [detail]
+            else:
+                indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), detail, now, False)
+            self.write(self._join(head, indent, pieces), now)
+
     def _unstamped(self, text: str) -> None:
         """A permanent line without the time column, for the run header."""
         self.last = self.clock()

@@ -33,6 +33,8 @@ class AssessmentOptions:
     json: bool = False
     width: int | None = None
     progress_file: str | None = None
+    # Completed start checks as (symbol, label, message), shown under the run summary.
+    preflight_checks: tuple[tuple[str, str, str], ...] = ()
 
     def __post_init__(self):
         from appsec_analyzer.execution_limits import validate_max_parallel

@@ -209,6 +209,31 @@ def test_codex_preflight_displays_completed_checks_and_unverified_access(reposit
     assert str(repository) not in captured.err
 
 
+def test_assessment_preflight_hands_completed_checks_to_the_console(repository, monkeypatch, capsys):
+    from appsec_analyzer import codex_cli
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    seen = []
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(
+        orchestration_controller,
+        "assess_main",
+        lambda request, **kw: seen.append(request.namespace().preflight_checks) or 0,
+    )
+    assert cli.main(["scan", "--repo", str(repository), "--profile", "codex-cli"]) == 0
+    # Shown by the console under the run summary, not as a block before it.
+    assert "Preflight" not in capsys.readouterr().err
+    assert seen == [
+        (
+            ("✓", "Repository", "local Git checkout"),
+            ("✓", "Codex CLI", "0.163.0 · ChatGPT login configured"),
+            ("·", "Provider", "not tested; no model call before the assessment"),
+        )
+    ]
+
+
 def test_preflight_failure_has_no_completed_summary(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     assert cli.main(["preflight", "--repo", str(tmp_path / "missing"), "--json"]) == 2

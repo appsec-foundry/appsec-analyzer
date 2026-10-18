@@ -390,6 +390,30 @@ def _console_run(console, clock):
     console.close()
 
 
+def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
+    events = []
+    monkeypatch.setattr(controller._AssessmentProgress, "emit", lambda *a, **kw: events.append(a))
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.preflight(
+        [
+            ("✓", "Repository", "local Git checkout"),
+            ("·", "Provider", "not tested; no model call before the assessment"),
+        ]
+    )
+    console.preflight([])
+    # The checks finished before the run, so the progress file gets no event for them.
+    assert events == []
+    assert lines[0].split() == ["TIME", "PHASE", "EVENT", "PROGRESS", "ELAPSED", "LEFT", "DETAIL"]
+    assert [line.split(None, 3)[1:] for line in lines[1:]] == [
+        ["Preflight", "✓", "Repository: local Git checkout"],
+        ["Preflight", "·", "Provider: not tested; no model call before the assessment"],
+    ]
+    # The grid header is not repeated when the first phase starts.
+    console.step("Discovering every selected repository")
+    assert sum(line.startswith("TIME") for line in lines) == 1
+
+
 def test_default_console_writes_every_line_in_one_column_grid():
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)

@@ -18,7 +18,15 @@ _LABEL = 12
 
 
 def _say(ns, label, message, *, status="muted", always=False):
-    """One ``  ✓ Label       value`` row under a single ``Preflight`` heading."""
+    """One ``  ✓ Label       value`` row under a single ``Preflight`` heading.
+
+    Before an assessment, completed checks wait for the console, which shows
+    them as a Preflight phase under the run summary; a failure still prints here.
+    """
+    symbol = {"ok": "✓", "warn": "⚠", "critical": "✗", "muted": "·"}[status]
+    if getattr(ns, "command", "preflight") != "preflight" and status != "critical" and not always:
+        ns.preflight_checks = (*getattr(ns, "preflight_checks", ()), (symbol, label, message))
+        return
     if always or not ns.quiet:
         from renderers.term_style import Style
 
@@ -27,7 +35,6 @@ def _say(ns, label, message, *, status="muted", always=False):
             ns._preflight_heading = True
             print(style("Preflight", "bold"), file=sys.stderr, flush=True)
         width = max(60, min(getattr(ns, "width", None) or 100, 160))
-        symbol = {"ok": "✓", "warn": "⚠", "critical": "✗", "muted": "·"}[status]
         indent = 4 + _LABEL
         body = textwrap.fill(message, width=width - indent, break_on_hyphens=False)
         body = body.replace("\n", "\n" + " " * indent)
