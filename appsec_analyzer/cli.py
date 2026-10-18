@@ -180,6 +180,21 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     )
     profile.add_argument("repo", nargs="?", default=".", metavar="REPO", help="Local directory (default: current)")
     profile.add_argument("--json", action="store_true", help="Print the profile as machine-readable JSON")
+    cases = commands.add_parser(
+        "abuse-cases",
+        help="List the defined abuse cases, or show one with its recorded result, without model calls",
+        description=(
+            "List the technical and business abuse cases a run in this repository would load, each with\n"
+            "origin, kind, and title. With an ID, show that case's definition and what the saved assessment\n"
+            "records for it. Read-only; it does not check a case against the code."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cases.add_argument("case_id", nargs="?", metavar="ID", help="Show this case instead of listing all")
+    cases.add_argument("--repo", default=".", metavar="PATH", help="Repository whose own cases to include")
+    profile_choice = cases.add_mutually_exclusive_group()
+    profile_choice.add_argument("--org-profile", metavar="PATH", help="Use this organization profile")
+    profile_choice.add_argument("--no-org-profile", action="store_true", help="Ignore the active organization profile")
     assess = commands.add_parser(
         "assess",
         help="Run a full semantic assessment"
@@ -501,6 +516,7 @@ def _capabilities() -> dict:
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
         "repo_profile": {"available": True, "model_calls": False},
+        "abuse_cases": {"available": True, "model_calls": False},
         "export": {"available": True, "model_calls": False, "requires_completed_assessment": True},
         "review": {
             "available": True,
@@ -1333,6 +1349,16 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return _scan(ns)
         if ns.command == "score":
             return _score(ns)
+        if ns.command == "abuse-cases":
+            _engine_imports()
+            from model.resolve_abuse_cases import main as abuse_cases
+
+            selection = ["--show", ns.case_id] if ns.case_id else ["--list"]
+            profile = ["--org-profile", ns.org_profile] if ns.org_profile else []
+            return abuse_cases(
+                [*selection, "--repo-root", str(Path(ns.repo).resolve()), *profile]
+                + (["--no-org-profile"] if ns.no_org_profile else [])
+            )
         if ns.command == "repo-profile":
             _engine_imports()
             from analyzers.repo_profile import main as repo_profile

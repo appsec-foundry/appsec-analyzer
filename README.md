@@ -58,6 +58,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 | [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. | Yes, up to USD 5 |
 | [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. | No |
 | [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. | No |
+| [`abuse-cases`](#abuse-cases-list-the-defined-cases) | List the defined abuse cases, or show one with the result a saved assessment records. | No |
 | [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. | No |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
@@ -155,6 +156,16 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 ```sh
 # Show what the scanners found, without a rating
 appsec-analyzer scan-sources --repo /path/to/project
+```
+
+### `abuse-cases`: list the defined cases
+
+`abuse-cases` lists the technical and business [abuse cases](#abuse-cases) a run in this repository would load, with origin, kind, and title. With an ID it shows that case's definition and what the saved assessment records for it. It is read-only and does not check a case against the code; use `analyze-threats --abuse-case <ID>` for that.
+
+```sh
+# List all cases, or show one
+appsec-analyzer abuse-cases --repo /path/to/project
+appsec-analyzer abuse-cases AC-B-001 --repo /path/to/project
 ```
 
 ### `repo-profile`: size, languages, and layout
