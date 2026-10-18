@@ -768,7 +768,7 @@ def test_sectioned_header_preserves_facts_and_wraps_at_requested_width(monkeypat
         ("Diagnostics", "/private/run/diagnostics/events.jsonl"),
     ]
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
-    console.facts("appsec-analyzer — Model-backed assessment (alpha)", rows, sectioned=True)
+    console.facts("appsec-analyzer — LLM-backed code assessment (alpha)", rows, sectioned=True)
     captured = capsys.readouterr()
     assert captured.out == ""
     lines = _ANSI.sub("", captured.err).splitlines()
@@ -2581,7 +2581,7 @@ def _coloured_console_output(monkeypatch, capsys, **env):
         monkeypatch.setenv(key, value)
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     console.facts(
-        "appsec-analyzer — Model-backed assessment (alpha)",
+        "appsec-analyzer — LLM-backed code assessment (alpha)",
         [("Repository", "/srv/app"), ("Trust mode", "untrusted: start check passed")],
     )
     console.plan_components(2)
@@ -2602,9 +2602,9 @@ def test_colour_changes_no_column_of_the_console(monkeypatch, capsys):
     plain_lines = plain.splitlines()
     # On a terminal the logo replaces the title line; every fact and row stays.
     assert "   ╭  ▄█▄  ╮  appsec-analyzer" in stripped
-    assert "   │ █████ │  source-based security analysis" in stripped
-    assert "Model-backed assessment (alpha)" in coloured
-    assert "▶ appsec-analyzer — Model-backed assessment (alpha)" in plain
+    assert "   │ █████ │  architecture and threat analysis" in stripped
+    assert "LLM-backed code assessment (alpha)" in coloured
+    assert "▶ appsec-analyzer — LLM-backed code assessment (alpha)" in plain
     facts = lambda lines: [line for line in lines if " : " in line]  # noqa: E731
     assert facts(stripped) == facts(plain_lines)
     assert _rows(stripped) == _rows(plain_lines)
@@ -2666,7 +2666,7 @@ def test_width_bounds_every_console_line_on_and_off_a_terminal(monkeypatch, caps
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     roles = ", ".join(f"role_{index}" for index in range(30))
     console.facts(
-        "appsec-analyzer — Model-backed assessment (alpha)",
+        "appsec-analyzer — LLM-backed code assessment (alpha)",
         [("Models", f"claude-sonnet-5-5 ({roles})")],
     )
     console.phase = "Threat analysis"
@@ -2685,7 +2685,7 @@ def test_a_narrowed_header_wraps_its_title_and_aligns_facts_without_time_stamps(
     monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 72)
     monkeypatch.setattr(sys.stderr, "isatty", lambda: False, raising=False)
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
-    title = "appsec-analyzer — Model-backed assessment (alpha, experimental)"
+    title = "appsec-analyzer — LLM-backed code assessment (alpha, experimental)"
     budget = "model calls stop at $20.00 (default for the assessment depth; set --soft-budget or --hard-budget)"
     console.facts(title, [("Repository", "/srv/app"), ("Budget", budget)])
     lines = [line for line in capsys.readouterr().err.splitlines() if line.strip()]

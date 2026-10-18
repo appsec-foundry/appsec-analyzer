@@ -72,7 +72,7 @@ def test_logo_command_is_plain_off_a_terminal(capsys, monkeypatch) -> None:
     lines = capsys.readouterr().out.splitlines()
     assert "\x1b" not in "".join(lines)
     assert lines[0] == "   ╭  ▄█▄  ╮  appsec-analyzer"
-    assert lines[1] == "   │ █████ │  source-based security analysis"
+    assert lines[1] == "   │ █████ │  architecture and threat analysis"
     assert lines[2].startswith("   ╰  ▀█▀  ╯  v") and lines[2].endswith(" · headless")
 
 
