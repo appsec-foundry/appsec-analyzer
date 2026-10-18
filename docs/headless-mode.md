@@ -1,5 +1,7 @@
 # Command-line and unattended operation
 
+For focused analysis in automation, use `appsec-analyzer analyze-threats "Question" --path src/api --non-interactive` or select an explicit change/MR/PR scope. Scope ambiguity and required unanswered questions return exit 2; no answer is invented. `--preview` performs no model call, but MR/PR resolution still uses the network. The focused analyst uses Claude CLI and `--max-budget-usd` per call, independently of full-assessment profiles and budgets. See [focused threat analysis](threat-analyst.md).
+
 Install the package, then invoke the same public program locally or in CI:
 
 ```sh

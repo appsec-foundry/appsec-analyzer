@@ -83,7 +83,18 @@ class ContextError(Exception):
 
 
 def _read(path: Path, limit: int) -> bytes:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    path = path.absolute()
+    if ".." in path.parts:
+        raise ValueError("context path traversal is not admitted")
+    parent = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in path.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    finally:
+        os.close(parent)
     with os.fdopen(fd, "rb") as handle:
         if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
             raise ValueError("not a regular file")
@@ -276,6 +287,9 @@ def build(
     business_context_required: bool = False,
     feature: dict | None = None,
     focus_paths: list[str] | None = None,
+    documents: list[dict] | None = None,
+    document_sources: list[dict] | None = None,
+    repository_context: bool = True,
 ) -> dict:
     """Build the context document of one job; ``focus_paths`` order the threat-model projection."""
     sources = []
@@ -283,7 +297,7 @@ def build(
     sources.append(record)
 
     business_text = None
-    business_path = repository_source(Path(request["repository"]["root"]))
+    business_path = repository_source(Path(request["repository"]["root"])) if repository_context else None
     if business_path is None:
         if business_context_required:
             raise ContextError("required business context is absent", required=True)
@@ -330,6 +344,35 @@ def build(
         ],
         "question_selection": {"omitted": selection["omitted"], "required_complete": selection["required_complete"]},
     }
+    if documents is not None:
+        context["documents"] = documents
+        context["sources"].extend(document_sources or [])
     if schema_errors("context", context):
         raise ContextContractError("analysis context violates its schema")
+    if documents:
+        from contexts.analyst_documents import MAX_TOTAL_BYTES, safe_path
+
+        if (
+            len({d["id"] for d in documents}) != len(documents)
+            or sum(len(d["text"].encode()) for d in documents) > MAX_TOTAL_BYTES
+        ):
+            raise ContextContractError("document context violates identity or byte limits")
+        for document in documents:
+            safe_path(document["path"])
+            if hashlib.sha256(document["text"].encode()).hexdigest() != document["sha256"] or scan_text(
+                document["text"]
+            ):
+                raise ContextContractError("document context failed integrity or sensitivity checks")
+        receipts = {
+            s.get("document_id"): s
+            for s in context["sources"]
+            if s["kind"] == "document" and s["status"] == "delivered"
+        }
+        if set(receipts) != {d["id"] for d in documents} or any(
+            receipts[d["id"]].get("sha256") != d["sha256"]
+            or receipts[d["id"]].get("revision") != d["revision"]
+            or receipts[d["id"]]["label"] != f"{d['side']}:{d['path']}"
+            for d in documents
+        ):
+            raise ContextContractError("document provenance does not match its delivered sources")
     return context

@@ -85,6 +85,8 @@ class BuildAnalyzer(build_py):
         for relative in (
             "appsec-analyzer/SKILL.md",
             "appsec-analyzer/business-context.md",
+            "analyze-threats/SKILL.md",
+            "analyze-threats/HELP.txt",
             "analyze-threats/references/analysis-contract.md",
             "audit-security-requirements/config.json",
         ):

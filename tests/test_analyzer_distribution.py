@@ -168,6 +168,29 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert result.returncode == 2, result.stderr
     installed_score = json.loads(result.stdout)
     assert installed_score == score
+    focused_state = tmp_path / "focused-state"
+    result = subprocess.run(
+        [
+            str(installed / "bin/appsec-analyzer"),
+            "analyze-threats",
+            "How should exports be protected?",
+            "--design",
+            "--repo",
+            str(score_repo),
+            "--no-context",
+            "--preview",
+            "--non-interactive",
+            "--state-dir",
+            str(focused_state),
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Preview only" in result.stdout and not focused_state.exists()
     result = subprocess.run(
         [str(installed / "bin/appsec-analyzer"), "authnz-review", "--help"],
         cwd=tmp_path,
@@ -212,6 +235,10 @@ print(json.dumps(result))
         assert not any(path.endswith("runtime/plugin_read_gate.py") for path in files)
     assert "appsec_analyzer/docs/security-assessment.md" in wheel_files
     for relative in (
+        "skills/analyze-threats/SKILL.md",
+        "skills/analyze-threats/HELP.txt",
+        "skills/analyze-threats/references/analysis-contract.md",
+        "scripts/contexts/analyst_documents.py",
         "docs/authnz-review.md",
         "schemas/authnz-report.schema.json",
         "schemas/pentest-tasks.schema.yaml",

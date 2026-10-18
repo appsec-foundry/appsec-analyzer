@@ -218,6 +218,29 @@ def render(result: dict) -> str:
         out += ["- Repository source: not read"]
     out += [f"- Threat model: {_source(result, 'threat_model')}"]
     out += [f"- Requirements: {_source(result, 'requirements')}", ""]
+    if result.get("review_origin"):
+        origin = result["review_origin"]
+        out += [
+            f"- Review: {inline(origin['url'])}",
+            f"- Compared commits: {code(origin['base'])} → {code(origin['head'])}",
+            "",
+        ]
+    document_sources = [s for s in result["coverage"]["sources"] if s["kind"] == "document"]
+    if document_sources:
+        out += ["## Document context", ""]
+        for source in document_sources:
+            identifier = f"{source['document_id']} · " if source.get("document_id") else ""
+            out += [
+                f"- {identifier}{code(source['label'])} · {inline(source.get('revision', ''))} · {source['status']}"
+            ]
+        out += [""]
+    for reference in result.get("document_references", []):
+        out += [
+            f"- {code(reference['document_id'])}:{reference['line_start']}-{reference['line_end']}: {inline(reference['reason'])}",
+            "",
+            block(reference["excerpt"]),
+            "",
+        ]
 
     files = _file_overview(result)
     if files:

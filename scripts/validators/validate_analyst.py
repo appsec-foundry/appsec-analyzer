@@ -338,6 +338,16 @@ def validate_response(response: object, request: dict, snapshot: dict, context: 
     if len(json.dumps(response).encode("utf-8")) > request["limits"]["response_kib"] * 1024:
         return ["response: exceeds limits/response_kib"]
     admitted = {(e["side"], e["path"]): e for e in snapshot["admitted"]}
+    documents = {d["id"]: d for d in context.get("documents", [])}
+    for ref in response.get("document_references", []):
+        document = documents.get(ref["document_id"])
+        if document is None:
+            errors.append("response: document reference was not delivered")
+            continue
+        lines = document["text"].splitlines()
+        start, end = ref["line_start"], ref["line_end"]
+        if not 1 <= start <= end <= len(lines) or ref["excerpt"] != "\n".join(lines[start - 1 : end]):
+            errors.append("response: document reference must exactly match its delivered lines")
     requirement_ids = {r["id"] for r in context["requirements"]}
     criteria = {c["ref"] for c in context["criteria"]}
     delivered = [q["ref"] for q in context["questions"]]
@@ -431,6 +441,16 @@ def validate_result(result: object) -> list[str]:
     errors = schema_errors("result", result)
     if errors:
         return errors
+    documents = {
+        s.get("document_id")
+        for s in result["coverage"]["sources"]
+        if s.get("kind") == "document" and s.get("status") == "delivered"
+    }
+    if any(
+        r["document_id"] not in documents or r["line_end"] < r["line_start"]
+        for r in result.get("document_references", [])
+    ):
+        errors.append("result: document references must name delivered documents and valid line ranges")
     if result["state"] == "complete" and not result["coverage"]["required_complete"]:
         errors.append("result: a complete result requires complete required coverage")
     if result["state"] == "complete" and any(q["required"] for q in result["questions"]):

@@ -128,8 +128,17 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--output", required=True, metavar="DIR")
-    analyst = commands.add_parser("analyst", help="Focused design, change, and hypothesis analysis")
+    analyst = commands.add_parser("analyst", help="Focused design, change, and hypothesis analysis", add_help=False)
+    analyst.add_argument("-h", "--help", action="store_true", dest="analyst_help")
     analyst.add_argument("args", nargs=argparse.REMAINDER)
+    from appsec_analyzer.threat_analysis import add_arguments as threat_arguments
+
+    focused = commands.add_parser(
+        "analyze-threats",
+        help="Ask a focused security question or review changes, an MR or a PR",
+        description="Analyze a question, design or selected change with existing project context. Uses Claude CLI; USD 1 per model call by default.",
+    )
+    threat_arguments(focused)
     audit = commands.add_parser("audit-requirements", help="Run a separate, bounded requirements audit")
     audit.add_argument("--repo", required=True, metavar="PATH")
     audit.add_argument("--output", required=True, metavar="DIR")
@@ -370,6 +379,16 @@ def _capabilities() -> dict:
         "scan": {"available": True, "model_calls": True},
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
+        "analyze_threats": {
+            "available": True,
+            "model_calls": True,
+            "hosts": ["claude-cli"],
+            "scopes": ["design", "staged", "worktree", "commits", "hypothesis", "abuse-case", "mr", "pr"],
+            "document_context": True,
+            "preview_model_calls": False,
+            "remote_preview_network": True,
+            "qualified": False,
+        },
         "authnz_review": {
             "available": True,
             "model_calls": True,
@@ -1112,7 +1131,14 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)
         if ns.command == "analyst":
+            if ns.analyst_help:
+                ns.args = ["--help"]
             return _analyst(ns)
+        if ns.command == "analyze-threats":
+            _engine_imports()
+            from appsec_analyzer.threat_analysis import run
+
+            return run(ns)
         if ns.command == "audit-requirements":
             return _audit(ns)
         if ns.command == "authnz-review":

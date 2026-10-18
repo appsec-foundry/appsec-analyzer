@@ -238,6 +238,11 @@ def build_prompt(request: dict, snapshot: dict, context: dict, source_dir: Path,
         envelope.update(hypothesis=request["hypothesis"], scope=request["scope"], objects=snapshot["objects"])
     if request.get("question"):
         envelope["question"] = request["question"]
+    if context.get("documents"):
+        envelope["documents"] = [
+            {**{k: v for k, v in doc.items() if k != "text"}, "numbered_lines": _numbered(doc["text"])}
+            for doc in context["documents"]
+        ]
     if request.get("explore"):
         envelope["explore"] = True
     # The JSON escape keeps the decoded data unchanged while the marker can

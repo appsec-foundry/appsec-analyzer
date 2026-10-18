@@ -99,7 +99,67 @@
         },
         "sources": {
           "type": "array",
-          "maxItems": 10
+          "maxItems": 40,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "origin",
+              "label",
+              "required",
+              "status"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "requirements",
+                  "business_context",
+                  "threat_model",
+                  "feature",
+                  "document"
+                ]
+              },
+              "origin": {
+                "enum": [
+                  "configured",
+                  "packaged_fallback",
+                  "repository",
+                  "caller"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "delivered",
+                  "truncated",
+                  "absent",
+                  "invalid",
+                  "sensitive",
+                  "too_large"
+                ]
+              },
+              "revision": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "document_id": {
+                "type": "string",
+                "pattern": "^doc-[0-9]{3}$"
+              }
+            }
+          }
         },
         "omitted_questions": {
           "type": "array",
@@ -497,6 +557,73 @@
       "minLength": 1,
       "maxLength": 20000,
       "pattern": "\\S"
+    },
+    "document_references": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "line_start",
+          "line_end",
+          "excerpt",
+          "reason"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "pattern": "^doc-[0-9]{3}$"
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "excerpt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      }
+    },
+    "review_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "base",
+        "head",
+        "target"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        }
+      }
     }
   },
   "$defs": {

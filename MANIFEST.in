@@ -25,6 +25,7 @@ recursive-include examples/organization-distribution *.py *.toml *.cfg *.in *.lo
 include examples/organization-distribution/.gitignore
 include skills/appsec-analyzer/SKILL.md skills/appsec-analyzer/business-context.md
 include skills/analyze-threats/references/analysis-contract.md
+include skills/analyze-threats/SKILL.md skills/analyze-threats/HELP.txt
 include skills/audit-security-requirements/config.json
 recursive-include docs *.md
 global-exclude *.pyc *.pyo .DS_Store

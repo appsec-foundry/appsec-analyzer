@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import subprocess
 import sys
@@ -159,6 +158,34 @@ def test_importing_the_analyst_modules_creates_no_job(tmp_path):
     assert not (tmp_path / "xdg").exists()
 
 
-def test_plugin_hooks_never_activate_the_analyst():
-    hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-    assert "analyst" not in json.dumps(hooks).lower()
+def test_public_inspection_never_activates_the_analyst(tmp_path):
+    """The standalone entry has no Advisor hooks; inspect its actual activation boundary."""
+    state = tmp_path / "state"
+    marker = tmp_path / "model-started"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    host = binary / "claude"
+    host.write_text(
+        f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(1)\n"
+    )
+    host.chmod(0o700)
+    env = {
+        **os.environ,
+        "PYTHONPATH": f"{ROOT}:{ROOT / 'scripts'}",
+        "XDG_STATE_HOME": str(state),
+        "PATH": f"{binary}:{os.environ['PATH']}",
+    }
+    invocations = [
+        ["-c", "import appsec_analyzer.cli, appsec_analyzer.threat_analysis, appsec_analyzer.review_sources"],
+        *[
+            ["-m", "appsec_analyzer.cli", *args]
+            for args in (["--help"], ["analyst", "--help"], ["analyze-threats", "--help"], ["capabilities"])
+        ],
+    ]
+    for arguments in invocations:
+        result = subprocess.run(
+            [sys.executable, *arguments], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=20
+        )
+        assert result.returncode == 0, result.stderr
+        assert not state.exists()
+        assert not marker.exists()

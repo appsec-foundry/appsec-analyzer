@@ -1301,6 +1301,10 @@ requirements:
 
   REQ-024:
     applies_to:
+      - appsec_analyzer/threat_analysis.py
+      - scripts/contexts/analyst_documents.py
+      - scripts/contexts/build_analyst_context.py
+      - schemas/analyst-context.schema.json
       - appsec_analyzer/authnz_review.py
       - skills/analyze-threats/**
       - scripts/appsec-analyst-cli
@@ -1320,11 +1324,14 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_threat_analysis_cli.py::test_terminal_question_asks_scope_and_never_assumes_whole_repository
+      - tests/test_threat_analysis_cli.py::test_preview_discovers_context_without_job_or_model
+      - tests/test_threat_analysis_cli.py::test_dialogue_collects_real_answers_and_resumes_same_job
       - tests/test_authnz_review_cli.py::test_review_runs_real_scanners_retains_signals_and_exports_both_formats
       - tests/test_authnz_review_cli.py::test_console_only_review_leaves_no_saved_artifacts
       - tests/test_authnz_review_cli.py::test_gate_fails_on_retained_high_findings_and_partial_is_never_clean
       - tests/test_analyst_isolation.py::test_importing_the_analyst_modules_creates_no_job
-      - tests/test_analyst_isolation.py::test_plugin_hooks_never_activate_the_analyst
+      - tests/test_analyst_isolation.py::test_public_inspection_never_activates_the_analyst
       - tests/test_analyst_controller.py::test_configuring_the_organization_profile_starts_nothing
       - tests/test_analyst_isolation.py::test_analyst_jobs_leave_a_concurrent_assessment_untouched
       - tests/test_analyst_isolation.py::test_assessment_cleanup_cannot_remove_analyst_state
@@ -1338,6 +1345,9 @@ requirements:
 
   REQ-025:
     applies_to:
+      - appsec_analyzer/review_sources.py
+      - appsec_analyzer/threat_analysis.py
+      - scripts/contexts/analyst_documents.py
       - schemas/analyst-response.schema.json
       - scripts/renderers/render_analyst_report.py
       - docs/internal/contracts/requirement-acceptance.md
@@ -1347,6 +1357,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_threat_analysis_cli.py::test_committed_review_keeps_both_document_versions
+      - tests/test_review_sources.py::test_gitlab_nested_project_and_immutable_diff_selection
+      - tests/test_review_sources.py::test_github_uses_only_known_api_destination_and_sha_comparison
       - tests/test_analyst_controller.py::test_unsupported_claims_fail_validation_and_publish_nothing_from_the_reply
       - tests/test_analyst_controller.py::test_unknown_relationship_needs_no_comparison
       - tests/test_analyst_controller.py::test_removed_control_can_introduce_a_finding
@@ -1354,6 +1367,8 @@ requirements:
 
   REQ-026:
     applies_to:
+      - appsec_analyzer/threat_analysis.py
+      - scripts/contexts/analyst_documents.py
       - scripts/appsec-analyst-cli
       - scripts/orchestrator/analyst_controller.py
       - scripts/contexts/build_analyst_snapshot.py
@@ -1373,6 +1388,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_threat_analysis_cli.py::test_question_path_runs_real_controller_with_documents
+      - tests/test_analyst_documents.py::test_hypothesis_documents_are_read_from_revision_not_worktree
       - tests/test_analyst_controller.py::test_hypothesis_check_reports_evidenced_conclusion
       - tests/test_analyst_controller.py::test_hypothesis_claims_need_valid_scoped_evidence
       - tests/test_analyst_controller.py::test_hypothesis_cannot_expand_authorized_paths
@@ -1385,6 +1402,7 @@ requirements:
 
   REQ-027:
     applies_to:
+      - appsec_analyzer/threat_analysis.py
       - scripts/appsec-analyst-cli
       - scripts/runtime/analyst_host.py
       - scripts/validators/validate_analyst.py
@@ -1398,6 +1416,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_threat_analysis_cli.py::test_design_does_not_inspect_source
       - tests/test_analyst_controller.py::test_design_requests_never_produce_findings
       - tests/test_analyst_host.py::test_the_design_schema_admits_no_findings_or_source_requests
       - tests/test_analyst_cli.py::test_design_cli_uses_the_existing_threat_model_unless_isolated
@@ -1408,6 +1427,7 @@ requirements:
 
   REQ-028:
     applies_to:
+      - appsec_analyzer/threat_analysis.py
       - scripts/contexts/analyst_questions.py
       - schemas/analyst-feature.schema.json
       - docs/internal/contracts/requirement-acceptance.md
@@ -1417,6 +1437,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_threat_analysis_cli.py::test_eof_leaves_job_waiting_and_explicit_resume_uses_frozen_documents
       - tests/test_analyst_questions.py::test_feature_save_is_explicit_merging_and_refuses_stale_overwrites
       - tests/test_analyst_questions.py::test_reuse_rechecks_saved_answers
       - tests/test_analyst_controller.py::test_required_questions_checkpoint_interactively_and_resume_with_answers
@@ -1481,6 +1502,8 @@ requirements:
 
   REQ-031:
     applies_to:
+      - scripts/contexts/analyst_documents.py
+      - appsec_analyzer/review_sources.py
       - appsec_analyzer/authnz_review.py
       - appsec_analyzer/scoring.py
       - appsec_analyzer/providers.py
@@ -1504,6 +1527,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_analyst_documents.py::test_external_and_parent_symlinks_never_deliver_content
+      - tests/test_review_sources.py::test_pinned_https_rejects_prohibited_destinations_before_connect
+      - tests/test_review_sources.py::test_https_pins_resolved_address_but_checks_original_tls_hostname
       - tests/test_authnz_review_cli.py::test_untrusted_model_output_cannot_cross_report_boundaries
       - tests/test_authnz_review_cli.py::test_source_change_blocks_publication
       - tests/test_assessment_host.py::test_unlisted_relative_source_proposal_can_be_corrected_without_reading_it
@@ -1538,6 +1564,7 @@ requirements:
 
   REQ-032:
     applies_to:
+      - scripts/contexts/analyst_documents.py
       - appsec_analyzer/authnz_review.py
       - scripts/runtime/assessment_diagnostics.py
       - scripts/runtime/analyst_host.py
@@ -1553,6 +1580,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_analyst_documents.py::test_secret_document_is_withheld_and_required_secret_document_fails
       - tests/test_authnz_review_cli.py::test_untrusted_model_output_cannot_cross_report_boundaries
       - tests/test_assessment_diagnostics.py::test_reasons_keep_structural_detail_and_remove_values_locations_and_control_codes
       - tests/test_assessment_diagnostics.py::test_parallel_calls_keep_job_identity_and_never_log_inputs_or_answers
@@ -1591,6 +1619,7 @@ requirements:
 
   REQ-034:
     applies_to:
+      - appsec_analyzer/threat_analysis.py
       - appsec_analyzer/codex_cli.py
       - scripts/runtime/assessment_host.py
       - data/stride-analysis-policy.md
@@ -1617,6 +1646,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_threat_analysis_cli.py::test_forged_document_citation_fails_without_publication
+      - tests/test_threat_analysis_cli.py::test_ambiguous_or_conflicting_inputs_never_start_job
       - tests/test_assessment_host.py::test_refused_proposals_consume_read_allowance_without_going_negative
       - tests/test_assessment_host.py::test_repeated_unlisted_proposals_exhaust_exchange_limit_without_retrieval
       - tests/test_assessment_host.py::test_fatal_proposal_still_stops_after_preloaded_read_round_is_spent
@@ -1634,6 +1665,7 @@ requirements:
 
   REQ-035:
     applies_to:
+      - appsec_analyzer/review_sources.py
       - appsec_analyzer/authnz_review.py
       - scripts/runtime/assessment_diagnostics.py
       - appsec_analyzer/scoring.py
@@ -1654,6 +1686,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_review_sources.py::test_checkout_uses_exact_objects_without_mutating_caller_repository
       - tests/test_authnz_review_cli.py::test_invalid_destinations_fail_before_model_call
       - tests/test_authnz_review_cli.py::test_save_uses_fresh_private_directory_outside_assessment
       - tests/test_authnz_review_cli.py::test_cancellation_releases_output_claim

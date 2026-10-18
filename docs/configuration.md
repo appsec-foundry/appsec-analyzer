@@ -1,5 +1,7 @@
 # Configuration
 
+For a focused security question, use `appsec-analyzer analyze-threats` with `--path`, `--staged`, `--worktree`, `--design`, a commit comparison, or an explicit `--mr`/`--pr` URL. It uses Claude CLI independently of scan profiles and retains the analyst's per-call budget. Project documents can be discovered or selected with repeatable `--context FILE`. See [focused threat analysis](threat-analyst.md) for formats, dialogue, remote credentials and limits.
+
 An internal organization distribution can supply installed scan, model and organization defaults through its own command. See [organization packaging](organization-distributions.md) for the package manifest, override rules and CI setup. The upstream `appsec-analyzer` command keeps its existing defaults.
 
 The public command is `appsec-analyzer`. `scan` takes local `--repo` paths or explicitly selected HTTPS/SSH Git URLs, an optional existing `--output` directory, `--profile`, `--assessment-depth`, and `--trust-mode`. It defaults to the current directory, the `claude` profile, and `standard` depth. `assess` requires an explicit profile (or legacy `--host`) and repository; `--help` lists the supported depth, model, context, requirements, resume, and export flags.

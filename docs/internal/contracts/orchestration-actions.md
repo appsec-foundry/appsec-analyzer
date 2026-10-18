@@ -1,5 +1,7 @@
 # Assessment Controller Contract
 
+`analyze-threats` is a deterministic front end to the separate analyst controller. Scope selection, document discovery and MR/PR metadata retrieval happen outside the model; remote responses can supply only validated commit identities, never new execution destinations. The controller retains ownership of source admission, model calls, evidence validation, question checkpoints and cancellation. Terminal answers are submitted through the existing answer operation and never accepted on timeout or EOF. Additional document citations do not authorize source expansion or publication to a forge.
+
 `scripts/orchestrator/orchestration_controller.py` runs the security assessment. `assess` executes every phase in-process through tool-less structured model exchanges, validates each result, and renders and publishes the report; no session orchestrates it and no action protocol is exchanged. The launch helpers `assess-context-preview`, `assess-context-save` and `assess-stop` each print one JSON object for the `appsec-analyzer` skill.
 
 ## Business-context dialog

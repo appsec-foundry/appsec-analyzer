@@ -227,6 +227,34 @@
     },
     "explore": {
       "const": true
+    },
+    "review_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "base",
+        "head",
+        "target"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        }
+      }
     }
   },
   "$defs": {

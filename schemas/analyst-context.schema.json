@@ -26,7 +26,7 @@
     },
     "sources": {
       "type": "array",
-      "maxItems": 10,
+      "maxItems": 40,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -43,7 +43,8 @@
               "requirements",
               "business_context",
               "threat_model",
-              "feature"
+              "feature",
+              "document"
             ]
           },
           "origin": {
@@ -75,6 +76,14 @@
               "sensitive",
               "too_large"
             ]
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "document_id": {
+            "type": "string",
+            "pattern": "^doc-[0-9]{3}$"
           }
         }
       }
@@ -291,6 +300,60 @@
         },
         "required_complete": {
           "type": "boolean"
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path",
+          "side",
+          "revision",
+          "sha256",
+          "role",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^doc-[0-9]{3}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "side": {
+            "enum": [
+              "baseline",
+              "proposed",
+              "selected"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "role": {
+            "enum": [
+              "threat_model",
+              "requirements",
+              "specification"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 65536
+          }
         }
       }
     }

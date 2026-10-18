@@ -94,6 +94,59 @@ def test_threat_model_is_projected_only_when_valid(setup, tmp_path):
         bc.build(request, resolved, selection, threat_model_path=model, threat_model_required=True)
 
 
+def test_structured_context_rejects_symlinked_parent_directory(setup, tmp_path):
+    _, request, resolved, selection = setup
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "catalog.yaml").write_text(yaml.safe_dump(CATALOG))
+    linked = tmp_path / "linked"
+    linked.symlink_to(external, target_is_directory=True)
+    with pytest.raises(bc.ContextError):
+        bc.build(request, resolved, selection, requirements_path=linked / "catalog.yaml", requirements_required=True)
+
+
+@pytest.mark.parametrize("tamper", ["digest", "receipt", "path", "duplicate"])
+def test_document_integrity_and_provenance_are_enforced(setup, tamper):
+    import hashlib
+
+    _, request, resolved, selection = setup
+    text = "REQ-017: Only administrators may export.\n"
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    documents = [
+        {
+            "id": "doc-001",
+            "path": "requirements.md",
+            "side": "selected",
+            "revision": "worktree",
+            "sha256": digest,
+            "role": "requirements",
+            "text": text,
+        }
+    ]
+    sources = [
+        {
+            "kind": "document",
+            "origin": "repository",
+            "label": "selected:requirements.md",
+            "document_id": "doc-001",
+            "revision": "worktree",
+            "sha256": digest,
+            "required": False,
+            "status": "delivered",
+        }
+    ]
+    if tamper == "digest":
+        documents[0]["sha256"] = "0" * 64
+    elif tamper == "receipt":
+        sources[0]["sha256"] = "0" * 64
+    elif tamper == "path":
+        sources[0]["label"] = "selected:other.md"
+    else:
+        documents.append(dict(documents[0]))
+    with pytest.raises(bc.ContextContractError):
+        bc.build(request, resolved, selection, documents=documents, document_sources=sources)
+
+
 def test_questions_and_omissions_are_recorded(setup):
     _, request, resolved, _ = setup
     selection = rc.select_questions(resolved, 2)

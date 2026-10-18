@@ -64,9 +64,9 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 ## Ask focused security questions
 
-- **REQ-024:** **Ask a focused security question.** A focused analysis, including an authentication and authorization review, runs only when requested and does not require a full assessment. It leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
+- **REQ-024:** **Ask a focused security question.** Users can ask a security question directly and clarify its scope and missing facts in a dialogue. A focused analysis can use existing threat models, requirements and specifications, including Markdown documents, without requiring a full assessment. It includes separate authentication and authorization review and leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
 
-- **REQ-025:** **Understand what a code change affects.** A change review shows which problems the change introduces, makes worse, or mitigates. It also identifies problems that were already present and says when their relationship to the change is unclear.
+- **REQ-025:** **Understand what a code change affects.** Users can select local changes, a commit comparison, or a merge or pull request. The review shows which problems the change introduces, makes worse, or mitigates, and distinguishes established requirements from proposed changes to them. It also identifies problems that were already present and says when their relationship to the change is unclear.
 
 - **REQ-026:** **Check a suspected security problem.** A hypothesis check examines a specific concern within the chosen source paths and revision. A selected misuse case can be previewed before the check runs. The answer explains whether the evidence supports the concern, does not confirm it within that scope, or leaves it unresolved. Not confirming a problem does not prove safety.
 

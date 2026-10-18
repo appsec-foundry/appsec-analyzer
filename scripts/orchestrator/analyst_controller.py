@@ -124,6 +124,10 @@ class Invocation:
     state_root: Path | None = None
     env: dict | None = None
     model: str = "sonnet"
+    documents: list[dict] | None = None
+    document_sources: list[dict] | None = None
+    repository_context: bool = True
+    review_origin: dict | None = None
 
 
 @dataclass
@@ -251,6 +255,8 @@ def _admit(inv: Invocation, limits: dict, interactive: bool) -> tuple[dict, dict
         request["question"] = inv.question
     if inv.explore:
         request["explore"] = True
+    if inv.review_origin is not None:
+        request["review_origin"] = inv.review_origin
     if inv.mode == "hypothesis" or inv.hypothesis is not None:
         if validate_request(dict(request, job_id="aj-" + "0" * 32, requested_at=st.utc_now())):
             raise AdmissionError("invalid hypothesis, revision, or source paths")
@@ -353,6 +359,10 @@ class _Run:
             },
             "generated_at": st.utc_now(),
         }
+        if response.get("document_references"):
+            result["document_references"] = response["document_references"]
+        if self.request.get("review_origin"):
+            result["review_origin"] = self.request["review_origin"]
         if "question" in self.request:
             result["question"] = self.request["question"]
         if self.request["mode"] == "hypothesis":
@@ -520,6 +530,9 @@ def _prepare(
             threat_model_required=inv.threat_model_required,
             feature=delivered_feature,
             focus_paths=sorted({e["path"] for e in current.snapshot["admitted"]}),
+            documents=inv.documents,
+            document_sources=inv.document_sources,
+            repository_context=inv.repository_context,
         )
     except ContextContractError:
         return current.finish("failed", "validation_failure", ["The analysis context violated its contract."])
