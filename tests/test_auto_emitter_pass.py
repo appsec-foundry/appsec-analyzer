@@ -44,8 +44,7 @@ def _run(directory: Path, *, dry_run: bool = False) -> None:
 
 def test_order_dry_run_and_required_receipt(monkeypatch, tmp_path: Path) -> None:
     calls = []
-    monkeypatch.setattr(controller, "_best_effort_script",
-                        lambda output, name, args, receipts: calls.append(name))
+    monkeypatch.setattr(controller, "_best_effort_script", lambda output, name, args, receipts: calls.append(name))
     monkeypatch.setattr(controller, "_run_script", lambda name, args: calls.append(name))
     _run(tmp_path, dry_run=True)
     assert calls == []
@@ -65,11 +64,21 @@ def test_a_failing_receipt_blocks_completion(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_refuted_candidate_is_removed_before_derivation(tmp_path: Path) -> None:
-    data = {**MINIMAL, "threats": [{
-        "id": "T-001", "title": "Refuted SQL injection", "risk": "High", "cwe": "CWE-89",
-        "source": "stride", "component": "api", "evidence": [{"file": "missing.ts", "line": 1}],
-        "evidence_check": "refuted",
-    }]}
+    data = {
+        **MINIMAL,
+        "threats": [
+            {
+                "id": "T-001",
+                "title": "Refuted SQL injection",
+                "risk": "High",
+                "cwe": "CWE-89",
+                "source": "stride",
+                "component": "api",
+                "evidence": [{"file": "missing.ts", "line": 1}],
+                "evidence_check": "refuted",
+            }
+        ],
+    }
     path = tmp_path / "threat-model.yaml"
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     _run(tmp_path)
@@ -81,12 +90,23 @@ def test_refuted_candidate_is_removed_before_derivation(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("route", ["/register", "/auth/signup"])
 def test_repeated_pass_keeps_cards_and_controls_stable(tmp_path: Path, route: str) -> None:
-    data = {**MINIMAL, "threats": [{
-        "id": "T-001", "title": "Missing request validation", "risk": "High", "cwe": "CWE-20",
-        "mitigation_title": "Validate request fields", "source": "stride",
-        "remediation": {"steps": ["Validate incoming fields against the request schema."],
-                        "verification": "Submit an unexpected field and confirm rejection."},
-    }]}
+    data = {
+        **MINIMAL,
+        "threats": [
+            {
+                "id": "T-001",
+                "title": "Missing request validation",
+                "risk": "High",
+                "cwe": "CWE-20",
+                "mitigation_title": "Validate request fields",
+                "source": "stride",
+                "remediation": {
+                    "steps": ["Validate incoming fields against the request schema."],
+                    "verification": "Submit an unexpected field and confirm rejection.",
+                },
+            }
+        ],
+    }
     sidecar = {"routes": [{"method": "POST", "path": route}]}
     inventory = tmp_path / ".route-inventory.json"
     inventory.write_text(json.dumps(sidecar), encoding="utf-8")

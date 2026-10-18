@@ -3877,6 +3877,8 @@ def assess_repositories(
         "gate_violations": violations,
         "output": str(scope.output),
         "repositories": labels,
+        "depth": str((cfg or {}).get("assessment_depth") or "standard"),
+        "trust_mode": ns.trust_mode,
         # Publication order: model and report first, then figures and exports.
         "deliverables": list(delivered),
         "warnings": warnings,
@@ -4190,7 +4192,12 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         (str(output / name) for name in outcome["deliverables"] if not name.endswith(".svg")),
         key=lambda path: not path.endswith(".md"),
     )
-    rows = [(key, value, None) for key, value in completion_rows(output)]
+    rows = [
+        (key, value, None)
+        for key, value in (("Depth", outcome.get("depth")), ("Trust mode", outcome.get("trust_mode")))
+        if value
+    ]
+    rows += [(key, value, None) for key, value in completion_rows(output)]
     rows += [("Report" if index == 0 else "", path, "accent") for index, path in enumerate(files)]
     if outcome.get("runtime_files"):
         rows.append(("Run files", outcome["runtime_files"], "muted"))
