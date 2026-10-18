@@ -84,12 +84,19 @@ def job_share(schema: dict, combined: str, *, jobs: int, used: dict[str, int] | 
     return result
 
 
+@lru_cache(maxsize=1)
+def _documents() -> dict:
+    # Parsed once for every contract; libyaml is about 13x faster than the pure-Python loader.
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    return {n: yaml.load((ROOT / "schemas" / n).read_text(encoding="utf-8"), Loader=loader) for n in CONTRACTS}
+
+
 @lru_cache(maxsize=len(CONTRACTS))
 def _contract(name: str) -> dict:
     """Resolve only known plugin contracts to a tool-host-compatible schema."""
     if name not in CONTRACTS:
         raise ExchangeError("Unknown multi-repository stage contract")
-    documents = {n: yaml.safe_load((ROOT / "schemas" / n).read_text(encoding="utf-8")) for n in CONTRACTS}
+    documents = _documents()
     by_id = {document["$id"]: document for document in documents.values()}
 
     def expand(value, document, depth=0):
