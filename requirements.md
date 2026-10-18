@@ -30,15 +30,15 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-008:** **Show the evidence behind each finding.** Every finding explains the problem and points to the affected code and supporting evidence. Grouping similar problems must preserve each affected location. Unproven claims are labelled and left unscored.
 
-- **REQ-009:** **Explain severity.** A finding's severity is justified by evidence of the harm it could cause. The report states what is uncertain or unknown. Business context can inform the assessment, but cannot hide technical findings or override the severity rules.
+- **REQ-009:** **Explain severity.** A finding's severity is justified by evidence of the harm it could cause. The report states what is uncertain or unknown. Business context can inform the assessment, and an explicit absence of business harm can lower business impact. It cannot change priority tiers, hide technical findings, or override the severity rules.
 
 - **REQ-010:** **Include business context.** Teams can supply information about their business and organization, or ask Analyzer to skip stored business context. The report explains how that information affected the analysis and what relevant facts are still missing.
 
-- **REQ-011:** **Look for misuse of business features.** Teams can choose misuse cases for the analysis to examine. The results show which cases have evidence of a problem, which are mitigated or inapplicable, and which remain uncertain or unchecked.
+- **REQ-011:** **Look for misuse of business features.** Teams can choose misuse cases for the analysis to examine. The results show which cases are confirmed, unproven, mitigated, unresolved, inapplicable, or unchecked.
 
 - **REQ-012:** **Explain what to fix.** Findings describe how an attack could work, what damage it could do, and what developers need to change. Recommendations address this system and show what to tackle first. Urgent fixes include concrete steps and a way to check the result.
 
-- **REQ-013:** **Make the report easy to follow.** Architecture diagrams are readable, and finding references stay consistent throughout the report. Supporting detail and open decisions are easy to find. The report does not leave finding verification to the reader.
+- **REQ-013:** **Make the report easy to follow.** Architecture diagrams are readable, and finding references stay consistent throughout the report. Supporting detail is easy to find, and the most important open decisions are highlighted without hiding the rest. The report does not leave finding verification to the reader.
 
 - **REQ-014:** **Use results in other tools.** Results come in Markdown and structured YAML, with optional HTML, PDF, SARIF, Threat Dragon, and penetration-test task exports. Exports retain the relevant evidence references and conclusions. Analyzer explains any format limitations or missing export tools.
 
@@ -78,7 +78,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 ## Check security requirements
 
-- **REQ-029:** **Check a supplied set of requirements.** A requirements audit can run on its own using a local catalog. It records where the catalog came from, which code was examined, and the evidence behind each verdict. Requirements are reported as met, partly met, unmet, unverifiable, or inapplicable.
+- **REQ-029:** **Check a supplied set of requirements.** A requirements audit can run on its own using a local catalog. It records where the catalog came from, which code was examined, and the evidence behind each verdict. Requirements are reported as pass, partial, fail, unverifiable, or not applicable.
 
 - **REQ-030:** **Decide whether an audit should block CI.** Requirements results are advisory unless the user explicitly chooses a blocking CI gate based on verdicts and requirement priorities. An unfinished audit is reported separately from a failed policy check. Unverifiable requirements never count as passing.
 

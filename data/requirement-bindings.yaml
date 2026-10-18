@@ -1035,10 +1035,6 @@ requirements:
       - tests/test_multi_repo_controller.py::test_plain_missing_updates_are_logged_once_until_the_call_changes_state
       - tests/test_multi_repo_controller.py::test_a_runtime_change_during_the_session_is_disclosed_not_fatal
       - tests/test_multi_repo_controller.py::test_a_runtime_that_cannot_be_fingerprinted_mid_run_is_disclosed_not_fatal
-      - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
-      - tests/test_rate_limit_pause.py::test_provider_reset_is_respected_or_stops_without_retry
-      - tests/test_rate_limit_pause.py::test_shared_backoff_then_success_resets_failure_streak
-      - tests/test_api_hosts.py::test_rate_limit_transports_only_validated_reset_not_body
       - tests/test_assessment_jobs.py::test_a_transient_failure_that_persists_still_stops_a_required_job
       - tests/test_assessment_state.py::test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost
       - tests/test_multi_repo_controller.py::test_persistent_rate_limit_reports_action_without_raw_host_text
@@ -1148,6 +1144,9 @@ requirements:
       - tests/test_organization_distribution.py::test_bundled_defaults_apply_before_assessment_without_environment_or_cwd_lookup
       - tests/test_organization_distribution.py::test_explicit_operator_choices_override_distribution_defaults
       - tests/test_organization_distribution.py::test_installed_profiles_reach_actual_runtime_resolution
+      - tests/test_organization_distribution.py::test_incompatible_or_unknown_manifest_fields_fail_before_dispatch
+      - tests/test_organization_distribution.py::test_missing_bundled_resources_stop_without_fallback
+      - tests/test_organization_distribution.py::test_installed_wheel_uses_bundled_defaults_after_source_checkout_is_removed
       - tests/test_codex_cli.py::test_public_subscription_selection
       - tests/test_codex_cli.py::test_subscription_profiles_reject_unenforceable_options
       - tests/test_profiles.py::test_user_defaults_role_depth_and_cli_precedence
@@ -1178,8 +1177,6 @@ requirements:
     applies_to:
       - appsec_analyzer/engine.py
       - appsec_analyzer/organization.py
-      - schemas/organization-distribution.schema.yaml
-      - examples/organization-distribution/**
       - schemas/assessment-job-receipt.schema.json
       - schemas/scan-profile.schema.yaml
       - schemas/model-profile.schema.yaml
@@ -1194,7 +1191,6 @@ requirements:
     decisions:
       - EX-1
     documents:
-      - docs/organization-distributions.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
       - docs/internal/contracts/schema-invariants.md
@@ -1204,9 +1200,6 @@ requirements:
     guards:
       - tests/test_module_boundaries.py::test_assessment_identity_includes_application_implementation
       - tests/test_module_boundaries.py::test_application_identity_rejects_links
-      - tests/test_organization_distribution.py::test_incompatible_or_unknown_manifest_fields_fail_before_dispatch
-      - tests/test_organization_distribution.py::test_missing_bundled_resources_stop_without_fallback
-      - tests/test_organization_distribution.py::test_installed_wheel_uses_bundled_defaults_after_source_checkout_is_removed
       - tests/test_assessment_state.py::test_subscription_state_resume_and_monetary_tampering
       - tests/test_assessment_jobs.py::test_subscription_receipt_is_reused_without_inventing_cost
       - tests/test_profiles.py::test_invalid_scan_profiles_fail_before_host_or_checkout
@@ -1373,6 +1366,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
+      - tests/test_rate_limit_pause.py::test_provider_reset_is_respected_or_stops_without_retry
+      - tests/test_rate_limit_pause.py::test_shared_backoff_then_success_resets_failure_streak
+      - tests/test_api_hosts.py::test_rate_limit_transports_only_validated_reset_not_body
+      - tests/test_multi_repo_controller.py::test_persistent_rate_limit_reports_action_without_raw_host_text
       - tests/test_codex_schema.py::test_source_strings_are_data_even_when_they_contain_invalid_json_syntax
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
