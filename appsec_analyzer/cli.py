@@ -70,6 +70,16 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         operation.add_argument("arguments", nargs=argparse.REMAINDER)
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
+    from appsec_analyzer.assessment_entry import add_arguments as entry_arguments
+
+    entry_arguments(commands)
+    query = commands.add_parser("query", help="Read validated saved assessment facts without model calls")
+    query.add_argument("--output", required=True)
+    query.add_argument("--id", dest="identifier")
+    query.add_argument("--grep")
+    query.add_argument("--severity")
+    query.add_argument("--component")
+    query.add_argument("--summary", action="store_true")
     profiles = commands.add_parser("profiles", help="List, inspect, or validate profiles without model calls")
     actions = profiles.add_subparsers(dest="profile_action", required=True)
     actions.add_parser("list", help="List built-in and user scan/model profiles")
@@ -174,6 +184,8 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--output", required=True, metavar="DIR")
+        if name == "progress":
+            command.add_argument("--after", type=int, default=0, help="Public event cursor from the preceding response")
     export = commands.add_parser("export", help="Export a saved completed assessment without model calls")
     export.add_argument(
         "--assessment",
@@ -333,6 +345,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     parser.add_argument(
         "--budget",
         "--hard-budget",
+        "--max-budget",
         dest="hard_budget",
         type=_positive_budget,
         action=_Explicit,
@@ -355,6 +368,22 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         nargs="+",
         choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
         help="Replace profile export selection; Markdown and YAML remain the base result",
+    )
+    parser.add_argument(
+        "--interactive-launch",
+        action="store_true",
+        help="Preserve Claude-host depth budgets and display defaults; never authorizes model use",
+    )
+    parser.add_argument(
+        "--soft-budget", "--max-cost", type=_positive_budget, help="Deprecated: a hard limit of 1.25 times this amount"
+    )
+    parser.add_argument(
+        "--component-workers",
+        dest="max_parallel",
+        type=int,
+        choices=range(1, 5),
+        metavar="N",
+        default=argparse.SUPPRESS,
     )
     parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     parser.add_argument("--resume", action="store_true")
@@ -446,6 +475,9 @@ def _capabilities() -> dict:
         "interface_version": INTERFACE_VERSION,
         "engine_version": ENGINE_VERSION,
         "scan": {"available": True, "model_calls": True},
+        "assessment_entry": {"available": True, "schema_version": 1, "model_calls": False},
+        "query": {"available": True, "model_calls": False},
+        **{name: {"available": True} for name in ("status", "progress", "stop", "results")},
         "preflight": {"available": True, "default_model_calls": False, "optional_primary_model_test": True},
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
@@ -781,6 +813,24 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         repositories=ns.repo or [str(Path.cwd())],
         model_override=ns.model if model_prefix or selection in ("lite", "bedrock") else None,
     )
+    if ns.interactive_launch:
+        if profile["adapter"] != "claude-cli" or ns.host not in (None, "claude-cli"):
+            raise ValueError("the Claude-host assessment entry requires the Claude CLI adapter")
+        if "hard_budget" not in explicit:
+            profile["settings"]["budget"] = (
+                round(ns.soft_budget * 1.25, 2)
+                if ns.soft_budget is not None
+                else {"quick": 10.0, "standard": 20.0, "thorough": 40.0}[profile["settings"]["assessment_depth"]]
+            )
+        if "hard_budget" not in explicit:
+            profile["origins"]["settings"]["budget"] = "Claude-host depth budget or deprecated soft budget"
+        if ns.max_parallel is None:
+            profile["settings"]["max_parallel"] = 3
+            profile["origins"]["settings"]["max_parallel"] = "Claude-host default"
+        ns.width = ns.width or 72
+        ns.non_interactive = True
+    elif ns.soft_budget is not None:
+        raise ValueError("--soft-budget is a Claude-host compatibility option; use --budget")
     selected = set(profile["settings"]["outputs"]) | {"markdown", "yaml"}
     for output in OUTPUTS[2:]:
         if getattr(ns, output.replace("-", "_"), False):
@@ -1005,7 +1055,11 @@ def _inspect(ns: argparse.Namespace) -> int:
 
         feed = output / PROGRESS_NAME
         data = _bounded_file(feed, 1_048_576) if os.path.lexists(feed) else b""
-        entries = [json.loads(line) for line in data.splitlines()[-100:]]
+        if ns.after < 0:
+            raise ValueError("progress cursor must be nonnegative")
+        lines = data.splitlines()
+        start = max(min(ns.after, len(lines)), len(lines) - 100)
+        entries = [json.loads(line) for line in lines[start:]]
         if any(not isinstance(row, dict) for row in entries):
             raise ValueError("assessment progress contains a non-object event")
         document = {
@@ -1015,6 +1069,8 @@ def _inspect(ns: argparse.Namespace) -> int:
             "assessment_status": state["status"],
             "feed_available": bool(data),
             "events": entries,
+            "next_offset": len(lines),
+            "events_omitted": start > ns.after,
         }
     elif ns.command == "stop":
         from orchestrator.orchestration_controller import assess_stop
@@ -1151,6 +1207,59 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
         ns = _parser(organization=organization).parse_args(["scan"])
         vars(ns).update(supplied)
     try:
+        if ns.command == "assessment-entry":
+            from appsec_analyzer.assessment_entry import run
+
+            try:
+                return run(ns)
+            except (OSError, RuntimeError, ValueError):
+                raise ValueError(
+                    "assessment preparation refused: check source, private output and live ownership"
+                ) from None
+        if ns.command == "query":
+            from appsec_analyzer.review_context import read_context
+
+            if ns.identifier and any((ns.grep, ns.severity, ns.component, ns.summary)):
+                raise ValueError("--id cannot be combined with filters or --summary")
+            if ns.summary:
+                if any((ns.grep, ns.severity, ns.component)):
+                    raise ValueError("--summary cannot be combined with filters")
+                _engine_imports()
+                from renderers.summarize_threat_model import build_summary, render_text
+                from shared.assessment_sources import is_portable_model, labelled_model
+
+                from appsec_analyzer.saved_assessment import load_assessment
+
+                path = Path(ns.output).absolute()
+                _, _, files, stem = load_assessment(path)
+                model = yaml.safe_load(files[stem + ".yaml"])
+                if is_portable_model(model):
+                    model = labelled_model(model)
+                print(
+                    render_text(
+                        build_summary(model, path),
+                        None,
+                        False,
+                        next_steps=[
+                            "Questions: use query --output <assessment-directory> with the relevant finding or filter.",
+                            "Re-export: use export --assessment <assessment-directory> --output <new-directory> --formats <formats>.",
+                        ],
+                    )
+                )
+            else:
+                print(
+                    json.dumps(
+                        read_context(
+                            ns.output,
+                            identifier=ns.identifier,
+                            grep=ns.grep,
+                            severity=ns.severity,
+                            component=ns.component,
+                        ),
+                        ensure_ascii=True,
+                    )
+                )
+            return 0
         if ns.command == "organization-config":
             from appsec_analyzer.organization import config_command
 

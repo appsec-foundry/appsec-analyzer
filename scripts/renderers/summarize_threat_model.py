@@ -573,7 +573,7 @@ def render_status_line(freshness: dict) -> list[str]:
     return out
 
 
-def render_text(summary: dict, freshness: dict | None, show_all: bool) -> str:
+def render_text(summary: dict, freshness: dict | None, show_all: bool, *, next_steps: list[str] | None = None) -> str:
     proj = summary["project"]
     scan = summary["scan"]
     totals = summary["totals"]
@@ -612,7 +612,7 @@ def render_text(summary: dict, freshness: dict | None, show_all: bool) -> str:
     # The lane pointers sit here, not at the foot of the block: this overview is
     # a FIXED fact set, and a reader whose actual question it cannot answer needs
     # to know that before scrolling 40 lines of numbers.
-    buf.extend(_NEXT_STEP_LINES)
+    buf.extend(_NEXT_STEP_LINES if next_steps is None else next_steps)
     buf.append("")
 
     buf.extend(_render_verdict_block(summary.get("verdict")))

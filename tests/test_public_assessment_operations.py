@@ -464,3 +464,193 @@ def test_model_profile_defaults_to_standard_depth(command):
     ns = cli._parser().parse_args([command, "--repo", ".", "--profile", "codex"])
     assert cli._assessment_host(ns) == "openai"
     assert ns.assessment_depth == "standard"
+
+
+@pytest.mark.parametrize("name", ["billing-service", "order-worker"])
+def test_host_entry_retains_advisor_destination_and_source(tmp_path, name, monkeypatch, capsys):
+    from appsec_analyzer import cli
+
+    repo = tmp_path / name
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "private data"))
+    assert cli.main(["assessment-entry", "destination", "--repo", str(repo), "--storage", "advisor"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert Path(result["output"]).parent == tmp_path / "private data/appsec-advisor/assessments"
+    assert Path(result["output"]).name.startswith(name + "-")
+    assert not Path(result["output"]).exists()
+    assert result["repo"] == str(repo)
+    assert cli.main(["assessment-entry", "destination", "--repo", str(repo), "--output", str(repo / "result")]) == 2
+    assert not (repo / "result").exists()
+
+
+def test_host_entry_context_trust_and_retained_answer(tmp_path, capsys):
+    from appsec_analyzer import cli
+
+    repo = tmp_path / "service"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "README.md").write_text("# Order management\nA service for managing customer orders.\n")
+    output = tmp_path / "private output"
+    args = ["--repo", str(repo), "--output", str(output)]
+    assert cli.main(["assessment-entry", "trust", "--repo", str(repo)]) == 0
+    assert json.loads(capsys.readouterr().out)["finding_count"] == 0
+    assert cli.main(["assessment-entry", "context-preview", *args]) == 0
+    assert "preview" in json.loads(capsys.readouterr().out)
+    raw = output / ".business-context-raw.md"
+    raw.write_text("## Business purpose\n**Question:** What should be assessed?\n**Answer:** Manage customer orders.\n")
+    assert cli.main(["assessment-entry", "context-save", *args, "--context-answer", "answered"]) == 0
+    assert not raw.exists()
+    saved = repo / "docs/security/business-context.md"
+    assert "Manage customer orders." in saved.read_text()
+    assert cli.main(["assessment-entry", "context-preview", *args]) == 0
+    assert "Manage customer orders." in capsys.readouterr().out
+    outside = tmp_path / "outside"
+    outside.write_text("not source")
+    (repo / "escape").symlink_to(outside)
+    assert cli.main(["assessment-entry", "trust", "--repo", str(repo)]) == 2
+    assert json.loads(capsys.readouterr().out)["finding_count"] > 0
+
+
+@pytest.mark.parametrize("defect", ["symlink", "source", "public"])
+def test_host_entry_refuses_unsafe_output_before_context_write(tmp_path, capsys, defect):
+    from appsec_analyzer import cli
+
+    repo = tmp_path / "service"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    target = tmp_path / "output"
+    target.mkdir(mode=0o700)
+    selection = target
+    if defect == "symlink":
+        selection = tmp_path / "linked"
+        selection.symlink_to(target, target_is_directory=True)
+    elif defect == "source":
+        selection = repo / "output"
+    else:
+        target.chmod(0o755)
+    assert cli.main(["assessment-entry", "context-preview", "--repo", str(repo), "--output", str(selection)]) == 2
+    assert list(target.iterdir()) == []
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_host_entry_holder_and_cleanup_preserve_live_owner_and_receipts(tmp_path):
+    output = tmp_path / "private output"
+    _state(output, status="running")
+    output.chmod(0o700)
+    import time
+
+    (output / ".appsec-lock").write_text(f"{os.getpid()}\n{int(time.time())}\n")
+    (output / ".appsec-checkpoint").write_text("phase=1 status=started\n")
+    before = (output / ".assessment-state.json").read_bytes()
+    base = [sys.executable, "-m", "appsec_analyzer.cli", "assessment-entry"]
+    result = subprocess.run([*base, "holder", "--output", str(output)], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0 and json.loads(result.stdout)["live"] is True
+    refusal = subprocess.run([*base, "clean", "--output", str(output), "--apply"], capture_output=True, timeout=20)
+    assert refusal.returncode == 2
+    assert (output / ".appsec-lock").exists()
+    (output / ".appsec-lock").write_text("999999999\n1\n")
+    dry = subprocess.run([*base, "clean", "--output", str(output)], capture_output=True, text=True, timeout=20)
+    assert dry.returncode == 0 and (output / ".appsec-lock").exists()
+    applied = subprocess.run(
+        [*base, "clean", "--output", str(output), "--apply"], capture_output=True, text=True, timeout=20
+    )
+    assert applied.returncode == 0, applied.stderr
+    assert not (output / ".appsec-lock").exists()
+    assert not (output / ".appsec-checkpoint").exists()
+    assert (output / ".assessment-state.json").read_bytes() == before
+    assert (output / ".appsec-lock.guard").exists()
+
+
+def test_progress_cursor_omissions_and_terminal_state(tmp_path):
+    output = tmp_path / "out"
+    _state(output)
+    feed = output / ".assessment-progress.jsonl"
+    feed.write_text("".join(json.dumps({"event": "warning", "detail": str(i)}) + "\n" for i in range(120)))
+
+    def progress(cursor):
+        return subprocess.run(
+            [sys.executable, "-m", "appsec_analyzer.cli", "progress", "--output", str(output), "--after", str(cursor)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+
+    first = json.loads(progress(0).stdout)
+    assert first["events_omitted"] and first["next_offset"] == 120 and len(first["events"]) == 100
+    assert json.loads(progress(120).stdout)["events"] == []
+    assert progress(-1).returncode == 2
+
+
+@pytest.mark.parametrize("depth,budget", [("quick", 10), ("standard", 20), ("thorough", 40)])
+def test_claude_host_defaults_and_explicit_limits(depth, budget, tmp_path, monkeypatch):
+    from appsec_analyzer import cli
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    ns = cli._parser().parse_args(["scan", "--repo", str(repo), "--interactive-launch", "--assessment-depth", depth])
+    cli._prepare_profile(ns)
+    assert ns.hard_budget == budget and ns.max_parallel == 3 and ns.width == 72 and ns.non_interactive
+    ns = cli._parser().parse_args(
+        [
+            "scan",
+            "--repo",
+            str(repo),
+            "--interactive-launch",
+            "--assessment-depth",
+            depth,
+            "--hard-budget",
+            "2",
+            "--component-workers",
+            "1",
+            "--width",
+            "90",
+        ]
+    )
+    cli._prepare_profile(ns)
+    assert ns.hard_budget == 2 and ns.max_parallel == 1 and ns.width == 90
+
+
+def test_claude_host_rejects_provider_switch_and_keeps_deprecated_budget(tmp_path):
+    from appsec_analyzer import cli
+
+    with pytest.raises(ValueError, match="requires the Claude"):
+        cli._prepare_profile(cli._parser().parse_args(["scan", "--interactive-launch", "--profile", "codex"]))
+    ns = cli._parser().parse_args(["scan", "--interactive-launch", "--soft-budget", "8"])
+    cli._prepare_profile(ns)
+    assert ns.hard_budget == 10
+
+
+def test_public_query_and_summary_keep_validation_and_do_not_call_models(tmp_path, capsys, monkeypatch):
+    from appsec_analyzer import cli, hosts
+    from tests.test_public_export_cli import _bundle
+
+    output = _bundle(tmp_path)
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("query cannot call a model"))
+    before = {p.name: p.read_bytes() for p in output.iterdir()}
+    assert cli.main(["query", "--output", str(output)]) == 0
+    assert json.loads(capsys.readouterr().out)
+    assert cli.main(["query", "--output", str(output), "--summary"]) == 0
+    summary = capsys.readouterr().out
+    assert "Questions: use query" in summary and "/appsec-advisor:" not in summary
+    assert {p.name: p.read_bytes() for p in output.iterdir()} == before
+    (output / "security-assessment.yaml").write_text("changed")
+    assert cli.main(["query", "--output", str(output)]) == 2
+
+
+def test_host_cleanup_inspection_is_read_only(tmp_path):
+    output = tmp_path / "private output"
+    output.mkdir(mode=0o700)
+    (output / ".appsec-lock").write_text("999999999\n1\n")
+    before = {p.name: p.read_bytes() for p in output.iterdir()}
+    result = subprocess.run(
+        [sys.executable, "-m", "appsec_analyzer.cli", "assessment-entry", "clean", "--output", str(output)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["state"] == "stale"
+    assert {p.name: p.read_bytes() for p in output.iterdir()} == before

@@ -23,7 +23,7 @@ recursive-include templates *.j2 *.md
 recursive-include examples *.yaml *.json *.md *.sdd *.yml
 recursive-include examples/organization-distribution *.py *.toml *.cfg *.in *.lock *.sh *.example
 include examples/organization-distribution/.gitignore
-include skills/appsec-analyzer/SKILL.md skills/appsec-analyzer/business-context.md
+include skills/appsec-analyzer/SKILL.md skills/appsec-analyzer/business-context.md skills/appsec-analyzer/claude-code.md
 include skills/review-assessment/SKILL.md
 include skills/analyze-threats/references/analysis-contract.md
 include skills/analyze-threats/SKILL.md skills/analyze-threats/HELP.txt
