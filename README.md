@@ -288,13 +288,6 @@ The build pipeline and the most severe supply-chain attacks on it, shown as a de
 </picture>
 </a>
 
-Threat actors, their attack routes, and the business harm they can cause:
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure2-example-dark.svg">
-  <img src="docs/images/figure2-example.svg" alt="Threat actors, attack routes, weaknesses, and business harm in the Juice Shop assessment">
-</picture>
-
 Request more formats when you start the scan, for example `scan --repo /path/to/project --sarif --html`:
 
 | Flag | Output |
