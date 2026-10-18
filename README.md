@@ -19,23 +19,23 @@ If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor]
 
 ## Quick start
 
-You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/).
+This example assesses the intentionally vulnerable [OWASP Juice Shop](https://github.com/juice-shop/juice-shop). You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/).
 
-1. Install the preview from GitHub:
+1. **Install Analyzer** from GitHub (preview):
 
    ```sh
    pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
    ```
 
-2. Run a full assessment of a Git repository. Analyzer creates the output directory, readable only by you. This makes paid model calls with a default cost limit of USD 20:
+2. **Run a full assessment.** Analyzer creates the output directory, readable only by you, and writes the report to `security-assessment.md` there:
 
    ```sh
    appsec-analyzer scan --repo https://github.com/juice-shop/juice-shop.git --output ~/assessments/juice-shop
    ```
 
-   This is an example: `--repo` also takes a local checkout, and besides the default Claude CLI you can use [Codex CLI, the OpenAI API, LiteLLM, or Amazon Bedrock](#model-provider).
+   For your own code, pass its Git URL or local path to `--repo`. Analyzer uses the Claude CLI by default; you can also use [Codex CLI, the OpenAI API, LiteLLM, or Amazon Bedrock](#model-provider).
 
-3. Discuss the findings and plan fixes in Claude Code or Codex:
+3. **Review the findings with your coding agent.** Discuss the results and plan fixes in Claude Code or Codex:
 
    ```sh
    appsec-analyzer review ~/assessments/juice-shop
