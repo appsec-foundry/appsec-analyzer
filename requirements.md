@@ -44,6 +44,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-015:** **Export without running the analysis again.** A saved, validated assessment can be exported without repeating the analysis or paying for new model calls.
 
+- **REQ-037:** **Work with an assessment using AI.** Users can open a saved assessment in a coding assistant with the context and guidance needed to discuss findings and prepare remediation. Analyzer offers this next step after completion and defaults to the assistant used for the assessment when available. Starting a review does not repeat the analysis or authorize changes.
+
 ## Run and maintain assessments
 
 - **REQ-016:** **Follow, stop, and resume a run.** Progress is visible while an assessment runs. A run can be stopped and resumed when its source and settings are still compatible. If something fails, Analyzer explains the cause and how to recover. Interrupted or unfinished work is never reported as complete.

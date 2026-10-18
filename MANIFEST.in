@@ -24,6 +24,7 @@ recursive-include examples *.yaml *.json *.md *.sdd *.yml
 recursive-include examples/organization-distribution *.py *.toml *.cfg *.in *.lock *.sh *.example
 include examples/organization-distribution/.gitignore
 include skills/appsec-analyzer/SKILL.md skills/appsec-analyzer/business-context.md
+include skills/review-assessment/SKILL.md
 include skills/analyze-threats/references/analysis-contract.md
 include skills/analyze-threats/SKILL.md skills/analyze-threats/HELP.txt
 include skills/audit-security-requirements/config.json

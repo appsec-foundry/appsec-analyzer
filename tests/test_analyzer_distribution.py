@@ -184,6 +184,28 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     from tests.test_public_export_cli import _bundle
 
     saved = _bundle(tmp_path)
+    result = subprocess.run(
+        [str(installed / "bin/appsec-analyzer"), "review", str(saved), "--with", "codex", "--preview"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    installed_skill = installed / "appsec_analyzer/skills/review-assessment/SKILL.md"
+    assert installed_skill.read_text() in result.stdout
+    assert str(installed / "appsec_analyzer/review_context.py") in result.stdout
+    result = subprocess.run(
+        [sys.executable, str(installed / "appsec_analyzer/review_context.py"), str(saved), "--id", "F-001"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["found"]
     exported = tmp_path / "installed-export"
     result = subprocess.run(
         [

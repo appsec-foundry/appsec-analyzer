@@ -175,6 +175,25 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
         default=["markdown", "yaml"],
     )
+    review = commands.add_parser(
+        "review",
+        help="Work on a saved assessment with Claude Code or Codex",
+        description="Start an interactive coding assistant with the existing assessment and bundled review skill.",
+        epilog=(
+            "Defaults to the recorded Claude Code or Codex CLI adapter; otherwise choose with --with. "
+            "Launch needs an interactive terminal and an installed, signed-in assistant. "
+            "Uses the assistant's own account and usage limits, not the assessment budget. "
+            "No export or new scan. Example: appsec-analyzer review /path/to/assessment --with codex"
+        ),
+    )
+    review.add_argument("assessment", metavar="RESULT_DIR", help="Completed scan result directory")
+    review.add_argument(
+        "--with",
+        dest="assistant",
+        choices=("claude", "codex"),
+        help="Override the coding assistant recorded in the assessment",
+    )
+    review.add_argument("--preview", action="store_true", help="Inspect the handoff without starting an assistant")
     analyst = commands.add_parser("analyst", help="Focused design, change, and hypothesis analysis", add_help=False)
     analyst.add_argument("-h", "--help", action="store_true", dest="analyst_help")
     analyst.add_argument("args", nargs=argparse.REMAINDER)
@@ -414,6 +433,16 @@ def _capabilities() -> dict:
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
         "export": {"available": True, "model_calls": False, "requires_completed_assessment": True},
+        "review": {
+            "available": True,
+            "model_calls": True,
+            "assistants": ["claude", "codex"],
+            "interactive": True,
+            "requires_completed_assessment": True,
+            "preview_model_calls": False,
+            "external_session": True,
+            "qualified": False,
+        },
         "analyze_threats": {
             "available": True,
             "model_calls": True,
@@ -1173,6 +1202,10 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
 
             print(json.dumps(export_assessment(ns.assessment, ns.output, tuple(ns.formats)), sort_keys=True))
             return 0
+        if ns.command == "review":
+            from appsec_analyzer.review import review_assessment
+
+            return review_assessment(ns.assessment, assistant=ns.assistant, preview=ns.preview)
         if ns.command == "analyst":
             if ns.analyst_help:
                 ns.args = ["--help"]

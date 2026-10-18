@@ -167,6 +167,26 @@ Existing files under `docs/security/abuse-cases/` and `.appsec/abuse-cases/` rem
 
 The report shows confirmed and partially blocked attack scenarios in detail. Cases that were checked but remain inconclusive appear in a compact table with their unresolved evidence. Cases whose verification did not run appear separately under “Not verified”; an empty verifier result does not count as a completed check. Mitigated and inapplicable cases remain in the coverage overview. Proposed fixes address confirmed steps, but their effectiveness still needs validation; a review task is not a fix.
 
+## Review an assessment with AI
+
+After a scan completes, the next steps include `appsec-analyzer review` with that scan's result directory. The command opens interactive Claude Code or Codex with the existing assessment and the bundled [review skill](../skills/review-assessment/SKILL.md) for evidence-based discussion and remediation planning. No export or new scan is needed.
+
+```sh
+appsec-analyzer review /path/to/assessment
+appsec-analyzer review /path/to/assessment --with claude
+appsec-analyzer review /path/to/assessment --with codex --preview
+```
+
+Install and sign in to the chosen assistant first. Analyzer uses `claude` or `codex` from an absolute directory on your PATH. A saved `claude-cli` adapter defaults to Claude Code; `codex-cli` defaults to Codex. API providers, including the `codex` API profile, and older results without adapter metadata require `--with` or an interactive selection. The assistant uses its own configured model and account, independently of the assessment's role models and budget. Further usage can incur charges or consume subscription allowance, and native session-history settings apply.
+
+The result must be a private completed assessment with unchanged recorded artifacts, just as for export. Modified, incomplete, incompatible, linked, or secret-containing results are refused. Preview validates the result and shows the skill and context without launching an assistant; use `--with` if no coding assistant was recorded. Launch requires an interactive terminal and has a four-hour limit. Ctrl+C uses the native assistant's cancellation behavior; exit the assistant to return to Analyzer. Analyzer propagates its exit status; preparation errors return 2.
+
+The skill is supplied to this session with a read-only facts helper for IDs, severity, components, and topics. No global skill installation is needed. Ask, for example, “Explain F-003 and its evidence,” “Which mitigations should we do first?” or “Prepare a fix and tests for F-003.” The helper reads only validated published model data; an omitted requirements catalog is not evidence of compliance. For moved or deleted checkouts, select the appropriate source before asking for implementation; report discussion remains available.
+
+The session starts in a fresh private working directory with references to the original reports. Codex starts in a read-only sandbox with approval prompts; Claude Code starts in plan mode with project settings and automatic CLAUDE.md loading excluded. Repository and result-directory hooks are excluded; native user and managed controls remain active. User and managed assistant configuration and login remain external to the assessment. This is an external assistant session, not an Analyzer job confined to the original admitted source snapshot. For implementation, explicitly request a change and use the assistant's permission workflow after checking current source against the examined revision. Preserve the saved assessment; proposed fixes or risk decisions do not automatically update findings.
+
+Launch arguments follow the [official OpenAI CLI reference](https://developers.openai.com/codex/cli/reference/) and [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference). Offline tests cover artifact validation, selection, skill delivery, invocation, and packaged resources. Live interactive behavior and native assistant enforcement remain unqualified.
+
 ## Exports and compatibility
 
 Exports can be requested on `scan` or `assess`, or generated later without model calls:

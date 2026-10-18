@@ -2038,6 +2038,7 @@ def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path,
         f"              {tmp_path / 'security-assessment.pdf'}",
         "  Next        Triage the findings with the owning team and assign remediation owners",
         "              Inspect source citations and coverage before accepting or fixing findings",
+        f"  Review      appsec-analyzer review {tmp_path}",
     ]
 
 
@@ -2109,9 +2110,11 @@ def test_the_whole_closing_block_is_kept_as_plain_text_in_the_work_directory(tmp
     assert "  Next        " in saved and "⚠ one optional job was replaced" in saved
     assert saved.rstrip().endswith("✗ PR gate: 1 new threat(s) at or above 'high': T-001(high)")
     assert "\033[" not in saved
-    err = controller.ANSI_RE.sub("", console.err).splitlines()
+    from renderers.term_style import ANSI_RE
+
+    err = ANSI_RE.sub("", console.err).splitlines()
     closing = err[err.index("⚠ one optional job was replaced") :]
-    assert saved.splitlines() == controller.ANSI_RE.sub("", console.out).splitlines() + closing
+    assert saved.splitlines() == ANSI_RE.sub("", console.out).splitlines() + closing
 
 
 def test_a_summary_defect_after_publication_keeps_the_run_successful(tmp_path, monkeypatch, capsys):

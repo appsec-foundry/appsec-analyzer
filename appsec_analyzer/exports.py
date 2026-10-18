@@ -5,75 +5,21 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 import signal
-import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-import yaml
-from jsonschema import Draft202012Validator
-
 from appsec_analyzer import INTERFACE_VERSION, resource_root
 from appsec_analyzer.artifacts import publish_exclusive, read_bounded
+from appsec_analyzer.saved_assessment import MAX_FILE
+from appsec_analyzer.saved_assessment import SavedAssessmentError as ExportError
+from appsec_analyzer.saved_assessment import load_assessment as _load
+from appsec_analyzer.saved_assessment import validate_directory as _directory
 
 FORMATS = ("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks")
-MAX_FILE = 33_554_432
-MAX_TOTAL = 134_217_728
-
-
-class ExportError(ValueError):
-    """Only controller-authored diagnostics may cross the public export boundary."""
-
-
-def _directory(path: Path, *, private: bool = True) -> None:
-    for parent in reversed((path, *path.parents)):
-        info = parent.lstat()
-        if not stat.S_ISDIR(info.st_mode):
-            raise ExportError("export paths must contain only real directories")
-        if info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:
-            raise ExportError("export paths must not be writable by other users")
-    info = path.stat()
-    if private and (info.st_uid != os.getuid() or info.st_mode & 0o077):
-        raise ExportError("assessment and export directories must be owned by you and private (mode 0700)")
-
-
-def _load(source: Path) -> tuple[bytes, dict, dict[str, bytes], str]:
-    from runtime.assessment_state import MAX_STATE_BYTES, SCHEMA, STATE_NAME
-    from validators.secret_scan import scan_text
-    from validators.validate_intermediate import validate_threat_model_output
-
-    _directory(source)
-    state_body = read_bounded(source / STATE_NAME, MAX_STATE_BYTES)
-    state = json.loads(state_body)
-    if not Draft202012Validator(json.loads(SCHEMA.read_text())).is_valid(state) or state["status"] != "complete":
-        raise ExportError("export requires a completed compatible assessment state")
-    if len(state["deliverables"]) > 128:
-        raise ExportError("too many saved assessment artifacts")
-    files = {}
-    total = 0
-    for name, expected in state["deliverables"].items():
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
-            raise ExportError("invalid saved artifact name")
-        body = read_bounded(source / name, MAX_FILE)
-        total += len(body)
-        if total > MAX_TOTAL or hashlib.sha256(body).hexdigest() != expected:
-            raise ExportError("saved assessment artifacts exceed limits or no longer match their recorded hashes")
-        files[name] = body
-    stems = [s for s in ("security-assessment", "threat-model") if s + ".yaml" in files]
-    if len(stems) != 1:
-        raise ExportError("assessment needs one unambiguous recorded YAML model")
-    stem = stems[0]
-    model = yaml.safe_load(files[stem + ".yaml"])
-    if not validate_threat_model_output(model)[0]:
-        raise ExportError("saved model fails the current assessment contract; migrate or reassess explicitly")
-    for name, body in files.items():
-        if name.endswith((".yaml", ".json", ".md", ".svg", ".html")) and scan_text(body.decode("utf-8")):
-            raise ExportError("saved artifacts contain an unmasked secret; no export was published")
-    return state_body, state, files, stem
 
 
 def _run(arguments: list[str], work: Path) -> None:

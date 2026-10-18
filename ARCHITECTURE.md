@@ -15,6 +15,7 @@ flowchart TD
     CLI --> Request[scan / assess: AssessmentRequest]
     CLI --> Scanners[scan-sources: deterministic scanners]
     CLI --> Export[export: validated saved artifacts and deterministic converters]
+    CLI --> Review[review: saved assessment and interactive assistant handoff]
     Score --> Collection[Scanner collection and score calculation]
     Analyst --> AnalystController[Retained analyst controller]
     Request --> AssessmentController[Retained assessment controller]
@@ -38,6 +39,7 @@ Keep orchestration, computation, and presentation separate within each workflow.
 | Assessment invocation | [assessment/request.py](appsec_analyzer/assessment/request.py) carries validated options in `AssessmentRequest` from the public CLI to the retained controller. It preserves original configuration arguments and argument-list compatibility for direct script callers. |
 | Assessment execution and presentation | [orchestration_controller.py](scripts/orchestrator/orchestration_controller.py) owns pipeline execution; [assessment/console.py](appsec_analyzer/assessment/console.py) owns terminal progress. |
 | Saved assessment export | [exports.py](appsec_analyzer/exports.py) validates completed state and artifact digests, invokes retained converters with finite deadlines, and publishes exclusively into a new private directory; [export_assets.py](appsec_analyzer/export_assets.py) confines document resources and rejects active markup before embedding. No model host is created. |
+| Assessment review | [review.py](appsec_analyzer/review.py) selects and starts an interactive assistant with the bundled review skill and existing report paths. [review_context.py](appsec_analyzer/review_context.py) reuses the engine facts builder for validated, read-only queries. The native assistant owns its dialogue, permissions, account, and usage; this does not resume an Analyzer model job. |
 
 ## Shared services and dependency direction
 
@@ -46,6 +48,7 @@ Command adapters call application workflows, which use shared services and engin
 | Shared concern | Module |
 | --- | --- |
 | Bounded artifact reads and exclusive publication | [artifacts.py](appsec_analyzer/artifacts.py) |
+| Completed assessment admission for export and review | [saved_assessment.py](appsec_analyzer/saved_assessment.py) |
 | Requirements catalog admission | [catalogs.py](appsec_analyzer/catalogs.py) |
 | Terminal fields and export targets | [terminal.py](appsec_analyzer/terminal.py), [targets.py](appsec_analyzer/targets.py) |
 | Scanner execution and output validation | [scanners/execution.py](appsec_analyzer/scanners/execution.py) |

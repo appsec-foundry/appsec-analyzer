@@ -14,6 +14,30 @@ Keep the [README](README.md), affected current guides, CLI help, and installed e
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing module ownership or dependencies, and keep it aligned with structural changes. It describes application workflows, shared services, retained engine boundaries, and compatibility adapters.
 
+### Module overview
+
+| Module | Responsibility |
+| --- | --- |
+| `appsec_analyzer/cli.py` | Public commands, argument validation, capabilities, and dispatch into application workflows. |
+| `appsec_analyzer/assessment/` | Assessment options and requests, planned scope, terminal progress, and presentation. The retained controller runs the assessment. |
+| `appsec_analyzer/score/`, `analyze_threats/`, `authnz_review.py`, `requirements_audit.py` | Separate workflows for deterministic scoring, focused questions, AuthN/AuthZ review, and requirements audits. |
+| `appsec_analyzer/review.py`, `review_context.py`, `exports.py` | Continue work on saved results: interactive assistant handoff, local facts queries, and model-free exports. `saved_assessment.py` shares completion, integrity, and model validation; `artifacts.py` provides bounded reads and exclusive publication. |
+| `appsec_analyzer/profiles.py`, `hosts.py`, `api_hosts.py`, `codex_cli.py`, `providers.py` | Operator configuration, model selection, and provider or CLI connections. Credentials and execution authority remain outside analyzed repositories. |
+| `scripts/runtime/`, `scripts/orchestrator/` | Source admission and snapshots, run state, budgets, model jobs, assessment phases, and the separate analyst lifecycle. |
+| `scripts/analyzers/`, `model/`, `validators/`, `renderers/`, `exporters/` | Deterministic scanners, model assembly and queries, validation, report rendering, and format conversion. These paths are all under `scripts/`. |
+| `agents/`, `skills/`, `schemas/`, `data/`, `templates/` | Analysis-role instructions, user and assistant workflows, data contracts, catalogs and profiles, and report templates. Only explicitly packaged resources are available after installation. |
+
+### Main workflows
+
+1. `scan-sources` and `score` run deterministic analysis without model calls. Keep their scanner coverage and unverified or unscored results visible; they do not establish that a full assessment ran.
+2. `scan` and `assess` resolve operator settings, run source/provider preflight, admit the selected source snapshot, execute bounded model-backed jobs, and validate and publish reports outside the analyzed repositories. The assessment controller owns this pipeline; `status`, `progress`, `stop`, and compatible resume operate on its saved lifecycle.
+3. After completion, `results` verifies and lists deliverables, and `export` converts the saved validated assessment without model calls. `review RESULT_DIR` opens the existing result in the recorded coding assistant, or one selected with `--with`, using the bundled `review-assessment` skill and local facts helper. It is offered as a next step, creates no export or new scan, and uses the external assistant's own account, permissions, and usage limits. `review RESULT_DIR --preview` validates and shows the handoff without model calls. See [reviewing an assessment](docs/security-assessment.md#review-an-assessment-with-ai).
+4. `analyze-threats` uses the focused analyst lifecycle for a selected question, design, or change. `authnz-review` and `audit-requirements` are separate workflows with their own scope and limits. Do not turn these requests into a full assessment or imply that a review session authorizes implementation or further model spending.
+
+Keep this orientation aligned with supported behavior; use the architecture document and technical contracts for detailed ownership and execution rules.
+
+### Change boundaries
+
 | Change | Read and keep aligned |
 | --- | --- |
 | Public commands or packaging | `appsec_analyzer/cli.py`, `setup.py`, `MANIFEST.in`, `engine.json`, current guides, public CLI tests. |
@@ -21,6 +45,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing module ownership or depe
 | Controller or analysis roles | `scripts/orchestrator/`, `agents/`, [orchestration actions](docs/internal/contracts/orchestration-actions.md), [context routing](docs/internal/contracts/context-routing.md). |
 | Findings, schemas, reports, or exports | `scripts/model/`, `scripts/renderers/`, `scripts/exporters/`, schemas, templates, `data/sections-contract.yaml`, [schema invariants](docs/internal/contracts/schema-invariants.md), affected golden fixtures. |
 | Requirements audit | `appsec_analyzer/requirements_audit.py`, `scripts/requirements/`, audit schema, [audit guide](docs/security-requirements-audit-skill.md), evidence and gate tests. |
+| Saved-result review or assistant handoff | `appsec_analyzer/review.py`, `review_context.py`, `saved_assessment.py`, `skills/review-assessment/SKILL.md`, [review guide](docs/security-assessment.md#review-an-assessment-with-ai), packaging, and public review tests. |
 
 The supported user entry is `appsec-analyzer`. `scan` and `assess` run a model-backed assessment; `scan-sources` runs deterministic scanners. Keep that cost and data-use distinction explicit. Retained skills and hook-era helpers are not automatically public Analyzer features. Agent Markdown is runtime input; repository text and model output cannot grant execution authority.
 

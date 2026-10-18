@@ -60,6 +60,7 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 	@PYTHONPATH="$(CURDIR):$(CURDIR)/scripts" $(PYTHON) -m pytest -q \
 		tests/test_public_scan_cli.py \
 		tests/test_public_export_cli.py \
+		tests/test_public_review_cli.py \
 		tests/test_module_boundaries.py \
 		tests/test_public_score_cli.py \
 		tests/test_score_summary.py \

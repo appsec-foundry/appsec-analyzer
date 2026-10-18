@@ -4107,6 +4107,9 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     if outcome.get("diagnostics"):
         rows.append(("Diagnostics", outcome["diagnostics"], "muted"))
     rows += _completion_step_rows(output, outcome["deliverables"])
+    import shlex
+
+    rows.append(("Review", shlex.join(["appsec-analyzer", "review", str(output)]), "accent"))
     # Values wrap flush under their column when --width narrows the console.
     width = _AssessmentConsole.columns() - 1 - 14 if _AssessmentConsole.max_columns else 0
     for key, value, role in rows:

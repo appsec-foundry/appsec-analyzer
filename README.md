@@ -212,6 +212,15 @@ appsec-analyzer export --assessment /path/to/assessment \
 
 The source must have a completed assessment state and unchanged, recorded artifacts. The export directory must be new and outside Git checkouts. See [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).
 
+Work with an existing assessment in Claude Code or Codex, using the result directory printed by your scan:
+
+```sh
+appsec-analyzer review /path/to/assessment
+appsec-analyzer review /path/to/assessment --with codex
+```
+
+Analyzer defaults to the coding assistant recorded in the assessment and offers this command after completion. The installed assistant receives the existing reports and a bundled review skill for finding questions, evidence lookup, and remediation planning; no export or new scan is needed. `--preview` shows the handoff without model calls. Review needs an interactive terminal and a signed-in assistant, starts in planning/read-only mode, and uses that assistant's own account and usage charges independently of the scan budget. See [reviewing an assessment](docs/security-assessment.md#review-an-assessment-with-ai) for selection, permissions, and limits.
+
 To choose where assessment results are stored, create a directory outside every selected repository and pass it with `--output`. For `scan-sources`, this saves `scan-result.json` in addition to printing the summary; an existing result is refused without being overwritten.
 
 ## More commands

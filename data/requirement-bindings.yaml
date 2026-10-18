@@ -884,6 +884,7 @@ requirements:
   REQ-015:
     applies_to:
       - appsec_analyzer/exports.py
+      - appsec_analyzer/saved_assessment.py
       - appsec_analyzer/export_assets.py
       - appsec_analyzer/cli.py
       - skills/export-security-assessment/**
@@ -906,6 +907,31 @@ requirements:
       - tests/test_export_threat_model_skill.py::test_sarif_helper_runs_standalone
       - tests/test_export_threat_model_skill.py::test_pentest_helper_runs_yaml_only
       - tests/test_export_threat_model_skill.py::test_threat_dragon_helper_runs_standalone
+
+  REQ-037:
+    applies_to:
+      - appsec_analyzer/review.py
+      - appsec_analyzer/review_context.py
+      - appsec_analyzer/saved_assessment.py
+      - appsec_analyzer/cli.py
+      - scripts/orchestrator/orchestration_controller.py
+      - skills/review-assessment/**
+      - setup.py
+      - MANIFEST.in
+    decisions: []
+    documents:
+      - README.md
+      - ARCHITECTURE.md
+      - docs/security-assessment.md
+      - skills/appsec-analyzer/SKILL.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_public_review_cli.py::test_preview_uses_recorded_assistant_and_bundled_skill
+      - tests/test_public_review_cli.py::test_launch_passes_context_without_export_or_shell
+      - tests/test_public_review_cli.py::test_invalid_assessment_never_launches
+      - tests/test_public_review_cli.py::test_query_returns_finding_and_linked_mitigations
+      - tests/test_public_review_cli.py::test_completion_offers_review
 
   REQ-016:
     applies_to:
