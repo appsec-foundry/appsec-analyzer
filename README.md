@@ -48,89 +48,120 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/
 
 ## Modes
 
-Analyzer offers deterministic checks without model calls, a full model-backed assessment, and narrower model-backed reviews. Every command is a subcommand of `appsec-analyzer`; add `--help` to see all its options. The examples use `project` for the analyzed repository and `assessment` for a results directory.
+Every mode is a subcommand of `appsec-analyzer`; add `--help` to see its options. `score`, `scan-sources`, and `export` work without model calls. All other modes send source excerpts to a model provider and stop at a spending limit; see [Security and data use](#security-and-data-use) and [Options](#options).
 
-| Mode | What it does | Example |
-| --- | --- | --- |
-| [`score`](#deterministic-checks) | Quick 0–100 score for a repository. No model calls. | `appsec-analyzer score project` |
-| [`scan-sources`](#deterministic-checks) | Raw scanner observations. No model calls. | `appsec-analyzer scan-sources --repo project` |
-| [`scan`, `assess`](#full-assessment) | Full assessment of a whole system. Model calls, default limit USD 20 per run. | `appsec-analyzer scan --repo project --output assessment` |
-| [`review`](#saved-assessments) | Discuss a saved assessment in Claude Code or Codex. Model calls, billed to the assistant's own account. | `appsec-analyzer review assessment` |
-| [`analyze-threats`](#focused-reviews) | Ask about a design or a change. Model calls, default limit USD 1 per call. | `appsec-analyzer analyze-threats "Can a user read another tenant's records?"` |
-| [`authnz-review`](#focused-reviews) | Review authentication and authorization only. Model calls, default limit USD 5 per run. | `appsec-analyzer authnz-review --repo project` |
-| [`audit-requirements`](#focused-reviews) | Check a security requirements catalog. Model calls, default limit USD 5 per run. | `appsec-analyzer audit-requirements --repo project --demo --output audit --host claude-cli` |
-| [`export`](#saved-assessments) | Convert a saved assessment to other formats. No model calls. | `appsec-analyzer export --assessment assessment --output export` |
+| Mode | Purpose |
+| --- | --- |
+| [`scan`](#scan-full-security-assessment) | Full security assessment of a repository or a system of repositories. |
+| [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. |
+| [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. |
+| [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. |
+| [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. |
+| [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. |
+| [`review`](#review-discuss-an-assessment-with-ai) | Discuss a finished assessment and plan fixes with an AI coding assistant. |
+| [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. |
 
-### Deterministic checks
+### `scan`: full security assessment
 
-`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It reports `undetermined` when coverage is too low. See [Security score](docs/security-score.md).
-
-```sh
-appsec-analyzer score /path/to/project
-appsec-analyzer score https://github.com/your-org/your-project.git --json
-```
-
-`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage.
+`scan` maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It uses model calls. See [Security assessment](docs/security-assessment.md).
 
 ```sh
-appsec-analyzer scan-sources --repo /path/to/project
-```
-
-Both commands only see what their rules cover. They do not replace a full assessment.
-
-### Full assessment
-
-`scan` maps architecture and data flows, checks the security controls, and reports findings, open questions, and prioritized fixes. Repeat `--repo` to assess several repositories as one system. See [Security assessment](docs/security-assessment.md).
-
-```sh
+# Assess one repository
 appsec-analyzer scan --repo /path/to/project
-appsec-analyzer scan --repo /path/to/service --repo /path/to/client --budget 30
+
+# Assess a backend and its web frontend together as one system
+appsec-analyzer scan --repo /path/to/backend --repo /path/to/frontend
 ```
 
-`assess` runs the same assessment but has no defaults: it requires `--repo` and an explicit `--profile`. Use it in scripts and CI. See [Hosts and models](docs/model-selection.md).
+`assess` runs the same assessment without defaults: it requires `--repo` and an explicit `--profile`. Use it in scripts and CI. See [Hosts and models](docs/model-selection.md).
 
 ```sh
+# Run in CI with a fixed provider profile and without questions
 appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
 ```
 
-### Focused reviews
+### `analyze-threats`: answer a security question
 
-These commands have a narrower scope than a full assessment and need no prior assessment.
-
-`analyze-threats` answers a security question about the code, a planned design, or a selected change. See [Threat Analyst](docs/threat-analyst.md).
+`analyze-threats` answers one security question about the current code, a planned design, or a selected change. It needs no prior assessment and uses model calls. See [Threat Analyst](docs/threat-analyst.md).
 
 ```sh
-appsec-analyzer analyze-threats "Can a normal user read another tenant's records?"
-appsec-analyzer analyze-threats "Does this remove an authorization check?" --staged
-appsec-analyzer analyze-threats "How should we protect exports?" --design
-appsec-analyzer analyze-threats "Does this weaken tenant isolation?" --pr https://github.com/your-org/your-project/pull/42
+# Ask about the current code
+appsec-analyzer analyze-threats "Can a normal user read another customer's orders?"
+
+# Check your staged changes before you commit them
+appsec-analyzer analyze-threats "Does this change weaken access control?" --staged
+
+# Discuss a planned feature before it is built
+appsec-analyzer analyze-threats "How should we protect the new CSV export?" --design
 ```
 
-`authnz-review` checks routes, authentication checks, and authorization patterns of one repository. `--gate` fails on Critical or High findings. See [AuthNZ review](docs/authnz-review.md).
+### `authnz-review`: authentication and authorization review
+
+`authnz-review` checks the routes, authentication checks, and authorization patterns of one repository. It needs no prior assessment and uses model calls. See [AuthNZ review](docs/authnz-review.md).
 
 ```sh
+# Review login and permission checks
 appsec-analyzer authnz-review --repo /path/to/project
+
+# Save the report and fail a CI job on Critical or High findings
 appsec-analyzer authnz-review --repo /path/to/project --save --gate
 ```
 
-`audit-requirements` checks whether a repository implements each requirement of a local YAML catalog. The output directory must exist. `--demo` uses a bundled sample catalog instead of `--requirements`. See [Requirements audit](docs/security-requirements-audit-skill.md).
+### `audit-requirements`: requirements audit
+
+`audit-requirements` checks whether a repository implements each requirement of a local YAML catalog. It uses model calls through Claude CLI. The output directory must already exist. See [Requirements audit](docs/security-requirements-audit-skill.md).
 
 ```sh
+# Try the audit with the bundled sample catalog
+mkdir /path/to/audit
+appsec-analyzer audit-requirements --repo /path/to/project --demo --output /path/to/audit --host claude-cli
+
+# Check your own catalog and write a Markdown report
 appsec-analyzer audit-requirements --repo /path/to/project \
-  --requirements /path/to/catalog.yaml --output /path/to/audit \
-  --host claude-cli --md --gate
+  --requirements /path/to/catalog.yaml --output /path/to/audit --host claude-cli --md
 ```
 
-### Saved assessments
+### `score`: deterministic security rating
 
-`review` opens a completed assessment in Claude Code or Codex so you can discuss findings and plan fixes. It uses the assistant's own login and usage limits, not the scan budget. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
+`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It makes no model calls. It reports `undetermined` when coverage is too low. It sees only what its rules cover and does not replace `scan`. See [Security score](docs/security-score.md).
 
 ```sh
-appsec-analyzer review /path/to/assessment
-appsec-analyzer review /path/to/assessment --with codex --preview
+# Rate a local checkout
+appsec-analyzer score /path/to/project
+
+# Rate a remote repository and print JSON for scripts
+appsec-analyzer score https://github.com/your-org/your-project.git --json
 ```
 
-`export` writes a completed assessment to other formats without model calls. See [Reports and exports](#reports-and-exports).
+### `scan-sources`: raw scanner observations
+
+`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It makes no model calls and does not replace `scan`.
+
+```sh
+# Show what the scanners found, without a rating
+appsec-analyzer scan-sources --repo /path/to/project
+```
+
+### `review`: discuss an assessment with AI
+
+`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows the handoff without model calls. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
+
+```sh
+# Discuss the findings with the assistant recorded in the assessment
+appsec-analyzer review /path/to/assessment
+
+# Use Codex instead
+appsec-analyzer review /path/to/assessment --with codex
+```
+
+### `export`: other report formats
+
+`export` writes a finished assessment to other formats without model calls. The destination must be a new directory. See [Reports and exports](#reports-and-exports).
+
+```sh
+# Create SARIF for code scanning and HTML for reading
+appsec-analyzer export --assessment /path/to/assessment --output /path/to/export --formats sarif html
+```
 
 ### Helper commands
 
