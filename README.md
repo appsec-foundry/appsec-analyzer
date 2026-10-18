@@ -269,7 +269,7 @@ Command-line options override the defaults from a scan profile.
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
 | `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. |
-| `--assessment-depth LEVEL` | `standard` (default, includes business-logic analysis) or `thorough`, which can cost more without producing more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). |
+| `--assessment-depth LEVEL` | `quick` (no business-logic checks), `standard` (default), or `thorough`. With Claude, `thorough` uses Opus for STRIDE and cost about 1.8× as much in one Juice Shop comparison, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. |
