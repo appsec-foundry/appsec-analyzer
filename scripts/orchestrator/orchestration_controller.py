@@ -3586,7 +3586,7 @@ def assess_repositories(
                     # One header after the output directory, scope and configuration
                     # were accepted, so a refused start prints only its reason.
                     console.facts(
-                        "appsec-analyzer — LLM-backed code assessment (alpha)",
+                        "appsec-analyzer — LLM-backed code-based security assessment (alpha)",
                         _assessment_intro(
                             ns,
                             budget,
