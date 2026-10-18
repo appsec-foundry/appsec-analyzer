@@ -166,7 +166,30 @@ If a provider rate-limits the run or the connection stays down, Analyzer retries
 
 ## Reports and exports
 
-Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Request more formats when you start the scan, for example `scan --repo /path/to/project --sarif --html`:
+Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. These examples come from an assessment of OWASP Juice Shop.
+
+The runtime architecture with its data flows and attack paths:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-dark.svg">
+  <img src="docs/images/figure1-example.svg" alt="Runtime architecture and attack paths in the Juice Shop assessment">
+</picture>
+
+The build pipeline and the most severe supply-chain attacks on it:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1b-example-dark.svg">
+  <img src="docs/images/figure1b-example.svg" alt="Build pipeline and supply-chain attack paths in the Juice Shop assessment">
+</picture>
+
+Threat actors, their attack routes, and the business harm they can cause:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure2-example-dark.svg">
+  <img src="docs/images/figure2-example.svg" alt="Threat actors, attack routes, weaknesses, and business harm in the Juice Shop assessment">
+</picture>
+
+Request more formats when you start the scan, for example `scan --repo /path/to/project --sarif --html`:
 
 | Flag | Output |
 | --- | --- |
