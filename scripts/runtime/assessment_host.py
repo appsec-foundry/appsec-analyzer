@@ -17,7 +17,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from runtime.analyst_host import HostCancelled, HostTimeout, Transport, TransportError
-from runtime.multi_repo_scope import AssessmentScope, ScopeError
+from runtime.multi_repo_scope import AssessmentScope, ScopeError, _relative
 
 MAX_EXCHANGES = 6
 MAX_READS = 12
@@ -498,6 +498,8 @@ def run_exchange(
     if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
         raise ExchangeError("Invalid assessment time limit")
     admitted = {(r.repository_id, path) for r in scope.repositories for path in r.files}
+    repository_ids = {r.repository_id for r in scope.repositories}
+    admitted_paths = {path for _, path in admitted}
     if not isinstance(allowed_sources, frozenset) or not allowed_sources <= admitted:
         raise ExchangeError("Task source selection is outside admitted scope")
     schema = response_schema(artifact_schema)
@@ -685,6 +687,25 @@ def run_exchange(
                     )
                 continue
             return ExchangeResult(artifact, tuple(slices), number + extra, cost)
+        # Validate every proposal before serving any member of the batch, even
+        # when the read allowance is exhausted. A guessed relative filename is
+        # correctable; an unsafe path or confused repository identity is not.
+        for request in reply.payload["reads"]:
+            rid, path = request["repository_id"], request["path"]
+            reason = None
+            if rid not in repository_ids:
+                reason = "unknown repository ID"
+            elif (rid, path) not in admitted and path in admitted_paths:
+                reason = "path belongs to a different repository"
+            else:
+                try:
+                    _relative(path)
+                except ScopeError:
+                    reason = "invalid repository-relative source path"
+            if reason is not None:
+                raise ExchangeError(
+                    f"Model requested a source outside this task's selection ({reason}; request was not served)"
+                )
         if preload and read_rounds:
             feedback = {
                 "reason": "This job's one round of further reads is used; the requested slices were not served.",
@@ -696,40 +717,29 @@ def run_exchange(
         range_feedback = None
         for request in reply.payload["reads"]:
             key = tuple(request[k] for k in ("repository_id", "path", "start_line", "end_line"))
+            # Refused proposals consume the same finite allowance as reads;
+            # repeated proposals cannot expand it or extend MAX_EXCHANGES.
+            if key not in seen and key not in preloaded and len(seen) >= MAX_READS:
+                range_feedback = {
+                    "reason": f"The limit of {MAX_READS} source reads is reached; later slices were not served.",
+                    "instruction": "Return a complete result from the supplied source_slices.",
+                }
+                break
             if key[:2] not in allowed_sources:
-                # Another admitted file, also of another selected repository, is
-                # a scope question the model can correct: nothing is served. A
-                # flow's evidence may name the peer repository's file. An
-                # unadmitted repository or path breaks isolation and fails.
-                if key[:2] not in admitted:
-                    if not any(repo.repository_id == key[0] for repo in scope.repositories):
-                        reason = "unknown repository ID"
-                    elif any(path == key[1] for _, path in admitted):
-                        reason = "path belongs to a different repository"
-                    else:
-                        reason = "path is not in the admitted source inventory"
-                    raise ExchangeError(
-                        f"Model requested a source outside this task's selection ({reason}; request was not served)"
-                    )
+                # No lookup or read of an unselected file: a model proposal is
+                # not authority. Do not echo the guessed path into feedback.
                 seen.add(key)
                 range_feedback = {
-                    "reason": f"{key[1]} is not among this task's source files and was not served.",
-                    "instruction": "Read only these files: "
-                    + ", ".join(sorted(path for _, path in allowed_sources))[:MAX_FEEDBACK_CHARS],
+                    "reason": "A requested file is not among this task's permitted sources and was not served.",
+                    "instruction": "Read only exact repository_id and path pairs from the task's source list. "
+                    "Do not guess filenames or expand imports. If required evidence is unavailable, "
+                    "report the affected analysis as unresolved instead of asserting an unsupported conclusion.",
                 }
                 continue
             # Each call is stateless; a slice already in source_slices is not
             # served twice and does not count against the read limit.
             if key in seen or key in preloaded:
                 continue
-            # The model cannot know which of its reads exhausts the budget, so
-            # reads past it are refused back rather than failing the job.
-            if len(seen) >= MAX_READS:
-                range_feedback = {
-                    "reason": f"The limit of {MAX_READS} source reads is reached; later slices were not served.",
-                    "instruction": "Return a complete result from the supplied source_slices.",
-                }
-                break
             rid, path, start, end = key
             # A reversed range names the same lines; an oversized range is
             # narrowed to the slice limit; a range past the end of an

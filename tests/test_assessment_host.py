@@ -115,7 +115,6 @@ def test_source_slices_carry_their_file_line_numbers(tmp_path, path, source, sta
     [
         read("../outside"),
         read("app.py", "repo-aaaaaaaaaaaaaaaa"),
-        read("missing.py"),
         {**read(), "command": "cat /etc/passwd"},
         {**complete(), "artifact": {"summary": "ok", "execute": "command"}},
     ],
@@ -132,8 +131,14 @@ def test_unauthorized_proposals_fail_before_another_model_call(tmp_path, proposa
     [
         ("app.py", "repo-aaaaaaaaaaaaaaaa", "unknown repository ID"),
         ("peer.py", REPO, "path belongs to a different repository"),
-        ("guessed.js", REPO, "path is not in the admitted source inventory"),
-        ("../private\nforged-log-entry", REPO, "path is not in the admitted source inventory"),
+        ("../private\nforged-log-entry", REPO, "invalid repository-relative source path"),
+        ("../outside", REPO, "invalid repository-relative source path"),
+        ("/etc/passwd", REPO, "invalid repository-relative source path"),
+        ("src/../app.py", REPO, "invalid repository-relative source path"),
+        ("src//app.py", REPO, "invalid repository-relative source path"),
+        (".git/config", REPO, "invalid repository-relative source path"),
+        ("C:\\private", REPO, "invalid repository-relative source path"),
+        ("file:///private", REPO, "invalid repository-relative source path"),
     ],
 )
 def test_scope_failure_explains_the_cause_without_serving_or_echoing_the_request(
@@ -371,8 +376,8 @@ def test_a_selected_repository_is_not_automatically_readable_by_every_task(tmp_p
         should_stop=lambda: False,
     )
     assert result.source_slices == () and not any("x()" in prompt for prompt in model.prompts)
-    assert "admin.js is not among this task's source files" in model.prompts[1]
-    assert "Read only these files: app.py" in model.prompts[1]
+    assert "not among this task's permitted sources" in model.prompts[1]
+    assert "Read only exact repository_id and path pairs" in model.prompts[1]
 
 
 def test_a_file_of_another_selected_repository_is_refused_back_not_fatal(tmp_path):
@@ -397,7 +402,7 @@ def test_a_file_of_another_selected_repository_is_refused_back_not_fatal(tmp_pat
         should_stop=lambda: False,
     )
     assert result.source_slices == () and not any("secret_peer_code" in prompt for prompt in model.prompts)
-    assert "svc.py is not among this task's source files" in model.prompts[1]
+    assert "not among this task's permitted sources" in model.prompts[1]
 
 
 def test_host_schema_drops_keywords_a_strict_host_rejects_but_keeps_structure():
@@ -454,8 +459,6 @@ def test_an_out_of_file_range_is_reported_back_and_an_oversized_one_is_narrowed(
     result = invoke(model, tmp_path)
     assert "lines 50-60" in model.prompts[1] and "does not exist" in model.prompts[1]
     assert [(s["start_line"], s["end_line"]) for s in result.source_slices] == [(1, 1)]
-    with pytest.raises(host.ExchangeError, match="outside"):
-        invoke(Model([read("missing.py")]), tmp_path)
 
 
 def test_reads_past_the_budget_are_refused_back_and_the_budget_is_stated(tmp_path, monkeypatch):
@@ -855,3 +858,102 @@ def test_a_job_without_removed_constraints_keeps_its_instructions_and_a_job_with
     )
     assert model.systems[0].startswith("trusted task") and "result.summary: not" in model.systems[0]
     assert "bypassSecurityTrustHtml" in model.systems[0]
+
+
+@pytest.mark.parametrize("path", ["guessed.ts", "app.js", "node_modules/dependency/index.js", "repo/app.py"])
+def test_unlisted_relative_source_proposal_can_be_corrected_without_reading_it(tmp_path, monkeypatch, path):
+    # Also place the guessed file on disk: existence must not admit it.
+    source = tmp_path / "source" / path
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("UNADMITTED_CONTENT_MUST_NOT_REACH_MODEL")
+    real_read = host.read_slice
+    served = []
+
+    def checked_read(scope, rid, requested, start, end):
+        assert requested == "app.py"
+        served.append((rid, requested))
+        return real_read(scope, rid, requested, start, end)
+
+    monkeypatch.setattr(host, "read_slice", checked_read)
+    model = Model([read(path), read(), complete()])
+    result = invoke(model, tmp_path)
+    assert result.calls == 3 and result.usd == pytest.approx(0.03)
+    assert served == [(REPO, "app.py")]
+    assert [row["path"] for row in result.source_slices] == ["app.py"]
+    assert "not among this task's permitted sources" in model.prompts[1]
+    assert "unresolved" in model.prompts[1]
+    assert all(path not in prompt and "UNADMITTED_CONTENT" not in prompt for prompt in model.prompts)
+
+
+def test_refused_proposals_consume_read_allowance_without_going_negative(tmp_path, monkeypatch):
+    monkeypatch.setattr(host, "MAX_READS", 2)
+    monkeypatch.setattr(host, "read_slice", lambda *args: pytest.fail("Refused source reached retrieval"))
+    batch = {**read(), "reads": read("first.ts")["reads"] + read("second.ts")["reads"]}
+    model = Model([batch, read(), complete()])
+    result = invoke(model, tmp_path)
+    assert result.source_slices == () and result.calls == 3
+    for prompt in model.prompts[1:]:
+        assert '"source_reads_remaining": 0' in prompt
+        assert '"source_reads_remaining": -' not in prompt
+    assert "limit of 2 source reads" in model.prompts[2]
+
+
+def test_repeated_unlisted_proposals_exhaust_exchange_limit_without_retrieval(tmp_path, monkeypatch):
+    monkeypatch.setattr(host, "read_slice", lambda *args: pytest.fail("Refused source reached retrieval"))
+    model = Model([read("guessed.ts")] * host.MAX_EXCHANGES)
+    with pytest.raises(host.ModelAnswerFailure, match="exchange limit"):
+        invoke(model, tmp_path)
+    assert len(model.prompts) == host.MAX_EXCHANGES
+
+
+def test_read_batch_with_a_fatal_proposal_is_rejected_before_any_retrieval(tmp_path, monkeypatch):
+    monkeypatch.setattr(host, "read_slice", lambda *args: pytest.fail("Invalid batch reached retrieval"))
+    batch = {**read(), "reads": read()["reads"] + read("../outside")["reads"]}
+    model = Model([batch, complete()])
+    with pytest.raises(host.ExchangeError, match="invalid repository-relative source path"):
+        invoke(model, tmp_path)
+    assert len(model.prompts) == 1
+
+
+@pytest.mark.parametrize("proposal", [read("../outside"), read("app.py", "repo-aaaaaaaaaaaaaaaa")])
+def test_fatal_proposal_still_stops_after_preloaded_read_round_is_spent(tmp_path, proposal):
+    model = Model([read(), proposal, complete()])
+    with pytest.raises(host.ExchangeError, match="outside this task's selection"):
+        host.run_exchange(
+            model,
+            view(tmp_path),
+            instructions="task",
+            context={},
+            artifact_schema=ARTIFACT,
+            allowed_sources=frozenset({(REPO, "app.py")}),
+            timeout_s=30,
+            should_stop=lambda: False,
+            preload=[(REPO, "app.py", 1, 1)],
+        )
+    assert len(model.prompts) == 2
+
+
+def test_unlisted_proposal_uses_the_preloaded_jobs_single_read_round(tmp_path, monkeypatch):
+    real_read = host.read_slice
+    served = []
+
+    def checked_read(*args):
+        served.append(args[2:])
+        return real_read(*args)
+
+    monkeypatch.setattr(host, "read_slice", checked_read)
+    model = Model([read("guessed.ts"), read(), complete()])
+    result = host.run_exchange(
+        model,
+        view(tmp_path),
+        instructions="task",
+        context={},
+        artifact_schema=ARTIFACT,
+        allowed_sources=frozenset({(REPO, "app.py")}),
+        timeout_s=30,
+        should_stop=lambda: False,
+        preload=[(REPO, "app.py", 1, 1)],
+    )
+    assert served == [("app.py", 1, 1)] and result.calls == 3
+    assert '"source_reads_remaining": 0' in model.prompts[1]
+    assert "one round of further reads is used" in model.prompts[2]

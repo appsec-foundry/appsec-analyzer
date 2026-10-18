@@ -912,6 +912,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_jobs.py::test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_receipted
       - tests/test_assessment_diagnostics.py::test_required_failure_retains_selector_role_and_long_rejection
       - tests/test_assessment_diagnostics.py::test_accepted_and_reused_jobs_share_receipt_identity
       - tests/test_assessment_diagnostics.py::test_optional_model_failure_is_recorded_as_replacement
@@ -1491,6 +1492,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_host.py::test_unlisted_relative_source_proposal_can_be_corrected_without_reading_it
+      - tests/test_assessment_host.py::test_read_batch_with_a_fatal_proposal_is_rejected_before_any_retrieval
       - tests/test_public_score_cli.py::test_escaping_link_is_rejected_before_scanners
       - tests/test_public_score_cli.py::test_scanner_cannot_cite_outside_snapshot
       - tests/test_public_score_cli.py::test_snapshot_masks_secrets_excludes_private_files_and_cannot_run_hooks
@@ -1598,6 +1601,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_host.py::test_refused_proposals_consume_read_allowance_without_going_negative
+      - tests/test_assessment_host.py::test_repeated_unlisted_proposals_exhaust_exchange_limit_without_retrieval
+      - tests/test_assessment_host.py::test_fatal_proposal_still_stops_after_preloaded_read_round_is_spent
       - tests/test_codex_cli.py::test_preflight_rejects_api_login_and_unreviewed_versions
       - tests/test_active_stride_policy.py::test_active_stride_prompt_has_evidence_rules_and_no_removed_tool_procedure
       - tests/test_assessment_host.py::test_unauthorized_proposals_fail_before_another_model_call

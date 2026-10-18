@@ -895,3 +895,29 @@ def test_subscription_quota_error_cannot_be_replaced_by_optional_fallback(tmp_pa
         jobs.execute(**kwargs, on_failure=lambda _: pytest.fail("quota failure was hidden"))
     assert caught.value.reason == "quota_exhausted"
     assert jobs.budget.calls == 1 and jobs.budget.spent_usd is None
+
+
+def test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_receipted(tmp_path):
+    def proposal(path):
+        return {
+            "action": "read",
+            "artifact": None,
+            "reads": [{"repository_id": RID, "path": path, "start_line": 1, "end_line": 1}],
+        }
+
+    jobs, host, kwargs, _ = setup(
+        tmp_path,
+        replies=[
+            proposal("guessed.ts"),
+            proposal("app.py"),
+            {"action": "complete", "reads": [], "artifact": {"result": "accepted"}},
+        ],
+    )
+    result = jobs.execute(**kwargs)
+    assert result == {"result": "accepted"}
+    assert jobs.budget.calls == 3 and jobs.budget.spent_usd == pytest.approx(0.03)
+    receipt = json.loads(next(jobs.directory.glob("*.receipt.json")).read_text())
+    assert receipt["calls"] == 3 and receipt["usd"] == pytest.approx(0.03)
+    assert [(row["repository_id"], row["path"]) for row in receipt["source_ranges"]] == [(RID, "app.py")]
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    assert host.calls == 3

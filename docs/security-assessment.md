@@ -72,7 +72,9 @@ With Codex CLI 0.163.0 installed on Linux/macOS and signed in using `codex login
 
 STRIDE jobs receive the exact readable repository IDs and repository-relative paths. They are instructed to report missing evidence when a required file is absent from that list. A file mentioned in an import or earlier analysis does not grant permission to read it.
 
-`Model requested a source outside this task's selection` means the model requested an unknown repository ID, paired a path with the wrong repository, or named a path absent from the admitted source inventory. Analyzer does not serve that request and stops the run. New diagnostics identify the category without echoing the model's path; older runs retain only the generic message and cannot establish the exact requested file.
+A well-formed relative filename outside the task selection is refused without reading it. Analyzer asks the model to use permitted sources or report missing evidence as unresolved, within the existing call, time and read limits. Repeated invalid proposals can still exhaust the job; they never expand its source selection.
+
+`Model requested a source outside this task's selection` stops the run for unsafe paths, unknown repository IDs, or paths paired with the wrong repository. Diagnostics identify the category without echoing the model's path. Earlier versions also stopped immediately for an ordinary filename absent from the admitted inventory; their saved diagnostics cannot establish the exact requested file.
 
 Accepted jobs remain in the output directory. After correcting the cause, repeat the original command with the same output and `--resume` while its original limits and compatibility checks permit. If the deadline has expired, repeat the command without `--resume` or `--rebuild` to start a new attempt and reuse compatible accepted jobs. Changed STRIDE inputs require those jobs to run again. Resuming alone does not correct an unchanged model request.
 

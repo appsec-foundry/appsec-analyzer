@@ -82,6 +82,8 @@ After that point, a failed model job or optional stage does not stop the run. Th
 - the Management Summary keeps the deterministic verdict floor;
 - a failed export is a warning.
 
+A model read proposal for a well-formed relative filename outside the task selection is refused before retrieval and may be corrected within the existing exchange, read, time and accounting limits. Refused proposals consume the read allowance; no file is admitted or guessed from imports. Missing evidence must remain unresolved. Unsafe paths, unknown repository IDs, and paths paired with the wrong repository remain fatal, even after the read allowance is spent; every batch is checked before any of its reads is served. Only served authorized ranges enter acceptance receipts.
+
 The Security Architecture section remains required: its contract requires a sequence diagram per flow, which only its author can write. At any point, the run stops on a violated trust boundary (a read outside the admitted scope, a changed or foreign receipt, or source changed during the run), on a model that still violates its output contract, provenance or the secret gate after every deterministic repair, on an inconsistent register after the integrity steps, or on unsettled call accounting.
 
 ### Completion budget
