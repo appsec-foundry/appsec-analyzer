@@ -1324,6 +1324,26 @@ def test_a_stop_request_is_an_incomplete_resumable_run_not_a_failure(tmp_path, m
     assert ("--resume" in capsys.readouterr().err) is (error == "cancelled")
 
 
+@pytest.mark.parametrize(
+    "reason,code",
+    [
+        ("stream_disconnected", controller.ASSESS_PAUSED_EXIT),
+        ("connection_failed", controller.ASSESS_PAUSED_EXIT),
+        ("authentication_failed", 1),
+    ],
+)
+def test_a_lost_provider_connection_pauses_the_run_for_resume(tmp_path, monkeypatch, capsys, reason, code):
+    """REQ-022: a connection that stayed down after its repeat is resumable, not a failure."""
+    from runtime.analyst_host import TransportError
+
+    def fail(*args, **kwargs):
+        raise TransportError(f"job one: {reason}", reason=reason)
+
+    monkeypatch.setattr(controller, "assess_repositories", fail)
+    assert controller.assess_main(["--repo", "a", "--repo", "b", "--output", str(tmp_path / "out")]) == code
+    assert ("assessment paused: provider connection lost" in capsys.readouterr().err) is (code == 3)
+
+
 def test_a_contract_check_failure_ends_with_a_message_not_a_traceback(monkeypatch, capsys):
     from jsonschema import ValidationError
 

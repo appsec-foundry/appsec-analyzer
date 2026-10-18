@@ -406,6 +406,64 @@ def test_a_transient_settled_failure_is_retried_until_the_call_succeeds(tmp_path
     assert jobs.budget.spent_usd == pytest.approx(0.01) and not jobs.budget.failed
 
 
+@pytest.mark.parametrize(
+    "reason", ["stream_disconnected", "connection_failed", "connection_timeout", "dns_unavailable"]
+)
+def test_a_dropped_connection_without_a_cost_report_is_repeated_once(tmp_path, no_retry_wait, reason):
+    # Codex subscriptions and API hosts report no cost for a failed call, so it counts as paid.
+    host = Refused(1, reason, usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    assert host.calls == 2 and [row["reason"] for row in jobs.budget.retries] == [reason]
+
+
+def test_a_connection_that_stays_down_stops_after_one_repeat(tmp_path, no_retry_wait):
+    from runtime.analyst_host import TransportError
+
+    host = Refused(10, "stream_disconnected", usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    with pytest.raises(TransportError, match="stream_disconnected.*--resume") as caught:
+        jobs.execute(**kwargs)
+    assert caught.value.reason == "stream_disconnected" and host.calls == 2
+
+
+@pytest.mark.parametrize("reason", ["authentication_failed", "quota_exhausted", "tls_error", "transport"])
+def test_an_account_configuration_or_unknown_failure_is_not_repeated(tmp_path, no_retry_wait, reason):
+    from runtime.analyst_host import TransportError
+
+    host = Refused(1, reason, usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    with pytest.raises(TransportError):
+        jobs.execute(**kwargs)
+    assert host.calls == 1
+
+
+def test_every_host_failure_code_has_exactly_one_retry_class():
+    """A failure code nobody classified must not silently become a run-ending error."""
+    import ast
+    from pathlib import Path
+
+    from runtime import multi_repo_discovery as policy
+    from runtime.assessment_diagnostics import FAILURE_CODES
+
+    classes = (policy.TRANSIENT_FAILURES, policy.NETWORK_FAILURES, policy.FATAL_FAILURES)
+    assert not any(a & b for i, a in enumerate(classes) for b in classes[i + 1 :])
+    produced = set(FAILURE_CODES)
+    root = Path(__file__).resolve().parents[1]
+    for source in (root / "appsec_analyzer").rglob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", getattr(node.func, "attr", ""))
+            if name == "ApiTransportError" and node.args and isinstance(node.args[0], ast.Constant):
+                produced.add(node.args[0].value)
+            if name in ("TransportError", "ApiTransportError"):
+                produced |= {
+                    kw.value.value for kw in node.keywords if kw.arg == "reason" and isinstance(kw.value, ast.Constant)
+                }
+    assert produced - set().union(*classes) == set()
+
+
 @pytest.mark.parametrize("optional", [False, True])
 def test_a_transient_failure_that_persists_still_stops_a_required_job(tmp_path, no_retry_wait, optional):
     from runtime.analyst_host import TransportError

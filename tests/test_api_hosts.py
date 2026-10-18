@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import http.client
 import json
+import ssl
 
 import pytest
 
@@ -163,6 +165,25 @@ def test_rate_limit_transports_only_validated_reset_not_body(fake_host, monkeypa
     assert caught.value.http_status == 429
     assert caught.value.usd is None
     assert "private-provider-diagnostic" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "error, reason",
+    [
+        (ConnectionResetError("private-peer-detail"), "connection_failed"),
+        (http.client.RemoteDisconnected("private-peer-detail"), "connection_failed"),
+        (ssl.SSLCertVerificationError("private-peer-detail"), "tls_failed"),
+    ],
+)
+def test_a_failed_send_names_a_dropped_connection_apart_from_a_certificate_error(fake_host, monkeypatch, error, reason):
+    class Dropped(_Connection):
+        def getresponse(self):
+            raise error
+
+    monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Dropped)
+    with pytest.raises(api_hosts.TransportError) as caught:
+        api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
+    assert caught.value.reason == reason and "private-peer-detail" not in str(caught.value)
 
 
 @pytest.mark.parametrize(

@@ -157,6 +157,47 @@ MAX_TIMEOUT_RETRIES = 1
 # run's hundreds of calls stopped every stage before STRIDE. Login, billing and
 # request errors, host limits and unsettled costs are never retried.
 TRANSIENT_FAILURES = frozenset({"rate_limit", "server_error", "api_error", "no_structured_output"})
+# A provider connection that dropped or never opened. A live Codex STRIDE call
+# lost its stream after 21 s (2026-10-18) and, without a retry, ended a run of
+# hundreds of calls. These follow the transient retry rules; a connection that
+# stays down pauses the run for --resume instead of failing it.
+NETWORK_FAILURES = frozenset({"stream_disconnected", "connection_failed", "connection_timeout", "dns_unavailable"})
+# Everything else a host reports is never repeated: login, billing, quota,
+# configuration, request and response limits, malformed answers, and codes
+# without a known cause. A test requires every produced code to be listed in
+# exactly one of these classes, so a new code is classified deliberately.
+FATAL_FAILURES = frozenset(
+    {
+        "transport",
+        "timeout",
+        "tls_error",
+        "tls_failed",
+        "model_unavailable",
+        "model_not_available",
+        "authentication_failed",
+        "billing_error",
+        "quota_exhausted",
+        "budget_exhausted",
+        "invalid_request",
+        "invalid_timeout",
+        "invalid_metadata",
+        "invalid_response",
+        "invalid_response_stream",
+        "invalid_response_envelope",
+        "invalid_response_payload",
+        "unexpected_host_item",
+        "incomplete_response",
+        "no_result",
+        "response_too_large",
+        "request_too_large",
+        "output_token_limit",
+        "destination_denied",
+        "host_unavailable",
+        "host_arguments",
+        "host_configuration",
+        "host_exit",
+    }
+)
 # Seconds to wait before each repeated call; their count bounds the retries of
 # a free failure. A refused API call reports no cost, so these cost only time.
 TRANSIENT_RETRY_DELAYS = (15, 60, 180)
@@ -308,7 +349,8 @@ class DiscoveryBudget:
                     continue
                 # Only a settled call leaves accounting available; another
                 # running call does not block this retry (MR-16).
-                if self.unsettled or exc.reason not in TRANSIENT_FAILURES or failures >= len(TRANSIENT_RETRY_DELAYS):
+                retryable = exc.reason in TRANSIENT_FAILURES or exc.reason in NETWORK_FAILURES
+                if self.unsettled or not retryable or failures >= len(TRANSIENT_RETRY_DELAYS):
                     raise
                 # A failure without a cost report was charged its reservation.
                 paid = exc.usd is None or exc.usd > FREE_FAILURE_USD
