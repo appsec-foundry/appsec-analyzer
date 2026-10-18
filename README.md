@@ -272,8 +272,12 @@ Each assessment writes `security-assessment.md` for reading and `security-assess
 
 The runtime architecture with its data flows and attack paths, shown as a detail. Click the image to open the full diagram:
 
-[![Detail of the runtime architecture and attack paths in the Juice Shop assessment](docs/images/figure1-example-crop.svg#gh-light-mode-only)](docs/images/figure1-example.svg)
-[![Detail of the runtime architecture and attack paths in the Juice Shop assessment](docs/images/figure1-example-crop-dark.svg#gh-dark-mode-only)](docs/images/figure1-example-dark.svg)
+<a href="docs/images/figure1-example.svg">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-crop-dark.svg">
+  <img src="docs/images/figure1-example-crop.svg" alt="Detail of the runtime architecture and attack paths in the Juice Shop assessment">
+</picture>
+</a>
 
 The build pipeline and the most severe supply-chain attacks on it:
 
