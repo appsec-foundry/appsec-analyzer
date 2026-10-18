@@ -137,7 +137,7 @@ This profile uses plan allowance or available credits and defaults to 1,000 mode
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
-The startup header shows the planned focus, loaded abuse-case sources, coverage limits, and excluded checks. It distinguishes built-in, organization, and user-supplied cases or disabled verification. Loaded cases have not yet been matched or verified; the results show actual coverage. The assessment does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime testing.
+The startup header groups settings into Run, Scope, and Workflow & results, with the billing mode and either a USD budget or subscription call limit. It shows the planned focus, loaded abuse-case sources, coverage limits, and excluded checks. It distinguishes built-in, organization, and user-supplied cases or disabled verification. Loaded cases have not yet been matched or verified; the results show actual coverage. The assessment does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime testing.
 
 Use `--verbose` for job and call identities and detailed sanitized correction messages. Full assessments retain private per-attempt diagnostics across compatible resumes; see [diagnostics and limits](docs/security-assessment.md).
 

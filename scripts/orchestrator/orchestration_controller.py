@@ -2256,7 +2256,9 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--non-interactive", action="store_true", help="Never prompt for a higher budget (use in CI)")
     parser.add_argument(
-        "--verbose", action="store_true", help="Show correlated model calls and sanitized correction details"
+        "--verbose",
+        action="store_true",
+        help="Show full startup details, correlated model calls and sanitized correction details",
     )
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
@@ -2581,8 +2583,8 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
 
     The lineup already shows the automatic move off Sonnet 4.6; only an
     explicit Sonnet 4.6 setting, which is expected to return no STRIDE
-    result, is warned about. `compact` counts each model's roles instead of
-    naming them, for a console narrowed by --width.
+    result, is warned about. `compact` counts shared roles and names single-role
+    assignments; verbose output names every role.
     """
     from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
 
@@ -2596,8 +2598,8 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
             by_model.setdefault(str(selected), []).append(role)
 
     def roles_of(roles: list[str]) -> str:
-        if compact:
-            return f"{len(roles)} role{'s' if len(roles) != 1 else ''}"
+        if compact and len(roles) > 1:
+            return f"{len(roles)} roles"
         return ", ".join(roles)
 
     lineup = "Models: " + "; ".join(f"{model} ({roles_of(roles)})" for model, roles in sorted(by_model.items()))
@@ -2652,6 +2654,8 @@ def _assessment_intro(
     runtime_changed=False,
     cfg: dict[str, Any] | None = None,
     scope_facts: list[tuple[str, str]] | None = None,
+    *,
+    compact: bool = False,
 ) -> list[tuple[str, str]]:
     """Return the console header rows, shown once every pre-run check has passed."""
     output = ns.output
@@ -2695,7 +2699,7 @@ def _assessment_intro(
                 f"{host['kind']}: {host['endpoint']}\nselected excerpts, context and answers leave this machine; live quality unqualified",
             )
         )
-    return [
+    rows = [
         ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(ns.repo)),
         ("Output", output),
         (
@@ -2716,6 +2720,30 @@ def _assessment_intro(
         ("Pipeline", pipeline),
         *(row for row in plan if row[0] and row[1]),
     ]
+    if not compact:
+        return rows
+    concise = []
+    for key, value in rows:
+        if key == "Budget":
+            if budget.subscription:
+                key, value = "Call limit", f"{budget.max_calls}, including retries; ChatGPT allowance applies"
+            else:
+                value = f"USD {budget.max_usd:.2f}"
+                if ns.hard_budget is None and ns.soft_budget is not None:
+                    value += f" (1.25 × deprecated --soft-budget USD {ns.soft_budget:g})"
+        elif key == "Time limit":
+            key, value = "Settings", f"{depth} depth · {limit} limit · max parallel: {budget.max_parallel}"
+        elif key in ("Depth", "Max parallel"):
+            continue
+        elif key == "Billing":
+            value = {"api": "API", "subscription": "Subscription"}.get(value, value)
+        elif key == "Trust mode":
+            # A skipped check must retain its warning in the compact view too.
+            value = value.split("\n")[0] if ns.trust_mode == "untrusted" else value.replace("\n", "; ")
+        elif key in ("Models", "Artifacts", "Options"):
+            value = value.replace("\n", " · ")
+        concise.append((key, value))
+    return concise
 
 
 def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, scope_facts=None) -> list[str]:
@@ -3548,10 +3576,7 @@ def assess_repositories(
                     budget.on_budget_increase = BudgetPrompt(
                         state, report=console.notice, pause=pause_prompt, role_labels=_AssessmentConsole.ROLE_LABELS
                     )
-                # Only the narrowed console header counts roles; every other lineup names them.
-                lineup, model_warning = _assessment_model_lines(
-                    cfg, compact=console is not None and _AssessmentConsole.max_columns is not None
-                )
+                lineup, model_warning = _assessment_model_lines(cfg, compact=console is not None and not ns.verbose)
                 depth = str(cfg.get("assessment_depth") or "standard")
                 _AssessmentProgress.emit(
                     "run_start", lines=_assessment_start_lines(ns, budget, depth, cfg, state, planned_scope)
@@ -3571,8 +3596,10 @@ def assess_repositories(
                             state.runtime_changed,
                             cfg,
                             planned_scope,
+                            compact=not ns.verbose,
                         )
                         + ([("Diagnostics", str(jobs.diagnostics.path))] if ns.verbose and jobs.diagnostics else []),
+                        sectioned=True,
                     )
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
                     noticed = []

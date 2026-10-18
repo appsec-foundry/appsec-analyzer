@@ -235,3 +235,8 @@ def test_startup_reports_scope_before_model_work_and_quiet_preserves_the_start_e
     assert f"{'Abuse cases':<11} {expected}" in start["lines"]
     assert (expected in captured.err) is (mode == "console")
     assert (f"Abuse cases: {expected}" in messages) is (mode == "callback")
+    for section in ("  Run\n", "  Scope\n", "  Workflow & results\n"):
+        assert (section in captured.err) is (mode == "console")
+    if mode == "console":
+        assert "USD 5.00" in captured.err
+        assert "required analysis and report take priority" not in captured.err

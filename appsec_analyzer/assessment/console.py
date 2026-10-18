@@ -626,7 +626,7 @@ class _AssessmentConsole:
             self.shown = key
             self.record("·", " · ".join(part for part in (self.current, extra) if part), now)
 
-    def facts(self, title: str | None, rows: list[tuple[str, str]]) -> None:
+    def facts(self, title: str | None, rows: list[tuple[str, str]], *, sectioned: bool = False) -> None:
         """Run facts as ``Key : value`` rows, the single-repository wrapper's header format."""
         st = self.st
         if title:
@@ -655,20 +655,40 @@ class _AssessmentConsole:
         # Facts share the title's moment, so they carry no time stamp of their
         # own. On a terminal a long value wraps flush under its own column
         # instead of at the screen edge; key and separators take the rest.
-        fit = self.columns() - 1 - (2 + width + 2) if st.enabled or self.max_columns else 0
-        for key, value in rows:
-            lines: list[str] = []
-            for part in value.split("\n"):
-                if fit > 20 and len(part) > fit:
-                    pieces = textwrap.wrap(part, fit, break_on_hyphens=False)
-                else:
-                    pieces = [part]
-                lines.append(self._fact(key, pieces[0]))
-                lines.extend(st(piece, "muted") for piece in pieces[1:])
-            first, *more = lines
-            self._unstamped(f"  {st(f'{key:<{width}}:', 'muted')} {first}")
-            for line in more:
-                self._unstamped(f"  {'':<{width}}  {line}")
+        indent = "    " if sectioned else "  "
+        fit = self.columns() - 1 - (len(indent) + width + 2) if st.enabled or self.max_columns else 0
+        groups = {"": rows}
+        if sectioned:
+            groups = {"Run": [], "Scope": [], "Workflow & results": []}
+            for key, value in rows:
+                section = (
+                    "Scope"
+                    if key in ("Focus", "Abuse cases", "Coverage", "Excludes", "Trust mode")
+                    else "Workflow & results"
+                    if key in ("Pipeline", "Artifacts")
+                    else "Run"
+                )
+                groups[section].append((key, value))
+        for section, entries in groups.items():
+            if not entries:
+                continue
+            if section:
+                if section != "Run":
+                    self._unstamped("")
+                self._unstamped(st(f"  {section}", "bold"))
+            for key, value in entries:
+                lines: list[str] = []
+                for part in value.split("\n"):
+                    if fit > 20 and len(part) > fit:
+                        pieces = textwrap.wrap(part, fit, break_on_hyphens=False)
+                    else:
+                        pieces = [part]
+                    lines.append(self._fact(key, pieces[0]))
+                    lines.extend(st(piece, "muted") for piece in pieces[1:])
+                first, *more = lines
+                self._unstamped(f"{indent}{st(f'{key:<{width}}:', 'muted')} {first}")
+                for line in more:
+                    self._unstamped(f"{indent}{'':<{width}}  {line}")
         self.write("")
 
     def _unstamped(self, text: str) -> None:

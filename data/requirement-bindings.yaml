@@ -956,6 +956,8 @@ requirements:
       - tests/test_assessment_scope.py::test_invalid_explicit_content_fails_without_echoing_it
       - tests/test_assessment_scope.py::test_scope_facts_reach_console_and_structured_start_without_stdout
       - tests/test_assessment_scope.py::test_startup_reports_scope_before_model_work_and_quiet_preserves_the_start_event
+      - tests/test_multi_repo_assessment.py::test_compact_header_distinguishes_limits_and_retains_warnings
+      - tests/test_multi_repo_assessment.py::test_sectioned_header_preserves_facts_and_wraps_at_requested_width
       - tests/test_multi_repo_assessment.py::test_diagnostic_ids_are_visible_only_in_verbose_progress
       - tests/test_startup_preflight.py::test_cli_preflight_never_clones_or_starts_assessment
       - tests/test_startup_preflight.py::test_codex_preflight_displays_completed_checks_and_unverified_access

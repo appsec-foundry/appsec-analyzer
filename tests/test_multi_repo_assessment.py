@@ -718,6 +718,68 @@ def test_console_header_names_the_files_the_run_will_write_and_its_settings():
     assert "Artifacts" not in bare and "Options" not in bare
 
 
+@pytest.mark.parametrize("subscription", [False, True])
+@pytest.mark.parametrize("trust_mode", ["untrusted", "trusted"])
+def test_compact_header_distinguishes_limits_and_retains_warnings(subscription, trust_mode):
+    args = ["--repo", "/r", "--output", "/o", "--rebuild", "--trust-mode", trust_mode]
+    args += ["--max-calls", "123"] if subscription else ["--hard-budget", "12.50"]
+    ns = controller._assessment_argument_parser().parse_args(args)
+    budget = controller._assessment_budget(ns, subscription=subscription)
+    cfg = {"host_profile": {"kind": "openai"}}
+    inputs = (ns, budget, "standard", "Models: m1 (14 roles); m2 (recon_scanner)", "Recon → Controls")
+    detailed = dict(controller._assessment_intro(*inputs, cfg=cfg))
+    rows = dict(controller._assessment_intro(*inputs, cfg=cfg, compact=True))
+    if subscription:
+        assert rows["Call limit"] == "123, including retries; ChatGPT allowance applies"
+        assert "Budget" not in rows
+        assert rows["Billing"] == "ChatGPT subscription via Codex CLI"
+    else:
+        assert rows["Budget"] == "USD 12.50"
+        assert "Call limit" not in rows
+        assert rows["Billing"] == "API"
+    assert rows["Settings"] == f"standard depth · 4h limit · max parallel: {budget.max_parallel}"
+    assert not {"Depth", "Time limit", "Max parallel"} & rows.keys()
+    assert "--rebuild: replaces any earlier assessment" in rows["Output"]
+    assert rows["Models"] == "m1 (14 roles) · m2 (recon_scanner)"
+    assert rows["Artifacts"] == "security-assessment.md · security-assessment.yaml"
+    assert "report take priority" in detailed["Budget"]
+    if trust_mode == "trusted":
+        assert "start check skipped" in rows["Trust mode"]
+        assert "escaping symlinks, IDE-loaded files and related-repository URLs are not checked" in rows["Trust mode"]
+    else:
+        assert rows["Trust mode"] == "untrusted: start check passed"
+
+
+@pytest.mark.parametrize("terminal", [False, True])
+def test_sectioned_header_preserves_facts_and_wraps_at_requested_width(monkeypatch, capsys, terminal):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    if terminal:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 72)
+    rows = [
+        ("Repository", "/srv/app"),
+        ("Budget", "USD 12.50"),
+        ("Focus", "Security design, code, and configuration"),
+        ("Abuse cases", "Dedicated verification disabled"),
+        ("Excludes", "SCA/CVE scanning, comprehensive secret scanning, and runtime testing"),
+        ("Pipeline", "Reconnaissance → Architecture → Trust boundaries → Controls → Threat analysis"),
+        ("Artifacts", "security-assessment.md · security-assessment.yaml"),
+        ("Diagnostics", "/private/run/diagnostics/events.jsonl"),
+    ]
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    console.facts("appsec-analyzer — Model-backed assessment (alpha)", rows, sectioned=True)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    lines = _ANSI.sub("", captured.err).splitlines()
+    assert all(len(line) <= 71 for line in lines)
+    assert lines.index("  Run") < lines.index("  Scope") < lines.index("  Workflow & results")
+    normalized = " ".join(" ".join(lines).split())
+    for key, value in rows:
+        assert f"{key}: {value}" in normalized.replace(" :", ":")
+    assert normalized.index("Diagnostics") < normalized.index("Scope")
+
+
 def test_a_refused_start_prints_its_reason_without_a_run_header(tmp_path, monkeypatch, capsys):
     for name in ("edge", "service"):
         checkout(tmp_path / name)
@@ -2428,12 +2490,14 @@ def test_root_causes_are_synthesized_after_abuse_verification(tmp_path, monkeypa
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def test_a_compact_lineup_counts_roles_and_the_default_names_them():
-    cfg = {"stride_model": "big", "merger_model": "small"}
+def test_a_compact_lineup_counts_shared_roles_and_names_single_role_assignments():
+    cfg = {"stride_model": "big", "merger_model": "small", "triage_model": "small"}
     full, _ = controller._assessment_model_lines(cfg)
     compact, _ = controller._assessment_model_lines(cfg, compact=True)
-    assert "stride_analyzer" in full and "stride_analyzer" not in compact
-    assert compact.startswith("Models: big (1 role); small (")
+    assert "stride_analyzer" in full and "stride_analyzer" in compact
+    assert "threat_merger" in full and "threat_merger" not in compact
+    assert compact.startswith("Models: big (stride_analyzer); small (")
+    assert "roles)" in compact
 
 
 def test_pipeline_names_the_phases_and_optional_steps_this_run_executes():

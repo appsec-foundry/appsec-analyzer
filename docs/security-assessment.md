@@ -47,7 +47,9 @@ appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
 
 The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model`, `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
 
-Before model analysis, the startup header shows four compact scope rows using the effective profile and CLI settings. For example, a run with three enabled cases from one explicitly selected file shows:
+Before model analysis, the startup header groups the effective settings into Run, Scope, and Workflow & results. Run shows the billing mode, a USD budget or subscription call limit, combined depth/time/parallelism settings, and a compact model summary. Models shared by several roles show a role count; single-role assignments keep their role name. Artifacts share one line and long values wrap to the available width. Use `--verbose` for the full role assignments, budget details, and start-check explanation. A skipped trust check remains explicit in both views.
+
+Scope contains four rows describing the effective profile and CLI settings, followed by the trust-check result. For example, a run with three enabled cases from one explicitly selected file shows:
 
 ```text
 Focus: Security design, code, and configuration
