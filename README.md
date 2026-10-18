@@ -30,7 +30,8 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 2. **Run a full assessment.** Analyzer creates the output directory, readable only by you, and writes the report to `security-assessment.md` there:
 
    ```sh
-   appsec-analyzer scan --repo https://github.com/juice-shop/juice-shop.git --output ~/assessments/juice-shop
+   appsec-analyzer scan --repo https://github.com/juice-shop/juice-shop.git \
+     --output ~/assessments/juice-shop
    ```
 
    For your own code, pass its Git URL or local path to `--repo`.
