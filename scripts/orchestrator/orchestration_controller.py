@@ -3546,16 +3546,30 @@ def assess_repositories(
         raise CallError("--rebuild starts the assessment again and cannot be combined with --resume")
     if not ns.repo:
         raise CallError("an assessment requires at least one --repo selection")
-    _AssessmentConsole.max_columns = ns.width
-    console = None if progress or ns.quiet else _AssessmentConsole(ns.verbose)
-    if console:
-        console.start_ticker()
-    say = progress or (console.step if console else (lambda text: None))
     budget = _assessment_budget(ns, rest, subscription=(run_profile or {}).get("adapter") == "codex-cli")
     if run_profile is not None and run_profile["adapter"] in ("openai", "lite", "bedrock"):
         from appsec_analyzer.profiles import call_reservation
 
         budget.call_usd = min(budget.max_usd, max(budget.call_usd, call_reservation(run_profile)))
+    from runtime.interactive_budget import can_prompt
+
+    # Asked before the console ticker starts, so the question stays readable.
+    if (
+        not (ns.resume or ns.rebuild)
+        and progress is None
+        and can_prompt(non_interactive=ns.non_interactive, quiet=ns.quiet, json_output=ns.json)
+    ):
+        choice = _assessment_restart_choice(ns, budget)
+        ns.resume, ns.rebuild = choice == "resume", choice == "rebuild"
+        if ns.resume and run_profile is not None:
+            from appsec_analyzer.profiles import restore_profile
+
+            run_profile = restore_profile(run_profile, Path(ns.output), resume=True)
+    _AssessmentConsole.max_columns = ns.width
+    console = None if progress or ns.quiet else _AssessmentConsole(ns.verbose)
+    if console:
+        console.start_ticker()
+    say = progress or (console.step if console else (lambda text: None))
 
     def report_retry(message: str) -> None:
         _AssessmentProgress.note_retry(message)
@@ -3906,6 +3920,44 @@ def assess_repositories(
         "calls": budget.calls,
         **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
     }
+
+
+def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str | None:
+    """Ask how to start when the destination holds an unfinished run and no flag chose.
+
+    Only an explicit answer selects --resume or --rebuild. Enter, end of input
+    and repeated invalid answers keep the default: a new scan that reuses the
+    run's accepted steps. Continuing is offered only when the recorded limits,
+    deadline and accounting allow it. Returns "resume", "rebuild" or None.
+    """
+    from runtime.assessment_state import unfinished_run
+
+    found = unfinished_run(Path(ns.output), budget)
+    if found is None:
+        return None
+    readline = readline or (lambda: sys.stdin.readline(64))
+    write = write or sys.stderr.write
+    started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(found["started_at"]))
+    lines = [f"This output directory holds an unfinished assessment ({found['status']}, started {started})."]
+    if found["resume_blocked"]:
+        lines.append(f"  Continuing it is not possible: {found['resume_blocked']}.")
+        choices = {"2": None, "3": "rebuild"}
+    else:
+        lines.append("  1  Continue it (--resume), with its original limits and deadline")
+        choices = {"1": "resume", "2": None, "3": "rebuild"}
+    lines += [
+        "  2  Start a new scan that reuses its accepted steps (default)",
+        "  3  Rebuild (--rebuild): discard its accepted steps and history",
+    ]
+    write("\n".join(lines) + "\n")
+    for _ in range(3):
+        write(f"Choose {' or '.join(choices)} [2]: ")
+        answer = readline().strip()
+        if not answer:
+            return None
+        if answer in choices:
+            return choices[answer]
+    return None
 
 
 def _assessment_legacy(ns, output: Path) -> str | None:

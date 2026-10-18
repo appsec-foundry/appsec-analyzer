@@ -190,6 +190,11 @@
       "type": "object", "maxProperties": 64,
       "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
       "additionalProperties": {"$ref": "#/$defs/hash"}
+    },
+    "superseded": {
+      "type": "object", "maxProperties": 64,
+      "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+      "additionalProperties": {"$ref": "#/$defs/hash"}
     }
   },
   "allOf": [

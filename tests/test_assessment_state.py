@@ -559,7 +559,8 @@ def test_session_hook_files_never_block_a_start(scope, earlier):
         (scope.output / name).write_text("hook\n")
     with lifecycle(scope).hold() as state:
         assert state.state["status"] == "running"
-    assert not (scope.output / "threat-model.md").exists()
+    # The earlier report stays until a new run completes.
+    assert (scope.output / "threat-model.md").exists() is (earlier == "completed")
     assert all((scope.output / name).exists() for name in names)
 
 
@@ -872,7 +873,7 @@ def test_a_new_scan_replaces_a_completed_run_and_carries_its_changelog(scope, ch
         state.complete(["threat-model.yaml"])
     with lifecycle(scope, **changes).hold() as fresh:
         assert fresh.state["status"] == "running"
-        assert not (scope.output / "threat-model.yaml").exists()
+        assert set(fresh.state["superseded"]) == {"threat-model.yaml"}
         assert json.loads(fresh.history_path.read_text()) == [{"date": "2026-10-17"}]
 
 
@@ -880,9 +881,25 @@ def test_rebuild_replaces_only_an_earlier_run_that_owns_every_file(scope):
     _completed(scope)
     with lifecycle(scope, runtime_sha256="b" * 64, replace=True).hold() as fresh:
         assert fresh.state["status"] == "running"
-        assert not (scope.output / "threat-model.md").exists()
+        assert set(fresh.state["superseded"]) == {"threat-model.md"}
         assert not (fresh.directory / "jobs").exists()
         assert fresh.history_path is None
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_the_earlier_report_stays_until_a_new_run_completes(scope, replace):
+    _completed(scope)
+    with pytest.raises(RuntimeError):
+        with lifecycle(scope, replace=replace).hold():
+            raise RuntimeError("new scan fails")
+    assert (scope.output / "threat-model.md").read_text() == "report\n"
+    # The next attempt keeps it as well, and its completion removes what it did not overwrite.
+    with lifecycle(scope, replace=replace).hold() as state:
+        assert (scope.output / "threat-model.md").read_text() == "report\n"
+        (scope.output / "threat-model.yaml").write_text("new: model\n")
+        state.complete(["threat-model.yaml"])
+    assert not (scope.output / "threat-model.md").exists()
+    assert "superseded" not in stored(scope)
 
 
 @pytest.mark.parametrize("replace", [True, False])
@@ -945,6 +962,47 @@ def test_resume_without_an_assessment_says_so(scope):
         with lifecycle(scope, resume=True).hold():
             pytest.fail("Nothing to resume")
     assert not (scope.output / ".assessment-state.json").exists()
+
+
+def _restart_choice(scope, answers, budget=None):
+    from types import SimpleNamespace
+
+    from orchestrator.orchestration_controller import _assessment_restart_choice
+
+    replies, shown = iter(answers), []
+    choice = _assessment_restart_choice(
+        SimpleNamespace(output=str(scope.output)),
+        budget or AssessmentBudget(1.0, 0.05, 10, 60),
+        readline=lambda: next(replies, ""),  # "" is end of input
+        write=shown.append,
+    )
+    return choice, "".join(shown)
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [(["1\n"], "resume"), (["3\n"], "rebuild"), (["\n"], None), ([], None), (["x\n", "9\n", "4\n", "3\n"], None)],
+)
+def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(scope, answers, expected):
+    with lifecycle(scope).hold():
+        pass
+    choice, shown = _restart_choice(scope, answers)
+    assert choice == expected
+    assert "unfinished assessment (interrupted" in shown and "1  Continue it (--resume)" in shown
+
+
+def test_the_question_omits_a_resume_that_cannot_succeed(scope):
+    with lifecycle(scope).hold():
+        pass
+    choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], budget=AssessmentBudget(2.0, 0.05, 10, 60))
+    assert choice is None
+    assert "not possible: the budget or time limits differ" in shown and "--resume)" not in shown
+
+
+def test_no_question_without_an_unfinished_run(scope):
+    assert _restart_choice(scope, ["3\n"]) == (None, "")
+    _completed(scope)
+    assert _restart_choice(scope, ["3\n"]) == (None, "")
 
 
 def test_held_lock_heartbeats_on_its_own_clock(scope, monkeypatch):

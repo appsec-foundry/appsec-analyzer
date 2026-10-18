@@ -114,7 +114,14 @@ the independent Requirements Audit.
 
 Interrupted runs retain accepted steps. `--resume` requires compatible source,
 settings, engine, and limits; `--rebuild` discards earlier model work. A source
-or runtime change may require a fresh assessment. Inspect `status` or `progress`
+or runtime change may require a fresh assessment. Without either flag, a new
+scan reuses compatible accepted steps of an unfinished run in the same output.
+In an interactive terminal it first asks whether to continue that run, start
+such a new scan (the default for Enter or end of input), or rebuild; continuing
+is offered only while the run's limits, deadline, and accounting allow it.
+`--non-interactive`, `--quiet`, `--json`, and CI runs never ask. Earlier results
+stay in the output until a new run completes; that run removes the ones it did
+not replace. Inspect `status` or `progress`
 with the output directory, request `stop`, and use `results` to verify the
 published files. A deterministic `scan-sources` has no semantic assessment status and
 uses its [own result schema](../schemas/deterministic-scan-result.schema.json).

@@ -389,11 +389,15 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         default=argparse.SUPPRESS,
     )
     parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
-    parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument("--resume", action="store_true", help="Continue the unfinished assessment in --output")
+    parser.add_argument(
+        "--rebuild", action="store_true", help="Start over, discarding earlier accepted steps and history in --output"
+    )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument(
-        "--non-interactive", action="store_true", help="Never prompt to increase the assessment budget (use in CI)"
+        "--non-interactive",
+        action="store_true",
+        help="Never prompt for a higher budget or how to start beside an unfinished assessment (use in CI)",
     )
     parser.add_argument(
         "--verbose",

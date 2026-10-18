@@ -150,6 +150,7 @@ class AssessmentState:
         self.path = self.output / STATE_NAME
         self.directory = self.output / WORK_NAME
         self._history = None
+        self._superseded = {}
         self.lock = self.output / ".appsec-lock"
         self.identity = {
             "scope_sha256": scope.inventory()["scope_sha256"],
@@ -281,6 +282,8 @@ class AssessmentState:
             }
             if self.operator_profile is not None:
                 self.state["operator_profile"] = self.operator_profile
+            if self._superseded:
+                self.state["superseded"] = self._superseded
             self.directory.mkdir(mode=0o700, exist_ok=True)
             if self._history is not None:
                 atomic_write_json(self.directory / HISTORY_NAME, self._history)
@@ -323,7 +326,8 @@ class AssessmentState:
         cache, so no session reuses them. A completed run is replaced when it
         owns every file, as with --rebuild, and its changelog carries over;
         any other file still blocks, so a fresh start never erases a user's
-        file. The refusal names why the earlier run cannot continue.
+        file. The refusal names why the earlier run cannot continue. Earlier
+        results stay in place until this run completes (`superseded`).
 
         In a sole checkout's `docs/security` (MR-6) only the controller's own
         files count: inputs and a legacy report beside them are kept as they are.
@@ -349,8 +353,10 @@ class AssessmentState:
                 unfinished = None
             if unfinished is not None:
                 # Deliverables an interrupted publication already moved into
-                # place belong to the run as long as their bytes are unchanged.
-                owned |= self._unchanged(unfinished.get("publishing", {}))
+                # place belong to the run as long as their bytes are unchanged,
+                # and so do the earlier results it kept until its completion.
+                kept = self._kept(unfinished)
+                owned |= self._unchanged(unfinished.get("publishing", {})) | set(kept)
                 if self.scope.output_in_checkout():
                     # MR-6: an edited deliverable is kept until publication overwrites it.
                     leftovers &= owned
@@ -371,8 +377,9 @@ class AssessmentState:
                             child.unlink()
                     if not self.replace:
                         self._move_jobs_to_cache()
-                for name in sorted(leftovers - {STATE_NAME, WORK_NAME}):
+                for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
                     (self.output / name).unlink()
+                self._superseded = kept
                 self.path.unlink()
                 return
         if STATE_NAME in leftovers or IMPORT_NAME in leftovers:
@@ -449,7 +456,9 @@ class AssessmentState:
         if self.path.is_file():
             try:
                 state = _read_state(self.path)
-                names |= set(state["deliverables"]) | set(state.get("publishing", {}))
+                names |= (
+                    set(state["deliverables"]) | set(state.get("publishing", {})) | set(state.get("superseded", {}))
+                )
             except ExchangeError:
                 pass
         return names
@@ -465,16 +474,29 @@ class AssessmentState:
                 continue
         return names
 
+    def _kept(self, earlier) -> dict[str, str]:
+        """The earlier results that stay in place until this run completes.
+
+        These are a completed run's deliverables, or the results an unfinished
+        run kept for the same reason, as long as their bytes are unchanged.
+        """
+        recorded = dict(earlier.get("superseded", {}))
+        if earlier["status"] == "complete":
+            recorded.update(earlier["deliverables"])
+        return {name: recorded[name] for name in sorted(self._unchanged(recorded))}
+
     def _remove_earlier_run(self, earlier, leftovers) -> list[str]:
         """Remove an earlier assessment for --rebuild when it owns every file.
 
         Owned are its state, its work directory and each recorded deliverable,
-        published or still being published, whose bytes are unchanged. Any
-        other or edited file keeps the directory, so a rebuild never erases a
-        user's file. Returns those files, sorted; an empty list means the
-        earlier run was removed.
+        published, still being published or kept, whose bytes are unchanged.
+        Any other or edited file keeps the directory, so a rebuild never erases
+        a user's file. Earlier results stay in place until this run completes.
+        Returns the other files, sorted; an empty list means the earlier run
+        was removed.
         """
-        owned = {STATE_NAME, WORK_NAME, IMPORT_NAME}
+        kept = self._kept(earlier)
+        owned = {STATE_NAME, WORK_NAME, IMPORT_NAME} | set(kept)
         owned |= self._unchanged({**earlier.get("publishing", {}), **earlier["deliverables"]})
         if self.scope.output_in_checkout():
             # MR-6: an edited deliverable is kept until publication overwrites it.
@@ -484,8 +506,9 @@ class AssessmentState:
         if WORK_NAME in leftovers:
             _real_directory(self.directory)
             shutil.rmtree(self.directory)
-        for name in sorted(leftovers - {STATE_NAME, WORK_NAME}):
+        for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
             (self.output / name).unlink()
+        self._superseded = kept
         self.path.unlink(missing_ok=True)
         return []
 
@@ -654,6 +677,10 @@ class AssessmentState:
         self.scope.verify_unchanged()
         self.state["deliverables"] = {name: _deliverable(self.output, name) for name in deliverables}
         self.state.pop("publishing", None)
+        # Earlier results that publication did not overwrite end with this run.
+        superseded = self.state.pop("superseded", {})
+        for name in sorted(self._unchanged(superseded) - set(self.state["deliverables"])):
+            (self.output / name).unlink()
         self.state.pop("partial_report", None)
         (self.directory / PARTIAL_REPORT).unlink(missing_ok=True)
         self.state["status"] = "complete"
@@ -784,3 +811,46 @@ class AssessmentState:
         self.state["partial_report"] = partial
         self.checkpoint()
         return path
+
+
+def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
+    """What a start without --resume or --rebuild can offer for an unfinished run in `output`.
+
+    None when the directory holds no readable unfinished run or another live
+    run owns it. `resume_blocked` names why continuing cannot succeed from
+    what the state records, or is None; changed source, settings or plugin
+    bytes are still checked when the resume opens.
+    """
+    path = output / STATE_NAME
+    if not path.is_file() or path.is_symlink():
+        return None
+    try:
+        state = _read_state(path)
+    except ExchangeError:
+        return None
+    if state["status"] == "complete" or acquire_lock._classify_lock(output / ".appsec-lock")[0] == "fresh":
+        return None
+    accounting = state["accounting"]
+    limits = {
+        "max_usd": budget.max_usd,
+        "call_usd": budget.call_usd,
+        "max_calls": budget.max_calls,
+        "timeout_s": budget.timeout_s,
+    }
+    try:
+        max_usd = AssessmentState._authorized_budget(state)
+    except ExchangeError:
+        max_usd = None
+    if accounting["unavailable"]:
+        blocked = "an unfinished cost reservation cannot be reconciled"
+    elif state["identity"]["limits"] != limits:
+        blocked = "the budget or time limits differ from its original limits"
+    elif state["expires_at"] <= time.time():
+        blocked = "its original time limit has expired"
+    elif accounting["calls"] >= budget.max_calls or (
+        not budget.subscription and (max_usd is None or accounting["spent_usd"] >= max_usd)
+    ):
+        blocked = "its original budget is exhausted"
+    else:
+        blocked = None
+    return {"status": state["status"], "started_at": state["started_at"], "resume_blocked": blocked}
