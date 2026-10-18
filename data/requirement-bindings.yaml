@@ -988,6 +988,10 @@ requirements:
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_assessment_state.py::test_runtime_change_cannot_reset_exhausted_resume_limits
+      - tests/test_assessment_state.py::test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds
+      - tests/test_assessment_state.py::test_the_question_omits_a_resume_that_cannot_succeed
+      - tests/test_assessment_state.py::test_no_question_without_an_unfinished_run
+      - tests/test_assessment_state.py::test_resume_without_an_assessment_says_so
       - tests/test_assessment_scope.py::test_scope_describes_model_backed_analysis_and_loaded_defaults
       - tests/test_assessment_scope.py::test_scope_counts_enabled_cases_and_deduplicates_explicit_repository_files
       - tests/test_assessment_scope.py::test_scope_reads_the_frozen_source_and_sanitizes_its_display_name
@@ -1092,6 +1096,9 @@ requirements:
       - tests/test_architect_review_runtime.py::test_every_result_shape_is_recorded_explicitly
       - tests/test_architect_review_runtime.py::test_old_rerender_does_not_claim_a_semantic_review
       - tests/test_assessment_state.py::test_rebuild_keeps_a_directory_with_edited_or_foreign_files
+      - tests/test_assessment_state.py::test_the_earlier_report_stays_until_a_new_run_completes
+      - tests/test_assessment_state.py::test_a_fresh_start_removes_what_an_unfinished_publication_moved_into_place
+      - tests/test_assessment_state.py::test_an_edited_unfinished_publication_is_kept_and_named
 
   REQ-018:
     applies_to:
