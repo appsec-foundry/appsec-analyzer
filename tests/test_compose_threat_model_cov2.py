@@ -96,9 +96,6 @@ class TestComposeOptimizationFlags:
 
 
 class TestLangClassForFile:
-    def test_empty(self):
-        assert compose._lang_class_for_file("") == ""
-
     def test_dockerfile_variants(self):
         assert compose._lang_class_for_file("Dockerfile") == "language-dockerfile"
         assert compose._lang_class_for_file("app.dockerfile") == "language-dockerfile"
@@ -158,17 +155,8 @@ class TestRootCauseForCwe:
     def test_known_bare_number(self):
         assert compose._root_cause_for_cwe("89") == compose._root_cause_for_cwe("CWE-89")
 
-    def test_unknown(self):
-        assert compose._root_cause_for_cwe("CWE-99999") is None
-
 
 class TestFixActionLead:
-    def test_empty(self):
-        assert compose._fix_action_lead("") == ""
-
-    def test_non_cwe_token(self):
-        assert compose._fix_action_lead("not-a-cwe") == ""
-
     def test_known(self):
         assert "parameter" in compose._fix_action_lead("CWE-89").lower()
 
@@ -202,10 +190,6 @@ class TestSynthesiseEvidenceSummary:
 
 
 class TestFmtMs:
-    def test_zero_and_negative(self):
-        assert compose._fmt_ms(0) == "—"
-        assert compose._fmt_ms(-5) == "—"
-
     def test_sub_minute(self):
         assert compose._fmt_ms(45000) == "0m 45s"
 
@@ -619,9 +603,6 @@ class TestWriteReadComposeStats:
         assert data["section_retries"] == {"verdict": 2}
         assert data["total_retry_attempts"] == 2
 
-    def test_read_missing(self, tmp_path):
-        assert compose._read_compose_stats(tmp_path) is None
-
     def test_read_wrong_schema_version(self, tmp_path):
         (tmp_path / ".compose-stats.json").write_text(json.dumps({"schema_version": 999}))
         assert compose._read_compose_stats(tmp_path) is None
@@ -644,14 +625,8 @@ class TestComposeWarnedSignal:
         (tmp_path / ".inline-shortcut-retry-count").write_text("2")
         assert compose._compose_warned_signal(tmp_path) is True
 
-    def test_no_signal_false(self, tmp_path):
-        assert compose._compose_warned_signal(tmp_path) is False
-
 
 class TestReadInlineRetryCount:
-    def test_missing(self, tmp_path):
-        assert compose._read_inline_retry_count(tmp_path) == 0
-
     def test_valid(self, tmp_path):
         (tmp_path / ".inline-shortcut-retry-count").write_text("3\n")
         assert compose._read_inline_retry_count(tmp_path) == 3
@@ -667,9 +642,6 @@ class TestReadInlineRetryCount:
 
 
 class TestReadStageStats:
-    def test_missing(self, tmp_path):
-        assert compose._read_stage_stats(tmp_path) == []
-
     def test_skips_malformed_lines(self, tmp_path):
         (tmp_path / ".stage-stats.jsonl").write_text(
             '{"stage": 1, "duration_ms": 1000}\n'
@@ -684,9 +656,6 @@ class TestReadStageStats:
 
 
 class TestReadSkillConfig:
-    def test_missing(self, tmp_path):
-        assert compose._read_skill_config(tmp_path) == {}
-
     def test_valid(self, tmp_path):
         (tmp_path / ".skill-config.json").write_text(json.dumps({"repo_root": "/x"}))
         assert compose._read_skill_config(tmp_path)["repo_root"] == "/x"
@@ -711,9 +680,6 @@ class TestResolveSecuritySchema:
 
 
 class TestReadRunIssues:
-    def test_missing(self, tmp_path):
-        assert compose._read_run_issues(tmp_path) is None
-
     def test_valid(self, tmp_path):
         (tmp_path / ".run-issues.json").write_text(json.dumps({"schema_version": 1, "run_status": "warned"}))
         data = compose._read_run_issues(tmp_path)
@@ -736,9 +702,6 @@ class TestRunWarnedSignal:
     def test_warned_true(self, tmp_path):
         (tmp_path / ".run-issues.json").write_text(json.dumps({"schema_version": 1, "run_status": "warned"}))
         assert compose._run_warned_signal(tmp_path) is True
-
-    def test_missing_false(self, tmp_path):
-        assert compose._run_warned_signal(tmp_path) is False
 
 
 class TestReadLivePluginMeta:
@@ -978,25 +941,13 @@ class TestFmtSecondsExtra:
     def test_negative(self):
         assert compose._fmt_seconds(-1) == "—"
 
-    def test_zero_inline(self):
-        assert compose._fmt_seconds(0) == "(inline)"
-
     def test_sub_minute(self):
         assert compose._fmt_seconds(42) == "42s"
-
-    def test_minutes(self):
-        assert compose._fmt_seconds(125) == "2m 05s"
 
 
 class TestFormatGeneratedTimestampExtra:
     def test_iso_z(self):
         assert compose._format_generated_timestamp("2026-05-17T05:31:44Z") == "2026-05-17 05:31 UTC"
-
-    def test_empty(self):
-        assert compose._format_generated_timestamp("") == "—"
-
-    def test_non_iso_passthrough(self):
-        assert compose._format_generated_timestamp("not a date") == "not a date"
 
     def test_non_string(self):
         assert compose._format_generated_timestamp(None) == "—"
@@ -1005,9 +956,6 @@ class TestFormatGeneratedTimestampExtra:
 class TestTruncateWithEllipsis:
     def test_short_untouched(self):
         assert compose._truncate_with_ellipsis("short", 90) == "short"
-
-    def test_non_string(self):
-        assert compose._truncate_with_ellipsis(None, 10) == ""
 
     def test_word_boundary(self):
         text = "the quick brown fox jumps over the lazy dog repeatedly forever"

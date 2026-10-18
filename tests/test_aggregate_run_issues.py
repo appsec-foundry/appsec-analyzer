@@ -1347,10 +1347,6 @@ class TestGateEventsExtraBranches:
         (tmp_path / ".qa-status.json").write_text("{bad", encoding="utf-8")
         assert agg._extract_gate_events(tmp_path) == []
 
-    def test_qa_status_pass_no_issue(self, tmp_path):
-        (tmp_path / ".qa-status.json").write_text('{"status":"pass"}', encoding="utf-8")
-        assert agg._extract_gate_events(tmp_path) == []
-
 
 class TestAggregateInference:
     def test_repo_root_from_env(self, tmp_path, monkeypatch):

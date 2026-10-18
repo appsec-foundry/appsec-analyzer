@@ -627,7 +627,7 @@ class TestToolError:
 
 
 class TestStopEvent:
-    def test_end_turn_logs_info(self, tmp_path):
+    def test_end_turn_without_usage_logs_stop_reason(self, tmp_path):
         event = {
             "hook_event_name": "Stop",
             "session_id": "abc12345",
@@ -831,18 +831,6 @@ class TestContextV2LifecycleGuards:
         stop_line = [l for l in log.splitlines() if "SESSION_STOP" in l][0]
         assert "cache_write" not in stop_line
         assert "cache_read" not in stop_line
-
-    def test_no_usage_field_still_logs_stop_reason(self, tmp_path):
-        """Stop events without usage field must not crash."""
-        event = {
-            "hook_event_name": "Stop",
-            "session_id": "abc12345",
-            "stop_reason": "end_turn",
-        }
-        rc, log = run_logger(event, tmp_path)
-        assert rc == 0
-        assert "SESSION_STOP" in log
-        assert "end_turn" in log
 
 
 # ===========================================================================

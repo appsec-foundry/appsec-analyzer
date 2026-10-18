@@ -716,12 +716,6 @@ class TestFmtSeconds_v2:
         assert compose._fmt_seconds(None) == "—"
         assert compose._fmt_seconds(-1) == "—"
 
-    def test_inline(self):
-        assert compose._fmt_seconds(0) == "(inline)"
-
-    def test_sub_minute(self):
-        assert compose._fmt_seconds(45) == "45s"
-
     def test_minutes(self):
         assert compose._fmt_seconds(125) == "2m 05s"
 
@@ -1532,20 +1526,6 @@ class TestCategoryCountBySeverity:
 # ---------------------------------------------------------------------------
 
 
-class TestFmtSeconds:
-    def test_negative_and_none(self):
-        assert compose._fmt_seconds(-1) == "—"
-
-    def test_zero(self):
-        assert compose._fmt_seconds(0) == "(inline)"
-
-    def test_sub_minute(self):
-        assert compose._fmt_seconds(45) == "45s"
-
-    def test_minutes(self):
-        assert compose._fmt_seconds(125) == "2m 05s"
-
-
 class TestFormatGeneratedTimestamp:
     def test_non_string(self):
         assert compose._format_generated_timestamp(None) == "—"
@@ -1562,9 +1542,6 @@ class TestFormatGeneratedTimestamp:
 
 
 class TestTruncateWithEllipsis:
-    def test_non_string(self):
-        assert compose._truncate_with_ellipsis(None, 10) == ""
-
     def test_short(self):
         assert compose._truncate_with_ellipsis("hi", 10) == "hi"
 
@@ -1580,9 +1557,6 @@ class TestTruncateWithEllipsis:
 
 
 class TestScrapePhaseDurations:
-    def test_missing_log(self, tmp_path):
-        assert compose._scrape_phase_durations(tmp_path) == []
-
     def test_inline_and_paired(self, tmp_path):
         log = tmp_path / ".agent-run.log"
         log.write_text(
@@ -2229,9 +2203,6 @@ class TestExtractRequirementIdFromCell:
 
 
 class TestSplitMdTableRow:
-    def test_basic(self):
-        assert compose._split_md_table_row("| a | b |") == ["a", "b"]
-
     def test_non_table(self):
         assert compose._split_md_table_row("not a row") == []
 

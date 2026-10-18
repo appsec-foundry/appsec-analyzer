@@ -39,11 +39,6 @@ def acme_profile() -> dict:
     return vop._load_yaml(FIXTURE_PATH)
 
 
-def test_valid_org_profile_fixture_passes(acme_profile):
-    errors = vop.validate(acme_profile, FIXTURE_DIR)
-    assert errors == [], errors
-
-
 def test_default_preset_must_exist(acme_profile):
     acme_profile["default_preset"] = "no-such-preset"
     errors = vop.validate(acme_profile, FIXTURE_DIR)

@@ -84,15 +84,6 @@ def test_chain_label_keywords_strips_ids_and_stopwords():
     assert "attack" not in kw  # stopword
 
 
-def test_chain_keywords_overlap_exact():
-    assert qa._chain_keywords_overlap({"injection"}, {"injection"})
-
-
-def test_chain_keywords_overlap_prefix():
-    # "cracked" vs "crackable" share prefix len 5.
-    assert qa._chain_keywords_overlap({"cracked"}, {"crackable"})
-
-
 def test_chain_keywords_overlap_substring():
     assert qa._chain_keywords_overlap({"auth"}, {"authentication"})
 

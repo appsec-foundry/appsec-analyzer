@@ -32,7 +32,7 @@ def validate_config():
 
 
 class TestMainConfig:
-    def test_minimal_valid(self, validate_config):
+    def test_disabled_external_context_allows_null_rest_url(self, validate_config):
         data = {"external_context": {"enabled": False, "rest_url": None}}
         assert validate_config._validate_main_config(data, "test") == []
 
@@ -69,10 +69,6 @@ class TestMainConfig:
         data = {"external_context": {"enabled": True, "rest_url": "ftp://x.invalid"}}
         errors = validate_config._validate_main_config(data, "test")
         assert any("must be a valid http:// or https:// URL" in e for e in errors)
-
-    def test_rest_url_null_ok_when_disabled(self, validate_config):
-        data = {"external_context": {"enabled": False, "rest_url": None}}
-        assert validate_config._validate_main_config(data, "test") == []
 
     def test_pricing_must_be_numeric(self, validate_config):
         data = {
