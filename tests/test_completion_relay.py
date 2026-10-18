@@ -160,11 +160,9 @@ class TestTheHeadlessWrapper:
         assert self._cli(run_dir, OTHER_RUN_ID) == ""
         assert (run_dir / relay.RECORD).exists()
 
-    def test_the_wrapper_prints_the_record_after_the_result_text(self):
+    def test_the_legacy_wrapper_delegates_to_the_public_assessment_command(self):
         script = (REPO_ROOT / "scripts" / "run-headless.sh").read_text(encoding="utf-8")
-        result_text = script.index("--result-text")
-        relay_call = script.index('runtime/completion_relay.py" --output-dir "$OUTPUT_PATH"')
-        assert result_text < relay_call
+        assert 'exec appsec-analyzer assess "$@"' in script
 
 
 class TestTheSummaryScriptRecordsWhatItPrinted:

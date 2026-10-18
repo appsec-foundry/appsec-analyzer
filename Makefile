@@ -166,13 +166,13 @@ audit-test-routes:  ## Verify source routes by measuring every test module under
 
 .PHONY: lint
 lint:  ## Ruff check + format check
-	@ruff check scripts/ tests/ hooks/
-	@ruff format --check scripts/ tests/ hooks/
+	@ruff check scripts/ tests/
+	@ruff format --check scripts/ tests/
 
 .PHONY: fix
 fix:  ## Auto-repair the mechanical gate failures (ruff lint + format), then list what still needs a human
-	@echo ">> ruff check --fix (safe lint fixes)"; ruff check --fix scripts/ tests/ hooks/ || true
-	@echo ">> ruff format"; ruff format scripts/ tests/ hooks/
+	@echo ">> ruff check --fix (safe lint fixes)"; ruff check --fix scripts/ tests/ || true
+	@echo ">> ruff format"; ruff format scripts/ tests/
 	@echo ""
 	@echo "Auto-repair done. Stages 3-6 are NOT auto-fixable by design (fix the producer, not the symptom):"
 	@echo "  - validators/validate_config.py        -> correct the offending config field"
@@ -209,10 +209,8 @@ baseline-sync:  ## Re-vendor data/baselines/ from the published baseline: make b
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: check
-check:  ## Continuous gate: lint, format, config, drift, full test suite (no coverage)
-	@$(MAKE) --no-print-directory lint
-	@$(MAKE) --no-print-directory validate
-	@$(MAKE) --no-print-directory test-full
+check:  ## Current standalone offline gate, including controller tests: make check [BASE=<base-commit>]
+	@$(MAKE) --no-print-directory release-check-analyzer BASE="$(or $(BASE),HEAD)"
 
 .PHONY: validate
 validate:  ## Validate config, registry, target neutrality, and requirement bindings without pytest
