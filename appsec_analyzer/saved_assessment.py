@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import re
-import stat
 from pathlib import Path
 
 import yaml
@@ -23,12 +22,15 @@ class SavedAssessmentError(ValueError):
 
 
 def validate_directory(path: Path, *, private: bool = True) -> None:
-    for parent in reversed((path, *path.parents)):
-        info = parent.lstat()
-        if not stat.S_ISDIR(info.st_mode):
-            raise SavedAssessmentError("export paths must contain only real directories")
-        if info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:
-            raise SavedAssessmentError("export paths must not be writable by other users")
+    from appsec_analyzer.engine import initialize
+
+    initialize()
+    from shared.assessment_location import LocationError, check_ancestors
+
+    try:
+        check_ancestors(path)
+    except LocationError as exc:
+        raise SavedAssessmentError(f"export {exc}") from None
     info = path.stat()
     if private and (info.st_uid != os.getuid() or info.st_mode & 0o077):
         raise SavedAssessmentError("assessment and export directories must be owned by you and private (mode 0700)")

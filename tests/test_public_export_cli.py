@@ -272,3 +272,26 @@ def test_converter_timeout_terminates_process(tmp_path, monkeypatch):
     with pytest.raises(ExportError, match="time limit"):
         exports._run([sys.executable, "-c", "import time; time.sleep(60)"], tmp_path)
     assert children[0].poll() is not None and children[0].returncode != 0
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX permissions")
+def test_export_accepts_a_parent_writable_only_by_the_users_private_group(tmp_path, monkeypatch):
+    import grp
+    import pwd
+    from types import SimpleNamespace
+
+    parent = tmp_path / "home"
+    parent.mkdir(mode=0o700)
+    if parent.lstat().st_gid != os.getgid():
+        pytest.skip("temporary directory does not carry the primary group")
+    source = _bundle(parent)
+    parent.chmod(0o775)
+    monkeypatch.setattr(grp, "getgrgid", lambda _gid: SimpleNamespace(gr_mem=[]))
+    monkeypatch.setattr(pwd, "getpwall", lambda: [])
+    output = parent / "export"
+    export_assessment(str(source), str(output), ("yaml",))
+    assert output.stat().st_mode & 0o777 == 0o700
+    monkeypatch.setattr(grp, "getgrgid", lambda _gid: SimpleNamespace(gr_mem=["someone-else"]))
+    with pytest.raises(ExportError, match="writable by other users"):
+        export_assessment(str(source), str(parent / "second"), ("yaml",))
+    assert not (parent / "second").exists()

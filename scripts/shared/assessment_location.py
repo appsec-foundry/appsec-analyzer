@@ -143,8 +143,9 @@ def assessment_directory(name: str, base: Path | None = None) -> Path:
 def private_directory(directory: Path, base: Path) -> Path:
     """Create ``directory`` and the ``appsec-analyzer`` levels under it with mode 0700.
 
-    Refuses when ``directory`` is not below ``base`` or when any level from the
-    ``appsec-analyzer`` directory down is a symlink, not a directory, owned by
+    Refuses when ``directory`` is not below ``base``, when a level above the
+    ``appsec-analyzer`` directory fails ``check_ancestors``, or when any level from
+    the ``appsec-analyzer`` directory down is a symlink, not a directory, owned by
     another user, or open to group or others.
     """
     app_root = base.parent if base.name == ASSESSMENTS_DIRECTORY else base
@@ -157,6 +158,7 @@ def private_directory(directory: Path, base: Path) -> Path:
     if ".." in relative.parts:
         raise LocationError("the destination lies outside the assessment base")
     app_root.parent.mkdir(parents=True, exist_ok=True)
+    check_ancestors(app_root.parent)
     current = app_root
     for part in (None, *relative.parts):
         if part is not None:
@@ -178,6 +180,46 @@ def _check_private(path: Path) -> None:
             raise LocationError(f"{path.name} in the assessment destination belongs to another user")
         if info.st_mode & 0o077:
             raise LocationError(f"{path.name} in the assessment destination is accessible to other users")
+
+
+def check_ancestors(path: Path) -> None:
+    """Refuse a path whose levels another account could rename or replace.
+
+    Producers and consumers apply the same rule, because a replaced level would
+    redirect later reads and writes after any one-time check. Every level up to
+    the root must be a real directory. On POSIX, write access for others, or for
+    a group other than the user's own private group, is refused unless the
+    sticky bit is set.
+    """
+    for level in reversed((path, *path.parents)):
+        info = level.lstat()
+        if not stat.S_ISDIR(info.st_mode):
+            raise LocationError("paths must contain only real directories")
+        if not hasattr(os, "getuid") or info.st_mode & stat.S_ISVTX:
+            continue
+        if info.st_mode & 0o002 or info.st_mode & 0o020 and not _own_private_group(info.st_gid):
+            raise LocationError("paths must not be writable by other users")
+
+
+def _own_private_group(gid: int) -> bool:
+    """Whether ``gid`` is the user's primary group and no other known account belongs to it.
+
+    Accounts that the name service does not enumerate cannot be seen here.
+    """
+    if gid != os.getgid():
+        return False
+    import grp
+    import pwd
+
+    uid = os.getuid()
+    try:
+        user = pwd.getpwuid(uid).pw_name
+        members = set(grp.getgrgid(gid).gr_mem)
+    except KeyError:
+        return False
+    if members - {user}:
+        return False
+    return not any(entry.pw_gid == gid and entry.pw_uid != uid for entry in pwd.getpwall())
 
 
 def remote_of(repo_root: Path) -> str | None:

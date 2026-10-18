@@ -212,3 +212,56 @@ def test_cli_creates_the_destination_privately_on_request(tmp_path, monkeypatch,
     (tmp_path / "data" / "appsec-analyzer").chmod(0o755)
     assert loc.main(["destination", "--repo", str(repo), "--create"]) == 2
     assert "accessible to other users" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX permissions")
+@pytest.mark.parametrize(
+    ("mode", "case", "accepted"),
+    [
+        (0o775, "own-group", True),
+        (0o1777, "own-group", True),
+        (0o775, "listed-member", False),
+        (0o775, "shared-primary-group", False),
+        (0o775, "foreign-group", False),
+        (0o757, "own-group", False),
+    ],
+)
+def test_writer_and_reader_apply_the_same_ancestor_rule(tmp_path, monkeypatch, mode, case, accepted):
+    import grp
+    import pwd
+    from types import SimpleNamespace
+
+    from appsec_analyzer.saved_assessment import SavedAssessmentError, validate_directory
+
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    gid = home.lstat().st_gid
+    if gid != os.getgid():
+        pytest.skip("temporary directory does not carry the primary group")
+    base = home / "data" / TAIL
+    target = loc.assessment_directory(loc.application_name(tmp_path, "https://h/x/app"), base)
+    loc.private_directory(target, base)
+    home.chmod(mode)
+    members = ["someone-else"] if case == "listed-member" else []
+    monkeypatch.setattr(grp, "getgrgid", lambda _gid: SimpleNamespace(gr_mem=members))
+    others = [SimpleNamespace(pw_gid=gid, pw_uid=os.getuid() + 1)] if case == "shared-primary-group" else []
+    monkeypatch.setattr(pwd, "getpwall", lambda: others)
+    if case == "foreign-group":
+        monkeypatch.setattr(loc.os, "getgid", lambda: gid + 1)
+
+    if accepted:
+        assert loc.private_directory(target, base) == target
+        validate_directory(target)
+    else:
+        with pytest.raises(loc.LocationError, match="writable by other users"):
+            loc.private_directory(target, base)
+        with pytest.raises(SavedAssessmentError, match="writable by other users"):
+            validate_directory(target)
+
+
+def test_a_non_directory_ancestor_is_refused(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    (tmp_path / "link").symlink_to(real)
+    with pytest.raises(loc.LocationError, match="real directories"):
+        loc.check_ancestors(tmp_path / "link" / "assessment")
