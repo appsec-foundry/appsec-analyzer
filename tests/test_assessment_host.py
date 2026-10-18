@@ -201,7 +201,7 @@ def test_a_read_that_would_overflow_the_next_packet_is_refused_back_not_fatal(tm
 def test_host_capacity_bounds_reads_and_includes_the_complete_request(tmp_path):
     from appsec_analyzer import codex_cli
 
-    instructions = "trusted " + "policy " * 4000
+    instructions = "trusted " + "policy " * ((codex_cli.MAX_REQUEST_BYTES - 212_000) // 7)
     capacity = host.context_capacity(instructions, ARTIFACT, codex_cli.prompt_capacity)
     assert capacity < host.MAX_CONTEXT_BYTES
     model = Model([read(), complete()])

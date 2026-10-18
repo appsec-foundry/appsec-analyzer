@@ -317,6 +317,67 @@ def preflight(profile: ApiProfile, *, metadata: bool = True) -> str:
     return result[0]
 
 
+def _request_body(profile: ApiProfile, system: str, prompt: str, schema: dict) -> bytes:
+    # The wire schema is deliberately separate from the canonical contract.
+    # JSON inside the one required string is decoded exactly; the controller
+    # then validates the complete canonical artifact and correction rules.
+    contract = json.dumps(schema, separators=(",", ":"), ensure_ascii=False)
+    instructions = (
+        system + "\nReturn exactly one JSON object with payload_json: a JSON string "
+        "containing your response to this canonical contract. Preserve null and "
+        "absent fields exactly. Contract:\n" + contract
+    )
+    request = {
+        "model": profile.model,
+        "instructions": instructions,
+        "input": prompt,
+        "store": False,
+        "text": {"format": {"type": "json_schema", "name": "appsec_exchange", "strict": True, "schema": _WIRE_SCHEMA}},
+    }
+    if profile.max_output_tokens is not None:
+        request["max_output_tokens"] = profile.max_output_tokens
+    if profile.reasoning_effort:
+        request["reasoning"] = {"effort": profile.reasoning_effort}
+    if profile.kind == "lite":
+        request.update(num_retries=0, disable_fallbacks=True)
+    if profile.kind == "bedrock":
+        request = {
+            "system": [{"text": instructions}],
+            "messages": [{"role": "user", "content": [{"text": prompt}]}],
+            "inferenceConfig": {"maxTokens": profile.output_token_bound},
+            "outputConfig": {
+                "textFormat": {
+                    "type": "json_schema",
+                    "structure": {"jsonSchema": {"schema": json.dumps(_WIRE_SCHEMA), "name": "appsec_exchange"}},
+                }
+            },
+        }
+    return json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+# The body carries the prompt as a JSON string, so each quote and backslash of
+# the JSON packet is escaped once more: observed packets grow by up to 12%.
+# One sixth of the room stays for that growth; invoke still checks the body.
+_ESCAPE_SHARE = 6
+
+
+def prompt_capacity(profiles):
+    """Prompt bytes that keep every role's request body within its size limit."""
+    profiles = tuple(profiles)
+    if not profiles:
+        raise ValueError("API prompt capacity needs at least one profile")
+
+    def capacity(system, schema):
+        return min(
+            max(0, profile.max_request_bytes - len(_request_body(profile, system, "", schema)))
+            * (_ESCAPE_SHARE - 1)
+            // _ESCAPE_SHARE
+            for profile in profiles
+        )
+
+    return capacity
+
+
 class ResponsesTransport:
     def __init__(self, profile: ApiProfile, ceiling: float):
         if type(ceiling) not in (int, float) or not math.isfinite(ceiling) or ceiling <= 0:
@@ -332,43 +393,7 @@ class ResponsesTransport:
         token = credential(self.profile)
         if type(schema) is not dict or type(system) is not str or type(prompt) is not str:
             raise ApiTransportError("invalid_request")
-        # The wire schema is deliberately separate from the canonical contract.
-        # JSON inside the one required string is decoded exactly; the controller
-        # then validates the complete canonical artifact and correction rules.
-        contract = json.dumps(schema, separators=(",", ":"), ensure_ascii=False)
-        instructions = (
-            system + "\nReturn exactly one JSON object with payload_json: a JSON string "
-            "containing your response to this canonical contract. Preserve null and "
-            "absent fields exactly. Contract:\n" + contract
-        )
-        request = {
-            "model": self.profile.model,
-            "instructions": instructions,
-            "input": prompt,
-            "store": False,
-            "text": {
-                "format": {"type": "json_schema", "name": "appsec_exchange", "strict": True, "schema": _WIRE_SCHEMA}
-            },
-        }
-        if self.profile.max_output_tokens is not None:
-            request["max_output_tokens"] = self.profile.max_output_tokens
-        if self.profile.reasoning_effort:
-            request["reasoning"] = {"effort": self.profile.reasoning_effort}
-        if self.profile.kind == "lite":
-            request.update(num_retries=0, disable_fallbacks=True)
-        if self.profile.kind == "bedrock":
-            request = {
-                "system": [{"text": instructions}],
-                "messages": [{"role": "user", "content": [{"text": prompt}]}],
-                "inferenceConfig": {"maxTokens": self.profile.output_token_bound},
-                "outputConfig": {
-                    "textFormat": {
-                        "type": "json_schema",
-                        "structure": {"jsonSchema": {"schema": json.dumps(_WIRE_SCHEMA), "name": "appsec_exchange"}},
-                    }
-                },
-            }
-        body = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        body = _request_body(self.profile, system, prompt, schema)
         if len(body) > self.profile.max_request_bytes:
             raise ApiTransportError("request_too_large")
         # UTF-8 byte length bounds text token count, with room for API framing.

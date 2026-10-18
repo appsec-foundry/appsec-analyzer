@@ -744,6 +744,24 @@ def _assessment_runtime_fingerprint() -> str:
     return hashlib.sha256(_canonical_json_bytes(sorted(rows))).hexdigest()
 
 
+def _host_prompt_capacity(run_profile, api_profile):
+    """The selected host's prompt bound; None leaves the shared packet limit alone."""
+    if (run_profile or {}).get("adapter") == "codex-cli":
+        from appsec_analyzer.codex_cli import prompt_capacity
+
+        return prompt_capacity
+    if api_profile is None:
+        return None
+    from appsec_analyzer.api_hosts import prompt_capacity
+
+    if run_profile is None:
+        return prompt_capacity([api_profile])
+    from appsec_analyzer.profiles import api_profile as role_api_profile
+
+    # Every role builds its transport from its own settings, as the factory does.
+    return prompt_capacity(role_api_profile(settings) for settings in run_profile["models"].values())
+
+
 @contextmanager
 def _assessment_session(
     scope,
@@ -856,9 +874,7 @@ def _assessment_session(
         for name in RUN_DIAGNOSTIC_NAMES:
             (scope.output / name).unlink(missing_ok=True)
         budget.plan_completion()
-        prompt_capacity = None
-        if (run_profile or {}).get("adapter") == "codex-cli":
-            from appsec_analyzer.codex_cli import prompt_capacity
+        prompt_capacity = _host_prompt_capacity(run_profile, api_profile)
         # Any session may adopt the cached accepted jobs of an unfinished earlier run.
         jobs = AssessmentJobs(
             scope,

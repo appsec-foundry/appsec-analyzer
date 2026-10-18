@@ -34,7 +34,10 @@ from appsec_analyzer.codex_schema import CodexSchema
 
 SUPPORTED_VERSION = "0.163.0"
 MAX_BYTES = 1_048_576
-MAX_REQUEST_BYTES = 240_000
+# The prompt goes through stdin, instructions and schema through files. The
+# bound leaves a STRIDE packet the shared MAX_CONTEXT_BYTES after the role
+# instructions and the larger native output schema, as other hosts receive.
+MAX_REQUEST_BYTES = 320_000
 # One stateless exchange: do not let the CLI silently replay it outside the
 # controller's call accounting. Bound the wait for incoming SSE events.
 STREAM_IDLE_TIMEOUT_MS = 60_000

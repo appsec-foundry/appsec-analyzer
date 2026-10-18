@@ -1611,7 +1611,7 @@ def test_stride_batches_reserve_the_full_codex_request(tmp_path, monkeypatch):
         host_schema(response_schema(analysis.contract("multi-repo-stride.schema.json")))
     )
     output_bytes = len(json.dumps(output_schema.schema, separators=(",", ":")).encode())
-    lens_policy = "policy " * (28_000 - (output_bytes + 6) // 7)
+    lens_policy = "policy " * ((codex_cli.MAX_REQUEST_BYTES - 44_000) // 7 - (output_bytes + 6) // 7)
     monkeypatch.setattr(analysis, "analysis_lenses", lambda *args: ([], lens_policy))
     observed = []
 
@@ -1639,6 +1639,32 @@ def test_stride_batches_reserve_the_full_codex_request(tmp_path, monkeypatch):
     with pytest.raises(Captured):
         controller._assessment_stride(scope, jobs, architecture, [], [], progress=lambda text: None)
     assert observed and observed[0]["context"]["investigation_targets"]
+
+
+def test_api_hosts_bound_packets_by_their_request_limit():
+    from runtime.assessment_host import MAX_CONTEXT_BYTES, context_capacity
+
+    from appsec_analyzer import codex_cli
+    from appsec_analyzer.profiles import api_profile
+
+    def settings(model, **changes):
+        values = dict(
+            adapter="openai",
+            model=model,
+            input_usd_per_million=1.0,
+            output_usd_per_million=2.0,
+            price_revision="2026-10-17",
+            model_output_limit=4096,
+        )
+        return {**values, **changes}
+
+    run_profile = {"adapter": "openai", "models": {"stride_analyzer": settings("a"), "threat_merger": settings("b")}}
+    capacity = controller._host_prompt_capacity(run_profile, api_profile(run_profile["models"]["stride_analyzer"]))
+    # The shared packet limit alone exceeds the API body limit after instructions.
+    assert context_capacity("x" * 20_000, {"type": "object"}, capacity) < MAX_CONTEXT_BYTES
+    assert capacity("x" * 20_000, {}) < 240_000 - 20_000
+    assert controller._host_prompt_capacity({"adapter": "codex-cli"}, None) is codex_cli.prompt_capacity
+    assert controller._host_prompt_capacity(None, None) is None
 
 
 def _control_scope(tmp_path, names, count=6):

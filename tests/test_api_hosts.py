@@ -215,6 +215,45 @@ def test_codex_profile_rejects_oversized_request_before_transmission(fake_host):
     assert not fake_host.instances
 
 
+_BEDROCK = dict(
+    kind="bedrock",
+    endpoint="https://bedrock-runtime.eu-central-1.amazonaws.com",
+    key_env="AWS_BEARER_TOKEN_BEDROCK",
+    model="reviewed.model-v1:0",
+)
+
+
+@pytest.mark.parametrize("changes", [{}, _BEDROCK])
+def test_prompt_capacity_admits_an_escaped_packet_within_the_body_limit(fake_host, monkeypatch, changes):
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "test-only-key")
+    profile = _profile(**changes)
+    system, schema = 'trusted € "quoted"', {"type": "object", "description": "€"}
+    capacity = api_hosts.prompt_capacity([profile])(system, schema)
+    # Fixed framing is measured, not estimated: the room is below the limit.
+    assert 0 < capacity < profile.max_request_bytes - len(system)
+    # A JSON packet whose escapes grow it by 15%, more than dense context does, fits.
+    packet = json.dumps({"rows": ['a"b\\' + "x" * 29] * (capacity // 46)})
+    assert len(packet.encode()) <= capacity
+    try:
+        api_hosts.ResponsesTransport(profile, 10).invoke(system, packet, schema, 5, lambda: False)
+    except api_hosts.TransportError as exc:
+        # The fake replies in Responses format; this test needs the transmission.
+        assert changes and exc.reason == "invalid_response"
+    assert len(fake_host.instances[0].requests) == 1
+
+
+def test_prompt_capacity_is_the_smallest_role_bound_and_the_host_still_rejects_overflow(fake_host):
+    small, large = _profile(max_request_bytes=100_000), _profile()
+    capacity = api_hosts.prompt_capacity([large, small])("system", {})
+    assert capacity == api_hosts.prompt_capacity([small])("system", {}) < 100_000
+    # The capacity plans packets; the transport check remains authoritative.
+    with pytest.raises(api_hosts.TransportError, match="request_too_large"):
+        api_hosts.ResponsesTransport(small, 10).invoke("system", '"' * capacity, {}, 5, lambda: False)
+    assert not fake_host.instances
+    with pytest.raises(ValueError):
+        api_hosts.prompt_capacity([])
+
+
 def test_default_output_allowance_is_not_reduced_to_fit_budget(fake_host):
     with pytest.raises(api_hosts.TransportError, match="budget_exhausted"):
         api_hosts.ResponsesTransport(CODEX_PROFILES["standard"], 1).invoke("s", "p", {}, 5, lambda: False)
