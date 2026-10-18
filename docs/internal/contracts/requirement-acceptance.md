@@ -10,7 +10,7 @@ Offer a deterministic source scan that needs no model account or model budget. S
 
 ## REQ-036: Get a quick security indication
 
-Offer `score REPO` for one top-level local Git checkout or explicitly selected supported Git URL, without model calls or writes into the target. Reuse Analyzer source admission, private redacted snapshots, source-change detection, and bounded remote retrieval. Treat repository content as data and sanitize diagnostic and terminal fields. Record source revision, captured state, public interface version, and source-policy identity in structured results. Omit excluded-file lists and counts from the score output in every format; retain source admission and exclusions internally.
+Offer `score REPO` for one top-level local Git checkout or explicitly selected supported Git URL, without model calls or writes into the target. Reuse Analyzer source admission, private redacted snapshots, source-change detection, and bounded remote retrieval. Treat repository content as data and sanitize diagnostic and terminal fields. Record source revision, captured state, public interface version, and source-policy identity in structured results. Unlike the source scan and assessment report (REQ-001, REQ-003), omit excluded-file lists and counts from the score output in every format; retain source admission and exclusions internally.
 
 Use the retained version-2 scoring calculation over route inventory, architecture coverage, configuration/IaC, and source-auth scanners. Report per-indicator scores and applicable coverage; keep findings from unscored indicators visible and identify excluded severities. A headline requires at least five applicable coverage rules and complete, validated results from every required scanner. Otherwise return `undetermined` or `incomplete` with a null headline score and visible findings and warnings. Report scanner observations as unverified and state that this is a limited quick check without exposure context, not a full assessment or security approval.
 
@@ -26,7 +26,7 @@ Scores are comparable only across commits of one repository with matching scorin
 
 ## REQ-002: Choose what to assess
 
-Let users select local Git repositories or supported Git URLs, combine repositories into one assessment, choose analysis depth, and select a separate result directory. Reject unsupported scope restrictions instead of silently analyzing a different scope.
+Let users select local Git repositories or supported Git URLs, combine repositories into one assessment, choose analysis depth, and select a separate result directory. Reject unsupported component or directory restrictions instead of silently analyzing a different scope.
 
 ## REQ-003: Know what was examined
 
@@ -62,7 +62,7 @@ Accept validated business and organization context as data, identify its source 
 
 ## REQ-011: Look for misuse of business features
 
-Let users configure abuse-case sources. Include enabled business cases at standard and thorough depth, with at most three model-derived cases at thorough depth. Distinguish confirmed, unproven, mitigated, unresolved, inapplicable, and unchecked cases; create findings only when supported by evidence.
+Let users configure abuse-case sources. Include enabled business cases at standard and thorough depth, with at most three model-derived cases at thorough depth. Distinguish confirmed, unproven, mitigated, unresolved, inapplicable, and unchecked cases; create findings only when supported by evidence. An unproven case has evidence that indicates the problem without proving it and stays an unproven, unscored finding. An unresolved case is neither confirmed nor ruled out by the examined code and is not a safe result.
 
 For a single repository, accept repeatable `--abuse-case-file` selections through `scan` and `assess`, and saved selections through the scan profile's `abuse_case_files` list. CLI selections replace that list. Resolve bounded YAML paths against the admitted repository root without requiring a documentation directory or granting access to host files. Retain automatic discovery at earlier repository locations for compatibility. Explicitly selected files request their enabled cases at every depth, including when the file is also automatically discovered, without loading the cases twice. Preserve case limits and report omissions. Reject unsupported multi-repository file selection and files outside the admitted source boundary.
 
@@ -138,7 +138,7 @@ Validate required inputs, model responses, evidence, and deliverables before use
 
 ## REQ-022: Run unattended
 
-Run without interactive responses when unattended operation is selected. Return distinguishable completion, policy-gate, interruption, and operational-error outcomes. Finding severity must not silently change an advisory command into a blocking gate.
+Run without interactive responses when unattended operation is selected. Return distinguishable completion, policy-gate, interruption, and operational-error outcomes. Finding severity must not silently change an advisory command into a blocking gate. Document each command's exit codes in its help and guide, and keep the meaning of each code stable for that command.
 
 For full assessments, `--non-interactive` explicitly disables budget questions. Missing input or diagnostic terminals, recognized CI environments, `--quiet`, and machine-readable controller output also disable them. Unattended execution never raises its spending limit automatically.
 

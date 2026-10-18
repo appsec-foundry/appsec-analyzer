@@ -10,11 +10,11 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 ## Understand the system
 
-- **REQ-001:** **Scan without an AI account.** A source scan runs without an AI account or paid model calls. Its output explains what the scanners checked, marks observations as unverified, and makes clear that a full assessment has not been run.
+- **REQ-001:** **Scan without an AI account.** A source scan runs without an AI account or any model calls. It is separate from the model-backed assessment scan. Its output explains what the scanners checked, marks observations as unverified, and makes clear that a full assessment has not been run.
 
 - **REQ-036:** **Get a quick security indication.** A repository can receive a deterministic security score without model calls. The result explains its coverage and limits, retains visible findings when it cannot score, and identifies when scores can be compared across commits of the same repository.
 
-- **REQ-002:** **Choose what to assess.** An assessment can cover one repository or several that belong to the same system, supplied as local Git repositories or supported Git URLs. The user chooses the depth and result directory. Analyzer rejects scope restrictions it cannot honor.
+- **REQ-002:** **Choose what to assess.** An assessment can cover one repository or several that belong to the same system, supplied as local Git repositories or supported Git URLs. The user chooses the depth and result directory. If Analyzer cannot honor a restriction to specific components or directories, it rejects the request instead of analyzing a different scope.
 
 - **REQ-003:** **Know what was examined.** The report names the source versions and context used, along with anything excluded or left unchecked. Its conclusions apply to that examined source, not to later changes.
 
@@ -66,7 +66,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 ## Ask focused security questions
 
-- **REQ-024:** **Ask a focused security question.** Users can ask a security question directly and clarify its scope and missing facts in a dialogue. A focused analysis can use existing threat models, requirements and specifications, including Markdown documents, without requiring a full assessment. It includes separate authentication and authorization review and leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
+- **REQ-024:** **Ask a focused security question.** Users can ask a security question directly and clarify its scope and missing facts in a dialogue. A focused analysis can use existing threat models, requirements and specifications, including Markdown documents, without requiring a full assessment. A separate authentication and authorization review is also available without a full assessment. Focused analysis leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
 
 - **REQ-025:** **Understand what a code change affects.** Users can select local changes, a commit comparison, or a merge or pull request. The review shows which problems the change introduces, makes worse, or mitigates, and distinguishes established requirements from proposed changes to them. It also identifies problems that were already present and says when their relationship to the change is unclear.
 
