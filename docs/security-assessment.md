@@ -45,6 +45,19 @@ appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
 
 The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model`, `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
 
+Before model analysis, the startup header shows four compact scope rows using the effective profile and CLI settings. For example, a run with three enabled cases from one explicitly selected file shows:
+
+```text
+Focus: Security design, code, and configuration
+Abuse cases: Built-in + 3 user-supplied (review/abuse-cases.yaml)
+Coverage: Depends on models, context, depth, and budget
+Excludes: SCA/CVE scanning, comprehensive secret scanning, and runtime testing
+```
+
+The abuse-case row describes loaded definitions before applicability matching and verification. It includes organization cases only when enabled definitions are loaded, counts enabled repository and explicitly selected cases as user-supplied, and omits disabled or rejected definitions from those sources. An explicitly selected file already discovered in the repository is counted once. With dedicated verification disabled, the row says `Dedicated verification disabled`; with no active definitions, it says `None loaded`. Model-derived cases can be added later at `thorough` depth and are not counted at startup. Loaded case counts do not establish business-logic coverage; the result distinguishes actual checks, unresolved cases, and omitted work. `--quiet` suppresses the terminal header; the structured progress feed retains the scope rows.
+
+Supply-chain and secret-handling weaknesses can still be found in source and configuration, and secret masking and result checks remain active. These checks do not replace a dependency vulnerability scan or comprehensive repository and Git-history secret scanning. No tests run against the application itself.
+
 Use `standard` as a starting point, including for business logic analysis. `thorough` can find additional problems, but more expensive early analysis can leave less budget for verification and combining related findings. More findings or abuse cases do not by themselves establish better coverage. See [the measured standard and thorough comparison](model-selection.md#choosing-standard-or-thorough) for costs and limits, and check the run summary for skipped model work.
 
 For `claude` and `codex`, the spending limit defaults to USD 20 for both `scan` and `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.

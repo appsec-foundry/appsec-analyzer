@@ -534,6 +534,8 @@ requirements:
 
   REQ-011:
     applies_to:
+      - appsec_analyzer/assessment/scope.py
+      - scripts/orchestrator/orchestration_controller.py
       - appsec_analyzer/cli.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
@@ -556,6 +558,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_scope.py::test_resolved_organization_settings_reach_startup_and_downstream_case_consumers
       - tests/test_promote_verified_abuse_cases.py::test_unconfirmed_or_unclassified_probe_is_never_promoted
       - tests/test_profiles.py::test_abuse_case_profile_selection_and_cli_replacement
       - tests/test_profiles.py::test_abuse_case_files_reach_controller_from_profile_or_cli
@@ -900,6 +903,7 @@ requirements:
 
   REQ-016:
     applies_to:
+      - appsec_analyzer/assessment/scope.py
       - appsec_analyzer/preflight.py
       - scripts/runtime/assessment_diagnostics.py
       - scripts/model/assessment_scanner_findings.py
@@ -938,6 +942,13 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_scope.py::test_scope_describes_model_backed_analysis_and_loaded_defaults
+      - tests/test_assessment_scope.py::test_scope_counts_enabled_cases_and_deduplicates_explicit_repository_files
+      - tests/test_assessment_scope.py::test_scope_reads_the_frozen_source_and_sanitizes_its_display_name
+      - tests/test_assessment_scope.py::test_disabled_verification_does_not_read_any_case_source
+      - tests/test_assessment_scope.py::test_invalid_explicit_content_fails_without_echoing_it
+      - tests/test_assessment_scope.py::test_scope_facts_reach_console_and_structured_start_without_stdout
+      - tests/test_assessment_scope.py::test_startup_reports_scope_before_model_work_and_quiet_preserves_the_start_event
       - tests/test_startup_preflight.py::test_cli_preflight_never_clones_or_starts_assessment
       - tests/test_startup_preflight.py::test_failed_remote_stops_before_any_clone_or_assessment
       - tests/test_assessment_jobs.py::test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_receipted

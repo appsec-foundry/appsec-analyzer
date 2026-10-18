@@ -767,6 +767,11 @@ def _assessment_session(
     from runtime.assessment_state import CACHE_NAME, RUN_DIAGNOSTIC_NAMES, AssessmentPaused, AssessmentState
 
     cfg = resolve_config.resolve_assessment(scope, arguments, PLUGIN_ROOT, model=model)
+    # The case matcher, renderer and deriver consume the retained flat path;
+    # the configuration resolver records the active profile in its metadata.
+    org_profile = cfg.get("org_profile") or {}
+    if org_profile.get("active"):
+        cfg["org_profile_path"] = org_profile["path"]
     cfg["max_parallel"] = budget.max_parallel
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
@@ -2639,7 +2644,14 @@ def _assessment_options(ns, cfg: dict[str, Any]) -> str:
 
 
 def _assessment_intro(
-    ns, budget, depth: str, lineup: str, pipeline: str, runtime_changed=False, cfg: dict[str, Any] | None = None
+    ns,
+    budget,
+    depth: str,
+    lineup: str,
+    pipeline: str,
+    runtime_changed=False,
+    cfg: dict[str, Any] | None = None,
+    scope_facts: list[tuple[str, str]] | None = None,
 ) -> list[tuple[str, str]]:
     """Return the console header rows, shown once every pre-run check has passed."""
     output = ns.output
@@ -2699,23 +2711,38 @@ def _assessment_intro(
         ("Depth", depth),
         ("Max parallel", str(budget.max_parallel)),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
+        *(scope_facts or []),
         ("Trust mode", trust),
         ("Pipeline", pipeline),
         *(row for row in plan if row[0] and row[1]),
     ]
 
 
-def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state) -> list[str]:
+def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, scope_facts=None) -> list[str]:
     """What the run is about to spend and where, as the console header states it, one line per fact.
 
     For a follower that shows the start in a conversation: the header's
-    rows for repository, output, depth, budget, time limit and models, each
-    on one line, without the trust and pipeline rows the header adds.
+    rows for repository, output, depth, budget, time limit, models and planned
+    scope, each on one line, without the trust and pipeline rows the header adds.
     """
     lineup, _ = _assessment_model_lines(cfg, compact=True)
-    rows = dict(_assessment_intro(ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg))
+    rows = dict(
+        _assessment_intro(ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg, scope_facts)
+    )
     lines = []
-    for key in ("Repository", "Repositories", "Output", "Depth", "Budget", "Time limit", "Models"):
+    for key in (
+        "Repository",
+        "Repositories",
+        "Output",
+        "Depth",
+        "Budget",
+        "Time limit",
+        "Models",
+        "Focus",
+        "Abuse cases",
+        "Coverage",
+        "Excludes",
+    ):
         if key in rows:
             parts = rows[key].splitlines()
             # The budget's second line explains priorities, not the limit.
@@ -3496,6 +3523,13 @@ def assess_repositories(
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)
+                from appsec_analyzer.assessment.scope import scope_facts
+                from orchestrator.assessment_review import AssessmentReviewError
+
+                try:
+                    planned_scope = scope_facts(scope, cfg)
+                except AssessmentReviewError as exc:
+                    raise CallError(str(exc)) from exc
                 jobs.on_gap = lambda gap: say(_assessment_gap_message(gap))
                 from runtime.interactive_budget import BudgetPrompt, can_prompt
 
@@ -3519,7 +3553,9 @@ def assess_repositories(
                     cfg, compact=console is not None and _AssessmentConsole.max_columns is not None
                 )
                 depth = str(cfg.get("assessment_depth") or "standard")
-                _AssessmentProgress.emit("run_start", lines=_assessment_start_lines(ns, budget, depth, cfg, state))
+                _AssessmentProgress.emit(
+                    "run_start", lines=_assessment_start_lines(ns, budget, depth, cfg, state, planned_scope)
+                )
                 kind = "Single-repository controller" if len(labels) == 1 else "Multi-repository"
                 if console:
                     # One header after the output directory, scope and configuration
@@ -3527,7 +3563,14 @@ def assess_repositories(
                     console.facts(
                         "appsec-analyzer — Model-backed assessment (alpha)",
                         _assessment_intro(
-                            ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg
+                            ns,
+                            budget,
+                            depth,
+                            lineup,
+                            _assessment_pipeline(cfg),
+                            state.runtime_changed,
+                            cfg,
+                            planned_scope,
                         )
                         + ([("Diagnostics", str(jobs.diagnostics.path))] if ns.verbose and jobs.diagnostics else []),
                     )
@@ -3545,6 +3588,8 @@ def assess_repositories(
                 else:
                     print(f"⚠ {kind} assessment is experimental.", file=sys.stderr, flush=True)
                     say(lineup)
+                    for key, value in planned_scope:
+                        say(f"{key}: {value}")
                 if model_warning:
                     # Shown even with --quiet: it changes the run's cost or outcome.
                     print(f"⚠ {model_warning}", file=sys.stderr, flush=True)
