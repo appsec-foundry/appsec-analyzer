@@ -40,7 +40,7 @@ Prerequisites: Linux or macOS, Codex CLI **0.163.0** installed on your `PATH` ou
      --max-calls 1000 --max-duration 14400
    ```
 
-The default limits are 1,000 model exchanges including corrections, failed attempts, and retries, four hours of total elapsed time, and one component at a time. `--max-calls N` accepts 1–47,256; `--max-duration SECONDS` accepts 1–43,200; `--max-parallel N` accepts 1–16. Required analysis and report work retain the existing call and time reserves. Each CLI exchange also has its own timeout and input/output byte bounds. Analyzer uses HTTP/SSE, disables CLI request and stream retries, and sets a 60-second stream idle timeout. Incoming stream events reset that idle timeout; it is not a 60-second total limit on model reasoning. The controller's per-call limit still applies. The call count measures Analyzer-dispatched CLI invocations, including Analyzer retries. An exchange is not an exact measure of tokens or ChatGPT credits, and these limits do not guarantee that the assessment will finish within your plan allowance. The transport settings use the [official Codex provider configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
+The default limits are 1,000 model exchanges including corrections, failed attempts, and retries, four hours of total elapsed time, and at most two components at a time. `--max-calls N` accepts 1–47,256; `--max-duration SECONDS` accepts 1–43,200; `--max-parallel N` accepts 1–16. Required analysis and report work retain the existing call and time reserves. Each CLI exchange also has its own timeout and input/output byte bounds. Analyzer uses HTTP/SSE, disables CLI request and stream retries, and sets a 60-second stream idle timeout. Incoming stream events reset that idle timeout; it is not a 60-second total limit on model reasoning. The controller's per-call limit still applies. The call count measures Analyzer-dispatched CLI invocations, including Analyzer retries. An exchange is not an exact measure of tokens or ChatGPT credits, and these limits do not guarantee that the assessment will finish within your plan allowance. The transport settings use the [official Codex provider configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
 
 Codex CLI requests are limited to 240,000 UTF-8 bytes including role instructions and the output contract. STRIDE source batches account for that overhead before dispatch; further reads and correction packets retain the remaining context limit. Large inputs can therefore require more model exchanges. An input-size error requires a smaller request or an Analyzer fix; `--resume` alone cannot resolve an unchanged oversized request.
 
@@ -63,7 +63,7 @@ schema_version: 1
 model_profile: codex-cli
 assessment_depth: standard
 max_calls: 1000
-max_parallel: 1
+max_parallel: 2
 outputs: [markdown, yaml]
 ```
 
@@ -91,7 +91,7 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `budget` is always USD and is available for `claude` and `codex`; `codex-cli` uses `max_calls` instead. `outputs` selects exports; Markdown and structured YAML are always retained as the base result. Supported formats are `markdown`, `yaml`, `html`, `pdf`, `sarif`, `threatdragon`, and `pentest-tasks`. HTML and PDF still need the export tools described in the [assessment guide](security-assessment.md). An unavailable optional export produces a warning.
 
-`max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 (`codex-cli`: 1) and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
+`max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
 

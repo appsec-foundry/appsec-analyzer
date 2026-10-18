@@ -53,8 +53,12 @@ def test_required_failure_retains_selector_role_and_long_rejection(tmp_path):
     jobs, _, kwargs, _ = setup(tmp_path, replies=[reply] * 3, validate=reject)
     jobs.diagnostics = log = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
     kwargs["selector"] = "component-gateway"
-    with pytest.raises(ExchangeError, match="architecture_analyst component-gateway"):
+    with pytest.raises(ExchangeError, match="architecture_analyst component-gateway") as caught:
         jobs.execute(**kwargs)
+    assert caught.value.attempts == 3
+    assert str(caught.value.rejection) == reason
+    assert caught.value.assessment_job["selector"] == "component-gateway"
+    assert caught.value.diagnostic_path == log.path
     rows = records(log)
     rejections = [row for row in rows if row["event"] == "answer_rejected"]
     assert len(rejections) == 2 and all(reason == row["detail"] for row in rejections)

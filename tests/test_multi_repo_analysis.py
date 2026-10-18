@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -204,6 +205,33 @@ def test_a_read_target_needs_no_exact_anchor_copy_but_an_unread_one_still_fails(
             stage.validate_surface_coverage(normalized, ranges, targets)
 
 
+@pytest.mark.parametrize("missing", ["read", "citation"])
+def test_surface_feedback_distinguishes_unread_source_from_wrong_citation(tmp_path, missing):
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    target = {"local_id": "surface-check", "evidence": evidence[0]}
+    artifact = stride(components[0], evidence[0], identity)
+    artifact["surface_coverage"] = [
+        dict(target_id=target["local_id"], disposition="examined", finding_ids=["issue-1"], evidence=[evidence[1]])
+    ]
+    served = ranges[1:] if missing == "read" else ranges
+    with pytest.raises(Rejection) as caught:
+        stage.validate_surface_coverage(artifact, served, [target])
+    rejection = caught.value
+    assert "target_id=surface-check" in str(rejection)
+    assert rejection.surface_issues[0]["reason"] == ("unread" if missing == "read" else "citation")
+    assert bool(rejection.reads) == (missing == "read")
+    if missing == "citation":
+        assert "The target was read" in str(rejection) and "omit the row's optional evidence" in str(rejection)
+    # The correction is a new explicit model decision; it never makes unread source acceptable.
+    artifact["surface_coverage"][0].pop("evidence")
+    normalized = stage.surface_evidence_normalizer([target])(artifact)
+    if missing == "read":
+        with pytest.raises(Rejection):
+            stage.validate_surface_coverage(normalized, served, [target])
+    else:
+        stage.validate_surface_coverage(normalized, served, [target])
+
+
 def test_a_component_keeps_every_finding_its_bounded_jobs_returned():
     """MR-12: the combined document allows each job's limit, so no paid finding fails the merge."""
     per_job = stage.contract("multi-repo-stride.schema.json")["properties"]["threats"]["maxItems"]
@@ -213,6 +241,58 @@ def test_a_component_keeps_every_finding_its_bounded_jobs_returned():
     assert "maxItems" not in stage.component_stride_contract(None)["properties"]["threats"]
     # A single job keeps its own limit.
     assert stage.component_stride_contract(1)["properties"]["threats"]["maxItems"] == per_job
+
+
+@pytest.mark.parametrize("corrected", [True, False])
+@pytest.mark.parametrize("preloaded", [True, False])
+def test_surface_correction_requires_a_new_valid_model_answer(tmp_path, corrected, preloaded):
+    from runtime.assessment_host import ModelAnswerFailure, run_exchange
+
+    from tests.test_assessment_host import Model
+
+    scope, components, evidence, _, identity = sources(tmp_path)
+    target = {"local_id": "surface-" + "b" * 16, "evidence": evidence[0]}
+    artifact = stride(components[0], evidence[0], identity)
+    artifact["surface_coverage"] = [
+        dict(target_id=target["local_id"], disposition="examined", finding_ids=["issue-1"], evidence=[evidence[1]])
+    ]
+    fixed = copy.deepcopy(artifact)
+    fixed["surface_coverage"][0].pop("evidence")
+    answers = [artifact, fixed] if corrected else [artifact] * 3
+    model = Model([dict(action="complete", reads=[], artifact=copy.deepcopy(a)) for a in answers])
+    schema = stage.contract("multi-repo-stride.schema.json")
+    schema["required"].append("surface_coverage")
+
+    def run():
+        return run_exchange(
+            model,
+            scope,
+            instructions="Decide every supplied target from its source.",
+            context={"investigation_targets": [target]},
+            artifact_schema=schema,
+            allowed_sources=stage.source_selection([components[0]]),
+            timeout_s=30,
+            should_stop=lambda: False,
+            preload=[(evidence[0]["repository_id"], "app.py", 1, 1)] if preloaded else [],
+            normalize=stage.stride_normalizer([target], components[0], identity),
+            review=lambda result, ranges: stage.validate_surface_coverage(result, ranges, [target]),
+        )
+
+    if corrected:
+        result = run()
+        assert result.calls == 2
+        assert result.artifact["surface_coverage"][0]["evidence"] == [evidence[0]]
+        assert {r["repository_id"] for r in result.source_slices} == {evidence[0]["repository_id"]}
+    else:
+        with pytest.raises(ModelAnswerFailure) as caught:
+            run()
+        assert caught.value.attempts == 3
+        assert caught.value.rejection.surface_issues[0]["reason"] == "citation"
+    if preloaded:
+        assert "The target was read" in model.prompts[1]
+    else:
+        assert "The controller added the cited source windows" in model.prompts[1]
+    assert "target_id=" + target["local_id"] in model.prompts[1]
 
 
 @pytest.mark.parametrize("path", ["policy/check.py", "domain/permit.kt"])
@@ -1307,15 +1387,20 @@ def test_only_the_first_target_job_reserves_room_for_context_lines(tmp_path, res
     assert sorted(t["local_id"] for part, _ in reserved for t in part) == sorted(t["local_id"] for t in targets)
 
 
-def test_targets_sharing_a_window_stay_together_and_oversized_windows_are_left_to_the_model(tmp_path):
+@pytest.mark.parametrize("room, expected_jobs", [(3_000, 2), (4_000, 1)])
+def test_targets_sharing_a_window_stay_together_and_oversized_windows_are_left_to_the_model(
+    tmp_path, room, expected_jobs
+):
     files = {"server.ts": b"app.get('/a', a)\n" * 50, "big.ts": b"const x = '" + b"y" * 5_000 + b"'\n"}
     scope, _ = _owned_sources(tmp_path, files, sorted(files))
     targets = _file_targets(scope, ["server.ts"], lines=range(1, 40, 3)) + _file_targets(scope, ["big.ts"])
     batches = stage.target_batches(
-        scope, targets, room=3_000, max_targets=64, max_windows=36, window_lines=400, max_unserved=6
+        scope, targets, room=room, max_targets=64, max_windows=36, window_lines=400, max_unserved=6
     )
     server = [part for part, _ in batches if any(t["evidence"]["file"] == "server.ts" for t in part)]
-    assert len(server) == 1 and sum(t["evidence"]["file"] == "server.ts" for t in server[0]) == 13
+    assert len(server) == expected_jobs
+    assert sum(t["evidence"]["file"] == "server.ts" for part in server for t in part) == 13
+    assert all(stage.served_bytes(scope, preload) + len(json.dumps(part).encode()) <= room for part, preload in batches)
     # A window larger than the room is not preloaded; the model reads it within its own allowance.
     assert all(key[1] != "big.ts" for _, preload in batches for key in preload)
 
@@ -1347,6 +1432,113 @@ def test_a_job_preloads_at_most_its_window_limit(tmp_path):
 
 def _route(route_id, method, path, file, line):
     return {"route_id": route_id, "method": method, "path": path, "handler_file": file, "handler_line": line}
+
+
+def test_compact_registrations_pack_handlers_without_losing_routes_or_guards(tmp_path):
+    lines = ["// unrelated registration context " + "x" * 40] * 400
+    files, routes, handlers = {}, [], {}
+    for index in range(8):
+        line = 20 + index * 40
+        path = f"routes/handler{index}.ts"
+        files[path] = b"export const handler = req => req.user\n" * 20
+        lines[line - 1] = f"app.get('/resource{index}', authenticate, handler{index}())"
+        routes.append({**_route(f"R-{index}", "GET", f"/resource{index}", "server.ts", line), "guard_lines": [2]})
+        handlers[f"R-{index}"] = path
+    lines[1] = "app.use(authenticate)"
+    files["server.ts"] = "\n".join(lines).encode()
+    scope, component = _owned_sources(tmp_path, files, sorted(handlers.values()))
+    rid = scope.repositories[0].repository_id
+    architecture = {
+        "data_flows": {"data_flows": []},
+        "route_inventories": {rid: {"routes": routes}},
+        "route_handler_modules": {rid: handlers},
+    }
+    targets = stage.analysis_targets(scope, component, architecture, [])
+    batches = stage.target_batches(
+        scope, targets, room=27_000, max_targets=64, max_windows=36, window_lines=400, max_unserved=6
+    )
+    assert len(batches) == 1
+    part, preload = batches[0]
+    assert len(part) == len(routes)
+    assert set(handlers.values()) <= {p[1] for p in preload}
+    assert all(any(p[1] == "server.ts" and p[2] <= r["handler_line"] <= p[3] for p in preload) for r in routes)
+    allowed = stage.source_selection([component]) | stage.related_sources(targets)
+    supplied = stage.supporting_preload(scope, targets, preload, allowed, context={})
+    assert any(p[1] == "server.ts" and p[2] <= 2 <= p[3] for p in supplied)
+
+
+def test_a_related_window_becoming_a_primary_target_is_counted_once(tmp_path):
+    files = {"a.ts": b"render(request.body)\n" * 20, "b.html": b"<div>{{content}}</div>\n" * 20}
+    scope, _ = _owned_sources(tmp_path, files, sorted(files))
+    targets = _file_targets(scope, sorted(files))
+    rid = scope.repositories[0].repository_id
+    targets[0]["related"] = [[rid, "b.html", 1, 399]]
+    targets[1]["related"] = [[rid, "a.ts", 1, 399]]
+    windows = [(rid, path, 1, 20) for path in sorted(files)]
+    room = stage.served_bytes(scope, windows) + len(json.dumps(targets).encode()) + 20
+    batches = stage.target_batches(
+        scope, targets, room=room, max_targets=64, max_windows=2, window_lines=400, max_unserved=6
+    )
+    assert len(batches) == 1
+    assert batches[0][0] == targets and batches[0][1] == windows
+
+
+def test_compact_registrations_keep_all_resources_of_one_handler(tmp_path):
+    lines = ["const app = express()"] * 400
+    routes = []
+    for index in range(12):
+        line = 10 + index * 25
+        lines[line - 1] = f"app.get('/resource{index}', handler())"
+        routes.append(_route(f"R-{index}", "GET", f"/resource{index}", "server.ts", line))
+    files = {"server.ts": "\n".join(lines).encode(), "handler.ts": b"export const handler = req => req.user\n"}
+    scope, component = _owned_sources(tmp_path, files, ["handler.ts"])
+    rid = scope.repositories[0].repository_id
+    architecture = {
+        "data_flows": {"data_flows": []},
+        "route_inventories": {rid: {"routes": routes}},
+        "route_handler_modules": {rid: {r["route_id"]: "handler.ts" for r in routes}},
+    }
+    (target,) = stage.analysis_targets(scope, component, architecture, [])
+    assert len(target["routes"]) == 12
+    assert len(target["related"]) == 1
+    assert all(any(p[2] <= r["handler_line"] <= p[3] for p in target["related"]) for r in routes)
+
+
+def test_shared_window_targets_split_by_actual_utf8_bytes_and_keep_first_job_reserve(tmp_path):
+    scope, _ = _owned_sources(tmp_path, {"server.ts": b"handle(request)\n" * 50}, ["server.ts"])
+    targets = _file_targets(scope, ["server.ts"], lines=range(1, 40, 3))
+    for target in targets:
+        target["review_question"] = "\u00e4" * 150
+    batches = stage.target_batches(
+        scope,
+        targets,
+        room=3_000,
+        max_targets=64,
+        max_windows=36,
+        window_lines=400,
+        max_unserved=6,
+        reserve_bytes=300,
+        reserve_windows=1,
+    )
+    assert len(batches) > 1
+    assert sorted(t["local_id"] for part, _ in batches for t in part) == sorted(t["local_id"] for t in targets)
+    for index, (part, preload) in enumerate(batches):
+        size = len(json.dumps(part, ensure_ascii=False).encode()) + stage.served_bytes(scope, preload)
+        assert size + (300 if index == 0 else 0) <= 3_000
+        assert len(preload) == 1
+
+
+def test_unserved_windows_stay_bounded_and_oversized_target_metadata_is_rejected(tmp_path):
+    files = {f"{i}.ts": b"export const data = '" + b"x" * 5_000 + b"'\n" for i in range(5)}
+    scope, _ = _owned_sources(tmp_path, files, sorted(files))
+    targets = _file_targets(scope, sorted(files))
+    options = dict(room=1_000, max_targets=64, max_windows=36, window_lines=400, max_unserved=2)
+    batches = stage.target_batches(scope, targets, **options)
+    assert [len(part) for part, _ in batches] == [2, 2, 1]
+    assert all(not preload for _, preload in batches)
+    targets[0]["review_question"] = "x" * 2_000
+    with pytest.raises(ExchangeError, match="target metadata exceeds"):
+        stage.target_batches(scope, targets, **options)
 
 
 @pytest.mark.parametrize(
@@ -1384,7 +1576,7 @@ def test_a_resolved_route_resource_is_one_target_at_its_handler_with_its_guards(
     resource = by_file[handler]
     assert resource["kinds"] == ["route"]
     assert [(r["method"], r["path"]) for r in resource["routes"]] == [("GET", "/api/Items"), ("PUT", "/api/Items/:id")]
-    assert resource["related"] == [[rid, registration, 1, 399]]
+    assert resource["related"] == [[rid, registration, 1, 15]]
     # A resource without a resolved handler, here the inline login, stays at its registration.
     assert by_file[registration]["evidence"]["line"] == 4
     assert [r["path"] for r in by_file[registration]["routes"]] == ["/rest/login"]
@@ -1446,8 +1638,8 @@ def test_guard_registration_outside_the_route_window_is_related(tmp_path):
     by_file = {t["evidence"]["file"]: t for t in stage.analysis_targets(scope, component, architecture, [])}
     resource = by_file["routes/details.ts"]
     assert resource["guard_lines"] == [[rid, registration, 2]]
-    # The registration window (lines 400-799) misses the guard; the file stays readable.
-    assert resource["related"] == [[rid, registration, 400, 799]]
+    # The compact registration window misses the earlier guard; its anchor stays explicit.
+    assert resource["related"] == [[rid, registration, 599, 615]]
     assert (rid, registration) in stage.related_sources([resource])
     # Without a guard the target names none.
     route.pop("guard_lines")
@@ -1497,7 +1689,7 @@ def test_a_route_is_decided_by_the_component_that_owns_its_handler(tmp_path, reg
     (target,) = auth_targets
     assert target["evidence"]["file"] == handler
     assert [r["path"] for r in target["routes"]] == ["/rest/user/login"]
-    assert target["related"] == [[rid, registration, 1, 399]]
+    assert target["related"] == [[rid, registration, 1, 14]]
     assert stage.related_sources(auth_targets) == {(rid, registration)}
     batches = stage.target_batches(
         scope, auth_targets, room=100_000, max_targets=64, max_windows=36, window_lines=400, max_unserved=6

@@ -1817,7 +1817,9 @@ def _assessment_stride(
                     "Include a short action-style mitigation_title naming the primary technical fix. "
                     "The controller derives each category's finding_ids and identity fields from your findings. "
                     "Return one surface_coverage decision per target with its target_id, disposition and linked "
-                    "finding_ids; the controller adds the target anchor. Give a reason of at most 160 characters "
+                    "finding_ids; the controller adds the target anchor. Omit the optional evidence field of "
+                    "surface_coverage decisions instead of copying a finding's supporting source into them. "
+                    "Findings still need their own exact source evidence. Give a reason of at most 160 characters "
                     "when the decision links no finding or the target has a review_question. Answer each "
                     "review_question independently from the retrieved source: name the control, concrete gap, "
                     "inapplicability or missing evidence. A finding on the same file does not answer another "
@@ -2395,7 +2397,7 @@ def _assessment_budget(ns, rest: list[str] = (), *, subscription=False):
             ns.max_duration if ns.max_duration is not None else ASSESSMENT_DEFAULT_SECONDS,
             spent_usd=None,
             subscription=True,
-            max_parallel=ns.max_parallel if ns.max_parallel is not None else 1,
+            max_parallel=ns.max_parallel if ns.max_parallel is not None else DEFAULT_MAX_PARALLEL,
         )
     if ns.max_calls is not None:
         raise CallError("--max-calls requires the codex-cli profile")
@@ -4367,7 +4369,11 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                 file=sys.stderr,
             )
             return ASSESS_PAUSED_EXIT
-        print(_AssessmentConsole.fit(f"✗ assessment stopped: {_cap_reason(str(exc))}"), file=sys.stderr)
+        from appsec_analyzer.assessment.console import model_failure_lines
+
+        failure_lines = model_failure_lines(exc) or [f"✗ assessment stopped: {_cap_reason(str(exc))}"]
+        for line in failure_lines:
+            print(_AssessmentConsole.fit(line), file=sys.stderr)
         draft = _unpublished_draft(argv, before)
         if draft:
             print(

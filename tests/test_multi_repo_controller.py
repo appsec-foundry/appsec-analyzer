@@ -1414,6 +1414,41 @@ def test_an_interrupted_assessment_exits_without_a_traceback(monkeypatch, capsys
     assert "✗ assessment interrupted" in captured.err and "Traceback" not in captured.err
 
 
+@pytest.mark.parametrize("reason, wording", [("citation", "cites a different source"), ("unread", "was not read")])
+def test_rejected_analysis_explains_component_file_and_recovery(monkeypatch, capsys, tmp_path, reason, wording):
+    from runtime.assessment_host import ModelAnswerFailure, Rejection
+
+    rejection = Rejection(
+        "STRIDE investigation is incomplete",
+        [],
+        surface_issues=[
+            {"file": "routes/dataExport.ts", "line": 26, "reason": reason},
+        ],
+    )
+    error = ModelAnswerFailure(
+        "job-private stride:component-private:10/24: technical detail", attempts=3, rejection=rejection
+    )
+    error.assessment_job = {
+        "role": "stride_analyzer",
+        "selector": "stride:component-private:10/24",
+        "label": "HTTP server\n\x1b[31m",
+    }
+    error.diagnostic_path = tmp_path / "events.jsonl"
+
+    def rejected(argv):
+        raise error
+
+    monkeypatch.setattr(controller, "assess_repositories", rejected)
+    assert controller.assess_main(["--repo", "x", "--output", str(tmp_path / "out")]) == 1
+    output = capsys.readouterr().err
+    assert "Threat analysis" in output and "Component: HTTP server" in output
+    assert "batch 10 of 24" in output and "after 3 attempts" in output
+    assert "routes/dataExport.ts:26" in output and wording in output
+    assert "--resume instead of --rebuild" in output and "If the rejection repeats" in output
+    assert str(error.diagnostic_path) in output
+    assert all(value not in output for value in ("job-private", "component-private", "Traceback", "\x1b"))
+
+
 def test_interrupted_rate_limit_reports_cause_and_resume_action(monkeypatch, capsys):
     def interrupted(argv):
         controller._AssessmentProgress.note_retry("model call failed (rate_limit); repeating it in 15 s (attempt 2)")
@@ -1611,13 +1646,14 @@ def _control_scope(tmp_path, names, count=6):
 
 
 @pytest.mark.parametrize("names", [("edge", "service", "unit"), ("gateway", "worker", "handler")])
-def test_controls_overlap_within_the_limit_keep_order_and_reuse_receipts(tmp_path, names):
+@pytest.mark.parametrize("parallel", [2, 4])
+def test_controls_overlap_within_the_limit_keep_order_and_reuse_receipts(tmp_path, names, parallel):
     import threading
 
     scope, architecture = _control_scope(tmp_path, names)
     components = architecture["components"]["components"]
     positions = {component["id"]: index for index, component in enumerate(components)}
-    barrier = threading.Barrier(4)
+    barrier = threading.Barrier(parallel)
     second_finished = threading.Event()
     lock = threading.Lock()
     started, finished = set(), []
@@ -1634,7 +1670,7 @@ def test_controls_overlap_within_the_limit_keep_order_and_reuse_receipts(tmp_pat
                 running[0] += 1
                 peak[0] = max(peak[0], running[0])
             try:
-                if first and index < 4:
+                if first and index < parallel:
                     barrier.wait(5)
                 if index == 0:
                     assert second_finished.wait(5), "Control jobs must overlap"
@@ -1653,11 +1689,11 @@ def test_controls_overlap_within_the_limit_keep_order_and_reuse_receipts(tmp_pat
                     running[0] -= 1
 
     host = ParallelHost(scope)
-    budget = AssessmentBudget(2, 0.05, 60, 6000)
+    budget = AssessmentBudget(2, 0.05, 60, 6000, max_parallel=parallel)
     budget.plan_completion()
     jobs = AssessmentJobs(scope, scope.output / ".assessment/jobs", budget, host.factory, lambda: False, lambda: None)
     controls = controller._assessment_controls(scope, jobs, architecture, progress=lambda text: None)
-    assert peak[0] == 4 and finished.index(1) < finished.index(0)
+    assert peak[0] == parallel and finished.index(1) < finished.index(0)
     assert [row["component_ids"] for row in controls] == [[component["id"]] for component in components]
     assert len(list(jobs.directory.glob("*.receipt.json"))) == len(components)
     assert budget.calls == len(host.calls) == 2 * len(components)

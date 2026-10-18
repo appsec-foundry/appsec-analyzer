@@ -60,6 +60,11 @@ class ModelAnswerFailure(ExchangeError):
     one exchange failure a job may replace (`AssessmentJobs.exchange`).
     """
 
+    def __init__(self, message, *, attempts=None, rejection=None):
+        super().__init__(message)
+        self.attempts = attempts
+        self.rejection = rejection
+
 
 class Rejection(ExchangeError):
     """A review rejection that names every violation, so a correction turn can act on each.
@@ -69,7 +74,7 @@ class Rejection(ExchangeError):
     spends its correction turns on the same defect.
     """
 
-    def __init__(self, summary: str, errors, reads=(), anchors=(), quotations=()):
+    def __init__(self, summary: str, errors, reads=(), anchors=(), quotations=(), *, surface_issues=()):
         """`reads` names (repository_id, path, line) anchors the correction turn must see.
 
         The host serves a window around each authorized anchor before the
@@ -84,6 +89,7 @@ class Rejection(ExchangeError):
         self.reads = tuple(reads)
         self.anchors = tuple(anchors)
         self.quotations = tuple(quotations)
+        self.surface_issues = tuple(surface_issues)
         super().__init__(summary + (": " + "; ".join(self.errors) if self.errors else ""))
 
 
@@ -769,7 +775,9 @@ def run_exchange(
                         raise ModelAnswerFailure(
                             f"Result rejected after {corrections} attempt(s)"
                             + (", each for the same reason" if repeated else "")
-                            + f": {exc}"
+                            + f": {exc}",
+                            attempts=corrections,
+                            rejection=exc,
                         ) from None
                     # A reporting transport may say that the answer is being corrected.
                     notice = getattr(transport, "on_correction", None)

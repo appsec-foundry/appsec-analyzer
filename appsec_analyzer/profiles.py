@@ -343,9 +343,6 @@ def resolve_scan(
                 "codex-cli uses ChatGPT plan allowance; --budget and profile budget are unavailable; use --max-calls and --max-duration"
             )
         settings["budget"] = None
-        if max_parallel is None and "max_parallel" not in scan:
-            settings["max_parallel"] = 1
-            provenance["max_parallel"] = "codex-cli default"
         settings["max_calls"] = max_calls if max_calls is not None else scan.get("max_calls", 1000)
         if type(settings["max_calls"]) is not int or not 1 <= settings["max_calls"] <= 47256:
             raise ProfileError("max_calls must be between 1 and 47256")

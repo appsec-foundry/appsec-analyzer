@@ -1000,6 +1000,9 @@ requirements:
       - tests/test_startup_preflight.py::test_codex_preflight_displays_completed_checks_and_unverified_access
       - tests/test_startup_preflight.py::test_preflight_failure_has_no_completed_summary
       - tests/test_codex_cli.py::test_commentary_before_final_structured_reply_is_accepted
+      - tests/test_multi_repo_analysis.py::test_surface_feedback_distinguishes_unread_source_from_wrong_citation
+      - tests/test_multi_repo_analysis.py::test_surface_correction_requires_a_new_valid_model_answer
+      - tests/test_multi_repo_controller.py::test_rejected_analysis_explains_component_file_and_recovery
       - tests/test_codex_cli.py::test_reconnect_notice_does_not_override_terminal_outcome
       - tests/test_codex_cli.py::test_provider_failure_is_classified_from_events_or_stderr
       - tests/test_codex_cli.py::test_reconnect_activity_is_visible_and_contains_no_provider_text
@@ -1148,6 +1151,8 @@ requirements:
       - tests/test_organization_distribution.py::test_missing_bundled_resources_stop_without_fallback
       - tests/test_organization_distribution.py::test_installed_wheel_uses_bundled_defaults_after_source_checkout_is_removed
       - tests/test_codex_cli.py::test_public_subscription_selection
+      - tests/test_codex_cli.py::test_custom_subscription_profile_parallel_defaults_and_overrides
+      - tests/test_codex_cli.py::test_subscription_controller_parallel_default
       - tests/test_codex_cli.py::test_subscription_profiles_reject_unenforceable_options
       - tests/test_profiles.py::test_user_defaults_role_depth_and_cli_precedence
       - tests/test_profiles.py::test_builtins_have_complete_roles_without_output_caps
@@ -1391,6 +1396,11 @@ requirements:
       - tests/test_assessment_host.py::test_invalid_host_context_limits_fail_before_dispatch
       - tests/test_multi_repo_controller.py::test_stride_and_review_jobs_receive_the_source_their_context_cites
       - tests/test_multi_repo_controller.py::test_stride_batches_reserve_the_full_codex_request
+      - tests/test_multi_repo_analysis.py::test_compact_registrations_pack_handlers_without_losing_routes_or_guards
+      - tests/test_multi_repo_analysis.py::test_compact_registrations_keep_all_resources_of_one_handler
+      - tests/test_multi_repo_analysis.py::test_a_related_window_becoming_a_primary_target_is_counted_once
+      - tests/test_multi_repo_analysis.py::test_shared_window_targets_split_by_actual_utf8_bytes_and_keep_first_job_reserve
+      - tests/test_multi_repo_analysis.py::test_unserved_windows_stay_bounded_and_oversized_target_metadata_is_rejected
       - tests/test_codex_cli.py::test_subscription_counts_calls_and_preserves_completion_reserve
       - tests/test_codex_cli.py::test_subscription_rejects_monetary_reply_and_counts_failure
       - tests/test_codex_cli.py::test_subscription_controller_publishes_validated_reports

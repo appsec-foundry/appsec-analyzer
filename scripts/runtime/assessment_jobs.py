@@ -366,6 +366,17 @@ class AssessmentJobs:
         try:
             return self._exchange(**kwargs, trace=trace)
         except BaseException as error:
+            if isinstance(error, ModelAnswerFailure):
+                context = kwargs.get("context") or {}
+                component = context.get("component") or {}
+                error.assessment_job = {
+                    "role": kwargs["role"],
+                    "selector": kwargs["selector"],
+                    "label": safe_reason(str(component.get("name") or context.get("label") or "")),
+                    "reason": safe_reason(str(error)),
+                }
+                if trace:
+                    error.diagnostic_path = self.diagnostics.path
             if trace:
                 trace.emit("job_failed", **failure_fields(error))
                 if isinstance(error, (ExchangeError, TransportError, HostCancelled)):

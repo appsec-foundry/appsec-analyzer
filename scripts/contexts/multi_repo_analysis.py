@@ -332,7 +332,7 @@ def analysis_targets(scope, component: dict, architecture: dict, scanned: list[d
             if line is not None:
                 key = (rid, path, line // MAX_SLICE_LINES, route_resource(route.get("path")))
                 groups.setdefault(key, []).append((line, route))
-    registrations: dict[tuple, list[tuple]] = {}
+    registrations: dict[tuple, dict[tuple, tuple]] = {}
     # Registration lines whose route is decided at a handler target, or by
     # another component; a scanner lead on such a line joins that decision.
     registered: dict[tuple, list[dict]] = {}
@@ -363,10 +363,12 @@ def analysis_targets(scope, component: dict, architecture: dict, scanned: list[d
 
     for (rid, path, _, _), members in sorted(groups.items(), key=lambda item: item[0]):
         members.sort(key=lambda member: (member[0], str(member[1].get("method"))))
-        # The registration's whole source window: every handler of one
-        # registration file then shares the same one or two preloaded windows.
-        start = max(1, members[0][0] // MAX_SLICE_LINES * MAX_SLICE_LINES)
-        span = (rid, path, start, members[0][0] // MAX_SLICE_LINES * MAX_SLICE_LINES + MAX_SLICE_LINES - 1)
+        # Keep the resource's registrations together without preloading every
+        # unrelated route in the same 400-line window for each small handler.
+        # Earlier guards and middleware retain their own explicit source anchors.
+        window_start = max(1, members[0][0] // MAX_SLICE_LINES * MAX_SLICE_LINES)
+        window_end = members[0][0] // MAX_SLICE_LINES * MAX_SLICE_LINES + MAX_SLICE_LINES - 1
+        span = (rid, path, max(window_start, members[0][0] - 4), min(window_end, members[-1][0] + 12))
         handlers = sorted(
             module for module in {handler_of(rid, route) for _, route in members} - {None, path} if (rid, module) in own
         )
@@ -377,7 +379,10 @@ def analysis_targets(scope, component: dict, architecture: dict, scanned: list[d
         anchored = [(module, target) for module, target in anchored if target is not None]
         registered_here = (rid, path) in own
         for module, target in anchored:
-            registrations.setdefault((rid, module), []).append(span)
+            windows = registrations.setdefault((rid, module), {})
+            registration_key = (rid, path, window_start)
+            previous = windows.get(registration_key, span)
+            windows[registration_key] = (rid, path, min(previous[2], span[2]), max(previous[3], span[3]))
             # Routes registered in another component's file are listed only at their own handler.
             listed = members if registered_here else [m for m in members if handler_of(rid, m[1]) == module]
             list_routes(target, listed, rid, path)
@@ -430,7 +435,7 @@ def analysis_targets(scope, component: dict, architecture: dict, scanned: list[d
             add({"repository_id": rid, "file": path, "line": 1}, "component-source")
     pairs = template_pairs(scope, own | {(rid, path) for rid, path, _ in targets})
     for (rid, path, _), target in targets.items():
-        for span in registrations.get((rid, path), []):
+        for span in registrations.get((rid, path), {}).values():
             relate(target, span)
         for other in pairs.get((rid, path), []):
             relate(target, (rid, other, 1, MAX_SLICE_LINES - 1))
@@ -992,6 +997,7 @@ def validate_surface_coverage(artifact, ranges, targets):
         raise ExchangeError("STRIDE surface coverage must decide every supplied target exactly once")
     findings = {row["local_id"] for row in artifact["threats"]}
     errors = []
+    surface_issues, reads = [], []
     for row in rows:
         target = expected[row["target_id"]]["evidence"]
         location = f"{target['repository_id']}/{target['file']}:{target['line']}"
@@ -1003,7 +1009,18 @@ def validate_surface_coverage(artifact, ranges, targets):
             for r in ranges
         )
         if not read or target not in row.get("evidence", []):
-            errors.append("Unexamined source target: " + location)
+            issue = "unread" if not read else "citation"
+            surface_issues.append({**target, "target_id": row["target_id"], "reason": issue})
+            if not read:
+                reads.append((target["repository_id"], target["file"], target["line"]))
+                correction = "Read this target's source line before completing its decision."
+            else:
+                correction = (
+                    "The target was read, but this surface_coverage row cites another source. "
+                    "Cite the target's own file or omit the row's optional evidence so the controller adds "
+                    "its exact anchor. Findings may cite supporting files separately."
+                )
+            errors.append(f"Unexamined source target: {location} (target_id={row['target_id']}). {correction}")
         if not set(row["finding_ids"]) <= findings:
             errors.append("Surface coverage refers to unknown findings")
         if row["disposition"] == "not-applicable" and row["finding_ids"]:
@@ -1014,7 +1031,7 @@ def validate_surface_coverage(artifact, ranges, targets):
         ) and not row.get("reason"):
             errors.append(f"Surface decision for {location} needs a reason for this review question or its disposition")
     if errors:
-        raise Rejection("STRIDE investigation is incomplete", errors[:3])
+        raise Rejection("STRIDE investigation is incomplete", errors[:3], reads=reads, surface_issues=surface_issues)
 
 
 def component_stride_contract(jobs: int | None) -> dict:
@@ -1652,6 +1669,7 @@ def target_batches(
         start = max(1, index * window_lines)
         return (anchor["repository_id"], anchor["file"], start, index * window_lines + window_lines - 1)
 
+    @lru_cache(maxsize=1024)
     def serve(key):
         try:
             piece = read_slice(scope, *key)
@@ -1663,58 +1681,83 @@ def target_batches(
     grouped: dict[tuple, list[dict]] = {}
     for target in sorted(targets, key=lambda row: (window(row), row["local_id"])):
         grouped.setdefault(window(target), []).append(target)
-    # A window with more targets than one job may decide is split; each part
-    # receives the same window.
-    chunks = [
-        (key, members[start : start + max_targets])
-        for key, members in grouped.items()
-        for start in range(0, len(members), max_targets)
-    ]
+    from collections import deque
+
+    # Size source once per distinct range, including its line-number prefixes.
+    sizes = {}
+
+    def source_size(key):
+        if key not in sizes:
+            sizes[key] = len(json.dumps(read_slice(scope, *key), ensure_ascii=False).encode())
+        return sizes[key]
+
+    def include(preload, key):
+        if key is None or any(p[:2] == key[:2] and p[2] <= key[2] and key[3] <= p[3] for p in preload):
+            return list(preload)
+        # A primary window can replace a smaller related range served earlier.
+        return [p for p in preload if not (p[:2] == key[:2] and key[2] <= p[2] and p[3] <= key[3])] + [key]
+
+    pending = deque(grouped.items())
     batches: list[tuple[list[dict], list[tuple]]] = []
-    used = unserved = 0
-    cap = max_windows
-    for key, members in chunks:
-        primary, size = serve(key)
-        size += len(json.dumps(members, ensure_ascii=False).encode())
-        related = []
-        for extra in dict.fromkeys(tuple(r) for member in members for r in member.get("related", [])):
-            if extra[:3] != key[:3]:
-                served, extra_size = serve(extra)
-                if served is not None:
-                    related.append((served, extra_size))
-
-        def missing(batch):
-            # A range inside a window the job already holds adds nothing.
-            return [
-                (k, n)
-                for k, n in related
-                if not any(p[:2] == k[:2] and p[2] <= k[2] and k[3] <= p[3] for p in batch[1])
-            ]
-
-        new = missing(batches[-1]) if batches else related
-        full = batches and (
-            len(batches[-1][0]) + len(members) > max_targets
-            or used + size > room
-            or (primary is not None and len(batches[-1][1]) >= cap)
-            or (primary is None and unserved >= max_unserved)
-        )
-        if not batches or full:
+    unserved = set()
+    while pending:
+        key, members = pending.popleft()
+        if not batches:
             batches.append(([], []))
-            used, cap = (reserve_bytes, max_windows - reserve_windows) if len(batches) == 1 else (0, max_windows)
-            unserved = 0
-            new = missing(([], [primary] if primary else []))
-        batches[-1][0].extend(members)
-        if primary is None:
-            unserved += 1
-        elif primary[:3] not in {k[:3] for k in batches[-1][1]}:
-            batches[-1][1].append(primary)
-        used += size
-        if primary is not None:
-            new = [(k, n) for k, n in new if not (k[:2] == primary[:2] and primary[2] <= k[2] and k[3] <= primary[3])]
-        for extra, extra_size in new:
-            if len(batches[-1][1]) < cap and used + extra_size <= room:
-                batches[-1][1].append(extra)
-                used += extra_size
+        part, preload = batches[-1]
+        reserved = reserve_bytes if len(batches) == 1 else 0
+        cap = max_windows - (reserve_windows if len(batches) == 1 else 0)
+        primary, _ = serve(key)
+        proposed = include(preload, primary)
+
+        def fits(rows, windows, missing):
+            return (
+                len(rows) <= max_targets
+                and len(windows) <= cap
+                and len(missing) <= max_unserved
+                and reserved
+                + len(json.dumps(rows, ensure_ascii=False).encode())
+                + 2
+                + sum(source_size(p) + 2 for p in windows)
+                <= room
+            )
+
+        missing = unserved | ({key} if primary is None else set())
+        if not fits([*part, members[0]], proposed, missing):
+            if part:
+                batches.append(([], []))
+                unserved = set()
+                pending.appendleft((key, members))
+                continue
+            # A source window that cannot fit beside its own target metadata
+            # stays available to bounded model reads, as an oversized slice does.
+            proposed, missing = list(preload), unserved | {key}
+            if not fits([members[0]], proposed, missing):
+                if len(batches) == 1 and (reserve_bytes or reserve_windows):
+                    # The first job reviews the reserved context; no target is lost.
+                    batches.append(([], []))
+                    unserved = set()
+                    pending.appendleft((key, members))
+                    continue
+                raise ExchangeError("Investigation target metadata exceeds the source batch budget")
+
+        count = 1
+        while count < len(members) and fits([*part, *members[: count + 1]], proposed, missing):
+            count += 1
+        selected = members[:count]
+        part.extend(selected)
+        preload[:] = proposed
+        unserved = missing
+        # Related registrations/templates share their bytes and window slots
+        # with later primary targets; never charge those sources a second time.
+        for extra in dict.fromkeys(tuple(r) for member in selected for r in member.get("related", [])):
+            served, _ = serve(extra)
+            proposed = include(preload, served)
+            if fits(part, proposed, unserved):
+                preload[:] = proposed
+        if count < len(members):
+            pending.appendleft((key, members[count:]))
+
     return batches
 
 

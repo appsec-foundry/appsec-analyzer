@@ -337,7 +337,9 @@ def test_request_capacity_includes_instructions_schema_and_utf8(transport, monke
 
 
 @pytest.mark.parametrize("budget,expected", [(None, 0), (20, 2)])
-def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected):
+@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("parallel", [None, 1])
+def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected, command, parallel):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr(codex_cli, "preflight", lambda **kwargs: {"version": "0.163.0"})
@@ -347,10 +349,14 @@ def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected):
 
     def assess(args, **kwargs):
         observed.update(args=args, profile=kwargs["run_profile"])
+        ns, _ = controller._assessment_argument_parser().parse_known_args(args)
+        assert controller._assessment_budget(ns, subscription=True).max_parallel == (parallel or 2)
         return 0
 
     monkeypatch.setattr(controller, "assess_main", assess)
-    args = ["assess", "--repo", str(tmp_path), "--profile", "codex-cli", "--max-calls", "50"]
+    args = [command, "--repo", str(tmp_path), "--profile", "codex-cli", "--max-calls", "50"]
+    if parallel is not None:
+        args += ["--max-parallel", str(parallel)]
     if budget is not None:
         args += ["--budget", str(budget)]
     assert cli.main(args) == expected
@@ -358,7 +364,7 @@ def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected):
         assert "--hard-budget" not in observed["args"]
         assert observed["profile"]["settings"]["max_calls"] == 50
         assert observed["profile"]["settings"]["budget"] is None
-        assert observed["profile"]["settings"]["max_parallel"] == 1
+        assert observed["profile"]["settings"]["max_parallel"] == (parallel or 2)
 
 
 def test_subscription_profiles_reject_unenforceable_options(tmp_path, monkeypatch):
@@ -577,14 +583,32 @@ def test_preflight_timeout_is_an_actionable_public_error(tmp_path, monkeypatch, 
     assert "preflight failed" in capsys.readouterr().err
 
 
-def test_custom_subscription_profile_defaults_to_serial_processing(tmp_path, monkeypatch):
+@pytest.mark.parametrize("configured", [None, 1, 4])
+def test_custom_subscription_profile_parallel_defaults_and_overrides(tmp_path, monkeypatch, configured):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     root = tmp_path / "appsec-analyzer/profiles"
     root.mkdir(parents=True)
-    (root / "review.yaml").write_text("schema_version: 1\nmodel_profile: codex-cli\n")
+    text = "schema_version: 1\nmodel_profile: codex-cli\n"
+    if configured is not None:
+        text += f"max_parallel: {configured}\n"
+    (root / "review.yaml").write_text(text)
     resolved = profiles.resolve_scan("review")
-    assert resolved["settings"]["max_parallel"] == 1
+    assert resolved["settings"]["max_parallel"] == (configured or 2)
+    if configured is None:
+        assert resolved["origins"]["settings"]["max_parallel"] == "analyzer default"
+    assert profiles.resolve_scan("review", max_parallel=1)["settings"]["max_parallel"] == 1
     assert profiles.resolve_scan("review", max_parallel=3)["settings"]["max_parallel"] == 3
+
+
+@pytest.mark.parametrize("parallel, expected", [(None, 2), (1, 1), (16, 16)])
+def test_subscription_controller_parallel_default(parallel, expected):
+    from orchestrator import orchestration_controller as controller
+
+    args = ["--repo", "/fixture/repo"]
+    if parallel is not None:
+        args += ["--max-parallel", str(parallel)]
+    ns, _ = controller._assessment_argument_parser().parse_known_args(args)
+    assert controller._assessment_budget(ns, subscription=True).max_parallel == expected
 
 
 def test_cancellation_stops_active_host(tmp_path):

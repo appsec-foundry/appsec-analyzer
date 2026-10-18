@@ -30,7 +30,7 @@ An OpenAI `--model` value must match the selected STRIDE model or its requested 
 
 ## Codex CLI profile
 
-`codex-cli` uses the same installed model aliases and depth-specific reasoning defaults as `codex`, through Codex CLI 0.163.0 and its ChatGPT login. The account/workspace must allow the selected model. It does not use `OPENAI_API_KEY` and cannot enforce or report a dollar charge. It defaults to 1,000 model exchanges, four hours, and one component at a time. Use `--max-calls` and `--max-duration`; `--budget`, profile `budget`, and `max_output_tokens` are rejected. See [setup and limitations](profiles.md#use-your-chatgpt-plan-with-codex-cli).
+`codex-cli` uses the same installed model aliases and depth-specific reasoning defaults as `codex`, through Codex CLI 0.163.0 and its ChatGPT login. The account/workspace must allow the selected model. It does not use `OPENAI_API_KEY` and cannot enforce or report a dollar charge. It defaults to 1,000 model exchanges, four hours, and at most two components at a time. Use `--max-calls` and `--max-duration`; `--budget`, profile `budget`, and `max_output_tokens` are rejected. See [setup and limitations](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
 ## Claude profile
 
