@@ -100,25 +100,19 @@ appsec-analyzer review /path/to/assessment --with codex
 
 `analyze-threats` answers one security question about the current code, a planned design, or a selected change. It needs no prior assessment. See [Threat Analyst](docs/threat-analyst.md).
 
+This is more than pasting the question into a chat. The command reads only the files or the change you select, takes your requirements and threat model into account, and reports a finding only when the source code backs it up. The report lists the documents it used.
+
 ```sh
-# Ask about the current code
-appsec-analyzer analyze-threats "Can a normal user read another customer's orders?"
+# Ask about one part of the code
+appsec-analyzer analyze-threats "Can a normal user read another tenant's records?" --path src/api
 
-# Check your staged changes before you commit them
-appsec-analyzer analyze-threats "Does this change weaken access control?" --staged
-
-# Discuss a planned feature before it is built
-appsec-analyzer analyze-threats "How should we protect the new CSV export?" --design
-
-# Review a design document instead of typing the design
-appsec-analyzer analyze-threats --design-file docs/export-design.md
+# Use case: before you commit, check whether the staged change breaks
+# a requirement or contradicts your threat model
+appsec-analyzer analyze-threats "Does this change violate our requirements?" --staged \
+  --context requirements.md --context docs/security/threatmodel.md
 
 # Review a GitHub pull request (GitLab: --mr); --preview shows the scope without a model call
 appsec-analyzer analyze-threats --pr https://github.com/team/app/pull/42 --preview
-
-# Check a change against your own requirements and threat model
-appsec-analyzer analyze-threats "Does this change violate our requirements?" --staged \
-  --context requirements.md --context docs/security/threatmodel.md
 ```
 
 `--design-file`, `--context`, `--mr`, and `--pr` take documents or a remote change as input. Documents given with `--context` add background and do not replace the question or the change under review.
