@@ -52,7 +52,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 | Command | Purpose | Model calls |
 | --- | --- | --- |
 | [`scan`](#scan-full-security-assessment) | Full security assessment of a repository or a system of repositories. | Yes, up to USD 20 |
-| [`review`](#review-discuss-an-assessment-with-ai) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
+| [`review`](#review-discuss-an-assessment-with-your-coding-agent) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
 | [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. | Yes, up to USD 1 per call |
 | [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. | Yes, up to USD 5 |
 | [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. | Yes, up to USD 5 |
@@ -82,7 +82,7 @@ appsec-analyzer scan --repo /path/to/backend --repo /path/to/frontend
 appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
 ```
 
-### `review`: discuss an assessment with AI
+### `review`: discuss an assessment with your coding agent
 
 `review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
 
