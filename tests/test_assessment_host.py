@@ -127,6 +127,46 @@ def test_unauthorized_proposals_fail_before_another_model_call(tmp_path, proposa
     assert len(model.prompts) == 1
 
 
+@pytest.mark.parametrize(
+    "path,repository_id,reason",
+    [
+        ("app.py", "repo-aaaaaaaaaaaaaaaa", "unknown repository ID"),
+        ("peer.py", REPO, "path belongs to a different repository"),
+        ("guessed.js", REPO, "path is not in the admitted source inventory"),
+        ("../private\nforged-log-entry", REPO, "path is not in the admitted source inventory"),
+    ],
+)
+def test_scope_failure_explains_the_cause_without_serving_or_echoing_the_request(
+    tmp_path, monkeypatch, path, repository_id, reason
+):
+    scope = AssessmentScope(
+        (
+            *view(tmp_path).repositories,
+            RepositoryView(
+                "repo-fedcba9876543210", tmp_path / "peer", "c" * 40, "d" * 64, {"peer.py": b"peer_data()\n"}
+            ),
+        ),
+        tmp_path / "out",
+    )
+    monkeypatch.setattr(host, "read_slice", lambda *args: pytest.fail("Unauthorized request reached source retrieval"))
+    model = Model([read(path, repository_id), complete()])
+    with pytest.raises(host.ExchangeError) as failure:
+        host.run_exchange(
+            model,
+            scope,
+            instructions="task",
+            context={},
+            artifact_schema=ARTIFACT,
+            allowed_sources=frozenset({(REPO, "app.py")}),
+            timeout_s=30,
+            should_stop=lambda: False,
+        )
+    assert str(failure.value) == (
+        "Model requested a source outside this task's selection " + f"({reason}; request was not served)"
+    )
+    assert len(model.prompts) == 1
+
+
 @pytest.mark.parametrize("start,end", [(2, 1), (1, 1)])
 def test_a_reversed_or_single_line_range_is_served_not_fatal(tmp_path, start, end):
     proposal = read()

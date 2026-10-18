@@ -886,16 +886,29 @@ def test_resume_reuses_accepted_jobs_after_an_interrupted_render(tmp_path, monke
     assert "stride_analyzer" in first
 
 
-def test_stride_job_receives_the_evidence_tier_definition(tmp_path, monkeypatch):
-    """MR-18: every STRIDE call states when a finding counts as exploitable; no other role decides the tier."""
+def test_stride_job_receives_the_evidence_tier_definition_and_exact_source_selection(tmp_path, monkeypatch):
+    """STRIDE receives evidence-tier rules and the exact repository-qualified read selection."""
     from runtime import multi_repo_scope
+    from runtime.assessment_jobs import AssessmentJobs
 
     roots = [tmp_path / name for name in ("caller", "receiver")]
     for root in roots:
         checkout(root)
     host = FullHost()
     prompts = {}
+    selections = []
     real_invoke, real_admit = host.invoke, multi_repo_scope.admit
+    real_execute = AssessmentJobs.execute
+
+    def execute(jobs, **kwargs):
+        if kwargs["role"] == "stride_analyzer":
+            selections.append(kwargs["allowed_sources"])
+            readable = kwargs["context"]["readable_sources"]
+            assert (
+                frozenset((rid, path) for rid, paths in readable.items() for path in paths) == kwargs["allowed_sources"]
+            )
+            assert sum(map(len, readable.values())) == len(kwargs["allowed_sources"])
+        return real_execute(jobs, **kwargs)
 
     def invoke(role, system, prompt, schema, timeout_s, should_stop):
         prompts.setdefault(role, []).append(system + "\n" + prompt)
@@ -906,6 +919,7 @@ def test_stride_job_receives_the_evidence_tier_definition(tmp_path, monkeypatch)
         return host.scope
 
     host.invoke = invoke
+    monkeypatch.setattr(AssessmentJobs, "execute", execute)
     monkeypatch.setattr(multi_repo_scope, "admit", admit)
     monkeypatch.setattr(controller, "_assessment_runtime_fingerprint", lambda: "a" * 64)
     argv = [
@@ -916,11 +930,14 @@ def test_stride_job_receives_the_evidence_tier_definition(tmp_path, monkeypatch)
         controller.assess_repositories(argv, host_factory=host.factory, progress=lambda t: None)["status"] == "complete"
     )
     assert prompts["stride_analyzer"]
+    assert selections and len({rid for sources in selections for rid, _ in sources}) == 2
     for text in prompts["stride_analyzer"]:
         assert controller._STRIDE_TIER_RULE in text
         assert "an input or entry point an attacker can reach" in text
         # A flag that switches the vulnerable branch on is no control (MR-18).
         assert "flag that enables the vulnerable branch is not a control" in text
+        assert "Read only exact repository_id and path pairs from readable_sources" in text
+        assert "mark the affected investigation unresolved" in text
     assert not any(controller._STRIDE_TIER_RULE in text for text in prompts.get("evidence_verifier", []))
 
 

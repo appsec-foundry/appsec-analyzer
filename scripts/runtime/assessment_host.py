@@ -699,7 +699,15 @@ def run_exchange(
                 # flow's evidence may name the peer repository's file. An
                 # unadmitted repository or path breaks isolation and fails.
                 if key[:2] not in admitted:
-                    raise ExchangeError("Model requested a source outside this task's selection")
+                    if not any(repo.repository_id == key[0] for repo in scope.repositories):
+                        reason = "unknown repository ID"
+                    elif any(path == key[1] for _, path in admitted):
+                        reason = "path belongs to a different repository"
+                    else:
+                        reason = "path is not in the admitted source inventory"
+                    raise ExchangeError(
+                        f"Model requested a source outside this task's selection ({reason}; request was not served)"
+                    )
                 seen.add(key)
                 range_feedback = {
                     "reason": f"{key[1]} is not among this task's source files and was not served.",

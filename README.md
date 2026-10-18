@@ -173,6 +173,8 @@ appsec-analyzer scan --repo /path/to/project --budget 20 \
 
 Use `progress` to inspect progress from another terminal and `stop` to request a stop, each with `--output /path/to/assessment`. See [command-line operation](docs/headless-mode.md) for unattended runs and recovery.
 
+If a model requests a source outside the admitted inventory, Analyzer blocks the request and stops the run. STRIDE jobs receive an explicit list of readable repository and path pairs; missing files must be reported as missing evidence. See [source-read failures](docs/security-assessment.md#source-read-failures) for recovery limits.
+
 ## Reports and exports
 
 The Markdown report describes the architecture, security controls, findings, open questions, and prioritized remediation. The YAML file contains the structured assessment.

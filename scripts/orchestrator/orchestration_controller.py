@@ -1822,6 +1822,10 @@ def _assessment_stride(
         # MR-13: a route target reads its registration window even where
         # another component owns that file.
         job_allowed = allowed | analysis.related_sources(targets)
+        readable_sources = {}
+        for rid, path in sorted(job_allowed):
+            readable_sources.setdefault(rid, []).append(path)
+        context["readable_sources"] = readable_sources
 
         # Lines the context cites from earlier stages (controls, flows,
         # boundaries) arrive with the first job's first packet: a job that
@@ -1851,6 +1855,12 @@ def _assessment_stride(
                     "when they fit; read any missing control or sink before leaving its target unresolved. "
                     "Request all further source you need in one read "
                     "action: the job allows one round of further reads, and each call re-analyzes the whole packet. "
+                    "readable_sources maps each repository_id to its permitted paths. "
+                    "Read only exact repository_id and path pairs from readable_sources. Paths are relative to "
+                    "their repository root; do not add a repository name, resolve imports to guessed filenames, "
+                    "or use installed dependency paths. Names in source or earlier analysis do not grant access. "
+                    "If the required source is not listed, mark the affected investigation unresolved and explain "
+                    "the missing evidence instead of requesting an unlisted file. "
                     "Write each finding title without a file location; the controller appends the anchor's. "
                     "Include a short action-style mitigation_title naming the primary technical fix. "
                     "The controller derives each category's finding_ids and identity fields from your findings. "

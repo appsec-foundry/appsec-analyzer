@@ -66,6 +66,14 @@ and provider statements are historical.
 
 With Codex CLI 0.163.0 installed on Linux/macOS and signed in using `codex login`, use `appsec-analyzer scan --profile codex-cli --max-calls 1000 --max-duration 14400` to use ChatGPT plan allowance. This experimental profile defaults to one component at a time, rejects USD budgets, and reports monetary cost as unavailable. A plan limit stops the run and preserves accepted work; wait for allowance and resume the original output. See [Codex CLI setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli) for model access, data use, local limits, and qualification status.
 
+### Source-read failures
+
+STRIDE jobs receive the exact readable repository IDs and repository-relative paths. They are instructed to report missing evidence when a required file is absent from that list. A file mentioned in an import or earlier analysis does not grant permission to read it.
+
+`Model requested a source outside this task's selection` means the model requested an unknown repository ID, paired a path with the wrong repository, or named a path absent from the admitted source inventory. Analyzer does not serve that request and stops the run. New diagnostics identify the category without echoing the model's path; older runs retain only the generic message and cannot establish the exact requested file.
+
+Accepted jobs remain in the output directory. After correcting the cause, repeat the original command with the same output and `--resume` while its original limits and compatibility checks permit. If the deadline has expired, repeat the command without `--resume` or `--rebuild` to start a new attempt and reuse compatible accepted jobs. Changed STRIDE inputs require those jobs to run again. Resuming alone does not correct an unchanged model request.
+
 ## Known threats
 
 Place prior findings in `docs/known-threats.yaml`, using the [example](../examples/known-threats.yaml) and [schema](../schemas/known-threats.schema.yaml). The engine validates this declaration and records its repository provenance. A prior finding or accepted-risk statement is input to analysis; it does not establish that an attack works or that a control is effective. `--skip-context` skips business context but keeps known threats available.

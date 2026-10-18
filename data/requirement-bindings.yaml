@@ -1427,6 +1427,8 @@ requirements:
       - tests/test_multi_repo_scope.py::test_untrusted_references_cannot_escape_the_admitted_view
       - tests/test_multi_repo_scope.py::test_tracked_symlink_is_recorded_as_omitted_not_followed
       - tests/test_assessment_host.py::test_unauthorized_proposals_fail_before_another_model_call
+      - tests/test_assessment_host.py::test_scope_failure_explains_the_cause_without_serving_or_echoing_the_request
+      - tests/test_multi_repo_assessment.py::test_stride_job_receives_the_evidence_tier_definition_and_exact_source_selection
       - tests/test_public_scan_cli.py::test_scan_rejects_escaping_source_link
 
   REQ-032:
