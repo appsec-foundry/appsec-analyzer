@@ -1,5 +1,6 @@
 """Assessment ownership, unchanged-state resume and retained cost reservations."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -641,9 +642,13 @@ def test_fresh_start_still_refuses_a_report_or_foreign_files(scope, extra):
     else:
         preserved.write_text("not json")
     before = preserved.read_bytes()
-    with pytest.raises(ExchangeError, match="choose another --output or empty this one"):
+    with pytest.raises(ExchangeError, match="choose another --output") as refused:
         with lifecycle(scope).hold():
             pytest.fail("A fresh start must not erase a report or foreign file")
+    if extra == "user-file":
+        # --rebuild would keep the foreign file as well, so only --resume is offered.
+        assert "(notes.txt). Add --resume to continue it" in str(refused.value)
+        assert "--rebuild" not in str(refused.value)
     assert preserved.read_bytes() == before
     assert (scope.output / ".assessment-work").is_dir()
 
@@ -890,6 +895,56 @@ def test_rebuild_keeps_a_directory_with_edited_or_foreign_files(scope, extra, re
         with lifecycle(scope, replace=replace).hold():
             pytest.fail("A new scan must not erase a user's file")
     assert kept.read_text() == "mine\n" and (scope.output / ".assessment-state.json").exists()
+
+
+def _published_then_stopped(scope, text="new report\n"):
+    """A run whose publication moved its report into place but stopped before `complete`."""
+    with pytest.raises(RuntimeError):
+        with lifecycle(scope).hold() as state:
+            state.publishing({"threat-model.md": hashlib.sha256(text.encode()).hexdigest()})
+            (scope.output / "threat-model.md").write_text(text)
+            raise RuntimeError("stopped before complete")
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_a_fresh_start_removes_what_an_unfinished_publication_moved_into_place(scope, replace):
+    _published_then_stopped(scope)
+    assert "publishing" in stored(scope) and stored(scope)["status"] == "failed"
+    with lifecycle(scope, replace=replace).hold() as fresh:
+        # The unfinished report never stands beside the new run as if complete.
+        assert not (scope.output / "threat-model.md").exists()
+        assert "publishing" not in fresh.state
+
+
+def test_an_edited_unfinished_publication_is_kept_and_named(scope):
+    _published_then_stopped(scope)
+    (scope.output / "threat-model.md").write_text("mine\n")
+    for replace in (False, True):
+        with pytest.raises(ExchangeError, match=r"\(threat-model\.md\)") as refused:
+            with lifecycle(scope, replace=replace).hold():
+                pytest.fail("A new scan must not erase an edited report")
+        assert "--rebuild" not in str(refused.value)
+        assert (scope.output / "threat-model.md").read_text() == "mine\n"
+
+
+def test_an_edited_unfinished_publication_in_a_sole_checkout_stays_in_place(scope, tmp_path):
+    reports = tmp_path / "frontend" / "docs" / "security"
+    reports.mkdir(parents=True)
+    sole = admit([str(tmp_path / "frontend")], str(reports), minimum=1)
+    assert sole.output_in_checkout()
+    _published_then_stopped(sole)
+    (reports / "threat-model.md").write_text("mine\n")
+    # MR-6: an edited deliverable is kept until publication overwrites it.
+    with lifecycle(sole).hold() as fresh:
+        assert fresh.state["status"] == "running"
+    assert (reports / "threat-model.md").read_text() == "mine\n"
+
+
+def test_resume_without_an_assessment_says_so(scope):
+    with pytest.raises(ExchangeError, match="holds no assessment to resume; run without --resume"):
+        with lifecycle(scope, resume=True).hold():
+            pytest.fail("Nothing to resume")
+    assert not (scope.output / ".assessment-state.json").exists()
 
 
 def test_held_lock_heartbeats_on_its_own_clock(scope, monkeypatch):

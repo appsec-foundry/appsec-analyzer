@@ -3367,7 +3367,14 @@ def _assessment_render(
 
 
 def _assessment_publish(
-    scope, original: dict, names, workspace: Path, cfg: dict[str, Any], delivered_warnings: list[str]
+    scope,
+    original: dict,
+    names,
+    workspace: Path,
+    cfg: dict[str, Any],
+    delivered_warnings: list[str],
+    *,
+    record,
 ) -> dict[str, str]:
     """Convert the enriched model back to the qualified contract and deliver it."""
     from shared._atomic_io import atomic_write_text
@@ -3430,6 +3437,8 @@ def _assessment_publish(
         for basename, digest in list(delivered.items()):
             if (staging / (stamped := stamp_threat_model._stamped_name(basename, slug))).is_file():
                 delivered[stamped] = digest
+    # Recorded first: a run that stops after this still owns what it moved.
+    record(delivered)
     for name in delivered:
         os.replace(staging / name, output / name)
     for name in _LEGACY_PUBLISHED:
@@ -3830,7 +3839,9 @@ def assess_repositories(
                     )
                     _export_pentest_tasks_if_configured(workspace, settings)
                 say("Publishing the security assessment")
-                delivered = _assessment_publish(scope, original, names, workspace, cfg, warnings)
+                delivered = _assessment_publish(
+                    scope, original, names, workspace, cfg, warnings, record=state.publishing
+                )
                 state.complete(delivered)
                 _phase_result(say, "Finalization", "report published")
                 if console:

@@ -287,7 +287,12 @@ def test_publication_keeps_the_rendered_figure_1a_detail_and_its_stamped_link(tm
     assert "Figure 1a" in report and not ctx.warnings
     (workspace / "threat-model.md").write_text(report)
     (workspace / "unpublished.svg").write_text("diagnostic only")
-    delivered = controller._assessment_publish(scope, original, names, workspace, {"slug": label}, [])
+    recorded = []
+    delivered = controller._assessment_publish(
+        scope, original, names, workspace, {"slug": label}, [], record=recorded.append
+    )
+    # The record precedes the move, so it names exactly what was delivered.
+    assert recorded == [delivered]
     detail = "security-assessment.figure1-detail.svg"
     assert (workspace / detail).is_file() is (count > 8)
     assert (detail in delivered) is (count > 8)

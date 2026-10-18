@@ -223,6 +223,10 @@ class AssessmentState:
         if lock_state == "fresh":
             raise ExchangeError("Assessment output belongs to another live run")
         if self.resume:
+            if not (self.path.exists() or self.path.is_symlink()):
+                raise ExchangeError(
+                    "This output directory holds no assessment to resume; run without --resume to start one"
+                )
             self.state = _read_state(self.path)
         if self.resume:
             if self.state["identity"] != self.identity:
@@ -335,12 +339,22 @@ class AssessmentState:
             leftovers &= self._own_names()
         if not leftovers:
             return
-        if STATE_NAME in leftovers and leftovers <= {STATE_NAME, WORK_NAME}:
+        owned = {STATE_NAME, WORK_NAME}
+        if STATE_NAME in leftovers:
             try:
-                status = _read_state(self.path)["status"]
+                unfinished = _read_state(self.path)
             except ExchangeError:
-                status = None
-            if status not in (None, "complete"):
+                unfinished = None
+            if unfinished is not None and unfinished["status"] == "complete":
+                unfinished = None
+            if unfinished is not None:
+                # Deliverables an interrupted publication already moved into
+                # place belong to the run as long as their bytes are unchanged.
+                owned |= self._unchanged(unfinished.get("publishing", {}))
+                if self.scope.output_in_checkout():
+                    # MR-6: an edited deliverable is kept until publication overwrites it.
+                    leftovers &= owned
+            if unfinished is not None and leftovers <= owned:
                 if WORK_NAME in leftovers:
                     # Accepted jobs become a cache the job layer rechecks
                     # against each new request; everything else is cleared.
@@ -357,6 +371,8 @@ class AssessmentState:
                             child.unlink()
                     if not self.replace:
                         self._move_jobs_to_cache()
+                for name in sorted(leftovers - {STATE_NAME, WORK_NAME}):
+                    (self.output / name).unlink()
                 self.path.unlink()
                 return
         if STATE_NAME in leftovers or IMPORT_NAME in leftovers:
@@ -379,16 +395,23 @@ class AssessmentState:
             elif foreign is not None:
                 shown = ", ".join(foreign[:3]) + (", ..." if len(foreign) > 3 else "")
                 message = f"holds files the earlier assessment did not write or that changed since ({shown}); {fresh}"
-            elif earlier["identity"] != self.identity:
-                message = (
-                    "holds an earlier assessment that cannot be continued because "
-                    f"{self._changed(earlier['identity'])} changed since it started. A new scan is required: "
-                    f"add --rebuild to replace it, or {fresh}"
-                )
             else:
-                message = (
-                    f"holds an unfinished combined assessment. Add --resume to continue it, or for a new scan, {fresh}"
-                )
+                # An unfinished run that owned every file was cleared above, so
+                # other files remain; --rebuild would keep them as well.
+                beside = sorted(leftovers - owned)
+                shown = ", ".join(beside[:3]) + (", ..." if len(beside) > 3 else "")
+                fresh = "for a new scan, move those files or choose another --output"
+                if earlier["identity"] != self.identity:
+                    message = (
+                        "holds an unfinished combined assessment that cannot be continued because "
+                        f"{self._changed(earlier['identity'])} changed since it started, beside files it did not "
+                        f"write or that changed since ({shown}); {fresh}"
+                    )
+                else:
+                    message = (
+                        "holds an unfinished combined assessment beside files it did not write or that changed "
+                        f"since ({shown}). Add --resume to continue it, or {fresh}"
+                    )
             raise ExchangeError("This output directory " + message)
         shown = ", ".join(sorted(leftovers)[:3]) + (", ..." if len(leftovers) > 3 else "")
         raise ExchangeError(
@@ -425,26 +448,34 @@ class AssessmentState:
         names = {STATE_NAME, WORK_NAME}
         if self.path.is_file():
             try:
-                names |= set(_read_state(self.path)["deliverables"])
+                state = _read_state(self.path)
+                names |= set(state["deliverables"]) | set(state.get("publishing", {}))
             except ExchangeError:
                 pass
+        return names
+
+    def _unchanged(self, recorded) -> set[str]:
+        """The recorded deliverables whose bytes in the output are unchanged."""
+        names = set()
+        for name, expected in recorded.items():
+            try:
+                if _deliverable(self.output, name) == expected:
+                    names.add(name)
+            except ExchangeError:
+                continue
         return names
 
     def _remove_earlier_run(self, earlier, leftovers) -> list[str]:
         """Remove an earlier assessment for --rebuild when it owns every file.
 
-        Owned are its state, its work directory and each recorded deliverable
-        whose bytes are unchanged. Any other or edited file keeps the
-        directory, so a rebuild never erases a user's file. Returns those
-        files, sorted; an empty list means the earlier run was removed.
+        Owned are its state, its work directory and each recorded deliverable,
+        published or still being published, whose bytes are unchanged. Any
+        other or edited file keeps the directory, so a rebuild never erases a
+        user's file. Returns those files, sorted; an empty list means the
+        earlier run was removed.
         """
         owned = {STATE_NAME, WORK_NAME, IMPORT_NAME}
-        for name, expected in earlier["deliverables"].items():
-            try:
-                if _deliverable(self.output, name) == expected:
-                    owned.add(name)
-            except ExchangeError:
-                continue
+        owned |= self._unchanged({**earlier.get("publishing", {}), **earlier["deliverables"]})
         if self.scope.output_in_checkout():
             # MR-6: an edited deliverable is kept until publication overwrites it.
             leftovers &= owned
@@ -606,6 +637,15 @@ class AssessmentState:
                 self.checkpoint()
         return self.cancelled
 
+    def publishing(self, deliverables):
+        """Record the deliverables before publication moves them into the output.
+
+        A run that stops before `complete` then still owns them, so a fresh
+        start or --rebuild removes them instead of treating them as a user's.
+        """
+        self.state["publishing"] = dict(deliverables)
+        self.checkpoint()
+
     def complete(self, deliverables):
         """Record exact deliverables after the controller's existing final gates."""
         if self.budget.failed or not deliverables:
@@ -613,6 +653,7 @@ class AssessmentState:
         self.budget.remaining_seconds()
         self.scope.verify_unchanged()
         self.state["deliverables"] = {name: _deliverable(self.output, name) for name in deliverables}
+        self.state.pop("publishing", None)
         self.state.pop("partial_report", None)
         (self.directory / PARTIAL_REPORT).unlink(missing_ok=True)
         self.state["status"] = "complete"
