@@ -280,16 +280,18 @@ Command-line options override the defaults from a scan profile.
 
 ## Abuse cases
 
-An abuse case describes something an attacker or a user must not be able to do. Analyzer ships technical attack chains, such as taking over a session through injected script, and business rules, such as a customer reading another customer's orders. At `standard` and `thorough` depth, `scan` checks whether the code allows them. If it does, the report adds a finding or links the case to an existing one, and a working attack chain can raise its findings to the impact the case declares. Section 9 of the report shows the result per case. A case the code does not settle stays open and does not count as safe.
+An abuse case is something an attacker or a user must not be able to do. Analyzer comes with two sets. [business.yaml](data/abuse-cases/business.yaml) has seven business rules: a user must not, for example, see other users' data, give themselves a higher role, approve their own request, or redeem a coupon twice. [technical.yaml](data/abuse-cases/technical.yaml) has attack chains such as account takeover through XSS or admin access through a forged JWT.
 
-You can add your own business rules in a YAML file in the repository and pass it to `scan`:
+`scan` checks the cases that fit the code, except at `quick` depth. A standard run checks up to three business rules, a thorough run up to eight. If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
+
+To add your own rules, put them in a YAML file in the repository and pass it to `scan`:
 
 ```sh
 appsec-analyzer scan --repo /path/to/project \
   --abuse-case-file abuse-cases.yaml
 ```
 
-An example `abuse-cases.yaml`:
+For example, `abuse-cases.yaml`:
 
 ```yaml
 schema_version: 2
@@ -301,7 +303,7 @@ abuse_cases:
     scope_qualifier: {path_patterns: ["*cart*", "*order*"]}
 ```
 
-The path is relative to the repository root, and selected cases are checked at `quick` depth too. [Custom abuse cases](docs/security-assessment.md#custom-abuse-cases) describes the limits; [organization profiles](docs/org-profiles.md#business-abuse-cases) share cases across repositories. `analyze-threats --abuse-case <ID>` checks a single built-in or organization case without a full assessment.
+The path is relative to the repository root. Rules passed this way are also checked at `quick` depth. Limits and further fields are described under [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). To use the same rules in several repositories, put them in an [organization profile](docs/org-profiles.md#business-abuse-cases). To check a single built-in or organization case without a full assessment, run `analyze-threats --abuse-case <ID>`.
 
 ## Reports and exports
 
