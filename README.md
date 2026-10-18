@@ -270,12 +270,12 @@ If a provider rate-limits the run or the connection stays down, Analyzer retries
 
 Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. These examples come from an assessment of OWASP Juice Shop.
 
-The runtime architecture with its data flows and attack paths:
+The runtime architecture with its data flows and attack paths, shown as a detail. Click the image to open the full diagram:
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-dark.svg">
-  <img src="docs/images/figure1-example.svg" alt="Runtime architecture and attack paths in the Juice Shop assessment">
-</picture>
+<a href="docs/images/figure1-example.svg"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-crop-dark.svg">
+  <img src="docs/images/figure1-example-crop.svg" alt="Detail of the runtime architecture and attack paths in the Juice Shop assessment">
+</picture></a>
 
 The build pipeline and the most severe supply-chain attacks on it:
 
