@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Engine-only composition organization configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "engine_version",
+    "advisor_core_version",
+    "profile"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "engine_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "advisor_core_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[0-9][A-Za-z0-9.+-]{0,79}$"
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "organization",
+        "compatibility",
+        "default_preset",
+        "presets"
+      ],
+      "properties": {
+        "api_version": {
+          "type": "string",
+          "enum": [
+            "appsec-advisor.org-profile/v1",
+            "appsec-advisor.org-profile/v2"
+          ]
+        },
+        "organization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "profile_version"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{1,62}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "profile_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "owner": {
+              "type": "string",
+              "maxLength": 120
+            }
+          }
+        },
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "core"
+          ],
+          "properties": {
+            "core": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        },
+        "default_preset": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{1,62}$"
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Org-wide run policy. Applies across every preset.\n",
+          "properties": {
+            "disable_opus": {
+              "type": "boolean",
+              "description": "When true, every Opus model selection in any preset or run is\ndowngraded to Sonnet, regardless of CLI flags (cost/compliance\nceiling). OR-combined with the CLI flag --no-opus and the env\nvar APPSEC_DISABLE_OPUS \u2014 any source can enable it, none can\ndisable it for a given run.\n"
+            },
+            "url_allowlist": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 253,
+                "pattern": "^[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?$"
+              },
+              "description": "Hostnames the tool may fetch from (e.g. remote requirements\ncatalogs, related-repo threat models). When set, every remote\nfetch is restricted to these hosts (exact or a dotted subdomain);\nany other host is rejected on top of the always-on SSRF guard\n(loopback / RFC1918 / cloud-metadata are blocked regardless).\n"
+            }
+          }
+        },
+        "presets": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 100,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "base_mode"
+            ],
+            "properties": {
+              "base_mode": {
+                "enum": [
+                  "quick",
+                  "standard",
+                  "thorough"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

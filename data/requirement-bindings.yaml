@@ -1096,6 +1096,7 @@ requirements:
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/organization.py
+      - schemas/organization-config.schema.json
       - schemas/organization-distribution.schema.yaml
       - examples/organization-distribution/**
       - appsec_analyzer/codex_cli.py
@@ -1144,6 +1145,8 @@ requirements:
       - tests/test_provider_backends.py::test_custom_profile_can_select_provider_models_per_role
       - tests/test_provider_backends.py::test_cli_prefix_reaches_controller
       - tests/test_provider_backends.py::test_provider_models_preserve_organization_opus_restriction
+      - tests/test_organization_distribution.py::test_composition_config_preserves_defaults_and_mandatory_policy
+      - tests/test_organization_distribution.py::test_composition_config_rejects_unsupported_fields_and_destinations
       - tests/test_organization_distribution.py::test_bundled_defaults_apply_before_assessment_without_environment_or_cwd_lookup
       - tests/test_organization_distribution.py::test_explicit_operator_choices_override_distribution_defaults
       - tests/test_organization_distribution.py::test_installed_profiles_reach_actual_runtime_resolution

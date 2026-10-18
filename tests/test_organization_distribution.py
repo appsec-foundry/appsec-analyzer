@@ -351,3 +351,149 @@ def test_demo_launcher_reports_missing_engine_support_without_traceback(monkeypa
     assert launcher["main"]() == 2
     error = capsys.readouterr().err
     assert "matching approved engine" in error and "Traceback" not in error
+
+
+def _composition_config(tmp_path):
+    document = {
+        "schema_version": 1,
+        "engine_version": "0.1.0a0",
+        "advisor_core_version": "1.4.0",
+        "profile": {
+            "api_version": "appsec-advisor.org-profile/v2",
+            "organization": {"id": "sample", "name": "Sample", "profile_version": "1"},
+            "compatibility": {"core": ">=1 <2"},
+            "default_preset": "daily",
+            "presets": {"daily": {"base_mode": "standard"}, "release": {"base_mode": "thorough"}},
+            "policy": {"disable_opus": True, "url_allowlist": ["git.example.org"]},
+        },
+    }
+    path = tmp_path / "engine-config.yaml"
+    path.write_text(json.dumps(document))
+    return path, document
+
+
+@pytest.mark.parametrize(
+    "preset,depth,expected", [(None, None, "standard"), ("release", None, "thorough"), ("release", "quick", "quick")]
+)
+def test_composition_config_preserves_defaults_and_mandatory_policy(tmp_path, capsys, preset, depth, expected):
+    path, document = _composition_config(tmp_path)
+    args = ["organization-config", "show", "--config", str(path)]
+    if preset:
+        args += ["--preset", preset]
+    if depth:
+        args += ["--assessment-depth", depth]
+    assert cli.main(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["defaults"]["assessment_depth"] == expected
+    assert result["policy"] == document["profile"]["policy"]
+    assert result["score_uses_assessment_depth"] is False
+    assert result["supported_commands"] == ["score"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["host", "data-policy", "guardrail", "engine-version", "core-version", "preset", "host-format", "missing-preset"],
+)
+def test_composition_config_rejects_unsupported_fields_and_destinations(tmp_path, monkeypatch, capsys, case):
+    path, document = _composition_config(tmp_path)
+    args = ["organization-config", "run", "--config", str(path)]
+    if case == "host":
+        document["profile"]["hooks"] = {}
+    elif case == "data-policy":
+        document["profile"]["llm_policy"] = {"approval_required_actions": ["publish"]}
+    elif case == "guardrail":
+        document["profile"]["presets"]["daily"]["guardrails"] = {"soft_budget_usd": 10}
+    elif case == "engine-version":
+        document["engine_version"] = "99.0"
+    elif case == "core-version":
+        document["advisor_core_version"] = "3.0"
+    elif case == "preset":
+        args += ["--preset", "absent"]
+    elif case == "host-format":
+        document["profile"]["policy"]["url_allowlist"] = ["https://git.example.org"]
+    elif case == "missing-preset":
+        document["profile"]["default_preset"] = "absent"
+    path.write_text(json.dumps(document))
+    monkeypatch.setattr(cli, "_score", lambda ns: pytest.fail("Rejected policy must precede score and Git"))
+    assert cli.main([*args, "--", "score", "https://unlisted.example.net/project.git"]) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "selection,permitted",
+    [
+        ("/local/project", True),
+        ("https://git.example.org/team/project.git", True),
+        ("git@sub.git.example.org:team/other.git", True),
+        ("https://git.example.org.attacker.net/team/project.git", False),
+        ("git@elsewhere.example.net:team/other.git", False),
+    ],
+)
+def test_composition_allowlist_is_checked_before_score_or_credentials(tmp_path, monkeypatch, selection, permitted):
+    path, _ = _composition_config(tmp_path)
+    seen = []
+    monkeypatch.setattr(cli, "_score", lambda ns: seen.append(ns.repo) or 7)
+    assert cli.main(["organization-config", "run", "--config", str(path), "--", "score", selection]) == (
+        7 if permitted else 2
+    )
+    assert seen == ([selection] if permitted else [])
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "!!python/object/apply:os.system ['touch forbidden']",
+        "schema_version: 1\nschema_version: 1",
+        "profile: &x {}\ncopy: *x",
+        "{}",
+    ],
+)
+def test_composition_config_rejects_unsafe_or_missing_data(tmp_path, content):
+    path = tmp_path / "bad.yaml"
+    path.write_text(content)
+    assert cli.main(["organization-config", "validate", "--config", str(path)]) == 2
+    assert not (tmp_path / "forbidden").exists()
+
+
+def test_composition_config_rejects_source_owned_profile_and_unsupported_workflow(tmp_path, monkeypatch):
+    path, _ = _composition_config(tmp_path)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.setattr(cli, "_score", lambda ns: pytest.fail("Source-owned config must fail"))
+    assert cli.main(["organization-config", "run", "--config", str(path), "--", "score", str(tmp_path)]) == 2
+    assert cli.main(["organization-config", "run", "--config", str(path), "--", "assess"]) == 2
+
+
+@pytest.mark.parametrize(
+    "arguments", [["show", "--", "ignored"], ["run", "--assessment-depth", "quick", "--", "score", "/local/project"]]
+)
+def test_composition_config_does_not_ignore_inapplicable_arguments(tmp_path, arguments):
+    path, _ = _composition_config(tmp_path)
+    assert cli.main(["organization-config", arguments[0], "--config", str(path), *arguments[1:]]) == 2
+
+
+def test_composition_config_empty_preset_is_an_error(tmp_path):
+    path, _ = _composition_config(tmp_path)
+    assert cli.main(["organization-config", "show", "--config", str(path), "--preset", ""]) == 2
+
+
+def test_composition_config_rejects_invalid_advisor_version_identifier(tmp_path):
+    path, document = _composition_config(tmp_path)
+    document["advisor_core_version"] = "invalid-version"
+    path.write_text(json.dumps(document))
+    assert cli.main(["organization-config", "validate", "--config", str(path)]) == 2
+
+
+@pytest.mark.parametrize("missing,marker", [("missing-service", "directory"), ("absent-api", "file")])
+def test_composition_missing_source_retains_operational_exit_with_ancestor_git_marker(
+    tmp_path, monkeypatch, missing, marker
+):
+    path, _ = _composition_config(tmp_path)
+    if marker == "directory":
+        (tmp_path / ".git").mkdir()
+    else:
+        (tmp_path / ".git").write_text("gitdir: elsewhere")
+    observed = []
+    monkeypatch.setattr(cli, "_score", lambda ns: observed.append(ns.repo) or 1)
+    source = str(tmp_path / missing)
+    assert cli.main(["organization-config", "run", "--config", str(path), "--", "score", source]) == 1
+    assert observed == [source]

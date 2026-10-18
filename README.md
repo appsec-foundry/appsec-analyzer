@@ -240,3 +240,5 @@ Prefix each command with `appsec-analyzer` and add `--help` for its options.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and tests, and [product requirements](requirements.md) for intended behavior. Read [AGENTS.md](AGENTS.md) before changing runtime behavior or report contracts.
 
 AppSec Analyzer grew out of [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor) and is distributed under the [Apache 2.0 license](LICENSE).
+
+The [engine-only composition configuration API](docs/organization-distributions.md#engine-only-configuration-for-a-composed-score-plugin) provides model-free validation and inspection plus an explicitly configured deterministic score invocation; it rejects unsupported settings and workflows.

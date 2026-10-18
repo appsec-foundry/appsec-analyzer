@@ -53,6 +53,16 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     if organization is not None:
         org = commands.add_parser("organization", help="Inspect or validate the bundled defaults without model calls")
         org.add_argument("action", choices=("show", "validate"))
+    config = commands.add_parser(
+        "organization-config", help="Validate, inspect or run an engine-only organization projection"
+    )
+    config_actions = config.add_subparsers(dest="config_action", required=True)
+    for action in ("show", "validate", "run"):
+        operation = config_actions.add_parser(action)
+        operation.add_argument("--config", required=True, metavar="FILE")
+        operation.add_argument("--preset", dest="config_preset")
+        operation.add_argument("--assessment-depth", dest="config_depth", choices=("quick", "standard", "thorough"))
+        operation.add_argument("arguments", nargs=argparse.REMAINDER)
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
     profiles = commands.add_parser("profiles", help="List, inspect, or validate profiles without model calls")
@@ -425,6 +435,8 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
 
 
 def _capabilities() -> dict:
+    from appsec_analyzer.organization import CONFIG_CAPABILITY
+
     return {
         "interface_version": INTERFACE_VERSION,
         "engine_version": ENGINE_VERSION,
@@ -461,6 +473,7 @@ def _capabilities() -> dict:
             "qualified": False,
         },
         "profiles": {"schema_version": 1, "user_defined": True, "inspection_model_calls": False},
+        "organization_config": CONFIG_CAPABILITY,
         "organization_distributions": {
             "available": True,
             "manifest_schema_version": 1,
@@ -1133,6 +1146,10 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
         ns = _parser(organization=organization).parse_args(["scan"])
         vars(ns).update(supplied)
     try:
+        if ns.command == "organization-config":
+            from appsec_analyzer.organization import config_command
+
+            return config_command(ns)
         if organization is not None:
             if ns.command == "organization":
                 document = organization.describe()

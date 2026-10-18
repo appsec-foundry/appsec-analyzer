@@ -101,3 +101,108 @@ def main(package: str, argv: list[str] | None = None) -> int:
     from appsec_analyzer.cli import main as analyzer_main
 
     return analyzer_main(argv, organization=organization)
+
+
+# Public composition adapter, separate from installed distribution defaults.
+CONFIG_CAPABILITY = {
+    "available": True,
+    "schema_version": 1,
+    "commands": ["score"],
+    "profile_fields": ["policy.disable_opus", "policy.url_allowlist", "presets.*.base_mode"],
+}
+
+
+def load_config(path: Path, *, repositories=()) -> dict:
+    """Validate an engine-only projection without importing Advisor host settings."""
+    import json
+
+    # Score admits only the explicitly selected top-level checkout. Walking
+    # to an ancestor Git marker here misclassifies missing or invalid sources
+    # as profile errors and changes their public score status from 1 to 2.
+    # A configuration inside the selected canonical source remains forbidden.
+    for selection in repositories:
+        if "://" not in selection and not selection.startswith("git@"):
+            if path.expanduser().absolute().is_relative_to(Path(selection).expanduser().resolve()):
+                raise ProfileError("organization configuration must be outside the selected source")
+    document = read_document(path)
+    schema = json.loads((resource_root() / "schemas/organization-config.schema.json").read_text())
+    if not Draft202012Validator(schema).is_valid(document):
+        raise ProfileError("invalid organization configuration envelope")
+    if document["engine_version"] != ENGINE_VERSION:
+        raise ProfileError("organization configuration requires a different pinned engine")
+    profile = document["profile"]
+    profile_schema = yaml.safe_load((resource_root() / "schemas/org-profile.schema.yaml").read_text())
+    if not Draft202012Validator(profile_schema).is_valid(profile):
+        raise ProfileError("invalid projected organization profile")
+    allowed = {"api_version", "organization", "compatibility", "default_preset", "presets", "policy"}
+    if set(profile) - allowed or any(set(preset) != {"base_mode"} for preset in profile["presets"].values()):
+        raise ProfileError("organization configuration contains unsupported engine fields")
+    from appsec_analyzer.engine import initialize
+
+    initialize()
+    from validators.validate_org_profile import validate
+
+    if validate(profile, path.parent, plugin_version=document["advisor_core_version"]):
+        raise ProfileError("projected organization profile is incompatible or invalid")
+    return document
+
+
+def config_command(namespace) -> int:
+    """Inspect or run through the versioned public composition boundary."""
+    import json
+
+    from appsec_analyzer.cli import _parser
+    from appsec_analyzer.cli import main as analyzer_main
+
+    arguments = list(namespace.arguments)
+    if arguments[:1] == ["--"]:
+        arguments.pop(0)
+    if namespace.config_action != "run" and arguments:
+        raise ProfileError("organization inspection does not accept workflow arguments")
+    if namespace.config_action == "run" and namespace.config_depth is not None:
+        raise ProfileError("score does not accept an assessment-depth override")
+    parsed = None
+    repositories = []
+    if namespace.config_action == "run":
+        if not arguments or arguments[0] not in CONFIG_CAPABILITY["commands"]:
+            raise ProfileError("organization-config supports only the declared score workflow")
+        parsed = _parser().parse_args(arguments)
+        repositories = [parsed.repo]
+    document = load_config(Path(namespace.config), repositories=repositories)
+    profile = document["profile"]
+    preset = namespace.config_preset if namespace.config_preset is not None else profile["default_preset"]
+    if preset not in profile["presets"]:
+        raise ProfileError("organization preset is unavailable")
+    if namespace.config_action != "run":
+        print(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "valid": True,
+                    "organization": profile["organization"],
+                    "preset": preset,
+                    "defaults": {"assessment_depth": namespace.config_depth or profile["presets"][preset]["base_mode"]},
+                    "policy": profile.get("policy", {}),
+                    "supported_commands": CONFIG_CAPABILITY["commands"],
+                    "score_uses_assessment_depth": False,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    from appsec_analyzer.engine import initialize
+
+    initialize()
+    from runtime.remote_repositories import parse_remote
+
+    remote = parse_remote(parsed.repo)
+    allowlist = profile.get("policy", {}).get("url_allowlist", [])
+    if (
+        remote is not None
+        and allowlist
+        and not any(remote.host == host.lower() or remote.host.endswith("." + host.lower()) for host in allowlist)
+    ):
+        raise ProfileError("Git destination is outside the organization allowlist")
+    # Score has no model calls, report exports, or assessment depth. The only
+    # applicable declared restriction is checked before Git or credentials.
+    return analyzer_main(arguments)
