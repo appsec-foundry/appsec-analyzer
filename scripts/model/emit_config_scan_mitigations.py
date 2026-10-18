@@ -56,6 +56,9 @@ from pathlib import Path
 
 import yaml
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from analyzers.architect_review_runtime import open_decisions  # noqa: E402
 from shared._critical_findings_sync import resync_critical_findings  # noqa: E402
@@ -171,7 +174,7 @@ def _load_iac_checks(plugin_root: Path) -> dict[str, dict]:
     """Index data/config-iac-checks.yaml by check id (`IAC-NNN`)."""
     path = plugin_root / "data" / "config-iac-checks.yaml"
     try:
-        y = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        y = yaml.load(path.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     except OSError:
         return {}
     out: dict[str, dict] = {}
@@ -384,7 +387,7 @@ def main() -> int:
     iac_index = _load_iac_checks(plugin_root)
 
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     except (OSError, yaml.YAMLError) as exc:
         print(f"emit_config_scan_mitigations: failed to load yaml: {exc}", file=sys.stderr)
         return 0

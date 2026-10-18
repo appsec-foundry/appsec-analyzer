@@ -50,7 +50,9 @@ def load_weakness_classes() -> dict[str, Any]:
     import yaml as _yaml
 
     try:
-        _CACHE = _yaml.safe_load(candidate.read_text()) or {"clusters": []}
+        # libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+        loader = getattr(_yaml, "CSafeLoader", _yaml.SafeLoader)
+        _CACHE = _yaml.load(candidate.read_text(), Loader=loader) or {"clusters": []}
     except Exception:
         _CACHE = {"clusters": []}
     return _CACHE

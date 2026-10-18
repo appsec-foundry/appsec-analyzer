@@ -50,6 +50,9 @@ from pathlib import Path
 import yaml
 from runtime.event_log import format_line
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 # ---------------------------------------------------------------------------
 # Deterministic name rewrites (RC-1)
 # ---------------------------------------------------------------------------
@@ -570,15 +573,21 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 def _section_titles() -> set[str]:
     """§6 headings without their number, from the schema_v2 contract the renderer uses."""
-    contract = yaml.safe_load((_PLUGIN_ROOT / "data" / "sections-contract.yaml").read_text(encoding="utf-8"))
+    contract = yaml.load(
+        (_PLUGIN_ROOT / "data" / "sections-contract.yaml").read_text(encoding="utf-8"), Loader=_YAML_LOADER
+    )
     subsections = contract["sections"]["security_architecture"]["schema_v2"]["required_subsections"]
     return {re.sub(r"^\d+(?:\.\d+)*\s+", "", s["title"]).strip() for s in subsections}
 
 
 def _catalog_domain_keys() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """(rule id → domain key, catalog name or alias → domain key, domain key → §6 title)."""
-    rules = yaml.safe_load((_PLUGIN_ROOT / "data" / "architecture-coverage-rules.yaml").read_text(encoding="utf-8"))
-    catalog = yaml.safe_load((_PLUGIN_ROOT / "data" / "architectural-controls.yaml").read_text(encoding="utf-8"))
+    rules = yaml.load(
+        (_PLUGIN_ROOT / "data" / "architecture-coverage-rules.yaml").read_text(encoding="utf-8"), Loader=_YAML_LOADER
+    )
+    catalog = yaml.load(
+        (_PLUGIN_ROOT / "data" / "architectural-controls.yaml").read_text(encoding="utf-8"), Loader=_YAML_LOADER
+    )
     by_rule = {
         r["id"]: r["domain"]
         for r in (rules.get("hard_rules") or []) + (rules.get("hypothesis_rules") or [])
@@ -657,7 +666,7 @@ def main(argv: list[str]) -> int:
         print(f"enforce_control_taxonomy: no yaml at {yaml_path}", file=sys.stderr)
         return 1
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=_YAML_LOADER)
     except (yaml.YAMLError, OSError) as exc:
         print(f"enforce_control_taxonomy: could not parse {yaml_path}: {exc}", file=sys.stderr)
         return 1

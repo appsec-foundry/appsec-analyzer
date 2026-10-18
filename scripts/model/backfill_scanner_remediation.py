@@ -58,6 +58,9 @@ from shared._threat_model_fields import evidence_locator
 
 from model.enrichment_pass import EnrichmentContinuation
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 # Check libraries keyed by check id. source-auth-checks.yaml holds AUTHZ-* and
 # INJ-* entries; crypto-checks.yaml holds CRYPTO-*; config-iac-checks.yaml holds
 # IAC-*. All share `{id, remediation, name}` shape under a top-level `checks`.
@@ -80,7 +83,7 @@ def _load_check_index(plugin_root: Path) -> dict[str, dict]:
         if not path.is_file():
             continue
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            data = yaml.load(path.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
         except (OSError, yaml.YAMLError):
             continue
         checks = data.get("checks") if isinstance(data, dict) else data
@@ -175,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"backfill_scanner_remediation: no {yaml_path} — skipping", file=sys.stderr)
         return 0
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     except (OSError, yaml.YAMLError) as exc:
         print(f"backfill_scanner_remediation: failed to load yaml: {exc}", file=sys.stderr)
         return 0

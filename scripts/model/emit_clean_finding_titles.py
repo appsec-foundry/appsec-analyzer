@@ -48,6 +48,9 @@ from pathlib import Path
 import yaml
 from shared._register_titles import _cut_at_word
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 # A file token must end in a KNOWN source/config extension (or be a bare
 # `Dockerfile`), else code identifiers like `DomSanitizer.trust`,
 # `vm.runInContext`, `yaml.load` get mis-parsed as files. Optional `:line` or
@@ -213,7 +216,7 @@ def _load_title_constraints() -> tuple[int, int, re.Pattern[str] | None, tuple[r
     emitter mid-pipeline.
     """
     try:
-        spec = yaml.safe_load(_SCHEMA_PATH.read_text(encoding="utf-8")) or {}
+        spec = yaml.load(_SCHEMA_PATH.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
         title = spec["properties"]["threats"]["items"]["properties"]["title"]
     except (OSError, yaml.YAMLError, KeyError, TypeError):
         return 10, 80, None, ()
@@ -375,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"emit_clean_finding_titles: no threat-model.yaml in {ns.output_dir}", file=sys.stderr)
         return 0
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     except Exception as exc:  # noqa: BLE001
         print(f"emit_clean_finding_titles: unreadable yaml ({exc})", file=sys.stderr)
         return 0

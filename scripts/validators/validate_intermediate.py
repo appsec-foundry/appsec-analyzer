@@ -54,6 +54,9 @@ import yaml
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 # RC.C — central source-enum module. Keep this validator's existing
 # permissive union semantics; the module just removes hard-coded drift.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -97,7 +100,7 @@ _SCHEMA_FILES = {
 def _load_schema(kind: str) -> dict:
     path = _SCHEMAS_DIR / _SCHEMA_FILES[kind]
     with path.open() as f:
-        return yaml.safe_load(f)
+        return yaml.load(f, Loader=_YAML_LOADER)
 
 
 def _validator(kind: str) -> Draft202012Validator:
@@ -117,7 +120,7 @@ def _schema_registry() -> Registry:
         "actors-resolved.schema.yaml",
         "actors-repo.schema.yaml",
     ):
-        contents = yaml.safe_load((_SCHEMAS_DIR / filename).read_text(encoding="utf-8"))
+        contents = yaml.load((_SCHEMAS_DIR / filename).read_text(encoding="utf-8"), Loader=_YAML_LOADER)
         registry = registry.with_resource(contents["$id"], Resource.from_contents(contents))
     return registry
 
@@ -177,7 +180,7 @@ def _eligible_cwes() -> frozenset[str]:
     path = Path(__file__).resolve().parents[2] / "data" / "cvss-eligible-cwes.yaml"
     try:
         with path.open() as f:
-            doc = yaml.safe_load(f) or {}
+            doc = yaml.load(f, Loader=_YAML_LOADER) or {}
     except OSError:
         return frozenset()
     entries = doc.get("eligible_cwes") or []
@@ -1776,7 +1779,7 @@ def validate_config_scan_findings(data: Any) -> tuple[bool, list[str]]:
 
         catalog_path = Path(__file__).resolve().parents[2] / "data" / "config-iac-checks.yaml"
         try:
-            catalog_doc = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+            catalog_doc = yaml.load(catalog_path.read_text(encoding="utf-8"), Loader=_YAML_LOADER)
             catalog = {
                 row["id"]: row
                 for row in catalog_doc.get("checks", [])
@@ -2121,7 +2124,7 @@ def main() -> None:
     try:
         with path.open() as f:
             if use_yaml:
-                data = yaml.safe_load(f)
+                data = yaml.load(f, Loader=_YAML_LOADER)
             else:
                 data = json.load(f)
     except json.JSONDecodeError as e:

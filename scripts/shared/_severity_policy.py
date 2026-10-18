@@ -22,6 +22,9 @@ import yaml
 
 from shared._finding_state import is_discredited, is_refuted
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 RANK = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
@@ -34,7 +37,7 @@ def load_policy() -> tuple[dict, dict]:
         ("severity-caps.yaml", "severity_caps"),
         ("critical-criteria.yaml", "never_individual_critical"),
     ):
-        document = yaml.safe_load((DATA_DIR / filename).read_text(encoding="utf-8"))
+        document = yaml.load((DATA_DIR / filename).read_text(encoding="utf-8"), Loader=_YAML_LOADER)
         if not isinstance(document, dict) or key not in document:
             raise ValueError(f"Invalid severity policy: {filename}")
         documents.append(document)

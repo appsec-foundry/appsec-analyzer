@@ -96,6 +96,9 @@ from renderers.component_labels import component_names, crossing_text
 # (and not lazily) so its GENERATORS entry below resolves at import time.
 from renderers.walkthrough_renderer import gen_attack_walkthroughs
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 # ---------------------------------------------------------------------------
 # Contract-driven compactness rules. The data lives in
 # `data/sections-contract.yaml → sections.architecture_diagrams.diagram_compactness`
@@ -117,7 +120,7 @@ def _load_diagram_compactness() -> dict:
     if _DIAGRAM_COMPACTNESS_CACHE is not None:
         return _DIAGRAM_COMPACTNESS_CACHE
     try:
-        contract = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8")) or {}
+        contract = yaml.load(_CONTRACT_PATH.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     except (OSError, yaml.YAMLError):
         contract = {}
     arch = (contract.get("sections") or {}).get("architecture_diagrams") or {}
@@ -132,7 +135,7 @@ def _load_posture_actor_labels_for_pregen() -> dict:
     omits the EXT subgraph rather than failing."""
     path = Path(__file__).resolve().parents[2] / "data" / "posture-actor-labels.yaml"
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return yaml.load(path.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     except (OSError, yaml.YAMLError):
         return {}
 
@@ -1403,8 +1406,9 @@ def gen_architecture_diagrams(
             if isinstance(item, dict) and item.get("evidence")
         }
         if evidenced & ai_capabilities:
-            vocabulary = yaml.safe_load(
-                (Path(__file__).resolve().parents[2] / "data/security-capabilities.yaml").read_text()
+            vocabulary = yaml.load(
+                (Path(__file__).resolve().parents[2] / "data/security-capabilities.yaml").read_text(),
+                Loader=_YAML_LOADER,
             )["component_capabilities"]
             labels = [entry["label"] for value, entry in vocabulary.items() if value in evidenced & ai_capabilities]
             cname = str(cname) + " — " + ", ".join(labels)
@@ -3120,7 +3124,7 @@ def _load_cwe_routing() -> dict[str, str]:
     A CWE listed under two headings would route by file order, so the contract
     names each CWE once (tests/test_pregenerate_fragments.py guards it).
     """
-    contract = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8")) or {}
+    contract = yaml.load(_CONTRACT_PATH.read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
     routing = contract["sections"]["security_architecture"]["schema_v2"]["finding_routing"]
     return {str(cwe).upper(): heading for heading, rule in routing.items() for cwe in (rule or {}).get("cwes") or []}
 
@@ -5912,7 +5916,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        yaml_data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        yaml_data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=_YAML_LOADER)
     except (yaml.YAMLError, OSError) as exc:
         print(f"Error: could not parse {yaml_path}: {exc}", file=sys.stderr)
         return 1

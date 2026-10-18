@@ -26,6 +26,9 @@ from typing import Any
 
 import yaml
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 __all__ = ["load_yaml"]
 
 _RAISE = object()
@@ -45,7 +48,7 @@ def load_yaml(path: Path, *, default: Any = _RAISE) -> Any:
             raise
         return default
     try:
-        return yaml.safe_load(text)
+        return yaml.load(text, Loader=_YAML_LOADER)
     except yaml.YAMLError:
         if default is _RAISE:
             raise

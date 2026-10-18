@@ -28,6 +28,9 @@ from shared._shared_sources import DESIGN_LEVEL_SOURCES
 import renderers._business_relevance as _business_relevance
 import renderers._severity_rollup as _severity_rollup
 
+# libyaml parses about 13x faster than the pure-Python loader; both are safe loaders.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 CONSOLE_HEADER = "Open questions for the team:"
 REPORT_HEADING = "### Open Questions for the Team"
 REPORT_INTRO = (
@@ -78,7 +81,9 @@ def is_report_question_line(line: str) -> bool:
 def _mechanism_field(field: str, plugin_root: Optional[Path]) -> dict[str, str]:
     root = plugin_root or Path(__file__).resolve().parents[2]
     try:
-        data = yaml.safe_load((root / "data" / "weakness-classes.yaml").read_text(encoding="utf-8")) or {}
+        data = (
+            yaml.load((root / "data" / "weakness-classes.yaml").read_text(encoding="utf-8"), Loader=_YAML_LOADER) or {}
+        )
     except (OSError, yaml.YAMLError):
         return {}
     guidance = data.get("mechanism_guidance") or {}
