@@ -70,6 +70,8 @@ Provide a readable report with consistent finding references, legible architectu
 
 Publish Markdown and structured YAML and offer requested HTML, PDF, SARIF, Threat Dragon, and pentest-task exports. Preserve applicable references, requirements results, abuse outcomes, and bounded context provenance. Explain unsupported content and missing export tools.
 
+For the focused AuthNZ review, offer text, JSON and YAML results derived from the same validated report. Reuse the legacy pentest endpoint catalog and task plan with independently selected generic/Strix dialect and JSON/YAML serialization. Preserve evidence status, source locations and requirement references for AuthNZ tasks; identify findings omitted by the existing CWE/evidence filter. Export does not execute or authorize dynamic tests.
+
 ## REQ-015: Export without running the analysis again
 
 Allow users to export an existing validated model without rerunning analysis. Apply the format, reference-preservation, and missing-tool rules of REQ-014 to these exports as well.
@@ -133,6 +135,8 @@ For LiteLLM, disable upstream retries and fallbacks in each request, reserve aga
 ## REQ-024: Ask a focused security question
 
 Offer explicitly invoked design analysis, change review, and hypothesis checks separately from a full assessment. Keep existing threat models, finding IDs, and concurrent assessments unchanged. Methodology profiles guide analysis without proving findings, certifying compliance, or granting permissions.
+
+Offer a separate AuthN/AuthZ review of one admitted local Git checkout without requiring a threat model. Run the route inventory, authentication scanner and static authorization confirmer before bounded tool-less reasoning through Claude CLI. Retain deterministic in-scope scanner signals despite model omissions; validate report references and scanner-backed confirmation outside the model. Apply the selected finite USD budget, source masking and output secret checks. Save only on explicit selection, in a fresh or empty private destination outside the source; preserve existing assessments and reject concurrent output claims. Incomplete reviews never pass as clean, and gate failure is distinct from operational failure or cancellation. Expose unsupported providers, imported-model context and resume as limits rather than silently running a full assessment.
 
 ## REQ-025: Understand what a code change affects
 

@@ -213,6 +213,7 @@ Use the same CLI for a combined assessment, a focused security question, or a re
 | Assess several repositories together | `scan --repo /path/to/api --repo /path/to/client --budget 30` | [Security assessment](docs/security-assessment.md) |
 | Select the model host explicitly | `assess --repo /path/to/project --host claude-cli --budget 20` | [Hosts and models](docs/model-selection.md) |
 | Review a design, code change, or threat hypothesis | `analyst design`, `analyst review`, `analyst hypothesis` | [Threat Analyst](docs/threat-analyst.md) |
+| Review authentication and authorization, with JSON/YAML and optional pentest plans | `authnz-review --repo /path/to/project --budget 5` | [AuthNZ review](docs/authnz-review.md) |
 | Check a security requirements catalog, optionally as a CI gate | `audit-requirements` | [Requirements audit](docs/security-requirements-audit-skill.md) |
 | Show available scanners and provider qualification | `capabilities` | [Configuration](docs/configuration.md) |
 

@@ -64,6 +64,7 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 		tests/test_security_score.py \
 		tests/test_public_assessment_operations.py \
 		tests/test_requirements_audit_cli.py \
+		tests/test_authnz_review_cli.py \
 		tests/test_api_hosts.py \
 		tests/test_codex_cli.py \
 		tests/test_profiles.py \

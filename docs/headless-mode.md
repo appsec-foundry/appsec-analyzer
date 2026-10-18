@@ -52,3 +52,5 @@ The separate requirements audit uses `appsec-analyzer audit-requirements
 `assessment_status: not_run`. Use `--gate` to make qualifying findings return
 exit status 1. The old `scripts/run-headless.sh` instructions are retained only
 in the [historical guide](history/advisor/headless-mode.md).
+
+Use `appsec-analyzer authnz-review --repo /checkout --budget 5 --json` for a separate AuthN/AuthZ review through Claude CLI. It needs no prior assessment and never waits for interactive input. `--yaml` prints the same result as YAML. `--save --pentest-tasks --pentest-output-format both` retains reports and the legacy pentest plan as JSON and YAML in a fresh private application subdirectory. The command sends masked scanner signals and explicit catalog context to the model, defaults to a USD 5 limit, and performs no dynamic testing. Exit 1 means a selected gate failed, 2 means incomplete or invalid execution, and 130 means cancellation. See [AuthNZ coverage, exports and recovery](authnz-review.md).

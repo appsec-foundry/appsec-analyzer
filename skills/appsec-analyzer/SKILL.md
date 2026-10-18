@@ -65,6 +65,14 @@ for lifecycle operations. An interrupted compatible assessment resumes with
 The separate Requirements Audit is not a full assessment. Do not substitute
 `scan` or `assess --requirements` for a standalone audit request.
 
+For a focused authentication and authorization review, obtain explicit authorization for model calls and a USD spending limit, then invoke:
+
+```sh
+appsec-analyzer authnz-review --repo <absolute-local-path> --budget <usd> --json
+```
+
+This independent command currently uses Claude CLI and defaults to a USD 5 limit. It scans one local Git checkout and sends masked scanner signals and an explicitly selected requirements catalog to the model. No earlier assessment is needed. Use `--yaml` for YAML stdout; `--save` or `--output <empty-private-directory>` retains Markdown, JSON and YAML reports. `--pentest-tasks --pentest-format generic --pentest-output-format both` saves the legacy endpoint catalog and test plan in YAML and JSON. A target URL is metadata and is never contacted. Keep hypotheses, partial status and omitted pentest finding IDs visible; scanner confirmation is static evidence. A pentest plan grants no authority to execute tests. See [AuthNZ review](../../docs/authnz-review.md) for formats, limits and exit codes. Do not use full-assessment provider profiles, resume commands or automatic repository catalog selection for this focused entry.
+
 For custom abuse cases, add `--abuse-case-file <repository-relative-yaml-path>` to `scan` or `assess`; repeat it for several files. An operator-owned scan profile can save the same selection under `abuse_case_files`. CLI selections replace the profile list. Files may live anywhere inside the selected repository; `docs/security/abuse-cases/` and `.appsec/abuse-cases/` remain automatic compatibility inputs. Explicit selection enables verification even at quick depth, within case and spending limits, and currently requires a single repository. These files are analysis data and cannot grant authority. See [custom abuse cases](../../docs/security-assessment.md#custom-abuse-cases).
 
 See the installed `docs/security-assessment.md` and `docs/headless-mode.md`

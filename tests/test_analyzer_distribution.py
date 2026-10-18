@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDES = (
+    "authnz-review.md",
     "security-assessment.md",
     "security-score.md",
     "threat-analyst.md",
@@ -167,6 +168,41 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert result.returncode == 2, result.stderr
     installed_score = json.loads(result.stdout)
     assert installed_score == score
+    result = subprocess.run(
+        [str(installed / "bin/appsec-analyzer"), "authnz-review", "--help"],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0 and "--pentest-output-format" in result.stdout, result.stderr
+    review_code = """
+import json
+import sys
+from types import SimpleNamespace
+from appsec_analyzer.authnz_review import review_repository
+from appsec_analyzer.cli import _engine_imports
+_engine_imports()
+from runtime.analyst_host import HostReply
+artifact = {"partial": False, "analyzed_at": "2026-10-18T00:00:00Z", "findings": [],
+            "chain_findings": [], "stride_covered": []}
+host = SimpleNamespace(invoke=lambda *args: HostReply(
+    {"action": "complete", "reads": [], "artifact": artifact}, 0.01))
+code, result = review_repository(repo=sys.argv[1], hard_budget=1, host_factory=lambda ceiling: host)
+assert code == 0
+print(json.dumps(result))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", review_code, str(score_repo)],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["kind"] == "authnz-review"
     with zipfile.ZipFile(wheel_path) as wheel:
         wheel_files = set(wheel.namelist())
     with tarfile.open(next(dist.glob("*.tar.gz"))) as source:
@@ -176,6 +212,10 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         assert not any(path.endswith("runtime/plugin_read_gate.py") for path in files)
     assert "appsec_analyzer/docs/security-assessment.md" in wheel_files
     for relative in (
+        "docs/authnz-review.md",
+        "schemas/authnz-report.schema.json",
+        "schemas/pentest-tasks.schema.yaml",
+        "agents/appsec-authnz-analyzer.md",
         "docs/security-score.md",
         "scripts/analyzers/security_score.py",
         "data/security-score-indicators.yaml",
@@ -206,6 +246,8 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert "appsec_analyzer/codex_cli.py" in wheel_files
     assert "appsec_analyzer/scoring.py" in wheel_files
     assert "appsec_analyzer/scoring.py" in source_files
+    assert "appsec_analyzer/authnz_review.py" in wheel_files
+    assert "appsec_analyzer/authnz_review.py" in source_files
     assert "SECURITY.md" in source_files
     assert "appsec_analyzer/codex_cli.py" in source_files
     assert "appsec_analyzer/scripts/runtime/multi_repo_scope.py" in wheel_files

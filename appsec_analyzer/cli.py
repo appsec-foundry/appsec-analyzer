@@ -152,6 +152,52 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     audit.add_argument("--gate", action="store_true")
     audit.add_argument("--gate-on", choices=("fail", "partial"), default="fail")
     audit.add_argument("--priority-floor", choices=("MUST", "SHOULD", "MAY"), default="MUST")
+    authnz = commands.add_parser(
+        "authnz-review",
+        help="Run a standalone model-backed authentication and authorization review",
+        description="Review AuthN/AuthZ signals without a prior assessment. Model calls use Claude CLI.",
+        epilog="Exit codes: 0 complete; 1 selected gate failed; 2 incomplete or invalid; 130 cancelled.",
+    )
+    authnz.add_argument(
+        "--repo", default=".", metavar="PATH", help="One local Git checkout (default: current directory)"
+    )
+    authnz.add_argument("--host", choices=("claude-cli",), default="claude-cli")
+    authnz.add_argument("--model", default="sonnet", metavar="MODEL")
+    authnz.add_argument(
+        "--budget",
+        "--hard-budget",
+        dest="hard_budget",
+        type=_positive_budget,
+        default=5.0,
+        metavar="USD",
+        help="Maximum model cost in USD (default: %(default)g)",
+    )
+    authnz.add_argument("--requirements", metavar="FILE", help="Optional local requirements catalog")
+    authnz.add_argument("--output", metavar="DIR", help="Existing empty private directory outside the checkout")
+    authnz.add_argument("--save", action="store_true", help="Save reports to a fresh private application directory")
+    authnz.add_argument(
+        "--outputs",
+        nargs="+",
+        choices=("markdown", "json", "yaml", "pentest-tasks"),
+        help="Select saved outputs; implies --save (default: markdown json yaml)",
+    )
+    formats = authnz.add_mutually_exclusive_group()
+    formats.add_argument("--json", action="store_true", help="Print the complete result as JSON")
+    formats.add_argument("--yaml", action="store_true", help="Print the same result as YAML")
+    authnz.add_argument("--pentest-tasks", action="store_true", help="Export the legacy endpoint catalog and test plan")
+    authnz.add_argument(
+        "--pentest-format", choices=("generic", "strix"), default="generic", help="Pentest plan dialect"
+    )
+    authnz.add_argument(
+        "--pentest-output-format",
+        choices=("json", "yaml", "both"),
+        default="yaml",
+        help="Pentest plan serialization (default: yaml)",
+    )
+    authnz.add_argument(
+        "--pentest-target", type=_pentest_target, metavar="URL", help="Target metadata only; never contacted"
+    )
+    authnz.add_argument("--gate", action="store_true", help="Fail on Critical/High findings or an incomplete review")
     return parser
 
 
@@ -324,6 +370,13 @@ def _capabilities() -> dict:
         "scan": {"available": True, "model_calls": True},
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
+        "authnz_review": {
+            "available": True,
+            "model_calls": True,
+            "hosts": ["claude-cli"],
+            "outputs": ["markdown", "json", "yaml", "pentest-tasks"],
+            "qualified": False,
+        },
         "profiles": {"schema_version": 1, "user_defined": True, "inspection_model_calls": False},
         "organization_distributions": {
             "available": True,
@@ -930,6 +983,67 @@ def _audit(ns: argparse.Namespace) -> int:
     return code
 
 
+def _authnz(ns: argparse.Namespace) -> int:
+    _engine_imports()
+    from runtime.analyst_host import HostCancelled, TransportError
+
+    from appsec_analyzer.authnz_review import ReviewError, markdown, review_repository
+    from appsec_analyzer.hosts import claude_preflight
+
+    print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
+    print(
+        "AuthNZ review sends masked scanner evidence and optional catalog context to Claude CLI. "
+        "It performs no dynamic penetration test.",
+        file=sys.stderr,
+    )
+    try:
+        claude_preflight()
+        code, result = review_repository(
+            repo=ns.repo,
+            output=ns.output,
+            save=ns.save or ns.outputs is not None,
+            model=ns.model,
+            hard_budget=ns.hard_budget,
+            requirements_path=Path(ns.requirements) if ns.requirements else None,
+            outputs=tuple(ns.outputs) if ns.outputs else ("markdown", "json", "yaml"),
+            pentest_tasks=ns.pentest_tasks,
+            pentest_format=ns.pentest_format,
+            pentest_output_format=ns.pentest_output_format,
+            pentest_target=ns.pentest_target,
+            gate=ns.gate,
+            progress=lambda message: print(f"authnz-review: {message}", file=sys.stderr),
+        )
+        body = (
+            json.dumps(result, indent=2) + "\n"
+            if ns.json
+            else (yaml.safe_dump(result, sort_keys=False, allow_unicode=True) if ns.yaml else markdown(result))
+        )
+        print(body, end="")
+        return code
+    except KeyboardInterrupt:
+        print("authnz-review: cancelled; no completed review was reported", file=sys.stderr)
+        return 130
+    except (HostCancelled, TransportError) as exc:
+        reason = getattr(exc, "reason", "time_limit")
+        if reason not in ("time_limit", "authentication_failed", "rate_limit", "billing_error", "host_arguments"):
+            reason = "host_failure"
+        print(
+            f"authnz-review: stopped ({reason}); select a fresh output and retry",
+            file=sys.stderr,
+        )
+        return 2
+    except ReviewError as exc:
+        print(f"authnz-review: {exc}", file=sys.stderr)
+        return 2
+    except (OSError, RuntimeError, ValueError):
+        print(
+            "authnz-review: review or export failed; check source admission, private empty output, "
+            "catalog, host and budget; select a fresh output and retry",
+            file=sys.stderr,
+        )
+        return 2
+
+
 def main(argv: list[str] | None = None, *, organization=None) -> int:
     ns = _parser(organization=organization).parse_args(argv)
     try:
@@ -1001,6 +1115,8 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return _analyst(ns)
         if ns.command == "audit-requirements":
             return _audit(ns)
+        if ns.command == "authnz-review":
+            return _authnz(ns)
         raise ValueError(f"{ns.command} is not implemented")
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"appsec-analyzer: error: {exc}", file=sys.stderr)

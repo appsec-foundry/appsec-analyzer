@@ -833,6 +833,7 @@ requirements:
 
   REQ-014:
     applies_to:
+      - appsec_analyzer/authnz_review.py
       - scripts/shared/profile_metadata.py
       - skills/export-security-assessment/**
       - scripts/exporters/**
@@ -842,6 +843,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - docs/authnz-review.md
       - docs/profiles.md
       - docs/security-assessment.md
       - docs/threat-dragon-export.md
@@ -849,6 +851,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_authnz_review_cli.py::test_review_runs_real_scanners_retains_signals_and_exports_both_formats
+      - tests/test_authnz_review_cli.py::test_exporter_can_reexport_saved_report_to_json_without_model
       - tests/test_profiles.py::test_report_attributes_are_literal_text
       - tests/test_profiles.py::test_controller_dispatches_models_and_publishes_attributes
       - tests/test_export_threat_model_skill.py::test_sarif_helper_runs_standalone
@@ -1297,6 +1301,7 @@ requirements:
 
   REQ-024:
     applies_to:
+      - appsec_analyzer/authnz_review.py
       - skills/analyze-threats/**
       - scripts/appsec-analyst-cli
       - scripts/orchestrator/analyst_controller.py
@@ -1310,10 +1315,14 @@ requirements:
     decisions:
       - EX-1
     documents:
+      - docs/authnz-review.md
       - docs/threat-analyst.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_authnz_review_cli.py::test_review_runs_real_scanners_retains_signals_and_exports_both_formats
+      - tests/test_authnz_review_cli.py::test_console_only_review_leaves_no_saved_artifacts
+      - tests/test_authnz_review_cli.py::test_gate_fails_on_retained_high_findings_and_partial_is_never_clean
       - tests/test_analyst_isolation.py::test_importing_the_analyst_modules_creates_no_job
       - tests/test_analyst_isolation.py::test_plugin_hooks_never_activate_the_analyst
       - tests/test_analyst_controller.py::test_configuring_the_organization_profile_starts_nothing
@@ -1472,6 +1481,7 @@ requirements:
 
   REQ-031:
     applies_to:
+      - appsec_analyzer/authnz_review.py
       - appsec_analyzer/scoring.py
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
@@ -1494,6 +1504,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_authnz_review_cli.py::test_untrusted_model_output_cannot_cross_report_boundaries
+      - tests/test_authnz_review_cli.py::test_source_change_blocks_publication
       - tests/test_assessment_host.py::test_unlisted_relative_source_proposal_can_be_corrected_without_reading_it
       - tests/test_assessment_host.py::test_read_batch_with_a_fatal_proposal_is_rejected_before_any_retrieval
       - tests/test_public_score_cli.py::test_escaping_link_is_rejected_before_scanners
@@ -1526,6 +1538,7 @@ requirements:
 
   REQ-032:
     applies_to:
+      - appsec_analyzer/authnz_review.py
       - scripts/runtime/assessment_diagnostics.py
       - scripts/runtime/analyst_host.py
       - appsec_analyzer/scoring.py
@@ -1540,6 +1553,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_authnz_review_cli.py::test_untrusted_model_output_cannot_cross_report_boundaries
       - tests/test_assessment_diagnostics.py::test_reasons_keep_structural_detail_and_remove_values_locations_and_control_codes
       - tests/test_assessment_diagnostics.py::test_parallel_calls_keep_job_identity_and_never_log_inputs_or_answers
       - tests/test_analyst_host.py::test_cli_stderr_is_classified_without_exposing_it_or_losing_exit_status
@@ -1620,6 +1634,7 @@ requirements:
 
   REQ-035:
     applies_to:
+      - appsec_analyzer/authnz_review.py
       - scripts/runtime/assessment_diagnostics.py
       - appsec_analyzer/scoring.py
       - appsec_analyzer/codex_cli.py
@@ -1639,6 +1654,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_authnz_review_cli.py::test_invalid_destinations_fail_before_model_call
+      - tests/test_authnz_review_cli.py::test_save_uses_fresh_private_directory_outside_assessment
+      - tests/test_authnz_review_cli.py::test_cancellation_releases_output_claim
       - tests/test_assessment_diagnostics.py::test_linked_diagnostic_directory_is_refused
       - tests/test_assessment_diagnostics.py::test_replaced_log_link_cannot_write_to_another_file
       - tests/test_public_score_cli.py::test_temporary_storage_inside_repository_is_rejected

@@ -64,7 +64,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 ## Ask focused security questions
 
-- **REQ-024:** **Ask a focused security question.** A focused analysis runs only when requested and does not require a full assessment. It leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
+- **REQ-024:** **Ask a focused security question.** A focused analysis, including an authentication and authorization review, runs only when requested and does not require a full assessment. It leaves existing threat models and other running assessments alone. Choosing an analysis method does not certify compliance or authorize further actions.
 
 - **REQ-025:** **Understand what a code change affects.** A change review shows which problems the change introduces, makes worse, or mitigates. It also identifies problems that were already present and says when their relationship to the change is unclear.
 
