@@ -1461,6 +1461,36 @@ def test_interrupted_rate_limit_reports_cause_and_resume_action(monkeypatch, cap
     assert "--resume" in error
 
 
+def test_architecture_failure_names_repository_and_exchange_usage(monkeypatch, capsys):
+    from runtime.assessment_host import ModelAnswerFailure, Rejection
+
+    error = ModelAnswerFailure(
+        "A rejected draft",
+        attempts=1,
+        rejection=Rejection("Invalid flow group", ["different receiving endpoints"]),
+        calls_used=6,
+        read_rounds=5,
+    )
+    error.assessment_job = {
+        "role": "architecture_analyst",
+        "subject": "Repository",
+        "label": "shop",
+        "selector": "local-architecture:repo-private",
+    }
+
+    def rejected(argv):
+        raise error
+
+    monkeypatch.setattr(controller, "assess_repositories", rejected)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == 1
+    output = capsys.readouterr().err
+    assert "Architecture could not produce" in output
+    assert "Repository: shop" in output and "Component:" not in output
+    assert "after 1 attempt." in output and "1 attempts" not in output
+    assert "Job exchanges used: 6; source-read rounds: 5" in output
+    assert "different receiving endpoints" in output and "repo-private" not in output
+
+
 @pytest.mark.parametrize("reset", [None, 3600])
 def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch, capsys, tmp_path, reset):
     from runtime.analyst_host import TransportError

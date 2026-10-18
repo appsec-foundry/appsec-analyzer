@@ -27,14 +27,9 @@ SEMANTIC_ROLE_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "architecture_analyst": {
         "agent": "appsec-architecture-analyst",
-        "instruction": PLUGIN_ROOT / "agents" / "appsec-architecture-analyst.md",
-        "tools": ("Read", "Grep", "Bash", "Write"),
-        "output_contracts": (
-            "schemas/fragments/components.schema.json",
-            "schemas/fragments/data-flows.schema.json",
-            "schemas/fragments/assets.schema.json",
-            "schemas/fragments/attack-surface-overrides.schema.json",
-        ),
+        "instruction": PLUGIN_ROOT / "data" / "architecture-analysis-policy.md",
+        "tools": (),
+        "output_contracts": ("schemas/multi-repo-architecture.schema.json",),
     },
     "control_analyst": {
         "agent": "appsec-control-analyst",

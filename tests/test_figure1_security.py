@@ -209,6 +209,40 @@ def test_access_groups_reject_ambiguous_or_unevidenced_relationships(receiver):
     assert flows == before
 
 
+@pytest.mark.parametrize(
+    "change, reason",
+    [
+        ({"from_entity": "other-role"}, "different sending endpoints"),
+        ({"to": "store"}, "different receiving endpoints"),
+        ({"protocol": "OtherWire"}, "different protocols"),
+        ({"direction": "bidirectional"}, "different directions"),
+        ({"authentication": auth("unknown")}, "known authentication method"),
+        ({"protocol_group": "sign-in"}, "cannot combine"),
+        ({"access_group": {"id": "login", "mode": "sequence", "label": "Login", "step": 1}}, "unique consecutive"),
+    ],
+)
+def test_access_group_rejection_names_the_actual_violation_without_changing_flows(change, reason):
+    from renderers.figure1_security import access_groups
+
+    flows = [
+        dict(
+            id=f"df-{i:03d}",
+            **{"from": "browser", "to": "api"},
+            protocol="HTTPS",
+            direction="unidirectional",
+            authentication=auth("password"),
+            access_group=dict(id="login", mode="sequence", label="Login", step=i),
+        )
+        for i in (1, 2)
+    ]
+    flows[1].update(copy.deepcopy(change))
+    before = copy.deepcopy(flows)
+    accepted, errors = access_groups(flows)
+    assert accepted == {} and any(reason in error for error in errors)
+    assert "keep every individual flow" in errors[0]
+    assert flows == before
+
+
 @pytest.mark.parametrize("client", ["operator-console", "handheld-ui"])
 def test_human_interaction_is_not_an_api_or_provider_exchange(client):
     from validators.validate_fragment import architecture_reference_errors

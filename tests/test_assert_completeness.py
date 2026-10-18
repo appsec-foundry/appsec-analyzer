@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import validators.assert_completeness as completeness
 import pytest
+import validators.assert_completeness as completeness
 
 
 @pytest.fixture
