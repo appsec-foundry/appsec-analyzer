@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -156,6 +157,85 @@ def test_real_but_unretrieved_source_cannot_support_model_observation(tmp_path):
     host = ScriptedHost(scope, mutate=mutate)
     with pytest.raises(ExchangeError, match="not retrieved"):
         discovery.discover(scope, host_factory=host.factory, budget=budget(), should_stop=lambda: False)
+
+
+def test_two_rejected_discoveries_complete_within_the_original_exchange_limit(tmp_path):
+    """Replay the failed run's read/read/reject/read/reject sequence without a live model."""
+    scope = sources(tmp_path)
+    packets = []
+
+    class CorrectingHost(ScriptedHost):
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            packets.append(packet)
+            reply = super().invoke(system, prompt, schema, timeout_s, should_stop)
+            call = (len(packets) - 1) % 6 + 1
+            if call in (2, 4):
+                reply.payload.update(
+                    action="read",
+                    artifact=None,
+                    reads=[
+                        {
+                            "repository_id": packet["context"]["repository_id"],
+                            "path": "service.txt",
+                            "start_line": 1,
+                            "end_line": 1,
+                        }
+                    ],
+                )
+            elif call == 3:
+                reply.payload["artifact"]["interfaces"][0]["role"] = "publish"
+            elif call == 5:
+                reply.payload["artifact"]["components"][0]["paths"] = ["uncaptured-directory"]
+            elif call == 6:
+                assert packet["completion_required"] and packet["source_reads_remaining"] == 0
+                assert schema["properties"]["action"] == {"enum": ["complete"]}
+                assert "components/0/paths" in packet["rejected_result"]["reason"]
+            return reply
+
+    limits = budget()
+    model = CorrectingHost(scope)
+    result = discovery.discover(scope, host_factory=model.factory, budget=limits, should_stop=lambda: False)
+    assert len(result.observations) == 2 and limits.calls == 12
+    assert all(row["calls"] == 6 for row in result.retrieval)
+    # The duplicate read at call 4 must not erase call 3's rejected artifact.
+    assert "interfaces/0" in packets[4]["rejected_result"]["reason"]
+    assert packets[4]["rejected_result"]["result"]["interfaces"][0]["role"] == "publish"
+
+
+def test_identity_rejection_guides_one_correction_without_manufacturing_a_link(tmp_path):
+    scope = sources(tmp_path)
+    rejected = set()
+    reasons = []
+
+    class IdentityCorrectingHost(ScriptedHost):
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            reply = super().invoke(system, prompt, schema, timeout_s, should_stop)
+            if reply.payload["action"] != "complete":
+                return reply
+            rid = packet["context"]["repository_id"]
+            if rid not in rejected:
+                rejected.add(rid)
+                row = reply.payload["artifact"]["interfaces"][0]
+                row.update(address="PRIVATE_ADDRESS", deployment="PRIVATE_DEPLOYMENT", operation="PRIVATE_OPERATION")
+            else:
+                feedback = packet["rejected_result"]
+                reasons.append(feedback["reason"])
+                for field in ("address", "deployment", "operation"):
+                    assert f"interfaces/0/{field}" in feedback["reason"]
+                artifact = copy.deepcopy(feedback["result"])
+                artifact["interfaces"][0].update(address=None, deployment=None, operation=None)
+                reply.payload["artifact"] = artifact
+            return reply
+
+    model, limits = IdentityCorrectingHost(scope), budget()
+    result = discovery.discover(scope, host_factory=model.factory, budget=limits, should_stop=lambda: False)
+    assert limits.calls == 6 and len(reasons) == 2
+    assert not any("PRIVATE" in reason for reason in reasons)
+    assert all(document["components"] and document["interfaces"] for document in result.observations)
+    assert result.connections["candidates"] == []
+    assert len(result.connections["unresolved"]) == 2
 
 
 @pytest.mark.parametrize("when", ["before", "during"])

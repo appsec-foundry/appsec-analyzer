@@ -84,6 +84,59 @@ def test_invalid_or_tool_output_is_rejected(transport, monkeypatch, reply):
         transport.invoke("trusted", "source", {}, 5, lambda: False)
 
 
+def test_commentary_before_final_structured_reply_is_accepted(transport, monkeypatch):
+    lines = events({"ok": True}).splitlines()
+    commentary = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "PRIVATE commentary before the answer"},
+        }
+    ).encode()
+    reply = b"\n".join(lines[:2] + [commentary] + lines[2:])
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, reply, b""))
+    assert transport.invoke("trusted", "source", {}, 5, lambda: False).payload == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    "change,reason",
+    [
+        ("stream", "invalid_response_stream"),
+        ("envelope", "invalid_response_envelope"),
+        ("payload", "invalid_response_payload"),
+        ("tool", "unexpected_host_item"),
+        ("invalid_text", "unexpected_host_item"),
+        ("incomplete", "incomplete_response"),
+        ("late_message", "incomplete_response"),
+    ],
+)
+def test_response_failure_classification_is_safe_and_never_uses_earlier_answer(transport, monkeypatch, change, reason):
+    from runtime.assessment_diagnostics import failure_fields, transport_summary
+
+    rows = [json.loads(line) for line in events({"ok": True}).splitlines()]
+    item = {"type": "item.completed", "item": {"type": "agent_message", "text": "PRIVATE_RESPONSE"}}
+    if change == "stream":
+        rows.append("PRIVATE_RESPONSE")
+    elif change == "incomplete":
+        rows.pop()
+    elif change == "late_message":
+        rows.append(item)
+    else:
+        if change == "payload":
+            item["item"]["text"] = json.dumps({"payload_json": '{"private":"PRIVATE_RESPONSE", "private":1}'})
+        elif change == "tool":
+            item["item"]["type"] = "command_execution"
+        elif change == "invalid_text":
+            item["item"]["text"] = {"private": "PRIVATE_RESPONSE"}
+        rows.insert(-1, item)
+    reply = b"\n".join(json.dumps(row).encode() for row in rows)
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, reply, b"PRIVATE_STDERR"))
+    with pytest.raises(TransportError) as caught:
+        transport.invoke("trusted", "source", {}, 5, lambda: False)
+    assert failure_fields(caught.value) == {"reason": reason, "exit_code": 0}
+    assert reason in transport_summary(caught.value)
+    assert "PRIVATE" not in str(caught.value) + transport_summary(caught.value)
+
+
 def test_usage_limit_is_redacted_and_has_no_optional_fallback(transport, monkeypatch):
     failure = json.dumps({"type": "turn.failed", "error": {"message": "usage_limit_reached SOURCE_SECRET"}}).encode()
     monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (1, failure, b"private stderr"))

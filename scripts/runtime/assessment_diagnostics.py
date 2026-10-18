@@ -36,6 +36,11 @@ FAILURE_CODES = frozenset(
         "api_error",
         "invalid_request",
         "invalid_response",
+        "invalid_response_stream",
+        "invalid_response_envelope",
+        "invalid_response_payload",
+        "unexpected_host_item",
+        "incomplete_response",
         "no_result",
         "no_structured_output",
         "response_too_large",
@@ -152,6 +157,12 @@ def transport_summary(error: TransportError) -> str:
         "host_configuration": "check the operator-owned host configuration",
         "no_result": "check the host installation and login; no structured result was returned",
         "rate_limit": "wait for provider capacity",
+        "invalid_response": "the host returned an invalid structured answer; check the private diagnostic feed",
+        "invalid_response_stream": "Codex returned malformed JSON events; check the supported CLI version",
+        "invalid_response_envelope": "Codex's final message did not match the required JSON envelope",
+        "invalid_response_payload": "Codex's final envelope contained invalid or ambiguous payload JSON",
+        "unexpected_host_item": "Codex emitted a tool or unsupported item; check CLI isolation before retrying",
+        "incomplete_response": "Codex did not return one completed turn with a final answer",
     }
     return (
         reason + "; " + hints.get(reason, "check the selected host") + "; then continue compatible work with --resume"

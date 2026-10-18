@@ -2116,6 +2116,32 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     controller._AssessmentConsole.clear_status()
 
 
+@pytest.mark.parametrize("verbose", [False, True], ids=["default", "verbose"])
+def test_diagnostic_ids_are_visible_only_in_verbose_progress(capsys, monkeypatch, verbose):
+    import time as clock
+
+    monkeypatch.setenv("COLUMNS", "400")
+    lines = []
+    console = controller._AssessmentConsole(verbose, lines.append, live=True)
+    console.step("Discovering every selected repository")
+    identity = "job-a900817c43128aefeda0a1e8 discovery:repo-ffc35c05d80df730 call-000005"
+    state = "model is writing its result (~1,200 characters)"
+    console.running[1] = _Call(f"discovery [{identity}]", clock.monotonic() - 8, state)
+    console.tick()
+    status = _status_frames(capsys.readouterr().err)[-1][-1]
+    assert state in status and "discovery" in status
+    assert (identity in status) is verbose
+    if not verbose:
+        assert "discovery 8s " in status
+        assert not any(value in status for value in ("job-", "repo-", "call-"))
+    console.call(f"[{identity}] 2 min: no progress update for 120 s; model call is still running", "recon_scanner")
+    console.call(f"[{identity}] model call stopped after 300 s: it exceeded its time limit", "recon_scanner")
+    text = "\n".join(lines)
+    assert "no progress update" in text and "exceeded its time limit" in text
+    assert (identity in text) is verbose
+    controller._AssessmentConsole.clear_status()
+
+
 def test_off_a_terminal_no_ticker_runs_and_no_status_is_drawn(capsys):
     import threading
 
@@ -2658,6 +2684,8 @@ def test_a_status_redraw_overwrites_in_place_in_one_flush(monkeypatch, component
 
 
 def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
+    from renderers.term_style import SPINNER
+
     monkeypatch.setenv("COLUMNS", "400")
     console = controller._AssessmentConsole(False, [].append, live=True)
     console.plan_components(4)
@@ -2672,7 +2700,7 @@ def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
     assert first.endswith("0/4 components done · Analyzing all STRIDE categories: Gateway (2/4) · 0s")
     # The running component has its own line and bar above the run's row.
     assert len(above) == 1 and "Gateway" in above[0] and above[0].rstrip().endswith("STRIDE")
-    assert {frame(first), frame(second)} <= set(controller.SPINNER) and frame(first) != frame(second)
+    assert {frame(first), frame(second)} <= set(SPINNER) and frame(first) != frame(second)
 
 
 @pytest.mark.parametrize("done,total", [(1, 3), (4, 11)])

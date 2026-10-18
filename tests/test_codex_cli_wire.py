@@ -23,8 +23,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("success", [False, True])
-def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_path, monkeypatch, success):
+@pytest.mark.parametrize("success,commentary", [(False, False), (True, False), (True, True)])
+def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_path, monkeypatch, success, commentary):
     executable = shutil.which("codex")
     assert executable
     env = {
@@ -67,6 +67,7 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
                 "id": "msg_fixture",
                 "type": "message",
                 "role": "assistant",
+                "phase": "final_answer",
                 "status": "completed",
                 "content": [part],
             }
@@ -123,6 +124,32 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
                 {"type": "response.output_item.done", "output_index": 0, "item": message},
                 {"type": "response.completed", "response": response},
             ]
+            if commentary:
+                progress = {
+                    **message,
+                    "id": "msg_commentary",
+                    "phase": "commentary",
+                    "content": [{**part, "text": "I will prepare the structured answer."}],
+                }
+                response["output"] = [progress, message]
+                for event in sequence:
+                    if "output_index" in event:
+                        event["output_index"] = 1
+                sequence[1:1] = [
+                    {
+                        "type": "response.output_item.added",
+                        "output_index": 0,
+                        "item": {**progress, "status": "in_progress", "content": []},
+                    },
+                    {
+                        "type": "response.output_text.delta",
+                        "output_index": 0,
+                        "item_id": "msg_commentary",
+                        "content_index": 0,
+                        "delta": progress["content"][0]["text"],
+                    },
+                    {"type": "response.output_item.done", "output_index": 0, "item": progress},
+                ]
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -157,11 +184,26 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
             # Only this local fixture replaces provider/auth, never production.
             monkeypatch.setattr(transport, "argv", argv)
             monkeypatch.setattr(codex_cli, "environment", lambda: env)
+            original_run = codex_cli._run
+            observed_events = []
+
+            def observed_run(*args, **kwargs):
+                result = original_run(*args, **kwargs)
+                observed_events.extend(json.loads(line) for line in result[1].splitlines())
+                return result
+
+            monkeypatch.setattr(codex_cli, "_run", observed_run)
             if success:
                 result = transport.invoke(
                     "Return the requested JSON without tools.", "Return JSON.", {"type": "object"}, 20, lambda: False
                 )
                 assert result.payload == {"ok": True} and result.usd is None
+                messages = [
+                    event["item"]
+                    for event in observed_events
+                    if event.get("type") == "item.completed" and event["item"].get("type") == "agent_message"
+                ]
+                assert len(messages) == (2 if commentary else 1)
             else:
                 from runtime.analyst_host import TransportError
 

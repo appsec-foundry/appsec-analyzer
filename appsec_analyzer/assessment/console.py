@@ -319,7 +319,12 @@ class _AssessmentConsole:
         # Copied first: calls register and leave from their own threads.
         calls = sorted(list(self.running.values()), key=lambda call: call.started)
         if calls:
-            shown = [f"{call.name or 'model call'} {_duration(now - call.started)} {call.state()}" for call in calls]
+            shown = []
+            for call in calls:
+                name = call.name or "model call"
+                if not self.verbose:
+                    name = name.partition(" [job-")[0]
+                shown.append(f"{name} {_duration(now - call.started)} {call.state()}")
             more = len(shown) - self.TICK_CALLS
             working = " · ".join(shown[: self.TICK_CALLS]) + (f" · +{more} more" if more > 0 else "")
         elif self.activity:
@@ -834,7 +839,7 @@ class _AssessmentConsole:
         context = ""
         if text.startswith("[job-") and "] " in text:
             context, _, text = text.partition("] ")
-            context += "] "
+            context = context + "] " if getattr(self, "verbose", False) else ""
         label = self.ROLE_LABELS.get(role, (role or "").replace("_", " "))
         who = context + (f"{label} [{model}]: " if role and model else (f"{label}: " if role else ""))
         if "no model activity" in text or text.startswith("model call stopped"):

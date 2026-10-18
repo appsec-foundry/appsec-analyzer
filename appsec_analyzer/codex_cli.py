@@ -295,6 +295,7 @@ class CodexCliTransport:
                 should_stop=should_stop,
                 on_event=self.on_event,
             )
+        response_reason = "invalid_response_stream"
         try:
             events = [_json(line) for line in out.splitlines() if line]
             if any(type(event) is not dict for event in events):
@@ -322,22 +323,33 @@ class CodexCliTransport:
                 raise TransportError("Codex CLI exchange failed: " + hint, reason=reason, exit_code=code)
             completed = [e for e in events if e.get("type") == "turn.completed"]
             messages = []
+            response_reason = "unexpected_host_item"
             for event in events:
                 if event.get("type") not in ("item.started", "item.updated", "item.completed"):
                     continue
                 item = event.get("item")
+                # CLI startup warnings also use error items. A failed turn is
+                # signalled by turn.failed/error above, not this item type.
                 if type(item) is not dict or item.get("type") not in ("agent_message", "reasoning", "error"):
                     raise ValueError("unexpected tool event")
                 if event["type"] == "item.completed" and item["type"] == "agent_message":
+                    if type(item.get("text")) is not str:
+                        raise ValueError
                     messages.append(item["text"])
-            if len(completed) != 1 or len(messages) != 1:
+            response_reason = "incomplete_response"
+            if len(completed) != 1 or not messages or events[-1].get("type") != "turn.completed":
                 raise ValueError
-            wire = _json(messages[0])
+            # Codex can emit commentary before its final structured message.
+            # Only the last completed agent message is the answer; never fall
+            # back to an earlier valid object when the final message is invalid.
+            response_reason = "invalid_response_envelope"
+            wire = _json(messages[-1])
             if type(wire) is not dict or set(wire) != {"payload_json"} or type(wire["payload_json"]) is not str:
                 raise ValueError
+            response_reason = "invalid_response_payload"
             payload = _json(wire["payload_json"])
         except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
             raise TransportError(
-                "Invalid Codex structured response", reason="invalid_response", exit_code=code
+                "Invalid Codex structured response: " + response_reason, reason=response_reason, exit_code=code
             ) from None
         return HostReply(payload=payload, usd=None)

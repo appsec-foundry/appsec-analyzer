@@ -255,6 +255,57 @@ def test_repeated_reads_and_incomplete_results_are_not_silently_accepted(tmp_pat
         invoke(Model([{"action": "complete", "reads": [], "artifact": None}] * 3), tmp_path)
 
 
+def test_last_exchange_requires_completion_and_keeps_the_same_call_limit(tmp_path):
+    class ReadsUntilCompletionRequired(Model):
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            packet = json.loads(prompt.split(f"<<<{host.MARKER}\n")[1].split(f"\n{host.MARKER}>>>")[0])
+            self.prompts.append(prompt)
+            if packet["completion_required"]:
+                assert packet["exchange_calls_remaining"] == 1
+                assert packet["source_reads_remaining"] == 0
+                properties = schema["properties"]
+                assert properties["action"] == {"enum": ["complete"]}
+                assert properties["reads"]["maxItems"] == 0
+                assert properties["artifact"] == {"$ref": "#/$defs/assessment_artifact"}
+                return HostReply(complete(), 0.01)
+            assert packet["exchange_calls_remaining"] == host.MAX_EXCHANGES - len(self.prompts) + 1
+            return HostReply(read(), 0.01)
+
+    model = ReadsUntilCompletionRequired([])
+    result = invoke(model, tmp_path)
+    assert result.calls == len(model.prompts) == host.MAX_EXCHANGES
+    assert result.usd == pytest.approx(0.01 * host.MAX_EXCHANGES)
+
+
+def test_a_last_exchange_read_is_not_served_when_the_host_ignores_the_schema(tmp_path, monkeypatch):
+    served = []
+    real_read = host.read_slice
+
+    def record(*args):
+        served.append(args[1:])
+        return real_read(*args)
+
+    monkeypatch.setattr(host, "read_slice", record)
+    final_read = read()
+    final_read["reads"][0]["end_line"] = 1
+    model = Model([read()] * (host.MAX_EXCHANGES - 1) + [final_read])
+    with pytest.raises(host.ModelAnswerFailure, match="exchange limit"):
+        invoke(model, tmp_path)
+    assert len(model.prompts) == host.MAX_EXCHANGES
+    assert len(served) == 1 and served[0] == (REPO, "app.py", 1, 2)
+
+
+def test_final_completion_still_requires_evidence_validation(tmp_path):
+    model = Model([read()] * (host.MAX_EXCHANGES - 1) + [complete()])
+
+    def reject(artifact, slices):
+        raise ValueError("Required evidence is missing")
+
+    with pytest.raises(host.ModelAnswerFailure, match="Required evidence is missing"):
+        _reviewed(model, tmp_path, reject)
+    assert len(model.prompts) == host.MAX_EXCHANGES
+
+
 @pytest.mark.parametrize(
     "proposal",
     [
@@ -510,6 +561,21 @@ def test_a_correction_turn_carries_the_rejected_result_and_its_full_reason(tmp_p
     packet = json.loads(model.prompts[1].split("\n", 4)[4].rsplit("\n", 2)[0])
     assert packet["rejected_result"]["result"] == {"summary": "first draft"}
     assert packet["rejected_result"]["reason"] == reason
+
+
+def test_read_feedback_preserves_the_rejected_draft_and_validation_reason(tmp_path):
+    def review(artifact, slices):
+        if artifact["summary"] == "draft":
+            raise ValueError("Correct the unsupported claim")
+
+    model = Model([_result("draft"), read(), read(), _result("corrected")])
+    result = _reviewed(model, tmp_path, review)
+    assert result.artifact == {"summary": "corrected"}
+    packet = json.loads(model.prompts[3].split(f"<<<{host.MARKER}\n")[1].split(f"\n{host.MARKER}>>>")[0])
+    rejected = packet["rejected_result"]
+    assert rejected["result"] == {"summary": "draft"}
+    assert rejected["reason"] == "Correct the unsupported claim"
+    assert "already in source_slices" in rejected["source_read_feedback"]["reason"]
 
 
 def test_a_rejected_result_too_large_for_the_packet_is_left_out_not_fatal(tmp_path):

@@ -88,17 +88,28 @@ def test_optional_model_failure_is_recorded_as_replacement(tmp_path):
     assert not list(jobs.directory.glob("*.receipt.json"))
 
 
-def test_host_failure_logs_fixed_classification_and_exit_code_without_raw_text(tmp_path):
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "host_arguments",
+        "invalid_response_stream",
+        "invalid_response_envelope",
+        "invalid_response_payload",
+        "unexpected_host_item",
+        "incomplete_response",
+    ],
+)
+def test_host_failure_logs_fixed_classification_and_exit_code_without_raw_text(tmp_path, reason):
     log = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
 
     class Host:
         def invoke(self, *args):
-            raise TransportError("RAW_PROVIDER_SECRET", reason="host_arguments", exit_code=7)
+            raise TransportError("RAW_PROVIDER_SECRET", reason=reason, exit_code=7)
 
     with pytest.raises(TransportError):
         log.job("recon_scanner", "discovery").wrap(Host()).invoke("s", "p", {}, 5, lambda: False)
     row = records(log)[-1]
-    assert row["reason"] == "host_arguments" and row["exit_code"] == 7
+    assert row["reason"] == reason and row["exit_code"] == 7
     assert "RAW_PROVIDER_SECRET" not in log.path.read_text()
 
 

@@ -132,6 +132,41 @@ def test_forged_or_ambiguous_discovery_is_rejected(tmp_path, kind):
         architecture.reconcile(scope, documents)
 
 
+@pytest.mark.parametrize("field", ["address", "deployment", "operation"])
+def test_unsupported_identity_feedback_names_the_field_without_echoing_its_value(tmp_path, field):
+    scope, documents = fixture(tmp_path)
+    documents[0]["interfaces"][0][field] = "PRIVATE_UNSUPPORTED_IDENTITY"
+    with pytest.raises(architecture.ArchitectureError) as caught:
+        architecture.validate_discovery(scope, documents[0]["repository_id"], documents[0])
+    message = str(caught.value)
+    assert f"interfaces/0/{field}" in message
+    assert "verbatim" in message and "Use null" in message
+    assert "PRIVATE" not in message
+
+
+def test_identity_feedback_reports_multiple_unsupported_fields_together(tmp_path):
+    scope, documents = fixture(tmp_path)
+    row = documents[0]["interfaces"][0]
+    row["address"] = "PRIVATE_ADDRESS"
+    row["deployment"] = "PRIVATE_DEPLOYMENT"
+    row["operation"] = "PRIVATE_OPERATION"
+    with pytest.raises(architecture.ArchitectureError) as caught:
+        architecture.validate_discovery(scope, documents[0]["repository_id"], documents[0])
+    assert all(f"interfaces/0/{field}" in str(caught.value) for field in ("address", "deployment", "operation"))
+    assert "PRIVATE" not in str(caught.value)
+
+
+def test_unknown_interface_identities_remain_unresolved_instead_of_creating_a_link(tmp_path):
+    scope, documents = fixture(tmp_path)
+    for document in documents:
+        row = document["interfaces"][0]
+        row.update(address=None, deployment=None, operation=None)
+    result = architecture.reconcile(scope, documents)
+    assert result["candidates"] == []
+    assert len(result["unresolved"]) == 2
+    assert {row["reason"] for row in result["unresolved"]} == {"identity-not-established"}
+
+
 def test_missing_repository_discovery_cannot_be_published_as_complete(tmp_path):
     scope, documents = fixture(tmp_path)
     with pytest.raises(architecture.ArchitectureError, match="every selected"):

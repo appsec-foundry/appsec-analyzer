@@ -42,16 +42,24 @@ def validate_discovery(scope: AssessmentScope, expected_repository: str, documen
     components = {row["id"]: row for row in document["components"]}
     if len(components) != len(document["components"]):
         raise ArchitectureError("Duplicate local component identity")
-    for component in components.values():
+    for index, component in enumerate(document["components"]):
         if not set(component["paths"]) <= repository.files.keys():
-            raise ArchitectureError("Component refers to uncaptured source")
+            raise ArchitectureError(
+                f"Component refers to uncaptured source at components/{index}/paths: "
+                "use only exact file paths from source_slices, never directories or guessed paths"
+            )
     interface_ids: set[str] = set()
-    for interface in document["interfaces"]:
+    unsupported_identities = []
+    for index, interface in enumerate(document["interfaces"]):
         if interface["id"] in interface_ids or interface["component_id"] not in components:
             raise ArchitectureError("Duplicate interface or unknown component")
         interface_ids.add(interface["id"])
         if (interface["role"] in {"publish", "consume"}) != (interface["protocol"] in {"AMQP", "Kafka"}):
-            raise ArchitectureError("Interface role and protocol disagree")
+            raise ArchitectureError(
+                f"Interface role and protocol disagree at interfaces/{index}: "
+                "request/serve require HTTP, HTTPS or gRPC; publish/consume require AMQP or Kafka; "
+                "choose only the pairing supported by the cited source"
+            )
         # A forwarder passes on whatever path it receives and a listener
         # serves no single route, so both may leave the operation open. A
         # message always names its topic.
@@ -70,7 +78,17 @@ def validate_discovery(scope: AssessmentScope, expected_repository: str, documen
         for key in ("address", "deployment", "operation"):
             value = interface[key]
             if value is not None and not any(value in quote for quote in quotes):
-                raise ArchitectureError("Interface identity is not present in cited evidence")
+                unsupported_identities.append(f"interfaces/{index}/{key}")
+    if unsupported_identities:
+        locations = ", ".join(unsupported_identities[:32])
+        if len(unsupported_identities) > 32:
+            locations += f"; {len(unsupported_identities) - 32} further unsupported fields"
+        raise ArchitectureError(
+            "Interface identity is not present in cited evidence at " + locations + ". "
+            "Every non-null value must occur verbatim in an evidence quote; do not construct or normalize it. "
+            "Use null for an unsupported address or deployment, or an unsupported request/serve operation. "
+            "Retain the interface and its supported evidence. A publish/consume operation still requires an evidenced topic."
+        )
 
 
 _PROTOCOL_FAMILY = {"HTTPS": "HTTP", "HTTP": "HTTP", "gRPC": "gRPC", "AMQP": "AMQP", "Kafka": "Kafka"}
