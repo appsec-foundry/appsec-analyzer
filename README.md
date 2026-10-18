@@ -15,7 +15,7 @@ It does not scan dependencies for known CVEs, search comprehensively for secrets
 
 If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor), which packages it as a Claude Code plugin.
 
-[Quick start](#quick-start) · [Commands](#commands) · [Data use](#security-and-data-use) · [Install](#install) · [Options](#options) · [Reports](#reports-and-exports) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Commands](#commands) · [Data use](#security-and-data-use) · [Install](#install) · [Options](#options) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
 
 ## Quick start
 
@@ -277,6 +277,31 @@ Command-line options override the defaults from a scan profile.
 | `--verbose` | Show job and call identities and detailed correction messages. |
 
 [Scan and model profiles](docs/profiles.md) explains how to store settings and choose models per role.
+
+## Abuse cases
+
+An abuse case describes something an attacker or a user must not be able to do. Analyzer ships technical attack chains, such as taking over a session through injected script, and business rules, such as a customer reading another customer's orders. At `standard` and `thorough` depth, `scan` checks whether the code allows them. If it does, the report adds a finding or links the case to an existing one, and a working attack chain can raise its findings to the impact the case declares. Section 9 of the report shows the result per case. A case the code does not settle stays open and does not count as safe.
+
+You can add your own business rules in a YAML file in the repository and pass it to `scan`:
+
+```sh
+appsec-analyzer scan --repo /path/to/project \
+  --abuse-case-file abuse-cases.yaml
+```
+
+An example `abuse-cases.yaml`:
+
+```yaml
+schema_version: 2
+abuse_cases:
+  - id: REPO-AC-001
+    kind: descriptive
+    title: Customer lowers the order total with a negative quantity
+    check: Check whether a customer can put a negative quantity of a product into the basket and so lower the order total.
+    scope_qualifier: {path_patterns: ["*cart*", "*order*"]}
+```
+
+The path is relative to the repository root, and selected cases are checked at `quick` depth too. [Custom abuse cases](docs/security-assessment.md#custom-abuse-cases) describes the limits; [organization profiles](docs/org-profiles.md#business-abuse-cases) share cases across repositories. `analyze-threats --abuse-case <ID>` checks a single built-in or organization case without a full assessment.
 
 ## Reports and exports
 
