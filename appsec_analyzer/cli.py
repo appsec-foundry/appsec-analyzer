@@ -159,6 +159,22 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--output", required=True, metavar="DIR")
+    export = commands.add_parser("export", help="Export a saved completed assessment without model calls")
+    export.add_argument(
+        "--assessment",
+        required=True,
+        metavar="DIR",
+        help="Private saved assessment directory with its completion state",
+    )
+    export.add_argument(
+        "--output", required=True, metavar="NEW_DIR", help="New private destination outside Git checkouts"
+    )
+    export.add_argument(
+        "--formats",
+        nargs="+",
+        choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
+        default=["markdown", "yaml"],
+    )
     analyst = commands.add_parser("analyst", help="Focused design, change, and hypothesis analysis", add_help=False)
     analyst.add_argument("-h", "--help", action="store_true", dest="analyst_help")
     analyst.add_argument("args", nargs=argparse.REMAINDER)
@@ -314,7 +330,9 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         "--non-interactive", action="store_true", help="Never prompt to increase the assessment budget (use in CI)"
     )
     parser.add_argument(
-        "--verbose", action="store_true", help="Show correlated model calls and sanitized correction details"
+        "--verbose",
+        action="store_true",
+        help="Show full startup details, correlated model calls and sanitized correction details",
     )
     parser.add_argument("--progress-file", metavar="PATH")
     parser.add_argument(
@@ -395,6 +413,7 @@ def _capabilities() -> dict:
         "preflight": {"available": True, "default_model_calls": False, "optional_primary_model_test": True},
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
+        "export": {"available": True, "model_calls": False, "requires_completed_assessment": True},
         "analyze_threats": {
             "available": True,
             "model_calls": True,
@@ -645,27 +664,13 @@ def _scan_summary(result: dict, *, output: str | None) -> str:
 
 
 def _write_result(directory: Path, payload: str) -> None:
-    """Publish one complete result without following an output-file symlink."""
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    fd = os.open(directory, flags)
+    """Claim the result name atomically; never overwrite another run or user file."""
+    from appsec_analyzer.artifacts import publish_exclusive
+
     try:
-        name = "scan-result.json"
-        tmp = f".{name}.{os.getpid()}.tmp"
-        item = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
-        try:
-            with os.fdopen(item, "w", encoding="utf-8") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
-            os.fsync(fd)
-        finally:
-            try:
-                os.unlink(tmp, dir_fd=fd)
-            except FileNotFoundError:
-                pass
-    finally:
-        os.close(fd)
+        publish_exclusive(directory / "scan-result.json", payload.encode("utf-8"))
+    except FileExistsError:
+        raise ValueError("scan result already exists or is being written; select a fresh --output directory") from None
 
 
 def _assessment_host(ns: argparse.Namespace) -> str:
@@ -995,6 +1000,11 @@ def _audit(ns: argparse.Namespace) -> int:
 
     claude_preflight()
     catalog = (resource_root() / "examples/appsec-requirements-example.yaml") if ns.demo else Path(ns.requirements)
+    print(
+        "Requirements audit sends selected masked source excerpts, the file inventory and selected catalog "
+        "requirements to Claude CLI. Git retrieval is separate. Provider retention is not verified.",
+        file=sys.stderr,
+    )
     try:
         with checkout_arguments(["--repo", ns.repo, "--output", ns.output]) as local:
             code, result = audit_repository(
@@ -1149,6 +1159,11 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)
+        if ns.command == "export":
+            from appsec_analyzer.exports import export_assessment
+
+            print(json.dumps(export_assessment(ns.assessment, ns.output, tuple(ns.formats)), sort_keys=True))
+            return 0
         if ns.command == "analyst":
             if ns.analyst_help:
                 ns.args = ["--help"]

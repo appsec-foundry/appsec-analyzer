@@ -181,6 +181,32 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert result.returncode == 2, result.stderr
     installed_score = json.loads(result.stdout)
     assert installed_score == score
+    from tests.test_public_export_cli import _bundle
+
+    saved = _bundle(tmp_path)
+    exported = tmp_path / "installed-export"
+    result = subprocess.run(
+        [
+            str(installed / "bin/appsec-analyzer"),
+            "export",
+            "--assessment",
+            str(saved),
+            "--output",
+            str(exported),
+            "--formats",
+            "yaml",
+            "sarif",
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["model_calls"] == 0
+    assert (exported / "security-assessment.yaml").read_bytes() == (saved / "security-assessment.yaml").read_bytes()
+    assert json.loads((exported / "security-assessment.sarif.json").read_text())["version"] == "2.1.0"
     focused_state = tmp_path / "focused-state"
     result = subprocess.run(
         [

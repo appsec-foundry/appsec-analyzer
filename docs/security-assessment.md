@@ -161,6 +161,19 @@ The report shows confirmed and partially blocked attack scenarios in detail. Cas
 
 ## Exports and compatibility
 
-Exports are requested on `scan` or `assess`; there is no public export-existing command. `results` checks the hashes of already published files. Internal names such as `threat-model.yaml` remain in intermediate processing and historical fixtures; the current published model is `security-assessment.yaml`.
+Exports can be requested on `scan` or `assess`, or generated later without model calls:
+
+```sh
+appsec-analyzer export --assessment /path/to/assessment \
+  --output /path/to/new-export --formats markdown yaml html pdf sarif threatdragon pentest-tasks
+```
+
+`export` requires a completed `.assessment-state.json`, a model that passes the current schema, and artifacts matching every recorded digest. The source directory must be owned by the current user and private (mode 0700). The destination must not exist and must be outside Git checkouts and separate from the source; its parent must exist. Analyzer creates it with mode 0700 and publishes files with mode 0600. An interrupted or failed export is not a completed bundle; retry into a new directory. The saved assessment is left unchanged. Older standalone files without compatible state require explicit migration or reassessment.
+
+The default formats are `markdown yaml`. Markdown, HTML and PDF require the recorded Markdown report. HTML requires Pandoc; PDF also requires WeasyPrint. Document conversion embeds only recorded local images or validated embedded SVG and rejects active markup and external image resources. Mermaid source remains a code block, with a warning; it is not rendered by this command. SARIF and pentest tasks retain the existing evidence and CWE filters, and Threat Dragon is a lossy diagram projection. Keep YAML for the complete model. Missing tools, modified inputs or failed validation cause exit 2 without a success result; success returns JSON with artifact digests and `model_calls: 0`.
+
+`results` checks the hashes of already published files. Internal names such as `threat-model.yaml` remain in intermediate processing and historical fixtures; the current published model is `security-assessment.yaml`.
+
+`--resume` never starts a fresh run when the Analyzer runtime changes: it rejects the incompatible state and preserves its accounting and original deadline. To start a new attempt with newly authorized limits, rerun explicitly without `--resume`; compatible accepted jobs may be reused.
 
 Interactive triage, automated code fixes, baseline installation, and plugin hooks are not part of the public Analyzer CLI. The separate [security score](security-score.md) gives a limited deterministic indication without model calls. The focused analyst can preview and check selected abuse cases with `hypothesis --abuse-case`; see the [analyst guide](threat-analyst.md). The independent [AuthNZ review](authnz-review.md) checks authentication and authorization through Claude CLI and supports JSON/YAML reports and legacy pentest plans without a prior assessment.

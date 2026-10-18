@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import base64
 import shutil
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import exporters.export_html as export_html
 import exporters.export_pdf as export_pdf  # noqa: E402
@@ -346,20 +349,27 @@ def test_main_default_output_derives_from_input(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_cli_input_not_found_exit_2(run_plugin_script, tmp_path):
+def test_cli_input_not_found_exit_2(tmp_path):
     # pandoc present in the CI image is not guaranteed; if preflight fails we
     # accept exit 1, otherwise input-not-found gives exit 2. Either way the
     # __main__ wrapper + argparse path is exercised.
-    result = run_plugin_script(
-        "exporters/export_html.py",
-        "--input",
-        str(tmp_path / "does-not-exist.md"),
+    result = subprocess.run(
+        [sys.executable, str(Path(export_html.__file__)), "--input", str(tmp_path / "does-not-exist.md")],
+        capture_output=True,
+        text=True,
+        timeout=20,
         check=False,
     )
     assert result.returncode in (1, 2)
 
 
-def test_cli_help_exit_0(run_plugin_script):
-    result = run_plugin_script("exporters/export_html.py", "--help", check=False)
+def test_cli_help_exit_0():
+    result = subprocess.run(
+        [sys.executable, str(Path(export_html.__file__)), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
     assert result.returncode == 0
     assert "export_html.py" in result.stdout

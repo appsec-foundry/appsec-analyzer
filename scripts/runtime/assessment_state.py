@@ -164,7 +164,7 @@ class AssessmentState:
         }
         self.operator_profile = copy.deepcopy(configuration.get("operator_profile"))
         self.state = None
-        # Set when --resume continues an unfinished run after a plugin change.
+        # Retained console compatibility; runtime changes now reject resume.
         self.runtime_changed = False
         self.cancelled = False
         self._held = False
@@ -224,10 +224,6 @@ class AssessmentState:
             raise ExchangeError("Assessment output belongs to another live run")
         if self.resume:
             self.state = _read_state(self.path)
-            if self.state["identity"] != self.identity and self._continues_after_plugin_change(self.state):
-                # MR-4: the earlier run's accepted jobs stay as a cache that the
-                # job layer rechecks per request; this session starts afresh.
-                self.resume, self.runtime_changed, self.state = False, True, None
         if self.resume:
             if self.state["identity"] != self.identity:
                 again = (
@@ -306,19 +302,6 @@ class AssessmentState:
         if isinstance(changelog, list) and changelog and all(isinstance(entry, dict) for entry in changelog):
             return changelog
         return None
-
-    def _continues_after_plugin_change(self, earlier) -> bool:
-        """Whether --resume may continue an unfinished run whose only change is the plugin.
-
-        A completed run, an unknown-cost reservation, or any other identity
-        change still refuses the resume.
-        """
-        unchanged = {key: value for key, value in earlier["identity"].items() if key != "runtime_sha256"}
-        return (
-            unchanged == {key: value for key, value in self.identity.items() if key != "runtime_sha256"}
-            and earlier["status"] != "complete"
-            and not earlier["accounting"]["unavailable"]
-        )
 
     def _changed(self, identity) -> str:
         """Name what differs between a stored run identity and this one."""

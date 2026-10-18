@@ -31,6 +31,7 @@ import json
 import os
 import stat
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,39 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from shared._path_guard import iter_escaping_symlinks  # noqa: E402
 from shared._url_guard import validate_target_url  # noqa: E402
+
+from validators.secret_scan import mask_text  # noqa: E402
+
+MAX_DECLARATION_BYTES = 1_048_576
+
+
+def _read_related(repo_root: Path) -> bytes:
+    """Read only a bounded regular declaration through non-link directory handles."""
+    root = os.open(repo_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        docs = os.open("docs", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+        try:
+            fd = os.open("related-repos.yaml", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=docs)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MAX_DECLARATION_BYTES:
+                    raise ValueError("declaration is not a bounded regular file")
+                body = os.read(fd, MAX_DECLARATION_BYTES + 1)
+                if len(body) > MAX_DECLARATION_BYTES:
+                    raise ValueError("declaration exceeds its limit")
+                return body
+            finally:
+                os.close(fd)
+        finally:
+            os.close(docs)
+    finally:
+        os.close(root)
+
+
+def _safe(value: object) -> str:
+    text = mask_text(str(value))[0]
+    return "".join(" " if unicodedata.category(c).startswith("C") else c for c in text)[:500]
+
 
 # These files are consumed by the host before the plugin's own prompt can
 # establish its untrusted-data boundary. Keep this list intentionally small
@@ -117,18 +151,30 @@ def _scan_symlinks(repo_root: Path) -> list[dict[str, Any]]:
 
 
 def _scan_related_repos(repo_root: Path, *, strict_urls: bool) -> list[dict[str, Any]]:
-    yaml_path = repo_root / "docs" / "related-repos.yaml"
-    if not yaml_path.is_file():
-        return []
     try:
-        payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
+        body = _read_related(repo_root)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError):
+        return [
+            {
+                "kind": "related-repos-input-rejected",
+                "path": "docs/related-repos.yaml",
+                "severity": "High",
+                "note": "declaration must be a bounded regular file in real repository directories",
+            }
+        ]
+    try:
+        payload = yaml.safe_load(body) or {}
+        if not isinstance(payload, dict) or not isinstance(payload.get("related", []), list):
+            raise ValueError("invalid declaration shape")
+    except (yaml.YAMLError, UnicodeError, ValueError, RecursionError):
         return [
             {
                 "kind": "related-repos-parse-error",
                 "path": "docs/related-repos.yaml",
                 "severity": "Medium",
-                "note": f"yaml parse failed: {exc}",
+                "note": "invalid YAML declaration; check its syntax and related list",
             }
         ]
     findings: list[dict[str, Any]] = []
@@ -147,10 +193,8 @@ def _scan_related_repos(repo_root: Path, *, strict_urls: bool) -> list[dict[str,
                     "kind": "related-repos-url-rejected",
                     "path": "docs/related-repos.yaml",
                     "entry_index": i,
-                    "entry_name": entry.get("name"),
-                    "url": tm,
                     "severity": "High",
-                    "note": result.reason,
+                    "note": "destination rejected by URL policy; check scheme, credentials and allowed host",
                 }
             )
     return findings
@@ -162,11 +206,11 @@ def run(repo_root: Path, *, strict: bool, strict_urls: bool, isolated_host: bool
     findings.extend(_scan_symlinks(repo_root))
     findings.extend(_scan_related_repos(repo_root, strict_urls=strict_urls))
     return {
-        "repo_root": str(repo_root),
+        "repo_root": _safe(repo_root),
         "strict": strict,
         "strict_urls": strict_urls,
         "finding_count": len(findings),
-        "findings": findings,
+        "findings": [{k: _safe(v) if isinstance(v, str) else v for k, v in f.items()} for f in findings],
     }
 
 
@@ -183,7 +227,7 @@ def _render_human(report: dict[str, Any]) -> str:
         if "target" in f:
             bits.append(f"-> {f['target']}")
         bits.append(f"({f['note']})")
-        lines.append("  - " + " ".join(b for b in bits if b))
+        lines.append("  - " + " ".join(_safe(b) for b in bits if b))
     return "\n".join(lines)
 
 

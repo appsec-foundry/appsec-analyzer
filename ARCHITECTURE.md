@@ -14,6 +14,7 @@ flowchart TD
     CLI --> Analyst[analyze-threats: terminal adapter and preparation]
     CLI --> Request[scan / assess: AssessmentRequest]
     CLI --> Scanners[scan-sources: deterministic scanners]
+    CLI --> Export[export: validated saved artifacts and deterministic converters]
     Score --> Collection[Scanner collection and score calculation]
     Analyst --> AnalystController[Retained analyst controller]
     Request --> AssessmentController[Retained assessment controller]
@@ -36,6 +37,7 @@ Keep orchestration, computation, and presentation separate within each workflow.
 | Analyst lifecycle | [analyst_controller.py](scripts/orchestrator/analyst_controller.py) owns job state and exposes `waiting_job`, `run`, `answer`, and `cancel`. The terminal adapter obtains pending questions through that interface rather than reading checkpoints. Analyst jobs retain their separate state directory. |
 | Assessment invocation | [assessment/request.py](appsec_analyzer/assessment/request.py) carries validated options in `AssessmentRequest` from the public CLI to the retained controller. It preserves original configuration arguments and argument-list compatibility for direct script callers. |
 | Assessment execution and presentation | [orchestration_controller.py](scripts/orchestrator/orchestration_controller.py) owns pipeline execution; [assessment/console.py](appsec_analyzer/assessment/console.py) owns terminal progress. |
+| Saved assessment export | [exports.py](appsec_analyzer/exports.py) validates completed state and artifact digests, invokes retained converters with finite deadlines, and publishes exclusively into a new private directory; [export_assets.py](appsec_analyzer/export_assets.py) confines document resources and rejects active markup before embedding. No model host is created. |
 
 ## Shared services and dependency direction
 

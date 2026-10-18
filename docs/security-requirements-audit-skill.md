@@ -48,3 +48,5 @@ error. A gate result is a deterministic policy decision over the published
 verdict, not proof that all controls were verified. See
 [configuration](configuration.md) and [full assessment](security-assessment.md)
 for their distinct operations.
+
+`UNVERIFIABLE` results remain separate from `PASS` in the summary and report. Neither gate policy blocks on them: even an all-unverifiable audit can return gate `pass`, which only means no selected FAIL/PARTIAL blocker was found. Check coverage and unverifiable counts before treating an audit as evidence of compliance. Before analysis, the command discloses that selected masked source excerpts, the file inventory and catalog requirements are sent to Claude CLI; provider retention is not verified.

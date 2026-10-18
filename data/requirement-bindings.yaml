@@ -883,6 +883,9 @@ requirements:
 
   REQ-015:
     applies_to:
+      - appsec_analyzer/exports.py
+      - appsec_analyzer/export_assets.py
+      - appsec_analyzer/cli.py
       - skills/export-security-assessment/**
       - scripts/exporters/**
       - scripts/model/build_threat_model_yaml.py
@@ -897,6 +900,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_export_cli.py::test_public_export_runs_without_provider_and_preserves_model
+      - tests/test_public_export_cli.py::test_export_rejects_untrusted_saved_state
+      - tests/test_public_export_cli.py::test_document_export_with_recorded_svg
       - tests/test_export_threat_model_skill.py::test_sarif_helper_runs_standalone
       - tests/test_export_threat_model_skill.py::test_pentest_helper_runs_yaml_only
       - tests/test_export_threat_model_skill.py::test_threat_dragon_helper_runs_standalone
@@ -942,6 +948,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_state.py::test_runtime_change_cannot_reset_exhausted_resume_limits
       - tests/test_assessment_scope.py::test_scope_describes_model_backed_analysis_and_loaded_defaults
       - tests/test_assessment_scope.py::test_scope_counts_enabled_cases_and_deduplicates_explicit_repository_files
       - tests/test_assessment_scope.py::test_scope_reads_the_frozen_source_and_sanitizes_its_display_name
@@ -1304,6 +1311,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_state.py::test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchanged_jobs
       - tests/test_startup_preflight.py::test_live_probe_requires_explicit_budget
       - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
       - tests/test_provider_backends.py::test_lite_wire_checks_deployment_and_uses_gateway_charge
@@ -1563,11 +1571,14 @@ requirements:
       - tests/test_requirements_gate.py::test_advisory_must_fail_exits_zero
       - tests/test_requirements_gate.py::test_gate_must_fail_blocks
       - tests/test_requirements_gate.py::test_gate_should_fail_below_default_floor_passes
+      - tests/test_requirements_audit_cli.py::test_unverifiable_is_never_counted_as_verified_pass
       - tests/test_requirements_audit_cli.py::test_audit_is_distinct_from_assessment_and_gate_is_deterministic
       - tests/test_requirements_audit_cli.py::test_audit_rejects_unserved_evidence_without_publishing
 
   REQ-031:
     applies_to:
+      - appsec_analyzer/exports.py
+      - appsec_analyzer/export_assets.py
       - appsec_analyzer/preflight.py
       - scripts/runtime/source_preflight.py
       - appsec_analyzer/artifacts.py
@@ -1600,6 +1611,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_scan_cli.py::test_preflight_never_discloses_external_declaration
+      - tests/test_public_export_cli.py::test_document_export_rejects_external_resources_before_embedding
       - tests/test_startup_preflight.py::test_failed_metadata_never_reads_error_body_or_follows_redirect
       - tests/test_analyst_documents.py::test_external_and_parent_symlinks_never_deliver_content
       - tests/test_review_sources.py::test_pinned_https_rejects_prohibited_destinations_before_connect
@@ -1638,6 +1651,7 @@ requirements:
 
   REQ-032:
     applies_to:
+      - appsec_analyzer/exports.py
       - appsec_analyzer/preflight.py
       - scripts/contexts/analyst_documents.py
       - appsec_analyzer/authnz_review.py
@@ -1659,6 +1673,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_export_cli.py::test_export_secret_rejection_does_not_disclose_input
+      - tests/test_public_scan_cli.py::test_preflight_diagnostics_never_echo_declaration_values
       - tests/test_startup_preflight.py::test_connection_failure_is_redacted
       - tests/test_analyst_documents.py::test_secret_document_is_withheld_and_required_secret_document_fails
       - tests/test_authnz_review_cli.py::test_untrusted_model_output_cannot_cross_report_boundaries
@@ -1694,6 +1710,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_scan_cli.py::test_audit_discloses_transmission_before_first_model_operation
       - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
       - tests/test_provider_backends.py::test_startup_discloses_provider_destination
       - tests/test_codex_cli.py::test_structured_reply_and_isolated_configuration
@@ -1749,6 +1766,7 @@ requirements:
 
   REQ-035:
     applies_to:
+      - appsec_analyzer/exports.py
       - scripts/runtime/source_preflight.py
       - appsec_analyzer/artifacts.py
       - appsec_analyzer/engine.py
@@ -1777,6 +1795,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_scan_cli.py::test_scan_preserves_existing_result_and_concurrent_publication
+      - tests/test_public_export_cli.py::test_export_preserves_existing_destination
       - tests/test_review_sources.py::test_checkout_uses_exact_objects_without_mutating_caller_repository
       - tests/test_authnz_review_cli.py::test_invalid_destinations_fail_before_model_call
       - tests/test_authnz_review_cli.py::test_save_uses_fresh_private_directory_outside_assessment

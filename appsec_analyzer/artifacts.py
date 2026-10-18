@@ -9,7 +9,7 @@ from pathlib import Path
 
 def read_bounded(path: Path, limit: int) -> bytes:
     """Read a regular, singly linked owned artifact without following links."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:

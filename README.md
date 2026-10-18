@@ -203,9 +203,16 @@ appsec-analyzer scan --repo /path/to/project --budget 20 --sarif --html
 | `--threatdragon` | OWASP Threat Dragon model. |
 | `--pentest-tasks` | Tasks for follow-up penetration testing. |
 
-Exports run as part of the assessment. There is currently no public command to export an existing result without rerunning analysis.
+Export a completed saved assessment without model calls:
 
-To choose where results are stored, create a directory outside every selected repository and pass it with `--output`. For `scan-sources`, this saves `scan-result.json` in addition to printing the summary.
+```sh
+appsec-analyzer export --assessment /path/to/assessment \
+  --output /path/to/new-export --formats markdown yaml sarif html
+```
+
+The source must have a completed assessment state and unchanged, recorded artifacts. The export directory must be new and outside Git checkouts. See [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).
+
+To choose where assessment results are stored, create a directory outside every selected repository and pass it with `--output`. For `scan-sources`, this saves `scan-result.json` in addition to printing the summary; an existing result is refused without being overwritten.
 
 ## More commands
 

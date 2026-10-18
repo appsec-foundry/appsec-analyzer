@@ -133,6 +133,45 @@ def test_audit_rejects_unmasked_secret_before_publishing_either_artifact(tmp_pat
     assert not (output / "appsec-requirements-report.md").exists()
 
 
+@pytest.mark.parametrize("gate_on", ["fail", "partial"])
+def test_unverifiable_is_never_counted_as_verified_pass(tmp_path: Path, gate_on: str) -> None:
+    repo, output, catalog = _fixture(tmp_path)
+
+    class UnverifiableHost:
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            return HostReply(
+                {
+                    "action": "complete",
+                    "reads": [],
+                    "artifact": {
+                        "results": [
+                            {
+                                "status": "UNVERIFIABLE",
+                                "evidence": [],
+                                "finding": "Insufficient source evidence.",
+                                "fix": "Provide evidence.",
+                            }
+                        ]
+                    },
+                },
+                0.01,
+            )
+
+    code, public = audit_repository(
+        repo=str(repo),
+        output=str(output),
+        catalog_path=catalog,
+        model="offline-fake",
+        hard_budget=1,
+        gate=True,
+        gate_on=gate_on,
+        host_factory=lambda ceiling: UnverifiableHost(),
+    )
+    assert code == 0 and public["gate"] == "pass"
+    assert public["summary"]["pass"] == 0
+    assert public["summary"]["unverifiable"] == 1
+
+
 def test_audit_rejects_secret_in_catalog_even_when_markdown_omits_row(tmp_path: Path) -> None:
     repo, output, catalog = _fixture(tmp_path)
     marker = "AKIA" + "B" * 16

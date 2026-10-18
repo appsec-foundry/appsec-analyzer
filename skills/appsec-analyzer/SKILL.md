@@ -68,6 +68,8 @@ Use `appsec-analyzer capabilities` before suggesting a different profile; API pr
 for lifecycle operations. An interrupted compatible assessment resumes with
 `assess --resume`; `--rebuild` starts over.
 
+For a request to export an existing completed assessment, invoke `appsec-analyzer export --assessment <private-assessment-directory> --output <new-export-directory> --formats markdown yaml`. Supported formats also include `html pdf sarif threatdragon pentest-tasks`; document formats have external tool prerequisites. This command makes no model calls and needs no spending authorization. Keep returned conversion warnings visible; see [export limits](../../docs/security-assessment.md#exports-and-compatibility). A runtime change makes `--resume` incompatible; do not silently restart with new limits.
+
 The separate Requirements Audit is not a full assessment. Do not substitute
 `scan` or `assess --requirements` for a standalone audit request.
 

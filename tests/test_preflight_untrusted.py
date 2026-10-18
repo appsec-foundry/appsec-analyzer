@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "validators/preflight_untrusted.py"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -34,6 +36,24 @@ def test_clean_repo_passes(tmp_path):
     assert code == 0
     report = json.loads(out)
     assert report["finding_count"] == 0
+
+
+@pytest.mark.parametrize("kind", ["oversize", "fifo", "hardlink"])
+def test_related_declaration_requires_bounded_regular_unlinked_file(tmp_path, kind):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    declaration = docs / "related-repos.yaml"
+    if kind == "fifo":
+        os.mkfifo(declaration)
+    elif kind == "hardlink":
+        outside = tmp_path / "other"
+        outside.write_text("related: []")
+        os.link(outside, declaration)
+    else:
+        declaration.write_bytes(b"x" * (pre.MAX_DECLARATION_BYTES + 1))
+    findings = pre._scan_related_repos(tmp_path, strict_urls=True)
+    assert len(findings) == 1
+    assert findings[0]["kind"] == "related-repos-input-rejected"
 
 
 def test_repo_owned_claude_settings_flagged(tmp_path):
@@ -200,8 +220,10 @@ def test_related_repos_url_validation_accepts_ok_and_records_rejection(tmp_path,
 
     findings = pre._scan_related_repos(tmp_path, strict_urls=True)
     assert len(findings) == 1
-    assert findings[0]["entry_name"] == "bad"
-    assert findings[0]["note"] == "blocked strict=True"
+    assert findings[0]["entry_index"] == 1
+    assert "entry_name" not in findings[0]
+    assert "destination rejected by URL policy" in findings[0]["note"]
+    assert "url" not in findings[0]
 
 
 def test_render_human_no_findings_and_url_target_bits(tmp_path):

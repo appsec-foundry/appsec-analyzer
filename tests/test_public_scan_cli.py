@@ -179,6 +179,101 @@ def test_scan_refuses_output_inside_checkout(tmp_path: Path) -> None:
     assert not (output / "scan-result.json").exists()
 
 
+@pytest.mark.parametrize("link_parent", [False, True])
+def test_preflight_never_discloses_external_declaration(tmp_path, link_parent):
+    repo = _repo(tmp_path / "project")
+    external = tmp_path / "private"
+    external.mkdir()
+    marker = "SYNTHETIC_PRIVATE_CANARY"
+    (external / "related-repos.yaml").write_text("related:\n  - name: [" + marker + "\n")
+    if link_parent:
+        (repo / "docs").symlink_to(external, target_is_directory=True)
+    else:
+        (repo / "docs").mkdir()
+        (repo / "docs/related-repos.yaml").symlink_to(external / "related-repos.yaml")
+    result = _run("scan-sources", "--repo", str(repo), "--json")
+    assert result.returncode == 2
+    assert marker not in result.stdout + result.stderr
+    assert "preflight rejected" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "related:\n  - name: [SYNTHETIC_PRIVATE_CANARY\n",
+        "related:\n  - threat_model: https://user:SYNTHETIC_PRIVATE_CANARY@127.0.0.1/model.yaml\n",
+    ],
+)
+def test_preflight_diagnostics_never_echo_declaration_values(tmp_path, declaration):
+    repo = _repo(tmp_path / "project")
+    (repo / "docs").mkdir()
+    (repo / "docs/related-repos.yaml").write_text(declaration)
+    result = _run("scan-sources", "--repo", str(repo), "--json")
+    assert result.returncode == 2
+    assert "SYNTHETIC_PRIVATE_CANARY" not in result.stdout + result.stderr
+
+
+def test_scan_preserves_existing_result_and_concurrent_publication(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from appsec_analyzer.cli import _write_result
+
+    repo = _repo(tmp_path / "project")
+    output = tmp_path / "result"
+    output.mkdir()
+    target = output / "scan-result.json"
+    target.write_text("operator data")
+    result = _run("scan-sources", "--repo", str(repo), "--output", str(output))
+    assert result.returncode == 2
+    assert target.read_text() == "operator data"
+    target.unlink()
+
+    def publish(value):
+        try:
+            _write_result(output, value)
+            return value
+        except ValueError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        winners = [value for value in pool.map(publish, ["first", "second"]) if value is not None]
+    assert len(winners) == 1
+    assert target.read_text() == winners[0]
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_audit_discloses_transmission_before_first_model_operation(tmp_path, monkeypatch, capsys):
+    from appsec_analyzer import cli, hosts, requirements_audit
+
+    repo = _repo(tmp_path / "project")
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+
+    def audit(**kwargs):
+        output = capsys.readouterr()
+        assert "Claude CLI" in output.err
+        assert "masked source excerpts" in output.err
+        assert "catalog" in output.err and "Git retrieval is separate" in output.err
+        assert "retention is not verified" in output.err
+        return 0, {"audit_status": "complete"}
+
+    monkeypatch.setattr(requirements_audit, "audit_repository", audit)
+    assert (
+        cli.main(
+            [
+                "audit-requirements",
+                "--repo",
+                str(repo),
+                "--output",
+                str(tmp_path / "out"),
+                "--demo",
+                "--host",
+                "claude-cli",
+            ]
+        )
+        == 0
+    )
+
+
 @pytest.mark.parametrize("command", ["scan", "assess"])
 @pytest.mark.parametrize(
     "budget_args, expected",

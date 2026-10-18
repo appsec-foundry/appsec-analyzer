@@ -291,7 +291,7 @@ def _plugin_change_jobs(state, host_factory):
     )
 
 
-def test_resume_after_a_plugin_change_reuses_only_unchanged_jobs(scope):
+def test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchanged_jobs(scope):
     schema = {"type": "object", "required": ["ok"], "properties": {"ok": {"const": True}}}
 
     def job(selector, instructions):
@@ -322,9 +322,16 @@ def test_resume_after_a_plugin_change_reuses_only_unchanged_jobs(scope):
         jobs.execute(**job("changed", "old prompt"))
     assert stored(scope)["status"] == "interrupted" and len(dispatched) == 2
 
-    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
+    before = {p.relative_to(scope.output): p.read_bytes() for p in scope.output.rglob("*") if p.is_file()}
+    with pytest.raises(ExchangeError, match="plugin version changed"):
+        with lifecycle(scope, resume=True, runtime_sha256="b" * 64).hold():
+            pytest.fail("Resume cannot authorize a new run or another budget")
+    assert before == {p.relative_to(scope.output): p.read_bytes() for p in scope.output.rglob("*") if p.is_file()}
+    assert len(dispatched) == 2
+
+    resumed = lifecycle(scope, runtime_sha256="b" * 64)
     with resumed.hold():
-        assert resumed.runtime_changed and not resumed.resume
+        assert not resumed.resume
         assert resumed.state["run_id"] != first.state["run_id"]
         assert resumed.state["identity"]["runtime_sha256"] == "b" * 64
         jobs = _plugin_change_jobs(resumed, lambda role, ceiling: Host(role))
@@ -332,6 +339,38 @@ def test_resume_after_a_plugin_change_reuses_only_unchanged_jobs(scope):
         jobs.execute(**job("changed", "new prompt"))
         assert len(dispatched) == 3  # only the job whose request changed ran again
         assert resumed.budget.calls == 2 and resumed.budget.spent_usd == pytest.approx(0.02)
+
+
+@pytest.mark.parametrize("subscription", [False, True])
+def test_runtime_change_cannot_reset_exhausted_resume_limits(scope, subscription):
+    def budget():
+        return (
+            AssessmentBudget(None, None, 10, 60, subscription=True, spent_usd=None)
+            if subscription
+            else AssessmentBudget(1, 1, 10, 60)
+        )
+
+    configuration = (
+        {"operator_profile": {"schema_version": 1, "definition_sha256": "a" * 64, "models": {}, "adapter": "codex-cli"}}
+        if subscription
+        else {}
+    )
+    first = lifecycle(scope, budget=budget(), configuration=configuration)
+    with first.hold():
+        first.budget.calls = 10
+        if not subscription:
+            first.budget.spent_usd = 1.0
+    previous = stored(scope)
+    previous["started_at"] -= 120
+    previous["expires_at"] -= 120
+    path = scope.output / ".assessment-state.json"
+    path.write_text(json.dumps(previous))
+    with pytest.raises(ExchangeError, match="plugin version changed"):
+        with lifecycle(
+            scope, budget=budget(), configuration=configuration, resume=True, runtime_sha256="b" * 64
+        ).hold():
+            pytest.fail("Runtime changes must not extend exhausted money, calls or deadlines")
+    assert stored(scope) == previous
 
 
 def test_resume_after_a_plugin_change_still_refuses_a_completed_run_or_unknown_cost(scope):
