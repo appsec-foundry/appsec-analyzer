@@ -654,3 +654,87 @@ def test_host_cleanup_inspection_is_read_only(tmp_path):
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["state"] == "stale"
     assert {p.name: p.read_bytes() for p in output.iterdir()} == before
+
+
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+@pytest.mark.parametrize("options", [[], ["--max-cost", "8"], ["--max-budget", "2", "--component-workers", "1"]])
+def test_launch_defaults_preserve_compatibility_identity_without_display_settings(
+    depth, options, tmp_path, monkeypatch
+):
+    from appsec_analyzer import cli
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "configuration"))
+    base = ["scan", "--assessment-depth", depth, *options]
+    legacy = cli._parser().parse_args([*base, "--interactive-launch"])
+    canonical = cli._parser().parse_args([*base, "--launch-defaults", "advisor"])
+    for ns in (legacy, canonical):
+        cli._prepare_profile(ns)
+    assert canonical.run_profile == legacy.run_profile
+    assert canonical.width is None and canonical.non_interactive is False
+    assert legacy.width == 72 and legacy.non_interactive is True
+
+
+def test_launch_defaults_reject_provider_switch_without_changing_standalone_defaults():
+    from appsec_analyzer import cli
+
+    with pytest.raises(ValueError, match="requires the Claude"):
+        cli._prepare_profile(cli._parser().parse_args(["scan", "--launch-defaults=advisor", "--profile", "codex"]))
+    ns = cli._parser().parse_args(["scan", "--assessment-depth", "thorough"])
+    cli._prepare_profile(ns)
+    assert ns.hard_budget == 20 and ns.max_parallel == 2
+    assert ns.width is None and not ns.non_interactive
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_launch_defaults_own_progress_path(tmp_path, monkeypatch, git_root, explicit):
+    from appsec_analyzer import cli, hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+    from runtime.assessment_state import PROGRESS_NAME
+
+    observed = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda args, **kw: observed.append(args) or 0)
+    output = tmp_path.parent / (tmp_path.name + "-results")
+    selected = str(tmp_path / "explicit-feed")
+    assert (
+        cli.main(
+            [
+                "scan",
+                "--repo",
+                str(tmp_path),
+                "--output",
+                str(output),
+                "--launch-defaults=advisor",
+                *(["--progress-file", selected] if explicit else []),
+            ]
+        )
+        == 0
+    )
+    assert observed[0].options.progress_file == (selected if explicit else str(output / PROGRESS_NAME))
+
+
+@pytest.mark.parametrize("defect", ["source", "symlink", "hardlink", "live"])
+def test_launch_progress_refuses_unsafe_or_owned_output(tmp_path, defect):
+    from runtime.assessment_state import PROGRESS_NAME
+
+    from appsec_analyzer import cli
+    from appsec_analyzer.assessment_entry import progress_path
+
+    output = tmp_path / "results"
+    output.mkdir(mode=0o700)
+    victim = tmp_path / "retained"
+    victim.write_text("preserve")
+    if defect == "source":
+        subprocess.run(["git", "init", "-q", str(output)], check=True)
+    elif defect == "symlink":
+        (output / PROGRESS_NAME).symlink_to(victim)
+    elif defect == "hardlink":
+        os.link(victim, output / PROGRESS_NAME)
+    else:
+        (output / ".appsec-lock").write_text(f"{os.getpid()}\n{int(__import__('time').time())}\n")
+    cli._engine_imports()
+    with pytest.raises(ValueError):
+        progress_path(str(output))
+    assert victim.read_text() == "preserve"

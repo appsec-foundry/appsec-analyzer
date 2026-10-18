@@ -370,9 +370,12 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         help="Replace profile export selection; Markdown and YAML remain the base result",
     )
     parser.add_argument(
+        "--launch-defaults", choices=("advisor",), help="Apply Advisor depth budgets and component concurrency defaults"
+    )
+    parser.add_argument(
         "--interactive-launch",
         action="store_true",
-        help="Preserve Claude-host depth budgets and display defaults; never authorizes model use",
+        help="Compatibility alias for Advisor defaults, Claude CLI, width 72 and unattended execution",
     )
     parser.add_argument(
         "--soft-budget", "--max-cost", type=_positive_budget, help="Deprecated: a hard limit of 1.25 times this amount"
@@ -813,24 +816,9 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         repositories=ns.repo or [str(Path.cwd())],
         model_override=ns.model if model_prefix or selection in ("lite", "bedrock") else None,
     )
-    if ns.interactive_launch:
-        if profile["adapter"] != "claude-cli" or ns.host not in (None, "claude-cli"):
-            raise ValueError("the Claude-host assessment entry requires the Claude CLI adapter")
-        if "hard_budget" not in explicit:
-            profile["settings"]["budget"] = (
-                round(ns.soft_budget * 1.25, 2)
-                if ns.soft_budget is not None
-                else {"quick": 10.0, "standard": 20.0, "thorough": 40.0}[profile["settings"]["assessment_depth"]]
-            )
-        if "hard_budget" not in explicit:
-            profile["origins"]["settings"]["budget"] = "Claude-host depth budget or deprecated soft budget"
-        if ns.max_parallel is None:
-            profile["settings"]["max_parallel"] = 3
-            profile["origins"]["settings"]["max_parallel"] = "Claude-host default"
-        ns.width = ns.width or 72
-        ns.non_interactive = True
-    elif ns.soft_budget is not None:
-        raise ValueError("--soft-budget is a Claude-host compatibility option; use --budget")
+    from appsec_analyzer.assessment_entry import apply_launch_defaults
+
+    apply_launch_defaults(ns, profile, explicit)
     selected = set(profile["settings"]["outputs"]) | {"markdown", "yaml"}
     for output in OUTPUTS[2:]:
         if getattr(ns, output.replace("-", "_"), False):
@@ -923,6 +911,10 @@ def _assess(ns: argparse.Namespace) -> int:
 
         runtime = preflight(repositories=ns.repo or [str(Path.cwd())])
         ns.run_profile["cli_version"] = runtime["version"]
+    if ns.launch_defaults and ns.output and ns.progress_file is None:
+        from appsec_analyzer.assessment_entry import progress_path
+
+        ns.progress_file = progress_path(ns.output)
     repositories = ns.repo or [str(Path.cwd())]
     args = ["--repo", repositories[0]]
     for repo in repositories[1:]:

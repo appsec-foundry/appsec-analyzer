@@ -139,3 +139,48 @@ def run(ns) -> int:
         )
     )
     return 0
+
+
+def apply_launch_defaults(ns, profile: dict, explicit) -> None:
+    """Translate retained host compatibility once, independently of presentation.
+
+    Apply these settings after profile/depth resolution, as in the original
+    host entry. Keep origins and snapshot identity for compatible saved runs.
+    """
+    if ns.interactive_launch:
+        ns.launch_defaults = "advisor"
+        ns.width = ns.width or 72
+        ns.non_interactive = True
+    if ns.launch_defaults == "advisor":
+        if profile["adapter"] != "claude-cli" or ns.host not in (None, "claude-cli"):
+            raise ValueError("the Claude-host assessment entry requires the Claude CLI adapter")
+        if "hard_budget" not in explicit:
+            profile["settings"]["budget"] = (
+                round(ns.soft_budget * 1.25, 2)
+                if ns.soft_budget is not None
+                else {"quick": 10.0, "standard": 20.0, "thorough": 40.0}[profile["settings"]["assessment_depth"]]
+            )
+            profile["origins"]["settings"]["budget"] = "Claude-host depth budget or deprecated soft budget"
+        if ns.max_parallel is None:
+            profile["settings"]["max_parallel"] = 3
+            profile["origins"]["settings"]["max_parallel"] = "Claude-host default"
+    elif ns.soft_budget is not None:
+        raise ValueError("--soft-budget is a Claude-host compatibility option; use --budget")
+
+
+def progress_path(output: str) -> str:
+    """Resolve the host feed only inside an admitted private output directory."""
+    import stat
+
+    from runtime import acquire_lock
+    from runtime.assessment_state import PROGRESS_NAME
+
+    path = _output(output, create=True)
+    if acquire_lock.lock_held_by_live_other_run(path / ".appsec-lock"):
+        raise ValueError("an active assessment holds this output; launch refused")
+    feed = path / PROGRESS_NAME
+    if os.path.lexists(feed):
+        info = feed.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ValueError("assessment progress must be a regular file without links")
+    return str(feed)
