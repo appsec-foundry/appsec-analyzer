@@ -180,6 +180,8 @@ requirements:
       - tests/test_public_score_cli.py::test_source_admission_limits_apply_before_scanning
       - tests/test_public_score_cli.py::test_terminal_output_cannot_render_repository_control_characters
       - tests/test_public_score_cli.py::test_score_parser_exits_before_source_access
+      - tests/test_runtime_doc_cli_contract.py::test_public_cli_examples_are_extracted_from_installed_entry
+      - tests/test_runtime_doc_cli_contract.py::test_documented_flags_exist_in_the_scripts_parser
       - tests/test_public_score_cli.py::test_score_is_discoverable_without_model
       - tests/test_public_score_cli.py::test_missing_runtime_is_an_operational_error_without_internal_details
       - tests/test_security_score.py::test_the_weaker_half_decides_the_headline

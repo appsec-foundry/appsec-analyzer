@@ -87,11 +87,25 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     sources.add_argument("--json", action="store_true", help="Print the complete machine-readable result")
     score = commands.add_parser(
         "score",
-        help="Compute a deterministic security score without a model",
-        description="Compute a limited scanner-based score for one local Git checkout or explicit Git URL.",
+        help="Get a quick deterministic security score without model calls",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Get a quick security score (0-100) for one local Git checkout or HTTPS/SSH Git URL.\n"
+            "Reuses the existing Analyzer analysis engine without model calls or model charges.\n"
+            "Text output highlights the score, findings, coverage, and limitations.\n"
+            "Progress and errors appear on stderr; results appear on stdout."
+        ),
         epilog=(
-            "Text colors follow terminal settings (NO_COLOR/FORCE_COLOR). "
-            "Exit codes: 0 scored; 2 undetermined or invalid arguments; 1 incomplete scan or operational error; 130 cancelled."
+            "Examples:\n"
+            "  appsec-analyzer score /path/to/project\n"
+            "  appsec-analyzer score https://github.com/your-org/your-project.git --json\n"
+            "\n"
+            "Runtime depends on repository size, scanner work, and any Git download.\n"
+            "This is a limited quick check, not a full assessment or security approval.\n"
+            "Text colors follow terminal settings (NO_COLOR/FORCE_COLOR).\n"
+            "Exit codes: 0 scored; 2 undetermined or invalid arguments;\n"
+            "            1 incomplete scan or operational error; 130 cancelled.\n"
+            "Guide: docs/security-score.md"
         ),
     )
     score.add_argument("repo", metavar="REPO", help="Top-level local Git checkout or HTTPS/SSH Git URL")

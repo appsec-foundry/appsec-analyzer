@@ -1,6 +1,6 @@
 # Security score
 
-`appsec-analyzer score REPO` gives a quick deterministic indication from 0 to 100 without a model account, model calls, or model charges. Install Analyzer and Git first. `REPO` must name one top-level Git checkout with a commit, or an explicitly selected HTTPS or SSH Git URL.
+`appsec-analyzer score REPO` gives a quick deterministic indication from 0 to 100 using the existing Analyzer analysis engine, without a model account, model calls, or model charges. Install Analyzer and Git first. `REPO` must name one top-level Git checkout with a commit, or an explicitly selected HTTPS or SSH Git URL. Run `appsec-analyzer score --help` for arguments and examples.
 
 ```sh
 appsec-analyzer score /path/to/project
@@ -10,6 +10,8 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 ```
 
 Replace the example paths and repository URL with your own selection. `--json` and `--yaml` are mutually exclusive. There is no model profile, spending limit, output directory, or score-threshold gate for this command. To save the printed result, redirect stdout to a private file outside the selected repository.
+
+The command reuses Analyzer's existing deterministic scanners and scoring calculation. It runs a limited quick check without the model-backed assessment stages. Runtime depends on repository size, source preparation, scanner work, and any Git download; the progress display identifies the current step and reports elapsed time.
 
 Progress starts immediately on stderr with `Calculating security score for ...` and the selected repository, followed by three phases: Repository, Security checks, and Result. The header shows the expanded local path or Git host/project; URL credentials, queries, and fragments are omitted. Within the same line, the project name uses bold accent text and the parent path or URL prefix is muted; the summary uses the same treatment. Each runtime, repository-preparation, scanner, calculation, and validation step has its own persistent status line and measured duration under a phase heading. In an interactive terminal, the active step refreshes with an activity indicator while completed steps remain visible. Scanner lines distinguish done, failed, missing, and invalid results; done means that scanner output was validated, not that no vulnerabilities were found. Git cloning appears when needed. A final summary reports total time and identifies stopped or incomplete scans. Redirected stderr and `TERM=dumb` terminals receive plain step start/completion lines without animation or control characters. Messages are flushed even when output is piped. Stdout contains only the finished text, JSON, or YAML result.
 
