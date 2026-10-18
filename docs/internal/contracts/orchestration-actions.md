@@ -16,7 +16,11 @@
 
 ## Agent call lifecycle and budget telemetry
 
-These rules apply to agents other skills dispatch through the Agent tool; the assessment's own model exchanges are tool-less and use none of them.
+Full-assessment exchanges use `runtime/assessment_diagnostics.py` separately from the retained Agent-tool lifecycle described below. After state admission, each execution attempt creates a private `.assessment-work/diagnostics/attempt-*/events.jsonl` feed. Job IDs match receipt identities; call IDs are unique within the attempt and concurrent component views share the same writer. Events distinguish returned answers from accepted, reused, rejected, or replaced work and retain the selected host/model and available exit or HTTP status metadata. Claude call records identify their separate host-event attempt and filename.
+
+Diagnostic records exclude prompts, source excerpts, model answers, provider bodies, raw stderr, and arbitrary exception text. Controller validation reasons pass through secret masking, quoted-value and location removal, and printable single-line normalization; reasons beyond the safe input limit are omitted with an explicit marker. Each feed is limited to 8 MiB. A write failure disables only that feed and emits a fixed warning. Compatible resume creates new feed and host-event directories without replacing earlier attempt files; rebuild retains its existing work-directory reset behavior.
+
+The following lifecycle rules apply to agents other skills dispatch through the Agent tool; the assessment's own model exchanges are tool-less and use none of them.
 
 Every Agent tool invocation uses the host `tool_use_id` as its immutable
 `agent_call_id`. `scripts/runtime/agent_lifecycle.py` persists the schema-v1 lifecycle

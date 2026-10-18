@@ -244,7 +244,7 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 _MAX_ACTION_REASON = 1000  # schemas/orchestration-action.schema.json: reason.maxLength
-_REASON_ELISION = " … [truncated, full text in .agent-run.log] … "
+_REASON_ELISION = " … [reason truncated] … "
 
 
 # ---------------------------------------------------------------------------
@@ -978,6 +978,13 @@ def _assessment_session(
         return host_factory(role, settings["model"] if settings else cfg[key], ceiling)
 
     with _stop_on_terminate(state), state.hold():
+        from runtime.assessment_diagnostics import DiagnosticLog, failure_fields
+
+        try:
+            diagnostics = DiagnosticLog(state.directory / "diagnostics", state.state["run_id"])
+        except OSError:
+            diagnostics = None
+            print("⚠ assessment diagnostics unavailable: private log could not be created", file=sys.stderr)
         # Held now, so this removes no other run's files; an earlier scan's
         # issues and diagnoses must never read as this run's.
         for name in RUN_DIAGNOSTIC_NAMES:
@@ -996,6 +1003,7 @@ def _assessment_session(
             state.checkpoint,
             cache=state.directory / CACHE_NAME,
             prompt_capacity=prompt_capacity,
+            diagnostics=diagnostics,
         )
         from runtime.analyst_host import HostCancelled, HostTimeout
         from runtime.multi_repo_discovery import BudgetExhausted
@@ -1003,16 +1011,36 @@ def _assessment_session(
         try:
             yield cfg, state, jobs
         except BudgetExhausted as exc:
+            if diagnostics:
+                diagnostics.emit("attempt_interrupted", reason="budget_exhausted")
             exc.report = state.budget_report(jobs)
             raise
         except Exception as exc:
             # A pause, a stop request or a refused setting is no failure to diagnose.
             stopped = isinstance(exc, (AssessmentPaused, CallError, HostCancelled)) and not isinstance(exc, HostTimeout)
+            if diagnostics:
+                if stopped:
+                    if isinstance(exc, AssessmentPaused):
+                        reason = "paused"
+                    elif isinstance(exc, HostCancelled):
+                        reason = "cancelled"
+                    else:
+                        reason = "invalid_configuration"
+                    diagnostics.emit("attempt_interrupted", reason=reason)
+                else:
+                    diagnostics.emit("attempt_failed", **failure_fields(exc))
             if not stopped:
                 _write_run_issues(
                     scope.output, cfg, [("run_incomplete", "error", f"Assessment stopped: {_cap_reason(str(exc))}")]
                 )
             raise
+        except KeyboardInterrupt:
+            if diagnostics:
+                diagnostics.emit("attempt_interrupted", reason="cancelled")
+            raise
+        else:
+            if diagnostics:
+                diagnostics.emit("attempt_complete")
 
 
 def _write_run_issues(output: Path, cfg: dict[str, Any], issues: list[tuple[str, str, str]]) -> bool:
@@ -2372,7 +2400,9 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--non-interactive", action="store_true", help="Never prompt for a higher budget (use in CI)")
-    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show correlated model calls and sanitized correction details"
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
         "--width",
@@ -3389,8 +3419,12 @@ class _AssessmentConsole:
 
     def call(self, text: str, role: str | None = None, model: str | None = None) -> None:
         """Show missing updates and timeouts; show every model-call line with --verbose."""
+        context = ""
+        if text.startswith("[job-") and "] " in text:
+            context, _, text = text.partition("] ")
+            context += "] "
         label = self.ROLE_LABELS.get(role, (role or "").replace("_", " "))
-        who = f"{label} [{model}]: " if role and model else (f"{label}: " if role else "")
+        who = context + (f"{label} [{model}]: " if role and model else (f"{label}: " if role else ""))
         if "no model activity" in text or text.startswith("model call stopped"):
             self.record("⚠", f"{who}{text}")
             return
@@ -3475,6 +3509,11 @@ class _ReportedTransport:
         if self.activity_available:
             inner.on_event = self._observe
 
+    def bind_diagnostic(self, label: str) -> None:
+        report = self.report
+        self.report = lambda text: report(f"[{label}] {text}")
+        self.name += f" [{label}]"
+
     def _observe(self, event):
         self.active = time.monotonic()
         if event.get("type") == "host_activity":
@@ -3512,7 +3551,9 @@ class _ReportedTransport:
 
     def on_correction(self, reason: str) -> None:
         """The controller rejected the last answer and asks the model to correct it."""
-        self.report("answer rejected, asking for a correction: " + re.sub(r"\s+", " ", reason)[:100])
+        from runtime.assessment_diagnostics import safe_reason
+
+        self.report("answer rejected, asking for a correction: " + safe_reason(reason))
         notice = getattr(self.inner, "on_correction", None)
         if callable(notice):
             notice(reason)
@@ -3756,8 +3797,23 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
         return codex_factory
     executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
     sequence = itertools.count(1)
+    event_attempt = None
+    event_lock = threading.Lock()
 
     def factory(role, model, ceiling):
+        nonlocal event_attempt
+        # The factory is selected before state admission. Create run artifacts
+        # only on its first call, after the lifecycle owns the output directory.
+        with event_lock:
+            if events_dir is not None and event_attempt is None:
+                from runtime.assessment_state import _real_directory
+
+                _real_directory(events_dir, create=True)
+                info = events_dir.lstat()
+                if info.st_uid != os.getuid() or info.st_mode & 0o077:
+                    raise CallError("host event directory must be private and owned")
+                event_attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=events_dir))
+            events_path = event_attempt / f"{next(sequence):04d}-{role}.jsonl" if event_attempt else None
         directory = Path(tempfile.mkdtemp(prefix=f"{role}-", dir=work_root))
         return ClaudeCliTransport(
             directory / "work",
@@ -3765,7 +3821,7 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
             max_budget_usd=ceiling,
             executable=executable,
             effort=(run_profile or {}).get("models", {}).get(role, {}).get("reasoning_effort", ASSESSMENT_EFFORT),
-            events_path=events_dir / f"{next(sequence):04d}-{role}.jsonl" if events_dir else None,
+            events_path=events_path,
             max_thinking_tokens=ASSESSMENT_MAX_THINKING_TOKENS if events_dir else None,
             # Each exchange prompt is unique and read again only within minutes (MD-11).
             short_cache=True,
@@ -4505,7 +4561,8 @@ def assess_repositories(
                         "appsec-analyzer — Model-backed assessment (alpha)",
                         _assessment_intro(
                             ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg
-                        ),
+                        )
+                        + ([("Diagnostics", str(jobs.diagnostics.path))] if ns.verbose and jobs.diagnostics else []),
                     )
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
                     noticed = []
@@ -4693,6 +4750,7 @@ def assess_repositories(
         **({"runtime_files": str(workspace)} if workspace.is_dir() and ns.verbose else {}),
         "spent_usd": None if budget.subscription else round(budget.spent_usd, 2),
         "calls": budget.calls,
+        **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
     }
 
 
@@ -4995,6 +5053,8 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     rows += [("Report" if index == 0 else "", path, "accent") for index, path in enumerate(files)]
     if outcome.get("runtime_files"):
         rows.append(("Run files", outcome["runtime_files"], "muted"))
+    if outcome.get("diagnostics"):
+        rows.append(("Diagnostics", outcome["diagnostics"], "muted"))
     rows += _completion_step_rows(output, outcome["deliverables"])
     # Values wrap flush under their column when --width narrows the console.
     width = _AssessmentConsole.columns() - 1 - 14 if _AssessmentConsole.max_columns else 0

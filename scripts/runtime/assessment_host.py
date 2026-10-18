@@ -610,6 +610,9 @@ def run_exchange(
             reasons.append(ENVELOPE_REASON)
             if corrections > MAX_CORRECTIONS:
                 raise ModelAnswerFailure(f"Result rejected after {corrections} attempt(s): {ENVELOPE_REASON}")
+            notice = getattr(transport, "on_correction", None)
+            if callable(notice):
+                notice(ENVELOPE_REASON)
             feedback = {
                 "reason": ENVELOPE_REASON,
                 "instruction": "Return either action read with the reads you need and artifact null, "

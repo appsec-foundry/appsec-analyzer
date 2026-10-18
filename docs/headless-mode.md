@@ -39,6 +39,8 @@ events; `status` and `results` remain available.
 
 Normal progress output records skipped optional model jobs immediately as `Coverage gap` warnings, including budget reservations, without requiring `--verbose`. Architect Review and abuse-case phase totals show actual review coverage separately from planned candidates. The final summary retains omitted work. `--quiet` suppresses live progress; see [assessment coverage and limits](security-assessment.md).
 
+For troubleshooting, add `--verbose` to correlate model messages with their jobs and calls. Private per-attempt diagnostics are saved for every full-assessment provider under the output's `.assessment-work/diagnostics/` directory, including when `--quiet` suppresses progress. Compatible resume preserves earlier attempt files. See [assessment diagnostics and limits](security-assessment.md) for recorded fields, size limits, and privacy.
+
 Use `--non-interactive` to explicitly prevent budget questions in CI. Without it, a terminal session outside recognized CI environments may ask for a higher total USD limit when money prevents further work. Piped input or stderr, `--quiet`, and recognized CI markers also prevent questions. Examples of detected markers include `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, and `TF_BUILD`; explicit `--non-interactive` also covers CI systems that set none of them. Declining keeps the configured limit and normal fallback behavior. Compatible `--resume` retains an increase explicitly approved earlier for the same run; a fresh run uses its configured budget.
 
 The separate requirements audit uses `appsec-analyzer audit-requirements

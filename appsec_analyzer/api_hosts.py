@@ -61,8 +61,8 @@ def _json(data):
 
 
 class ApiTransportError(TransportError):
-    def __init__(self, reason: str, *, retry_after_s: float | None = None):
-        super().__init__(reason, reason=reason, usd=None, retry_after_s=retry_after_s)
+    def __init__(self, reason: str, *, retry_after_s: float | None = None, http_status: int | None = None):
+        super().__init__(reason, reason=reason, usd=None, retry_after_s=retry_after_s, http_status=http_status)
 
 
 def _retry_after(value: object) -> float | None:
@@ -343,15 +343,15 @@ class ResponsesTransport:
         if len(data) > MAX_REPLY_BYTES:
             raise ApiTransportError("response_too_large")
         if status in (401, 403):
-            raise ApiTransportError("authentication_failed")
+            raise ApiTransportError("authentication_failed", http_status=status)
         if status == 402:
-            raise ApiTransportError("billing_error")
+            raise ApiTransportError("billing_error", http_status=status)
         if status == 429:
-            raise ApiTransportError("rate_limit", retry_after_s=retry_after)
+            raise ApiTransportError("rate_limit", retry_after_s=retry_after, http_status=status)
         if status >= 500:
-            raise ApiTransportError("server_error")
+            raise ApiTransportError("server_error", http_status=status)
         if status != 200:
-            raise ApiTransportError("invalid_request")
+            raise ApiTransportError("invalid_request", http_status=status)
         # Keep token exhaustion distinct from malformed structured output.
         try:
             truncated = _json(data)

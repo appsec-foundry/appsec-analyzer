@@ -151,6 +151,9 @@ def test_a_run_stopped_by_a_persistent_api_failure_resumes_without_redoing_accep
         in_process(argv, env)
     assert not (out / "security-assessment.md").exists()
     before = _calls(state)
+    previous_streams = {path: path.read_bytes() for path in (out / ".assessment-work/host-events").rglob("*.jsonl")}
+    previous_diagnostics = {path: path.read_bytes() for path in (out / ".assessment-work/diagnostics").rglob("*.jsonl")}
+    assert previous_streams and previous_diagnostics
     assert [call["fault"] for call in before if call["role"] == "stride_analyzer"] == ["server_error"] * 4
 
     outcome = in_process(argv, {**env, "FAKE_CLAUDE_FAULTS": ""}, "--resume")
@@ -160,3 +163,14 @@ def test_a_run_stopped_by_a_persistent_api_failure_resumes_without_redoing_accep
     # Discovery, architecture and controls were accepted before the stop.
     assert "stride_analyzer" in resumed
     assert not {"recon_scanner", "architecture_analyst", "control_analyst"} & resumed
+    assert all(path.read_bytes() == data for path, data in previous_streams.items())
+    assert all(path.read_bytes() == data for path, data in previous_diagnostics.items())
+    diagnostic_path = Path(outcome["diagnostics"])
+    assert diagnostic_path not in previous_diagnostics
+    events = [json.loads(line) for line in diagnostic_path.read_text().splitlines()]
+    assert events[-1]["event"] == "attempt_complete"
+    assert any(row["event"] == "job_reused" for row in events)
+    started = [row for row in events if row["event"] == "call_start"]
+    assert started and all(row["model"] == "haiku" for row in started)
+    for row in started:
+        assert (out / ".assessment-work/host-events" / row["host_event_attempt"] / row["host_event_file"]).is_file()

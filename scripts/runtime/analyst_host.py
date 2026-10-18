@@ -59,6 +59,21 @@ MARKER_ESCAPED = "UNTRUSTED_ANALYSIS_\\u0049NPUT"
 _DROPPED_ENV_PREFIXES = ("GIT_", "APPSEC_", "OUTPUT_DIR", "CLAUDE_CODE_SESSION", "CLAUDE_SESSION")
 
 
+def _stderr_failure(data: bytes) -> tuple[str, str]:
+    """Classify a bounded host diagnostic without returning any host-controlled text."""
+    text = data.decode("utf-8", errors="replace").lower()
+    if any(
+        value in text
+        for value in ("unknown option", "unsupported option", "unrecognized argument", "unexpected argument")
+    ):
+        return "host_arguments", "check that the installed host CLI supports Analyzer's required options"
+    if any(value in text for value in ("not logged in", "authentication failed", "unauthorized", "invalid api key")):
+        return "authentication_failed", "check the host login or externally configured credential"
+    if any(value in text for value in ("invalid configuration", "failed to load config", "configuration error")):
+        return "host_configuration", "check the operator-owned host configuration"
+    return "no_result", "check the host installation and login; no structured result was returned"
+
+
 class TransportError(Exception):
     """The host call failed before producing a reply; it may be retried.
 
@@ -74,10 +89,14 @@ class TransportError(Exception):
         reason: str = "transport",
         usd: float | None = None,
         retry_after_s: float | None = None,
+        exit_code: int | None = None,
+        http_status: int | None = None,
     ):
         super().__init__(message)
         self.reason = reason
         self.usd = usd
+        self.exit_code = exit_code
+        self.http_status = http_status
         self.retry_after_s = (
             float(retry_after_s)
             if type(retry_after_s) in (int, float) and math.isfinite(retry_after_s) and retry_after_s >= 0
@@ -289,7 +308,9 @@ class ClaudeCliTransport:
         """
         if self.events_path is None or not self.events_path.exists():
             return
-        line = json.dumps({"type": "controller_rejection", "reason": str(reason)[:2000]})
+        from runtime.assessment_diagnostics import safe_reason
+
+        line = json.dumps({"type": "controller_rejection", "reason": safe_reason(reason)})
         with open(self.events_path, "a", encoding="utf-8") as sink:
             sink.write(f"-\t{line}\n")
 
@@ -341,12 +362,44 @@ class ClaudeCliTransport:
                 env=self.environment(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 start_new_session=True,
             )
         except OSError:
             raise TransportError("host could not be started") from None
         deadline = time.monotonic() + timeout_s
+        # Drain concurrently so even a noisy failed CLI cannot fill its pipe.
+        # The bounded tail is used only for fixed-code classification, never persisted.
+        stderr_tail = bytearray()
+        stderr_pipe, proc.stderr = proc.stderr, None
+        os.set_blocking(stderr_pipe.fileno(), False)
+        stderr_done = threading.Event()
+
+        def drain_stderr():
+            final_bytes = 0
+            ended = False
+            while True:
+                try:
+                    chunk = os.read(stderr_pipe.fileno(), 4096)
+                except BlockingIOError:
+                    if ended:
+                        return
+                    ended = stderr_done.wait(0.02)
+                    continue
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                stderr_tail.extend(chunk)
+                del stderr_tail[:-16384]
+                if stderr_done.is_set():
+                    final_bytes += len(chunk)
+                    if final_bytes >= 65536:
+                        return
+
+        stderr_reader = threading.Thread(target=drain_stderr, daemon=True)
+        stderr_reader.start()
+        # communicate() must not compete with the dedicated stderr reader.
         api_error = None
         try:
             if self.events_path is None:
@@ -363,10 +416,18 @@ class ClaudeCliTransport:
                 )
         finally:
             _stop_group(proc)
+            stderr_done.set()
+            stderr_reader.join(timeout=TERMINATE_GRACE_SECONDS)
+            stderr_pipe.close()
         try:
             outcome = json.loads(stdout)
         except (json.JSONDecodeError, UnicodeDecodeError):
-            raise TransportError("host call failed: no_result", reason="no_result") from None
+            reason, hint = _stderr_failure(bytes(stderr_tail))
+            raise TransportError(
+                f"host call failed: {reason}" + (f"; {hint}" if hint else "") + f" (exit {proc.returncode})",
+                reason=reason,
+                exit_code=proc.returncode,
+            ) from None
         if not isinstance(outcome, dict) or outcome.get("is_error") or "structured_output" not in outcome:
             # Named by a fixed code, never by the result text: a refused call's
             # result reads `subtype: success`, and other results carry model text.
@@ -376,6 +437,7 @@ class ClaudeCliTransport:
                 f"host call failed: {reason}" + (f" ({hint})" if hint else ""),
                 reason=reason,
                 usd=_reported_usd(outcome),
+                exit_code=proc.returncode,
             )
         usd = outcome.get("total_cost_usd")
         return HostReply(outcome["structured_output"], usd if isinstance(usd, (int, float)) else None)

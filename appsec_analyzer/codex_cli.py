@@ -286,7 +286,7 @@ class CodexCliTransport:
             instructions_path.write_text(instructions, encoding="utf-8")
             schema_path.chmod(0o600)
             instructions_path.chmod(0o600)
-            code, out, _ = _run(
+            code, out, err = _run(
                 self.argv(schema_path, instructions_path),
                 cwd=work,
                 env=environment(),
@@ -302,17 +302,24 @@ class CodexCliTransport:
             failures = [e for e in events if e.get("type") in ("turn.failed", "error")]
             if code or failures:
                 # Classify without echoing model text, source excerpts, paths or credentials.
-                failure = json.dumps(failures).lower()
+                failure = json.dumps(failures).lower() + " " + err[-16384:].decode("utf-8", errors="replace").lower()
                 if any(x in failure for x in ("usage_limit", "usage limit", "quota", "rate_limit", "rate limit")):
                     raise TransportError(
                         "ChatGPT usage limit reached; wait for your allowance to reset and resume",
                         reason="quota_exhausted",
+                        exit_code=code,
                     )
                 if any(x in failure for x in ("unauthorized", "authentication", "401", "403")):
                     raise TransportError(
-                        "Codex ChatGPT authentication failed; run codex login", reason="authentication_failed"
+                        "Codex ChatGPT authentication failed; run codex login",
+                        reason="authentication_failed",
+                        exit_code=code,
                     )
-                raise TransportError("Codex CLI exchange failed", reason="transport")
+                from runtime.analyst_host import _stderr_failure
+
+                reason, hint = _stderr_failure(err[-16384:])
+                reason = "transport" if reason == "no_result" else reason
+                raise TransportError("Codex CLI exchange failed: " + hint, reason=reason, exit_code=code)
             completed = [e for e in events if e.get("type") == "turn.completed"]
             messages = []
             for event in events:
@@ -330,5 +337,7 @@ class CodexCliTransport:
                 raise ValueError
             payload = _json(wire["payload_json"])
         except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
-            raise TransportError("Invalid Codex structured response", reason="invalid_response") from None
+            raise TransportError(
+                "Invalid Codex structured response", reason="invalid_response", exit_code=code
+            ) from None
         return HostReply(payload=payload, usd=None)

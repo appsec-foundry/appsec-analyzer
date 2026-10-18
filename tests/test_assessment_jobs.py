@@ -190,7 +190,7 @@ def test_cli_transport_records_a_rejection_in_its_event_stream(tmp_path):
     assert stamp == "-" and json.loads(record)["type"] == "controller_rejection"
     assert (
         json.loads(record)["reason"].startswith("STRIDE investigation is incomplete")
-        and len(json.loads(record)["reason"]) == 2000
+        and json.loads(record)["reason"] == "STRIDE investigation is incomplete: " + "x" * 3000
     )
     # An unrecorded call keeps no file.
     ClaudeCliTransport(tmp_path / "work2").on_correction("ignored")

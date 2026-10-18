@@ -1075,10 +1075,16 @@ def test_each_cli_host_call_records_its_events_in_its_own_file(tmp_path):
     from orchestrator.orchestration_controller import _assessment_cli_host_factory
 
     factory = _assessment_cli_host_factory(tmp_path / "hosts", tmp_path / "events")
+    assert not (tmp_path / "events").exists(), "selecting a host must not populate an unadmitted output directory"
     (tmp_path / "hosts").mkdir()
     first, second = factory("stride_analyzer", "sonnet", 1.0), factory("control_analyst", "sonnet", 1.0)
-    assert first.events_path == tmp_path / "events" / "0001-stride_analyzer.jsonl"
-    assert second.events_path == tmp_path / "events" / "0002-control_analyst.jsonl"
+    assert first.events_path.parent.parent == tmp_path / "events"
+    assert first.events_path.parent.name.startswith("attempt-")
+    assert first.events_path.name == "0001-stride_analyzer.jsonl"
+    assert second.events_path.parent == first.events_path.parent
+    assert second.events_path.name == "0002-control_analyst.jsonl"
+    resumed = _assessment_cli_host_factory(tmp_path / "hosts", tmp_path / "events")("stride_analyzer", "sonnet", 1.0)
+    assert resumed.events_path != first.events_path and resumed.events_path.name == first.events_path.name
     assert first.max_thinking_tokens == 20_000
     unrecorded = _assessment_cli_host_factory(tmp_path / "hosts")("x", "sonnet", 1.0)
     assert unrecorded.events_path is None and unrecorded.max_thinking_tokens is None

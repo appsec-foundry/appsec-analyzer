@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import io
 import json
 import tempfile
 from pathlib import Path
@@ -18,6 +17,7 @@ import yaml
 from analyzers import authz_confirm, config_iac_scanner, mass_assignment_scanner, source_auth_scanner
 from analyzers.route_inventory import build_inventory
 from jsonschema import Draft202012Validator
+from runtime.assessment_diagnostics import DiagnosticCapture, ScannerFailure
 from shared._atomic_io import atomic_write_json
 from validators.validate_intermediate import validate_config_scan_findings
 
@@ -32,18 +32,33 @@ SIDECARS = (".source-auth-findings.json", ".authz-confirm-findings.json", ".mass
 LOCAL_ID_PREFIX = "deterministic-scan-"
 
 
+def _scanner_call(name, call):
+    captured = DiagnosticCapture()
+    try:
+        with contextlib.redirect_stderr(captured), contextlib.redirect_stdout(captured):
+            code = call()
+    except (OSError, ValueError, KeyError, UnicodeError) as error:
+        reason = "filesystem_error" if isinstance(error, OSError) else "invalid_input"
+        raise ScannerFailure(name, reason) from None
+    if code:
+        text = captured.text.lower()
+        reason = "execution_error"
+        if "failed to load checks" in text or "checks file" in text or "plugin root" in text:
+            reason = "scanner_configuration"
+        elif any(word in text for word in ("parse", "syntax", "invalid json", "invalid yaml")):
+            reason = "input_parse_error"
+        raise ScannerFailure(name, reason, code if type(code) is int else None)
+
+
 def _run_scanners(root: Path, output: Path) -> None:
     atomic_write_json(output / ".route-inventory.json", build_inventory(root))
     argv = ["--repo-root", str(root), "--output-dir", str(output)]
-    # The scanners report progress on stderr; the controller owns progress.
-    with contextlib.redirect_stderr(io.StringIO()):
-        codes = (
-            source_auth_scanner.main([*argv, "--quiet"]),
-            authz_confirm.main(argv),
-            mass_assignment_scanner.main([*argv, "--quiet"]),
-        )
-    if any(codes):
-        raise ValueError("A deterministic source scanner failed on an admitted repository")
+    for name, scanner, flags in (
+        ("source-auth", source_auth_scanner, ["--quiet"]),
+        ("authz-confirm", authz_confirm, []),
+        ("mass-assignment", mass_assignment_scanner, ["--quiet"]),
+    ):
+        _scanner_call(name, lambda: scanner.main([*argv, *flags]))
 
 
 def config_scan(root: Path, depth: str) -> dict | None:
@@ -59,12 +74,14 @@ def config_scan(root: Path, depth: str) -> dict | None:
         return None
     with tempfile.TemporaryDirectory(prefix="appsec-config-") as directory:
         path = Path(directory) / ".config-scan-findings.json"
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            code = config_iac_scanner.main(
+        _scanner_call(
+            "config-iac",
+            lambda: config_iac_scanner.main(
                 ["--repo-root", str(root), "--output", str(path), "--assessment-depth", depth]
-            )
-        if code or not path.is_file():
-            raise ValueError("The config/IaC scanner failed on an admitted repository")
+            ),
+        )
+        if not path.is_file():
+            raise ScannerFailure("config-iac", "missing_sidecar")
         document = json.loads(path.read_text(encoding="utf-8"))
     # The deterministic producer emits canonical values, so the legacy
     # normalize_config_scan pass has nothing to repair here.
@@ -78,9 +95,12 @@ def _scanner_outputs(scope, rid: str, depth: str) -> tuple[list[dict], dict | No
     """Run every deterministic scanner on one frozen repository snapshot."""
     with scope.scanner_snapshot(rid) as root, tempfile.TemporaryDirectory(prefix="appsec-scan-") as directory:
         output = Path(directory)
-        _run_scanners(root, output)
-        documents = [json.loads((output / name).read_text(encoding="utf-8")) for name in SIDECARS]
-        config = config_scan(root, depth)
+        try:
+            _run_scanners(root, output)
+            documents = [json.loads((output / name).read_text(encoding="utf-8")) for name in SIDECARS]
+            config = config_scan(root, depth)
+        except ScannerFailure as error:
+            raise ScannerFailure(error.scanner, error.reason, error.exit_code, repository_id=rid) from None
     return documents, config
 
 

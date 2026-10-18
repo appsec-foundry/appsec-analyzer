@@ -131,6 +131,8 @@ This profile uses plan allowance or available credits and defaults to 1,000 mode
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
+Use `--verbose` for job and call identities and detailed sanitized correction messages. Full assessments retain private per-attempt diagnostics across compatible resumes; see [diagnostics and limits](docs/security-assessment.md).
+
 Progress output immediately warns when optional model jobs are skipped. Architect Review and abuse-case totals distinguish actual checks from unchecked work, including at `thorough` depth. See [assessment coverage and limits](docs/security-assessment.md).
 
 An interactive terminal outside CI may ask for a higher total USD budget before budget-limited work is skipped. Only entering a higher total authorizes an increase; an empty answer keeps the current limit. Use `--non-interactive` for CI and unattended runs. Compatible resume retains earlier approved increases for the same run.

@@ -93,8 +93,29 @@ def test_repositories_without_scanner_findings_yield_empty_owners(tmp_path):
 def test_a_failed_scanner_stops_the_assessment(tmp_path, monkeypatch):
     scope, components, _ = finalized(tmp_path)
     monkeypatch.setattr(assessment_scanner_findings.mass_assignment_scanner, "main", lambda argv: 2)
-    with pytest.raises(ValueError, match="scanner failed"):
+    with pytest.raises(ValueError, match="scanner failed") as caught:
         scan(scope, components)
+    assert caught.value.repository_id in {repo.repository_id for repo in scope.repositories}
+
+
+@pytest.mark.parametrize("name", ["source_auth_scanner", "authz_confirm", "mass_assignment_scanner"])
+def test_failed_scanner_names_the_stage_and_classifies_diagnostics_without_echoing_them(tmp_path, monkeypatch, name):
+    import sys
+
+    def fail(argv):
+        print("parse error in PRIVATE_SOURCE; password='synthetic-private-value'\nFORGED", file=sys.stderr)
+        return 2
+
+    monkeypatch.setattr(getattr(assessment_scanner_findings, name), "main", fail)
+    # Other scanners need not create sidecars for this failure-path check.
+    for other in {"source_auth_scanner", "authz_confirm", "mass_assignment_scanner"} - {name}:
+        monkeypatch.setattr(getattr(assessment_scanner_findings, other), "main", lambda argv: 0)
+    with pytest.raises(ValueError) as caught:
+        assessment_scanner_findings._run_scanners(tmp_path, tmp_path)
+    message = str(caught.value)
+    assert name.removesuffix("_scanner").replace("_", "-") in message
+    assert "input_parse_error" in message and "exit 2" in message
+    assert all(value not in message for value in ("PRIVATE_SOURCE", "synthetic-private-value", "FORGED"))
 
 
 def test_an_error_stub_cannot_stand_in_for_a_scan(tmp_path, monkeypatch):
@@ -153,7 +174,7 @@ def test_depth_reaches_the_config_scanner_and_its_failure_stops_the_assessment(t
     called = []
     monkeypatch.setattr(assessment_scanner_findings.config_iac_scanner, "main", lambda argv: called.append(argv) or 2)
     scope, components, _ = fixture(tmp_path, files={"edge": {"Dockerfile": DOCKERFILE}})
-    with pytest.raises(ValueError, match="config/IaC scanner failed"):
+    with pytest.raises(ValueError, match=r"config-iac scanner failed: execution_error \(exit 2\)"):
         scan(scope, components, depth="quick")
     assert called[0][called[0].index("--assessment-depth") + 1] == "quick"
 

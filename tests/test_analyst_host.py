@@ -90,6 +90,45 @@ def test_a_missing_executable_is_a_transport_error(tmp_path):
         )
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_cli_stderr_is_classified_without_exposing_it_or_losing_exit_status(tmp_path, streaming):
+    body = "sys.stderr.write('Unsupported option --safe-mode PRIVATE_DIAGNOSTIC\\n')\nsys.exit(7)\n"
+    events = tmp_path / "events.jsonl"
+    t = host.ClaudeCliTransport(
+        tmp_path / "work", executable=fake_host(tmp_path, body), events_path=events if streaming else None
+    )
+    with pytest.raises(host.TransportError) as caught:
+        t.invoke("s", "p", {}, 5, lambda: False)
+    assert caught.value.reason == "host_arguments" and caught.value.exit_code == 7
+    assert "required options" in str(caught.value)
+    assert "PRIVATE_DIAGNOSTIC" not in str(caught.value)
+    assert not events.exists() or "PRIVATE_DIAGNOSTIC" not in events.read_text()
+
+
+def test_noisy_stderr_cannot_block_a_successful_host(tmp_path):
+    body = "sys.stderr.write('PRIVATE_DIAGNOSTIC' * 100000)\n" + f"print(json.dumps({REPLY!r}))\n"
+    assert transport(tmp_path, body).invoke("s", "p", {}, 5, lambda: False).payload == {"ok": True}
+
+
+def test_an_exited_hosts_inherited_stderr_cannot_delay_diagnostics(tmp_path):
+    import signal
+
+    pid_file = tmp_path / "stderr-holder.pid"
+    body = (
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], "
+        "stdout=subprocess.DEVNULL)\n"
+        f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+        f"print(json.dumps({REPLY!r}))\n"
+    )
+    started = time.monotonic()
+    try:
+        assert transport(tmp_path, body).invoke("s", "p", {}, 5, lambda: False).payload == {"ok": True}
+        assert time.monotonic() - started < 5
+    finally:
+        if pid_file.exists():
+            os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
 def test_timeouts_and_cancellation_stop_the_whole_process_group(tmp_path, monkeypatch):
     monkeypatch.setattr(host, "TERMINATE_GRACE_SECONDS", 1)
     pid_file = tmp_path / "child.pid"

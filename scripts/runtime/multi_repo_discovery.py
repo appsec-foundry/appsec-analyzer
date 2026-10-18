@@ -413,12 +413,16 @@ class DiscoveryBudget:
                     f"{exc}; the request must be reduced before retrying; --resume alone does not fix it",
                     reason=exc.reason,
                     usd=exc.usd,
+                    exit_code=exc.exit_code,
+                    http_status=exc.http_status,
                 ) from None
             raise TransportError(
                 f"{exc}; the run can continue: rerun the same command with --resume",
                 reason=exc.reason,
                 usd=exc.usd,
                 retry_after_s=exc.retry_after_s,
+                exit_code=exc.exit_code,
+                http_status=exc.http_status,
             ) from None
         except HostCancelled:
             # A timed-out or cancelled call's process group is stopped; its

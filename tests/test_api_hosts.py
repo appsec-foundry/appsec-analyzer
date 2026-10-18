@@ -160,6 +160,7 @@ def test_rate_limit_transports_only_validated_reset_not_body(fake_host, monkeypa
     with pytest.raises(api_hosts.TransportError) as caught:
         api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
     assert caught.value.reason == "rate_limit" and caught.value.retry_after_s == 120
+    assert caught.value.http_status == 429
     assert caught.value.usd is None
     assert "private-provider-diagnostic" not in str(caught.value)
 

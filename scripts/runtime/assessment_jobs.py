@@ -233,7 +233,17 @@ def _ranges(slices) -> list[dict]:
 
 class AssessmentJobs:
     def __init__(
-        self, scope, directory, budget, host_factory, should_stop, checkpoint, *, cache=None, prompt_capacity=None
+        self,
+        scope,
+        directory,
+        budget,
+        host_factory,
+        should_stop,
+        checkpoint,
+        *,
+        cache=None,
+        prompt_capacity=None,
+        diagnostics=None,
     ):
         """`cache` holds an earlier, unfinished run's accepted jobs (see assessment_state.CACHE_NAME).
 
@@ -248,6 +258,7 @@ class AssessmentJobs:
         self.budget = budget
         self.host_factory = host_factory
         self.prompt_capacity = prompt_capacity
+        self.diagnostics = diagnostics
         self.should_stop = should_stop
         # MR-16: concurrent jobs share receipts, timing and the checkpoint file.
         self._lock = threading.RLock()
@@ -346,7 +357,26 @@ class AssessmentJobs:
                 "findings": findings,
             }
 
-    def exchange(
+    def exchange(self, **kwargs):
+        from runtime.assessment_diagnostics import failure_fields, safe_reason, transport_summary
+
+        trace = self.diagnostics.job(kwargs["role"], kwargs["selector"]) if self.diagnostics else None
+        if trace:
+            trace.emit("job_start")
+        try:
+            return self._exchange(**kwargs, trace=trace)
+        except BaseException as error:
+            if trace:
+                trace.emit("job_failed", **failure_fields(error))
+                if isinstance(error, (ExchangeError, TransportError, HostCancelled)):
+                    # Keep exception type, accounting and retry metadata intact.
+                    detail = transport_summary(error) if isinstance(error, TransportError) else safe_reason(str(error))
+                    error.args = (
+                        f"{trace.fields['job_id']} {trace.fields['role']} {trace.fields['selector']}: {detail}",
+                    )
+            raise
+
+    def _exchange(
         self,
         *,
         role,
@@ -360,6 +390,7 @@ class AssessmentJobs:
         on_failure=None,
         preload=(),
         budget_group=None,
+        trace=None,
     ):
         """Execute or resume one job, including its accepted retrieval receipt.
 
@@ -399,6 +430,8 @@ class AssessmentJobs:
         if preload:
             request["preload"] = [list(key) for key in preload]
         request_sha256 = digest(request)
+        if trace:
+            trace.emit("job_request", request_sha256=request_sha256)
         job_id = "job-" + digest({"role": role, "selector": selector})[:24]
         artifact_path = self.directory / f"{job_id}.json"
         receipt_path = self.directory / f"{job_id}.receipt.json"
@@ -467,6 +500,8 @@ class AssessmentJobs:
                 self._record(role)
                 self.budget.accepted(group, role, receipt["usd"])
                 self._remember(role, selector, artifact)
+                if trace:
+                    trace.emit("job_reused")
                 return ExchangeResult(copy.deepcopy(artifact), slices, receipt["calls"], receipt["usd"])
             found_path.unlink()
             found_artifact.unlink(missing_ok=True)
@@ -475,7 +510,8 @@ class AssessmentJobs:
         # checkpoint retains failed/unknown accounting and owns resume policy.
         def factory(ceiling):
             self.checkpoint()
-            return self.host_factory(role, ceiling)
+            transport = self.host_factory(role, ceiling)
+            return trace.wrap(transport) if trace else transport
 
         def review(artifact, slices):
             accept(copy.deepcopy(artifact), _ranges(slices))
@@ -503,6 +539,8 @@ class AssessmentJobs:
             reason = "budget reserved for required completion work"
             self._gap({"role": role, "selector": selector, "reason": reason, "budget": True})
             self._record(role, seconds=time.monotonic() - started)
+            if trace:
+                trace.emit("job_replaced", reason="budget_reserved")
             return ExchangeResult(on_failure(str(exc)), (), 0, None)
         except (ModelAnswerFailure, HostTimeout, TransportError) as exc:
             # Account failures and exhausted shared cooldowns must stop optional jobs too.
@@ -523,6 +561,10 @@ class AssessmentJobs:
             reason = re.sub(r"\s+", " ", str(exc))[:300]
             self._gap({"role": role, "selector": selector, "reason": reason})
             self._record(role, seconds=time.monotonic() - started)
+            if trace:
+                from runtime.assessment_diagnostics import failure_fields
+
+                trace.emit("job_replaced", **failure_fields(exc))
             return ExchangeResult(on_failure(reason), (), 0, None)
         ranges = _ranges(result.source_slices)
         artifact = copy.deepcopy(result.artifact)
@@ -547,4 +589,6 @@ class AssessmentJobs:
         self._record(role, seconds=time.monotonic() - started, calls=result.calls)
         self.budget.accepted(group, role, result.usd, time.monotonic() - started)
         self._remember(role, selector, artifact)
+        if trace:
+            trace.emit("job_accepted", calls=result.calls)
         return ExchangeResult(artifact, result.source_slices, result.calls, result.usd)
