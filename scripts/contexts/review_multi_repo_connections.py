@@ -16,7 +16,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 from model.finalize_component_inventory import component_inventory_fingerprint
 from runtime.analyst_host import HostCancelled
-from runtime.assessment_host import ExchangeError, run_exchange
+from runtime.assessment_host import ExchangeError, Rejection, run_exchange
 from runtime.multi_repo_discovery import BudgetedHost
 from runtime.multi_repo_scope import ScopeError
 from validators.validate_assessment_architecture import validate_finalization, validate_flows
@@ -139,14 +139,28 @@ def review_connections(scope, discoveries, components, receipt, *, host_factory,
                 raise ExchangeError("Connection reviewer changed its candidate identity")
             checked = {**artifact, "candidates_sha256": fingerprint(singleton)}
             validate_review(scope, singleton, receipt, checked)
-            for decision_row in artifact["decisions"]:
-                for evidence in decision_row["evidence"]:
-                    if not any(
-                        (r["repository_id"], r["path"]) == (evidence["repository_id"], evidence["file"])
-                        and r["start_line"] <= evidence["line"] <= r["end_line"]
-                        for r in ranges
-                    ):
-                        raise ExchangeError("Connection review cites source not retrieved by its task")
+            # Name each unread citation and serve its window, so the correction
+            # can keep the citation against the delivered bytes or drop it.
+            unread = [
+                (
+                    f"decisions/{i}/evidence/{j}: {evidence['file']}:{evidence['line']}",
+                    (evidence["repository_id"], evidence["file"], evidence["line"]),
+                )
+                for i, decision_row in enumerate(artifact["decisions"])
+                for j, evidence in enumerate(decision_row["evidence"])
+                if not any(
+                    (r["repository_id"], r["path"]) == (evidence["repository_id"], evidence["file"])
+                    and r["start_line"] <= evidence["line"] <= r["end_line"]
+                    for r in ranges
+                )
+            ]
+            if unread:
+                raise Rejection(
+                    "Connection review cites source not retrieved by its task; "
+                    "keep a citation only when its served line supports the decision",
+                    [error for error, _ in unread],
+                    reads=[read for _, read in unread],
+                )
 
         if jobs is None:
             result = run_exchange(

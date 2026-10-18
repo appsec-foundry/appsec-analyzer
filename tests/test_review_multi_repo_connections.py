@@ -334,3 +334,62 @@ def test_same_repository_messaging_does_not_raise_a_cross_repository_signal(tmp_
     producer, consumer = sorted(owner)
     by_id[consumer]["repository_ids"] = list(by_id[producer]["repository_ids"])
     assert _crossing_connections(flows["data_flows"], by_id) == set()
+
+
+def _review_with_jobs(tmp_path, scope, documents, components, receipt, host):
+    from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
+
+    jobs = AssessmentJobs(
+        scope,
+        tmp_path / "jobs",
+        AssessmentBudget(1.0, 0.05, 10, 60),
+        lambda role, ceiling: host,
+        lambda: False,
+        lambda: None,
+    )
+    budget = DiscoveryBudget(max_usd=1.0, call_usd=0.05, max_calls=10, timeout_s=60)
+    return review.review_connections(
+        scope,
+        documents,
+        components,
+        receipt,
+        host_factory=lambda cap: host,
+        budget=budget,
+        should_stop=lambda: False,
+        jobs=jobs,
+    )
+
+
+class _UnreadCitingHost:
+    """Completes from context alone and repeats its cited result after each rejection."""
+
+    def __init__(self, expected):
+        self.expected, self.packets = expected, []
+
+    def invoke(self, system, prompt, schema, timeout_s, should_stop):
+        self.packets.append(json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0]))
+        return HostReply({"action": "complete", "reads": [], "artifact": self.expected}, 0.01)
+
+
+def test_unread_review_citation_is_named_and_served_for_the_correction(tmp_path):
+    scope, documents, components, receipt, expected = fixture(tmp_path)
+    host = _UnreadCitingHost(expected)
+    result = _review_with_jobs(tmp_path, scope, documents, components, receipt, host)
+    assert result == expected and len(host.packets) == 2
+    correction = host.packets[1]
+    assert "decisions/0/evidence/0: app.py:1" in correction["rejected_result"]["reason"]
+    assert {(s["repository_id"], s["path"]) for s in correction["source_slices"]} == {
+        (r.repository_id, "app.py") for r in scope.repositories
+    }
+
+
+def test_unservable_review_citation_still_rejects_the_decision(tmp_path, monkeypatch):
+    from runtime import assessment_host
+    from runtime.assessment_host import ModelAnswerFailure
+
+    monkeypatch.setattr(assessment_host, "MAX_READS", 0)
+    scope, documents, components, receipt, expected = fixture(tmp_path)
+    host = _UnreadCitingHost(expected)
+    with pytest.raises(ModelAnswerFailure, match="app.py:1"):
+        _review_with_jobs(tmp_path, scope, documents, components, receipt, host)
+    assert all(not packet["source_slices"] for packet in host.packets)

@@ -19,7 +19,7 @@ from analyzers import serving_units
 from contexts.reconcile_multi_repo_architecture import SCHEMA, reconcile, validate_discovery
 
 from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, Transport, TransportError
-from runtime.assessment_host import ExchangeError, run_exchange
+from runtime.assessment_host import ExchangeError, Rejection, run_exchange
 from runtime.multi_repo_scope import AssessmentScope
 
 INSTRUCTIONS = """Discover runtime components and communication interfaces in one repository.
@@ -606,8 +606,21 @@ def discover(
         def accept(artifact, ranges):
             validate_discovery(scope, repo.repository_id, artifact)
             paths = {r["path"] for r in ranges}
-            if any(not set(c["paths"]) <= paths for c in artifact["components"]):
-                raise ExchangeError("Discovery component cites source not retrieved by its task")
+            # Name each unread path and serve its head, so the correction can
+            # keep the path against the delivered bytes or drop it.
+            unread = [
+                (f"components/{i}/paths: {path}", (repo.repository_id, path, 1))
+                for i, component in enumerate(artifact["components"])
+                for path in component["paths"]
+                if path not in paths
+            ]
+            if unread:
+                raise Rejection(
+                    "Discovery component cites source not retrieved by its task; "
+                    "keep a path only when its served lines support the component",
+                    [error for error, _ in unread],
+                    reads=[read for _, read in unread],
+                )
             for interface in artifact["interfaces"]:
                 for evidence in interface["evidence"]:
                     if not any(

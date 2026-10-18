@@ -154,16 +154,60 @@ def test_cross_repository_read_is_denied_before_any_source_is_served(tmp_path):
     assert served == [] and len(host.contexts) > 1
 
 
-def test_real_but_unretrieved_source_cannot_support_model_observation(tmp_path):
+def test_unread_component_path_is_named_and_served_for_the_correction(tmp_path):
+    """A stateless model can only correct an unread component path the rejection names."""
     scope = sources(tmp_path)
+    corrections = []
+
+    class CitingHost(ScriptedHost):
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            reply = super().invoke(system, prompt, schema, timeout_s, should_stop)
+            if reply.payload["action"] != "complete":
+                return reply
+            if "rejected_result" in packet:
+                corrections.append(packet)
+                reply.payload["artifact"] = copy.deepcopy(packet["rejected_result"]["result"])
+            else:
+                reply.payload["artifact"]["components"][0]["paths"].append("notes.txt")
+            return reply
+
+    result = discovery.discover(
+        scope, host_factory=CitingHost(scope).factory, budget=budget(), should_stop=lambda: False
+    )
+    assert len(corrections) == 2
+    for packet in corrections:
+        assert "components/0/paths: notes.txt" in packet["rejected_result"]["reason"]
+        assert "notes.txt" in {s["path"] for s in packet["source_slices"]}
+    assert all("notes.txt" in {r["path"] for r in row["ranges"]} for row in result.retrieval)
+    assert all(row["unread_paths"] == [] for row in result.retrieval)
+
+
+def test_unservable_component_path_still_rejects_the_result(tmp_path, monkeypatch):
+    """A real but unretrieved source cannot support a component, even when the rejection names it."""
+    from runtime import assessment_host
+
+    monkeypatch.setattr(assessment_host, "MAX_READS", 1)
+    scope = sources(tmp_path)
+    reasons = []
 
     def mutate(payload, context, call):
         if payload["action"] == "complete":
             payload["artifact"]["components"][0]["paths"].append("notes.txt")
 
-    host = ScriptedHost(scope, mutate=mutate)
-    with pytest.raises(ExchangeError, match="not retrieved"):
-        discovery.discover(scope, host_factory=host.factory, budget=budget(), should_stop=lambda: False)
+    class Recording(ScriptedHost):
+        def invoke(self, system, prompt, *args):
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            assert "notes.txt" not in {s["path"] for s in packet["source_slices"]}
+            if "rejected_result" in packet:
+                reasons.append(packet["rejected_result"]["reason"])
+            return super().invoke(system, prompt, *args)
+
+    with pytest.raises(ModelAnswerFailure, match="notes.txt"):
+        discovery.discover(
+            scope, host_factory=Recording(scope, mutate=mutate).factory, budget=budget(), should_stop=lambda: False
+        )
+    assert reasons and all("components/0/paths: notes.txt" in reason for reason in reasons)
 
 
 def test_two_rejected_discoveries_complete_within_the_original_exchange_limit(tmp_path):
