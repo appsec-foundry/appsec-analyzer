@@ -1,6 +1,6 @@
 # Contributing
 
-AppSec Analyzer is a standalone Python CLI with an extracted analysis engine. Start with [AGENTS.md](AGENTS.md), [product requirements](requirements.md), and the [script layout](scripts/README.md). Current user instructions live in the README and current guides; earlier Advisor guides are marked as [history](docs/history/advisor/INDEX.md).
+AppSec Analyzer is a standalone Python CLI with an extracted analysis engine. Start with [AGENTS.md](AGENTS.md), the [architecture overview](ARCHITECTURE.md), [product requirements](requirements.md), and the [script layout](scripts/README.md). Current user instructions live in the README and current guides; earlier Advisor guides are marked as [history](docs/history/advisor/INDEX.md).
 
 ## Development environment
 
@@ -89,7 +89,7 @@ For report sections, follow the [section runbook](docs/internal/runbooks/adding-
 
 | Path | Purpose |
 | --- | --- |
-| `appsec_analyzer/` | Public CLI, score and focused-analysis workflows, assessment request and console, shared application services, hosts, and profiles; see the [module boundaries](scripts/README.md#application-modules). |
+| `appsec_analyzer/` | Public CLI, score and focused-analysis workflows, assessment request and console, shared application services, hosts, and profiles; see the [module boundaries](ARCHITECTURE.md#workflow-ownership). |
 | `scripts/` | Analysis engine, lifecycle, renderers, validators, maintainer tools. |
 | `agents/` | Role instructions and shared contracts consumed by the engine. |
 | `skills/` | Current entry skill and retained Advisor material; selected resources enter the wheel. |

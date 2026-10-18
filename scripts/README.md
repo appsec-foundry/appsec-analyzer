@@ -24,14 +24,4 @@ When moving a module, check imports, dynamic dispatch, subprocess paths, prompts
 
 ## Application modules
 
-`appsec_analyzer/score/` owns deterministic scoring: `service.py` coordinates admitted sources and validated scanner signals, `collection.py` selects the score scanners, `calculation.py` computes results from a loaded `ScoringPolicy`, and `render.py` and `progress.py` present them. Progress uses structured events; legacy text callbacks remain accepted by the presentation adapter.
-
-`appsec_analyzer/analyze_threats/` separates the terminal adapter in `cli.py` from scope and document preparation in `preparation.py`. The analyst controller owns job state and exposes `waiting_job`, `run`, `answer`, and `cancel`; the terminal adapter does not read checkpoint files. Analyst jobs retain their separate lifecycle and state directory.
-
-`appsec_analyzer/assessment/` owns the structured `AssessmentRequest` and the assessment console. The public CLI passes validated options directly to the retained controller; direct script callers can still use argument lists. The existing configuration resolver continues to receive its configuration arguments.
-
-Shared application modules own artifact reads and exclusive publication (`artifacts.py`), requirements catalog admission (`catalogs.py`), terminal fields (`terminal.py`), export targets (`targets.py`), and scanner execution and validation (`scanners/execution.py`). Scanner selection, order, applicability, and failure policy stay with each workflow. Repository preflight is shared through `runtime/source_preflight.py`; configuration-surface detection belongs to `analyzers/iac_surface.py`.
-
-The dependency direction is command adapter to application workflow to shared services. Shared services must not import the public CLI or an application controller. The previous `scoring.py`, `score_progress.py`, and `threat_analysis.py` module paths are compatibility imports; the retained score script still supports its direct command and original output presentation.
-
-`appsec_analyzer/engine.py` owns the compatibility bootstrap for retained engine domain imports. The retained script directories and their relative resources remain in place; moving them requires coordinated changes to subprocess dispatch, resource lookup, packaging, prompts, and tests. New application Python files participate in assessment runtime fingerprints in both checkouts and installed wheels. A changed implementation invalidates earlier resume identities rather than silently reusing them.
+The [architecture overview](../ARCHITECTURE.md) describes the score, focused-analysis, and assessment modules, their shared services, dependency direction, compatibility adapters, and verification. Keep module ownership there and engine-domain descriptions in this script layout.

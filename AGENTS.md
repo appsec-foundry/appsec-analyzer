@@ -12,6 +12,8 @@ Keep the [README](README.md), affected current guides, CLI help, and installed e
 
 ## Architecture and change boundaries
 
+Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing module ownership or dependencies, and keep it aligned with structural changes. It describes application workflows, shared services, retained engine boundaries, and compatibility adapters.
+
 | Change | Read and keep aligned |
 | --- | --- |
 | Public commands or packaging | `appsec_analyzer/cli.py`, `setup.py`, `MANIFEST.in`, `engine.json`, current guides, public CLI tests. |

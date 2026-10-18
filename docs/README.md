@@ -19,6 +19,8 @@ Start with the [repository README](../README.md) to choose a source scan, full a
 
 [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md) explain requirement integration, change boundaries, and verification. [Local release preparation](local-release-preparation.md) describes archive inspection and offline qualification. The [repository review](internal/analysis/repository-review-2026-10-17.md) records outstanding extraction defects and legacy candidates.
 
+The [architecture overview](../ARCHITECTURE.md) describes application workflows, shared services, dependency direction, and compatibility boundaries. The [script layout](../scripts/README.md) maps the retained engine domains.
+
 The [requirement acceptance contract](internal/contracts/requirement-acceptance.md) contains the detailed rules behind the short user requirements. The [ID migration](../specs/changes/plain-requirement-ids/proposal.md) maps earlier category-coded IDs to stable `REQ-NNN` IDs.
 
 The [Juice Shop standard and thorough comparison](internal/analysis/stride-model-cost-comparison-2026-10-17.md) records measured costs, business logic findings, and the limits of drawing model-quality conclusions from two runs.
