@@ -1663,7 +1663,7 @@ def _assessment_controls(scope, jobs, architecture, *, progress):
             ),
             context=context,
             schema=analysis.controls_contract(),
-            normalize=analysis.identity_normalizer(context),
+            normalize=analysis.controls_normalizer(scope, context),
             allowed_sources=allowed,
             preload=analysis.evidence_preload(
                 scope, cited, allowed, room=preload_room(context), max_windows=MAX_PRELOAD_WINDOWS

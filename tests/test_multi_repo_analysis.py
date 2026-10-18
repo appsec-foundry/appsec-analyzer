@@ -1044,6 +1044,48 @@ def test_controls_cannot_borrow_evidence_from_another_owner(tmp_path):
         stage.validate_controls(scope, components, FP, artifact, ranges)
 
 
+def test_controls_take_the_admitted_file_hash_instead_of_the_models_copy(tmp_path):
+    """MR-17: a mistyped hash of an admitted, retrieved file is no correction turn."""
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    normalize = stage.controls_normalizer(scope, identity)
+    assert normalize.version != stage.identity_normalizer(identity).version
+    control = dict(
+        domain="Input Validation",
+        control="Request Validation",
+        effectiveness="Partial",
+        assessment="Only part of the request is validated.",
+        component_ids=[components[0]["id"]],
+        evidence=[dict(evidence[0], sha256="f" * 64)],
+    )
+    artifact = normalize(dict(**identity, security_controls=[control]))
+    assert artifact["security_controls"][0]["evidence"][0]["sha256"] == evidence[0]["sha256"]
+    assert normalize(copy.deepcopy(artifact)) == artifact
+    stage.validate_controls(scope, components, FP, artifact, ranges)
+
+
+def test_normalized_control_hashes_keep_scope_and_retrieval_checks(tmp_path):
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    normalize = stage.controls_normalizer(scope, identity)
+
+    def controls(row):
+        control = dict(
+            domain="Input Validation",
+            control="Request Validation",
+            effectiveness="Partial",
+            assessment="Only part of the request is validated.",
+            component_ids=[components[0]["id"]],
+            evidence=[row],
+        )
+        return normalize(dict(**identity, security_controls=[control]))
+
+    outside = controls(dict(evidence[0], file="missing.py", sha256="f" * 64))
+    assert outside["security_controls"][0]["evidence"][0]["sha256"] == "f" * 64
+    with pytest.raises(ValueError, match="outside admitted scope"):
+        stage.validate_controls(scope, components, FP, outside, ranges)
+    with pytest.raises(Rejection, match="not retrieved"):
+        stage.validate_controls(scope, components, FP, controls(dict(evidence[0], sha256="f" * 64)), ranges[1:])
+
+
 @pytest.mark.parametrize(
     "path,source,line,problem",
     [

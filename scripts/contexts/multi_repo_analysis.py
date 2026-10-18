@@ -913,6 +913,28 @@ def identity_normalizer(identity):
     return normalize
 
 
+def controls_normalizer(scope, identity):
+    """Set identity fields and each admitted citation's file hash instead of checking the model's copy (MR-17).
+
+    A citation outside the admitted scope keeps the model's value, so
+    `validate_controls` still rejects it; scope, retrieval and line checks are
+    unchanged.
+    """
+    identify = identity_normalizer(identity)
+    files = {repo.repository_id: repo.files for repo in scope.repositories}
+
+    def normalize(artifact):
+        artifact = identify(artifact)
+        for row in source_rows(artifact):
+            rid, path = row.get("repository_id"), row.get("file")
+            if isinstance(rid, str) and isinstance(path, str) and path in files.get(rid, {}):
+                row["sha256"] = hashlib.sha256(files[rid][path]).hexdigest()
+        return artifact
+
+    normalize.version = "controls-1"
+    return normalize
+
+
 def stride_normalizer(targets, component, identity):
     """Derive what the controller knows instead of checking and returning it (MR-17).
 
