@@ -3,56 +3,68 @@
 [![Version](https://img.shields.io/badge/version-0.1.0a0-orange.svg)](engine.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](setup.py)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](#reports-and-exports)
-
-AppSec Analyzer is a command-line tool for reviewing application security from source code. It maps components, data flows, and trust boundaries, examines security controls, and produces findings with code references and suggested fixes.
-
-Use it when taking over an unfamiliar codebase, preparing a security review, or deciding what to fix next. It works with one Git repository or several repositories that form a system.
-
-The tool combines rule-based source scanners with model-backed analysis. A source scan runs without an AI account. A full security assessment uses Claude CLI by default with a USD 20 spending limit, configurable with `--budget`.
-
-`scan` and `assess` first check repository access and provider setup without generating model output. Preflight uses the same check symbols and terminal colors as the assessment console, with one line per completed check and a notice for unverified access; during `scan` and `assess` these lines appear as a `Preflight` phase under the run summary. Check separately with `appsec-analyzer preflight --repo /path/to/project --profile claude`; this starts no assessment and clones no repository. Some checks cannot establish server authentication or inference permission. An optional `--test-model --budget USD` authorizes one separate primary-model test with a fixed synthetic prompt. See [preflight checks and limits](docs/security-assessment.md#preflight-checks).
+[![Claude CLI](https://img.shields.io/badge/default%20provider-Claude%20CLI-5A67D8.svg)](docs/model-selection.md)
+[![Security assessment](https://img.shields.io/badge/security%20assessment-repository--based-5A67D8)](docs/security-assessment.md)
+[![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 
 > [!NOTE]
 > **Alpha.** Commands and report formats may change. Live assessment quality is still being qualified; review findings before acting on them.
 
-[Install](#install) · [Quick start](#quick-start) · [Reports](#reports-and-exports) · [More commands](#more-commands) · [Security](#security-and-data-use) · [Documentation](#documentation) · [Contributing](#contributing)
+AppSec Analyzer is a command-line tool for reviewing application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes.
 
-## What does it check?
+Use it when you take over an unfamiliar codebase, prepare a security review, or need to decide what to fix next. It works on a single Git repository or on several repositories that form one system.
 
-A full assessment helps answer:
+There are two kinds of commands. `scan-sources` and `score` run rule-based scanners locally and make no model calls. `scan` and `assess` run a full assessment that sends source excerpts to a model provider; by default this is Claude CLI with a spending limit of USD 20.
 
-- How do components communicate, and where does data cross a trust boundary?
-- Which security controls are present, missing, or incorrectly implemented?
-- Which weaknesses and attack paths are supported by the code?
-- What should the team fix, and how can it verify the fix?
+[What it checks](#what-it-checks) · [Security](#security-and-data-use) · [Install](#install) · [Quick start](#quick-start) · [Configuration](#configure-an-assessment) · [Reports](#reports-and-exports) · [More commands](#more-commands) · [Documentation](#documentation) · [Contributing](#contributing)
 
-The assessment covers implementation weaknesses and design risks. It connects findings to the application architecture and separates supported findings from unresolved questions. You can add business context, security requirements, and organization settings to guide the analysis.
+## What it checks
 
-To check your own business rules, select a YAML file with `--abuse-case-file review/abuse-cases.yaml`, or save the selection in a scan profile. Paths are relative to the repository being assessed; no special documentation directory is required. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases) for the format and limits.
+A full assessment helps answer these questions:
 
-Source code cannot establish how an application behaves in production. Deployment controls, business assumptions, and findings still need review by the team.
+- How do the components communicate, and where does data cross a trust boundary?
+- Which security controls are present, missing, or implemented incorrectly?
+- Which weaknesses and attack paths does the code support?
+- What should the team fix first, and how can it verify the fix?
+
+The assessment covers implementation weaknesses and design risks. It ties each finding to the architecture and keeps supported findings apart from open questions. You can add business context, security requirements, your own abuse cases, and organization settings to guide the analysis.
+
+It does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime testing. Source code also cannot show how the application behaves in production, so the team still has to review deployment controls, business assumptions, and the findings themselves.
+
+## Security and data use
+
+> [!IMPORTANT]
+> **Model-backed commands send source excerpts and context to the selected provider.** This applies to full assessments, focused analysis, and requirements audits. Check your organization's rules and the provider's data-handling terms before you analyze confidential code.
+
+`scan-sources` and `score` send no source to a model. They still need network access when you pass a Git URL instead of a local path.
+
+Analyzed repositories are treated as untrusted input. Their content cannot authorize tools or select provider credentials. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive.
+
+The Claude CLI adapter is the default. The OpenAI, Codex CLI, LiteLLM, and Bedrock profiles are experimental and have not completed live assessment qualification. The [security policy](SECURITY.md) covers boundaries, data handling, and vulnerability reporting.
 
 ## Install
 
-Requires **Python 3.10+**, **Git**, and [pipx installed and on your PATH](https://pipx.pypa.io/stable/). Install the current preview directly from the repository in one command:
+You need **Python 3.10+**, **Git**, and [pipx](https://pipx.pypa.io/stable/) on your `PATH`. Install the current preview from the `dev` branch:
 
 ```sh
 pipx install "git+https://github.com/appsec-foundry/appsec-analyzer.git@dev"
+appsec-analyzer version
 ```
 
-This command requires the `dev` branch to be available in the GitHub repository and accessible to you. pipx manages a separate virtual environment and exposes `appsec-analyzer` on your PATH. No manual clone or environment activation is needed. Verify the installation with `appsec-analyzer version`.
+pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The command only works if the `dev` branch is reachable for your GitHub account.
 
-If you prefer `pip`, run this in an activated virtual environment:
+To use `pip` instead, run this inside an activated virtual environment:
 
 ```sh
 python -m pip install "git+https://github.com/appsec-foundry/appsec-analyzer.git@dev"
 ```
 
+The package is not yet on PyPI, so `pip install appsec-analyzer` does not work. [Local release preparation](docs/local-release-preparation.md) explains how to build and install a wheel locally.
+
 <details>
 <summary>Install from a local checkout</summary>
 
-To install local changes, use the checkout workflow instead:
+Use this if you want to install local changes:
 
 ```sh
 git clone --branch dev https://github.com/appsec-foundry/appsec-analyzer.git
@@ -63,200 +75,163 @@ python -m pip install .
 appsec-analyzer version
 ```
 
-If you already have a checkout, start with `cd appsec-analyzer`. With pipx installed, you can also run `pipx install .` from the checkout. The `pip` workflow above uses bash/zsh; keep its virtual environment active when running the commands below.
+With pipx, `pipx install .` from the checkout works as well. The commands above are for bash or zsh; keep the virtual environment active while you use Analyzer.
 
 </details>
 
 <details>
-<summary>Run directly from a local checkout without installation</summary>
+<summary>Run from a checkout without installing</summary>
 
-You can run the CLI as a Python module without installing Analyzer or activating a virtual environment. This requires Python 3.10+, Git, and the runtime dependencies declared in [setup.py](setup.py) (`PyYAML>=6,<7`, `jsonschema>=4.20,<5`, and `Jinja2>=3.1,<4`) to be available to `python3`.
-
-From your Analyzer checkout, check the entry point:
+You can run the CLI as a Python module. `python3` then needs the runtime dependencies from [setup.py](setup.py): `PyYAML>=6,<7`, `jsonschema>=4.20,<5`, and `Jinja2>=3.1,<4`.
 
 ```sh
 cd /path/to/appsec-analyzer
 python3 -m appsec_analyzer.cli version
-python3 -m appsec_analyzer.cli scan --help
+python3 -m appsec_analyzer.cli scan-sources --repo /path/to/project
 ```
 
-Replace `/path/to/appsec-analyzer` with your checkout path. For the commands below, replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` and keep your working directory at the Analyzer checkout. Select the repository to assess explicitly with `--repo`, because its default is the current directory. For example, with Claude CLI configured:
-
-```sh
-python3 -m appsec_analyzer.cli scan --repo /path/to/project --output /path/to/assessment
-```
-
-Replace `/path/to/project` with the target Git repository and `/path/to/assessment` with an existing result directory outside it. This runs the same paid assessment, sends selected source excerpts and context to the model provider, and uses the default USD 20 spending limit. Use `python3 -m appsec_analyzer.cli scan-sources --repo /path/to/project` for a source scan without model calls.
+In all later examples, replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` and stay in the Analyzer checkout. Always pass `--repo`, because it defaults to the current directory.
 
 </details>
 
-Installing by package name with `pip install appsec-analyzer` requires a release on PyPI. The current preview is listed as unpublished in [local release preparation](docs/local-release-preparation.md), which also describes installation from a locally built wheel.
+### Model provider
 
-Organizations can ship a separate package with their scan, model and organization profiles included. Its own command selects those installed defaults automatically and uses an exact Analyzer dependency. The [organization packaging guide](docs/organization-distributions.md) walks through the installable Nordlicht example, internal releases, updates and CI use without an engine fork.
+The source scan and score need no provider. For a full assessment, set up one of these:
 
-A full assessment with the default `claude` profile needs `claude` on your `PATH`, with a working login or externally configured Anthropic API credentials. The experimental `codex` profile uses `OPENAI_API_KEY` instead. To use your ChatGPT plan, select the experimental `codex-cli` profile with Codex CLI 0.163.0 and a ChatGPT login; see [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). The source scan needs neither. See [profile configuration](docs/configuration.md) for provider setup.
+| Profile | Requirement |
+| --- | --- |
+| `claude` (default) | `claude` on your `PATH` with a working login or externally configured Anthropic API credentials. |
+| `codex` (experimental) | `OPENAI_API_KEY`. |
+| `codex-cli` (experimental) | Codex CLI 0.163.0 signed in with a ChatGPT plan. See [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). |
+| `bedrock` and LiteLLM (experimental) | An external Bedrock API key or LiteLLM gateway with verified connection and price settings. See [LiteLLM and Bedrock setup](docs/providers.md). |
+
+[Profile configuration](docs/configuration.md) describes provider setup in detail. Organizations can also ship their own package with preconfigured profiles; see the [organization packaging guide](docs/organization-distributions.md).
 
 ## Quick start
 
-Replace `/path/to/project` with the path to the Git repository you want to examine.
+In the examples, replace `/path/to/project` with the Git repository you want to examine and `/path/to/assessment` with a result directory.
 
-### 1. Run a source scan
-
-Start with a scan that makes no model calls:
+### 1. Scan without model calls
 
 ```sh
 appsec-analyzer scan-sources --repo /path/to/project
+appsec-analyzer score /path/to/project
 ```
 
-It prints observations from the applicable authorization, mass-assignment, and configuration scanners, along with their coverage. These observations are unverified; this command does not perform a full security assessment. Add `--json` for machine-readable output.
+`scan-sources` prints observations from the authorization, mass-assignment, and configuration scanners that apply to the repository, together with their coverage. These observations are unverified and do not replace a full assessment.
 
-For a quick score, use `appsec-analyzer score /path/to/project` or supply an HTTPS/SSH Git URL instead of the local path. The command reuses the existing Analyzer analysis engine without model calls and prominently displays a score from 0 to 100, findings, coverage, and limitations. Add `--json` or `--yaml` for structured output, or run `appsec-analyzer score --help` for examples and options.
+`score` shows a score from 0 to 100 with findings, coverage, and limits. It also accepts an HTTPS or SSH Git URL. If coverage is too low, it reports `undetermined` instead of a number. See [security scoring](docs/security-score.md) for interpretation and exit codes.
 
-Progress starts immediately on stderr with a status and duration for each preparation step and scanner, including Git cloning when needed; stdout contains the result. Status labels, scores, and finding severities use the shared terminal colors and respect `NO_COLOR` and `FORCE_COLOR`; JSON/YAML stay free of styling codes. Runtime depends on repository size, scanner work, and any Git download. The score is a limited indication; insufficient coverage produces `undetermined` instead of a number. See [security scoring](docs/security-score.md) for coverage, interpretation, comparison limits, and exit codes.
+Both commands accept `--json`; `score` also accepts `--yaml`. Progress goes to stderr and the result to stdout. With `--output DIR`, `scan-sources` also saves `scan-result.json` there and never overwrites an existing result.
 
 ### 2. Run a full assessment
 
-With Claude CLI configured, run this from the Git repository you want to assess:
+Run this from the repository you want to assess, or add `--repo /path/to/project`:
 
 ```sh
 appsec-analyzer scan
 ```
 
-`scan` uses the current directory by default. To assess a different repository, add `--repo /path/to/project`.
+This makes paid model calls with a default limit of **USD 20**. Use `--budget 10` to choose another limit. The limit is a maximum, not an estimate. If the remaining budget cannot cover required work, the run keeps its progress and reports the assessment as incomplete.
 
-This command sends selected source excerpts and supplied context to the model provider and makes paid model calls. With `claude` or `codex`, the default spending limit is **USD 20** for `scan` and `assess`. To choose another limit, use `appsec-analyzer scan --budget 10`. The CLI prints the selected limit before starting. This is a maximum, not an estimate or a guarantee that the assessment will finish within that amount. If the remaining budget cannot cover required work, the run preserves progress and reports an incomplete assessment. `--hard-budget` remains a compatible alias for `--budget`.
+Before any model call, `scan` checks repository access and provider setup. You can run the same checks on their own with `appsec-analyzer preflight --repo /path/to/project --profile claude`; see [preflight checks and limits](docs/security-assessment.md#preflight-checks).
 
-To use your ChatGPT plan with the supported Codex CLI installed and signed in:
+Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository. They include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. To choose the location, pass `--output` with a directory outside every analyzed repository.
+
+To use your ChatGPT plan instead of a USD budget:
 
 ```sh
 codex login
 appsec-analyzer scan --profile codex-cli --max-calls 1000
 ```
 
-This profile uses plan allowance or available credits and defaults to 1,000 model exchanges, four hours, and serial component processing. It rejects USD budget options and reports monetary cost as unavailable. Source excerpts and context still leave the machine. Responses use a native structured schema and retain full result validation. See [setup, recovery, and limitations](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli); live assessment quality remains unqualified.
+This profile counts model exchanges instead of money and rejects USD budget options. Source excerpts still leave the machine.
 
-The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
-
-The startup header groups settings into Run, Scope, and Workflow & results, with the billing mode and either a USD budget or subscription call limit. It shows the planned focus, loaded abuse-case sources, coverage limits, and excluded checks. It distinguishes built-in, organization, and user-supplied cases or disabled verification. Loaded cases have not yet been matched or verified; the results show actual coverage. The assessment does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime testing.
-
-Use `--verbose` for job and call identities and detailed sanitized correction messages. Full assessments retain private per-attempt diagnostics across compatible resumes; see [diagnostics and limits](docs/security-assessment.md).
-
-While a model call is waiting, the terminal updates one status row. Plain logs report missing updates once until the call changes state; connection interruptions and timeouts remain separate warnings.
-
-Progress output immediately warns when optional model jobs are skipped. Architect Review and abuse-case totals distinguish actual checks from unchecked work, including at `thorough` depth. See [assessment coverage and limits](docs/security-assessment.md).
-
-An interactive terminal outside CI may ask for a higher total USD budget before budget-limited work is skipped. Only entering a higher total authorizes an increase; an empty answer keeps the current limit. Use `--non-interactive` for CI and unattended runs. Compatible resume retains earlier approved increases for the same run.
-
-The default profile is `claude` and the default depth is `standard`. A scan profile supplies the model profile, depth, USD budget, exports, and report attributes. CLI options override its defaults. For example, with `OPENAI_API_KEY` configured:
+### 3. Follow, resume, and review a run
 
 ```sh
-appsec-analyzer scan --profile codex --assessment-depth thorough --budget 20
-```
-
-You can also create [your own scan and model profiles](docs/profiles.md), including per-role model settings. Inspect them with `appsec-analyzer profiles show NAME` or check them with `appsec-analyzer profiles validate NAME`. The built-in profiles impose no output-token cap.
-
-The built-in `codex` and `codex-cli` model profiles use Luna with low reasoning effort for reconnaissance and Sol for all other roles. Operator model overrides take precedence. This routing has offline tests; live assessment quality remains unqualified.
-
-To use an existing LiteLLM gateway, configure the separate connection and run `appsec-analyzer scan --model "lite claude" --budget 20`. Native Amazon Bedrock uses `--profile bedrock` and an external Bedrock API key. Both support per-role model profiles and require verified connection and price settings. See [LiteLLM and Bedrock setup](docs/providers.md).
-
-Component analysis runs at most two components at once by default. Set `max_parallel` in a scan profile or pass `--max-parallel 4` to override it for a run. Accepted values are integers from 1 to 16; higher values can encounter provider rate limits.
-
-On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
-
-No `--host` argument is needed. The `codex` profile uses the OpenAI API, not a Codex CLI login, and has not completed live assessment qualification. See [profiles, models, and cost](docs/model-selection.md) before a paid run.
-
-`standard` also analyzes business logic. `thorough` can cost more without producing more verified results when later checks cannot fit the budget; see [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough).
-
-### 3. Inspect and continue a run
-
-Use the output directory reported by the assessment in place of `/path/to/assessment`:
-
-```sh
+# Show the run state and the published files
 appsec-analyzer status --output /path/to/assessment
 appsec-analyzer results --output /path/to/assessment
+
+# Continue an interrupted run with compatible source and settings
+appsec-analyzer scan --repo /path/to/project --output /path/to/assessment --resume
+
+# Discuss findings and plan fixes in Claude Code or Codex
+appsec-analyzer review /path/to/assessment
 ```
 
-`status` shows the run state. `results` lists published files after checking their recorded hashes. To continue an interrupted run with compatible source and settings:
+`progress` and `stop` with `--output` let you watch or stop a run from another terminal. See [command-line operation](docs/headless-mode.md) for unattended runs and recovery.
 
-```sh
-appsec-analyzer scan --repo /path/to/project --budget 20 \
-  --output /path/to/assessment --resume
-```
+`review` hands the saved reports and a bundled review skill to your coding assistant. By default it uses the assistant recorded in the assessment; `--with codex` selects another, and `--preview` shows the handoff without model calls. The review starts in read-only mode and is billed to that assistant's account, separately from the scan budget. See [reviewing an assessment](docs/security-assessment.md#review-an-assessment-with-ai).
 
-Use `progress` to inspect progress from another terminal and `stop` to request a stop, each with `--output /path/to/assessment`. See [command-line operation](docs/headless-mode.md) for unattended runs and recovery.
+## Configure an assessment
 
-If a model requests a source outside the admitted inventory, Analyzer blocks the request and stops the run. STRIDE jobs receive an explicit list of readable repository and path pairs; missing files must be reported as missing evidence. See [source-read failures](docs/security-assessment.md#source-read-failures) for recovery limits.
+Command-line options override the defaults from a scan profile. The most common ones:
+
+| Option | Effect |
+| --- | --- |
+| `--profile NAME` | Model profile. Default: `claude`. |
+| `--assessment-depth LEVEL` | Default: `standard`, which includes business-logic analysis. `thorough` can cost more without producing more verified results; see [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). |
+| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. `--hard-budget` is an alias. |
+| `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
+| `--abuse-case-file PATH` | Check your own business rules from a YAML file in the repository. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
+| `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. Higher values can hit provider rate limits. |
+| `--non-interactive` | For CI and unattended runs. Without it, an interactive terminal may ask for a higher budget before skipping work. |
+| `--verbose` | Show job and call identities and detailed correction messages. |
+
+[Scan and model profiles](docs/profiles.md) explains how to store these settings and how to choose models per role. Check a profile with `appsec-analyzer profiles show NAME` or `appsec-analyzer profiles validate NAME`.
+
+When a provider rate-limits the run, Analyzer retries and then pauses with exit code 3 if the wait is too long. Accepted work is kept; rerun the same command with `--resume` once capacity is back. [Security assessment](docs/security-assessment.md) describes retries, coverage reporting, source-read failures, and diagnostics.
 
 ## Reports and exports
 
-The Markdown report describes the architecture, security controls, findings, open questions, and prioritized remediation. The YAML file contains the structured assessment.
+The Markdown report describes the architecture, security controls, findings, open questions, and prioritized remediation. The YAML file holds the same assessment as structured data.
 
-Request additional formats when starting an assessment:
+Request additional formats when you start the assessment:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project --budget 20 --sarif --html
+appsec-analyzer scan --repo /path/to/project --sarif --html
 ```
 
 | Flag | Output |
 | --- | --- |
-| `--sarif` | SARIF 2.1.0 findings for compatible code-scanning tools. |
+| `--sarif` | SARIF 2.1.0 findings for code-scanning tools. |
 | `--html` | HTML report. Requires Pandoc. |
 | `--pdf` | PDF report. Requires Pandoc and WeasyPrint; diagrams may also need Mermaid CLI and Chrome. |
 | `--threatdragon` | OWASP Threat Dragon model. |
 | `--pentest-tasks` | Tasks for follow-up penetration testing. |
 
-Export a completed saved assessment without model calls:
+To export a completed assessment later, without model calls:
 
 ```sh
 appsec-analyzer export --assessment /path/to/assessment \
   --output /path/to/new-export --formats markdown yaml sarif html
 ```
 
-The source must have a completed assessment state and unchanged, recorded artifacts. The export directory must be new and outside Git checkouts. See [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).
-
-Work with an existing assessment in Claude Code or Codex, using the result directory printed by your scan:
-
-```sh
-appsec-analyzer review /path/to/assessment
-appsec-analyzer review /path/to/assessment --with codex
-```
-
-Analyzer defaults to the coding assistant recorded in the assessment and offers this command after completion. The installed assistant receives the existing reports and a bundled review skill for finding questions, evidence lookup, and remediation planning; no export or new scan is needed. `--preview` shows the handoff without model calls. Review needs an interactive terminal and a signed-in assistant, starts in planning/read-only mode, and uses that assistant's own account and usage charges independently of the scan budget. See [reviewing an assessment](docs/security-assessment.md#review-an-assessment-with-ai) for selection, permissions, and limits.
-
-To choose where assessment results are stored, create a directory outside every selected repository and pass it with `--output`. For `scan-sources`, this saves `scan-result.json` in addition to printing the summary; an existing result is refused without being overwritten.
+The export directory must be new and outside any Git checkout. See [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).
 
 ## More commands
 
-Use the same CLI for a combined assessment, a focused security question, or a requirements audit.
+Prefix each command with `appsec-analyzer` and add `--help` for its options.
 
 | Task | Command | Guide |
 | --- | --- | --- |
-| Get a quick score without model calls | `score /path/to/project` | [Security score](docs/security-score.md) |
 | Assess several repositories together | `scan --repo /path/to/api --repo /path/to/client --budget 30` | [Security assessment](docs/security-assessment.md) |
 | Select the model host explicitly | `assess --repo /path/to/project --host claude-cli --budget 20` | [Hosts and models](docs/model-selection.md) |
-| Ask a security question or review a design, code change, MR or PR with project documents | `analyze-threats "Question" --path src/api`, `analyze-threats --staged`, `analyze-threats --mr URL` | [Threat Analyst](docs/threat-analyst.md) |
-| Review authentication and authorization, with JSON/YAML and optional pentest plans | `authnz-review --repo /path/to/project --budget 5` | [AuthNZ review](docs/authnz-review.md) |
+| Ask a security question or review a design, change, MR, or PR | `analyze-threats "Question" --path src/api`, `analyze-threats --staged`, `analyze-threats --mr URL` | [Threat Analyst](docs/threat-analyst.md) |
+| Review authentication and authorization | `authnz-review --repo /path/to/project --budget 5` | [AuthNZ review](docs/authnz-review.md) |
 | Check a security requirements catalog, optionally as a CI gate | `audit-requirements` | [Requirements audit](docs/security-requirements-audit-skill.md) |
-| Show available scanners and provider qualification | `capabilities` | [Configuration](docs/configuration.md) |
+| Show scanners and provider qualification | `capabilities` | [Configuration](docs/configuration.md) |
 
-Prefix each command with `appsec-analyzer`. Add `--help` to see its arguments. Focused analysis and requirements audits also make paid model calls; their guides explain the required inputs and budget controls. `scan` and `assess` run the same full assessment; `assess` requires an explicit `--host`.
-
-Repeated `--repo` arguments combine repositories into one system. You can also supply explicit HTTPS or SSH Git URLs. Fetching a remote repository requires network access, including for a source scan.
-
-## Security and data use
-
-**Model-backed commands send source excerpts and context to the selected provider.** This includes full assessments, focused analysis, and requirements audits. Check your organization's rules and the provider's data-handling terms before analyzing confidential code. `scan-sources` and `score` do not send source to a model; explicitly selected Git URLs still require network retrieval.
-
-Repositories are treated as untrusted input by default. Repository content cannot authorize tools or select provider credentials. Keep credentials outside repository files and Git URLs, and treat reports and intermediate files as sensitive.
-
-The Claude CLI adapter is available. The experimental OpenAI, LiteLLM and Bedrock profiles have offline protocol and budget tests, but have not completed live assessment qualification. The legacy generic gateway remains unavailable through the public CLI. See the [security policy](SECURITY.md) for boundaries, data handling, and vulnerability reporting.
+`scan` and `assess` run the same assessment; `assess` requires `--host`. `analyze-threats`, `authnz-review`, and `audit-requirements` also make paid model calls. Their guides list the required inputs and budget options.
 
 ## Documentation
 
 - [Security assessment](docs/security-assessment.md): scope, depth, output, and recovery.
-- [Scan and model profiles](docs/profiles.md): defaults, user files, examples, and per-role model selection.
+- [Scan and model profiles](docs/profiles.md): defaults, user files, and per-role model selection.
 - [Configuration](docs/configuration.md) and [organization profiles](docs/org-profiles.md): settings for local and team use.
-- [Hosts, models, and cost](docs/model-selection.md): provider support and spending controls.
+- [Hosts, models, and cost](docs/model-selection.md): provider support and spending limits.
 - [Command-line operation](docs/headless-mode.md): unattended runs and lifecycle commands.
 - [Documentation index](docs/README.md): all current guides and maintainer references.
 
