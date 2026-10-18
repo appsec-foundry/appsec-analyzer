@@ -27,24 +27,18 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/).
    pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
    ```
 
-2. Run a full assessment of a local checkout or a Git URL. Analyzer creates the private output directory outside the repository. This makes paid model calls; the default cost limit is USD 20 and `--budget` changes it:
+2. Run a full assessment of a Git repository. Analyzer creates the output directory, readable only by you. This makes paid model calls with a default cost limit of USD 20:
 
    ```sh
-   appsec-analyzer scan --repo /path/to/project --output /path/to/assessment
+   appsec-analyzer scan --repo https://github.com/juice-shop/juice-shop.git --output ~/assessments/juice-shop
    ```
 
-   The default profile uses the Claude CLI. To use your ChatGPT plan through the Codex CLI instead, select the `codex-cli` profile and limit the model exchanges:
-
-   ```sh
-   appsec-analyzer scan --repo /path/to/project --output /path/to/assessment --profile codex-cli --max-calls 1000
-   ```
-
-   [Model provider](#model-provider) lists all profiles and their setup.
+   This is an example: `--repo` also takes a local checkout, and besides the default Claude CLI you can use [Codex CLI, the OpenAI API, LiteLLM, or Amazon Bedrock](#model-provider).
 
 3. Discuss the findings and plan fixes in Claude Code or Codex:
 
    ```sh
-   appsec-analyzer review /path/to/assessment
+   appsec-analyzer review ~/assessments/juice-shop
    ```
 
 ## Commands
