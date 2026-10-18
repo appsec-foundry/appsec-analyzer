@@ -202,6 +202,7 @@ requirements:
 
   REQ-002:
     applies_to:
+      - appsec_analyzer/preflight.py
       - scripts/runtime/remote_repositories.py
       - scripts/runtime/resolve_config.py
       - scripts/runtime/multi_repo_scope.py
@@ -219,6 +220,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_startup_preflight.py::test_url_preflight_checks_read_access_without_output_or_clone
       - tests/test_remote_repositories.py::test_multiple_urls_and_local_paths_share_one_invocation
       - tests/test_remote_repositories.py::test_real_checkout_and_cleanup_with_stable_identity
       - tests/test_resolve_config.py::TestCLI::test_repo_flag_resolves_path
@@ -898,6 +900,7 @@ requirements:
 
   REQ-016:
     applies_to:
+      - appsec_analyzer/preflight.py
       - scripts/runtime/assessment_diagnostics.py
       - scripts/model/assessment_scanner_findings.py
       - appsec_analyzer/providers.py
@@ -935,6 +938,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_startup_preflight.py::test_cli_preflight_never_clones_or_starts_assessment
+      - tests/test_startup_preflight.py::test_failed_remote_stops_before_any_clone_or_assessment
       - tests/test_assessment_jobs.py::test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_receipted
       - tests/test_assessment_diagnostics.py::test_required_failure_retains_selector_role_and_long_rejection
       - tests/test_assessment_diagnostics.py::test_accepted_and_reused_jobs_share_receipt_identity
@@ -1247,6 +1252,7 @@ requirements:
 
   REQ-023:
     applies_to:
+      - appsec_analyzer/preflight.py
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - scripts/runtime/assessment_host.py
@@ -1287,6 +1293,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_startup_preflight.py::test_live_probe_requires_explicit_budget
+      - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
       - tests/test_provider_backends.py::test_lite_wire_checks_deployment_and_uses_gateway_charge
       - tests/test_provider_backends.py::test_lite_unknown_route_or_cost_never_becomes_an_accepted_answer
       - tests/test_provider_backends.py::test_bedrock_converse_wire_and_accounting
@@ -1549,6 +1557,7 @@ requirements:
 
   REQ-031:
     applies_to:
+      - appsec_analyzer/preflight.py
       - scripts/runtime/source_preflight.py
       - appsec_analyzer/artifacts.py
       - appsec_analyzer/engine.py
@@ -1580,6 +1589,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_startup_preflight.py::test_failed_metadata_never_reads_error_body_or_follows_redirect
       - tests/test_analyst_documents.py::test_external_and_parent_symlinks_never_deliver_content
       - tests/test_review_sources.py::test_pinned_https_rejects_prohibited_destinations_before_connect
       - tests/test_review_sources.py::test_https_pins_resolved_address_but_checks_original_tls_hostname
@@ -1617,6 +1627,7 @@ requirements:
 
   REQ-032:
     applies_to:
+      - appsec_analyzer/preflight.py
       - scripts/contexts/analyst_documents.py
       - appsec_analyzer/authnz_review.py
       - scripts/runtime/assessment_diagnostics.py
@@ -1637,6 +1648,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_startup_preflight.py::test_connection_failure_is_redacted
       - tests/test_analyst_documents.py::test_secret_document_is_withheld_and_required_secret_document_fails
       - tests/test_authnz_review_cli.py::test_untrusted_model_output_cannot_cross_report_boundaries
       - tests/test_assessment_diagnostics.py::test_reasons_keep_structural_detail_and_remove_values_locations_and_control_codes
@@ -1654,6 +1666,7 @@ requirements:
 
   REQ-033:
     applies_to:
+      - appsec_analyzer/preflight.py
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
@@ -1670,6 +1683,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
       - tests/test_provider_backends.py::test_startup_discloses_provider_destination
       - tests/test_codex_cli.py::test_structured_reply_and_isolated_configuration
       - tests/test_api_hosts.py::test_wire_decoder_preserves_absent_and_null_and_requests_no_tools

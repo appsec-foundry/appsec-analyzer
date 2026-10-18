@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from appsec_analyzer import cli, profiles, resource_root
+from tests.test_public_assessment_operations import openai_metadata as openai_metadata
 
 
 @pytest.fixture
@@ -106,7 +107,7 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     monkeypatch.setattr(controller, "assess_main", assess)
     repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     args = [command, "--repo", str(repo), "--profile", "parallel"]
     if override is not None:
         args += ["--max-parallel", str(override)]
@@ -337,6 +338,7 @@ def test_profile_inspection_and_validation_do_not_need_credentials(home, monkeyp
     assert any(row["name"] == "team-sol" for row in json.loads(capsys.readouterr().out)["profiles"])
 
 
+@pytest.mark.usefixtures("openai_metadata")
 def test_public_cli_passes_effective_budget_exports_and_role_settings(home, tmp_path, monkeypatch, capsys):
     sample(home)
     cli._engine_imports()
@@ -348,7 +350,7 @@ def test_public_cli_passes_effective_budget_exports_and_role_settings(home, tmp_
         seen.update(args=args, profile=run_profile)
         return 0
 
-    (tmp_path / "repo" / ".git").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path / "repo")], check=True)
     monkeypatch.setattr(controller, "assess_main", assess)
     assert (
         cli.main(

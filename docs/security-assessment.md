@@ -1,5 +1,33 @@
 # Complete security assessment
 
+## Preflight checks
+
+`scan` and `assess` check selected local Git roots, remote repository read access and provider setup before cloning repositories or starting analysis. Failures return exit 2 without starting the assessment. Checks run again on resume; a previous success does not guarantee continued access. `--quiet` suppresses progress; failures and generation-test data-use and spending notices remain visible.
+
+Run the same checks independently without an assessment or output directory:
+
+```sh
+appsec-analyzer preflight --repo /path/to/project --profile claude
+appsec-analyzer preflight --repo https://github.com/your-org/your-project.git --profile codex --json
+```
+
+Local selections must name top-level Git checkouts. Remote checks use `git ls-remote` for `HEAD`, require Git 2.34+, have a 30-second command timeout, and download no source objects. They use the same credentials, destination restrictions, TLS checks and trusted SSH host keys as cloning. Empty repositories or repositories without a default-branch commit fail. Git often gives the same failure for a missing private repository and insufficient permission, so Analyzer cannot always distinguish those causes. A later clone can still fail.
+
+OpenAI checks each distinct configured role model with an authenticated [model metadata request](https://developers.openai.com/api/reference/resources/models/methods/retrieve). LiteLLM checks the configured gateway's `/v1/models` list with its API key, including a configured endpoint prefix. These requests send model identifiers and credentials to the selected provider, with no source content or generation. Missing models, rejected credentials, inaccessible metadata, malformed replies and connection failures stop startup. Model-list access does not prove inference permission, upstream gateway credentials, quota or assessment quality. Keys that cannot read model metadata can use the explicit standalone generation test below to diagnose the primary model; other roles then receive TLS checks only. Automatic assessment startup still requires metadata access.
+
+Native Bedrock checks credential format and a verified TLS connection to its regional runtime endpoint; server authentication and model access remain unverified. Claude CLI checks local login status or the presence of externally supplied API/OAuth credentials; Codex CLI checks its reviewed version, isolation features and local ChatGPT login. These checks do not prove server authentication, model availability or quota. The output preserves these limits instead of claiming successful model access.
+
+To test actual generation, explicitly authorize one primary STRIDE-model exchange with a separate spending limit:
+
+```sh
+appsec-analyzer preflight --repo /path/to/project --profile claude --test-model --budget 0.10
+appsec-analyzer preflight --repo /path/to/project --profile codex-cli --test-model --max-calls 1
+```
+
+`--test-model` is available only on `preflight`. Monetary profiles require an explicit `--budget` of at least USD 0.01; the profile's default budget is insufficient authorization. Codex CLI requires explicit `--max-calls` and consumes one exchange from ChatGPT plan allowance; monetary cost remains unavailable. The fixed synthetic prompt contains no source excerpts or project context, grants no tools, and uses the selected primary model and reasoning effort. The exchange has a 30-second limit and no automatic retry. API tests bound output to at most 1,024 tokens within the configured model limit and reserve against the supplied test budget; a small budget or token limit may prevent completion. The separate test budget does not increase an assessment's budget. Other role models, assessment quality and future quota remain unverified even after a successful test. `--json` prints a result with `assessment_status: not_run`; it creates no assessment state or report. Ctrl+C returns 130.
+
+## Run an assessment
+
 `appsec-analyzer scan` analyzes one or several local Git checkouts or explicitly selected Git URLs as one
 system. It uses Claude CLI by default, freezes admitted source, runs
 semantic roles, checks their output against canonical contracts, verifies

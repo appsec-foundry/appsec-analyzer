@@ -285,7 +285,7 @@ def _git(command: list[str], root: Path, env: dict[str, str]) -> None:
         _stop(proc)
 
 
-def clone(remote: Remote, root: Path) -> None:
+def _require_git_version() -> None:
     version = subprocess.run(
         ["git", "--version"],
         stdout=subprocess.PIPE,
@@ -297,6 +297,10 @@ def clone(remote: Remote, root: Path) -> None:
     match = re.search(rb"git version (\d+)\.(\d+)", version.stdout)
     if version.returncode or not match or tuple(map(int, match.groups())) < (2, 34):
         raise RemoteError("Git URL provisioning requires Git 2.34 or newer")
+
+
+def clone(remote: Remote, root: Path) -> None:
+    _require_git_version()
     env = _git_env(remote, root.parent)
     _git(
         [
@@ -317,6 +321,45 @@ def clone(remote: Remote, root: Path) -> None:
     # No global filters, hooks or repository-supplied submodule commands run.
     clean = {k: v for k, v in env.items() if k not in SECRET_ENV}
     _git(["-C", str(root), "checkout", "--quiet", "--detach", "HEAD"], root, clean)
+
+
+def check_access(remote: Remote) -> None:
+    """Check read access without downloading objects or retaining remote output."""
+    try:
+        _require_git_version()
+    except (OSError, subprocess.SubprocessError):
+        raise RemoteError("Git preflight could not check the installed Git version") from None
+    with tempfile.TemporaryDirectory(prefix="appsec-git-check-") as work:
+        directory = Path(work)
+        try:
+            env = _git_env(remote, directory)
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            raise RemoteError("Git preflight could not prepare credentials or trusted SSH configuration") from None
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                ["git", "ls-remote", "--quiet", "--exit-code", "--", remote.url, "HEAD"],
+                cwd=directory,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            code = proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            raise RemoteError("Git preflight timed out; check network access and retry") from None
+        except OSError:
+            raise RemoteError("Git preflight could not start; check Git and credential-helper installation") from None
+        finally:
+            if proc is not None:
+                _stop(proc)
+        if code == 2:
+            raise RemoteError("Git preflight found no HEAD; select a repository with a default-branch commit")
+        if code:
+            raise RemoteError(
+                "Git preflight failed; check repository URL, read permission, credentials and trusted SSH host keys"
+            )
 
 
 def _private_directory(path: Path) -> None:

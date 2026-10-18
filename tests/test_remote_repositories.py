@@ -425,6 +425,58 @@ def test_missing_credentials_fail_without_prompting(tmp_path, monkeypatch):
     assert proc.returncode != 0 and "password=" not in proc.stdout
 
 
+def test_preflight_reads_remote_head_without_checkout(transport, capsys):
+    before = sorted(str(path) for path in transport.rglob("*"))
+    remote.check_access(remote.parse_remote("git@git.example:team/storefront.git"))
+    assert sorted(str(path) for path in transport.rglob("*")) == before
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+def test_preflight_git_failure_is_safe(transport):
+    with pytest.raises(remote.RemoteError, match="Git preflight failed") as caught:
+        remote.check_access(remote.parse_remote("git@git.example:team/nonexistent.git"))
+    assert "nonexistent" not in str(caught.value)
+
+
+def test_preflight_rejects_empty_repository(transport, tmp_path, monkeypatch):
+    empty = tmp_path / "empty"
+    git("init", "-q", str(empty))
+    monkeypatch.setenv("FIXTURE_SOURCES", json.dumps({"team/empty.git": str(empty)}))
+    with pytest.raises(remote.RemoteError, match="no HEAD"):
+        remote.check_access(remote.parse_remote("git@git.example:team/empty.git"))
+
+
+def test_preflight_timeout_stops_child_group(tmp_path, monkeypatch):
+    monkeypatch.setattr(remote, "_require_git_version", lambda: None)
+    monkeypatch.setattr(remote, "_git_env", lambda *a: {})
+    stopped = []
+
+    class Process:
+        def __init__(self, args, **kwargs):
+            assert args[:4] == ["git", "ls-remote", "--quiet", "--exit-code"]
+            assert kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+            assert kwargs["stdin"] == subprocess.DEVNULL and kwargs["start_new_session"]
+
+        def wait(self, timeout):
+            assert timeout == 30
+            raise subprocess.TimeoutExpired("git", timeout)
+
+    monkeypatch.setattr(remote.subprocess, "Popen", Process)
+    monkeypatch.setattr(remote, "_stop", lambda proc: stopped.append(proc))
+    with pytest.raises(remote.RemoteError, match="preflight timed out"):
+        remote.check_access(remote.parse_remote("git@git.example:team/storefront.git"))
+    assert len(stopped) == 1
+
+
+def test_preflight_dns_denial_prevents_git_connection(monkeypatch):
+    monkeypatch.setattr(remote, "_require_git_version", lambda: None)
+    monkeypatch.setattr(remote.socket, "getaddrinfo", lambda *a, **kw: [(None, None, None, None, ("127.0.0.1", 22))])
+    monkeypatch.setattr(remote.subprocess, "Popen", lambda *a, **kw: pytest.fail("no connection to denied address"))
+    with pytest.raises(remote.RemoteError, match="prohibited"):
+        remote.check_access(remote.parse_remote("git@git.example:team/storefront.git"))
+
+
 def test_git_failure_is_redacted_and_partial_clone_is_removed(transport, tmp_path, capsys):
     code = remote.main(["--repo", "git@git.example:team/nonexistent.git", "--output", str(tmp_path / "reports")])
     assert code == 1

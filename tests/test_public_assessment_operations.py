@@ -12,6 +12,41 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture
+def git_root(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    return tmp_path
+
+
+@pytest.fixture
+def openai_metadata(monkeypatch):
+    from appsec_analyzer import api_hosts
+
+    class Connection:
+        status = 200
+
+        def __init__(self, *args, **kwargs):
+            self.model = None
+
+        def request(self, method, path, *, body, headers):
+            assert method == "GET" and body is None and path.startswith("/v1/models/")
+            assert headers["Authorization"] == "Bearer synthetic-preflight-test-key"
+            self.model = path.rsplit("/", 1)[-1]
+
+        def getresponse(self):
+            return self
+
+        def read(self, limit):
+            return json.dumps({"id": self.model}).encode()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Connection)
+    monkeypatch.setattr(api_hosts, "_public_addresses", lambda _: ("203.0.113.5",))
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-preflight-test-key")
+
+
 def _run(command: str, output: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "appsec_analyzer.cli", command, "--output", str(output)],
@@ -165,6 +200,7 @@ def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, mon
 
     repo = tmp_path / "repo"
     repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     observed = []
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     monkeypatch.setattr(
@@ -210,6 +246,7 @@ def test_scan_starts_full_assessment_with_headless_defaults(tmp_path: Path, monk
 
     repo = tmp_path / "repo"
     repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     output = tmp_path / "output"
     output.mkdir(mode=0o700)
     observed = []
@@ -297,6 +334,8 @@ def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(
     effort,
     output_cap,
     selection,
+    git_root,
+    openai_metadata,
 ) -> None:
     from appsec_analyzer import cli, hosts
 
@@ -333,7 +372,7 @@ def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(
 
 @pytest.mark.parametrize("command", ["scan", "assess"])
 @pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
-def test_claude_profile_preserves_controller_model_resolution(tmp_path, monkeypatch, command, depth):
+def test_claude_profile_preserves_controller_model_resolution(tmp_path, monkeypatch, command, depth, git_root):
     from appsec_analyzer import cli, hosts
 
     cli._engine_imports()
@@ -354,7 +393,7 @@ def test_claude_profile_preserves_controller_model_resolution(tmp_path, monkeypa
     assert observed[observed.index("--model") + 1] == "sonnet"
 
 
-def test_codex_profile_selects_the_model_configured_for_each_depth(tmp_path, monkeypatch):
+def test_codex_profile_selects_the_model_configured_for_each_depth(tmp_path, monkeypatch, git_root, openai_metadata):
     from dataclasses import replace
 
     from appsec_analyzer import cli, hosts

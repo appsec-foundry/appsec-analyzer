@@ -199,6 +199,7 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
         return 0
 
     monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     monkeypatch.setattr(orchestration_controller, "assess_main", record_assessment)
     arguments = [command, *budget_args]
@@ -233,6 +234,7 @@ def test_non_interactive_reaches_the_controller_and_is_documented(tmp_path, monk
 
     observed = []
     monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     monkeypatch.setattr(orchestration_controller, "assess_main", lambda args, **kwargs: observed.extend(args) or 0)
     assert cli.main([command, "--repo", str(tmp_path), "--profile", "claude", "--non-interactive"]) == 0

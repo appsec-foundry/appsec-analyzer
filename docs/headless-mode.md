@@ -1,5 +1,7 @@
 # Command-line and unattended operation
 
+Full assessments run a preflight before cloning or analysis. For a separate check, use `appsec-analyzer preflight --repo /checkout --profile claude --json`; it returns 0 when its supported checks pass, 2 on failure and 130 on cancellation, without running an assessment. Default checks perform no generation. Read the returned limitations: local CLI login and Bedrock TLS checks cannot establish server authentication or model access. `preflight --test-model` explicitly consumes money or plan allowance and requires its own explicit budget or call limit. See [preflight checks](security-assessment.md#preflight-checks).
+
 For focused analysis in automation, use `appsec-analyzer analyze-threats "Question" --path src/api --non-interactive` or select an explicit change/MR/PR scope. Scope ambiguity and required unanswered questions return exit 2; no answer is invented. `--preview` performs no model call, but MR/PR resolution still uses the network. The focused analyst uses Claude CLI and `--max-budget-usd` per call, independently of full-assessment profiles and budgets. See [focused threat analysis](threat-analyst.md).
 
 Install the package, then invoke the same public program locally or in CI:

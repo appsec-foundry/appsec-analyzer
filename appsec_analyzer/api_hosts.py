@@ -31,6 +31,7 @@ from runtime.analyst_host import HostCancelled, HostReply, TransportError
 
 MAX_REPLY_BYTES = 1_048_576
 MAX_REQUEST_BYTES = 1_048_576
+PREFLIGHT_SECONDS = 10
 _WIRE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -225,6 +226,95 @@ def credential(profile: ApiProfile) -> str:
     if not value or len(value) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in value):
         raise ApiTransportError("authentication_failed")
     return value
+
+
+def preflight(profile: ApiProfile, *, metadata: bool = True) -> str:
+    """No generation: verify TLS and, where supported, authenticated model metadata.
+
+    Bedrock's runtime bearer-key interface has no model metadata operation.
+    A TLS-only success must never be described as successful authentication.
+    """
+    token = credential(profile)
+    url = urlsplit(profile.endpoint)
+    result = []
+    connections = []
+    stopped = threading.Event()
+
+    def check():
+        connection = None
+        try:
+            address = profile.pinned_ip or _public_addresses(url.hostname or "")[0]
+            if stopped.is_set():
+                return
+            connection = _PinnedHTTPS(url.hostname or "", address, timeout=5)
+            connections.append(connection)
+            if stopped.is_set():
+                return
+            if profile.kind == "bedrock" or not metadata:
+                connection.connect()
+                result.append("tls_only")
+                return
+            prefix = url.path.removesuffix("/responses")
+            path = prefix + "/models"
+            if profile.kind == "openai":
+                path += "/" + quote(profile.model, safe="")
+            connection.request("GET", path, body=None, headers={"Authorization": "Bearer " + token})
+            reply = connection.getresponse()
+            # Do not read or retain provider error bodies.
+            if reply.status != 200:
+                reasons = {
+                    401: "authentication_failed",
+                    403: "access_denied",
+                    404: "model_metadata_unavailable",
+                    402: "billing_error",
+                    429: "rate_limit",
+                }
+                raise ApiTransportError(reasons.get(reply.status, "metadata_request_failed"))
+            data = reply.read(MAX_REPLY_BYTES + 1)
+            if len(data) > MAX_REPLY_BYTES:
+                raise ApiTransportError("response_too_large")
+            document = _json(data)
+            if type(document) is not dict:
+                raise ApiTransportError("invalid_metadata")
+            if profile.kind == "openai":
+                found = document.get("id") == profile.model
+            else:
+                rows = document.get("data")
+                if type(rows) is not list or any(type(row) is not dict for row in rows):
+                    raise ApiTransportError("invalid_metadata")
+                found = any(row.get("id") == profile.model for row in rows)
+            if not found:
+                raise ApiTransportError("model_not_available")
+            result.append("model_metadata")
+        except ApiTransportError as exc:
+            result.append(exc)
+        except TimeoutError:
+            result.append(ApiTransportError("timeout"))
+        except ssl.SSLError:
+            result.append(ApiTransportError("tls_failed"))
+        except (OSError, http.client.HTTPException):
+            result.append(ApiTransportError("connection_failed"))
+        except (ValueError, RecursionError):
+            result.append(ApiTransportError("invalid_metadata"))
+        finally:
+            if connection is not None:
+                connection.close()
+
+    worker = threading.Thread(target=check, daemon=True)
+    worker.start()
+    try:
+        worker.join(timeout=PREFLIGHT_SECONDS)
+    finally:
+        stopped.set()
+        for connection in connections:
+            connection.close()
+    if worker.is_alive():
+        raise ApiTransportError("timeout")
+    if not result:
+        raise ApiTransportError("connection_failed")
+    if isinstance(result[0], ApiTransportError):
+        raise result[0]
+    return result[0]
 
 
 class ResponsesTransport:

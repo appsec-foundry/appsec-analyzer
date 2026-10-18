@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 
 import pytest
 import yaml
@@ -61,6 +62,16 @@ def wire(monkeypatch):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.reply = Reply(self.response, self.status)
+
+        def request(self, method, path, body, headers):
+            if method == "GET":
+                self.requests.append((method, path, None, headers))
+                self.reply = Reply(b'{"data":[{"id":"claude"},{"id":"small-model"}]}', self.status)
+            else:
+                super().request(method, path, body, headers)
+
+        def connect(self):
+            pass
 
     monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Connection)
     monkeypatch.setattr(api_hosts, "_public_addresses", lambda host: ("203.0.113.1",))
@@ -130,7 +141,7 @@ def test_cli_prefix_reaches_controller(connections, wire, tmp_path, monkeypatch,
     seen = []
     monkeypatch.setattr(controller, "assess_main", lambda args, **kw: seen.append(kw) or 0)
     repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     assert cli.main(["assess", "--repo", str(repo), *arguments]) == 0
     expected = "bedrock" if any("bedrock" in arg for arg in arguments) else "lite"
     assert seen[0]["run_profile"]["adapter"] == expected

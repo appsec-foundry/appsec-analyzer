@@ -11,6 +11,8 @@ Use it when taking over an unfamiliar codebase, preparing a security review, or 
 
 The tool combines rule-based source scanners with model-backed analysis. A source scan runs without an AI account. A full security assessment uses Claude CLI by default with a USD 20 spending limit, configurable with `--budget`.
 
+`scan` and `assess` first check repository access and provider setup without generating model output. Check separately with `appsec-analyzer preflight --repo /path/to/project --profile claude`; this starts no assessment and clones no repository. Some checks cannot establish server authentication or inference permission. An optional `--test-model --budget USD` authorizes one separate primary-model test with a fixed synthetic prompt. See [preflight checks and limits](docs/security-assessment.md#preflight-checks).
+
 > [!NOTE]
 > **Alpha.** Commands and report formats may change. Live assessment quality is still being qualified; review findings before acting on them.
 

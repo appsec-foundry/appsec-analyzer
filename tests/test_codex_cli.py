@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -190,6 +191,7 @@ def test_request_capacity_includes_instructions_schema_and_utf8(transport, monke
 
 @pytest.mark.parametrize("budget,expected", [(None, 0), (20, 2)])
 def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr(codex_cli, "preflight", lambda **kwargs: {"version": "0.163.0"})
     from orchestrator import orchestration_controller as controller

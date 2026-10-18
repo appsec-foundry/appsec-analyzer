@@ -78,6 +78,8 @@ Allow users to export an existing validated model without rerunning analysis. Ap
 
 ## REQ-016: Follow, stop, and resume a run
 
+Before full-assessment cloning or analysis, check local Git roots, read access to every explicitly selected remote repository, and provider setup. Expose the same checks as `preflight` without cloning, creating assessment state, or generating model output by default. Check remote `HEAD` with bounded, noninteractive Git using the clone destination and credential controls. For OpenAI and LiteLLM, check all distinct configured role models through authenticated metadata requests without source content; fail on inaccessible or invalid metadata. Report Bedrock credential-format/TLS checks and CLI local-login checks as limited, with server authentication and inference permission unverified. Distinguish metadata access from inference and live assessment qualification. Fail before assessment startup with safe diagnostic causes; never display raw provider or Git errors. Preserve existing admission checks after preflight and recheck on resume.
+
 Let users inspect status, stop a run, and resume compatible interrupted work. Preserve accepted work when resuming and identify stale or incompatible state. Store the effective operator profile with the run. On resume, preserve resolved OpenAI alias targets and revalidate their models, options, and prices against the installed catalog; changed definitions or incompatible runtime state require a new run. Expose progress, actionable failure reasons, and recovery steps. Never describe interrupted or incomplete work as complete.
 
 For full assessments, retain bounded private diagnostics across compatible resume attempts. Correlate model calls, corrections, accepted or reused jobs, replacements, and failures with the run, attempt, role, job, and call identities independently of the selected provider. Verbose output identifies the job and retains bounded sanitized correction reasons beyond a short preview. Identify failed scanners and host failures through safe classifications and available exit or HTTP status codes. Do not record prompts, source excerpts, model answers, raw provider errors, or raw stderr in this shared diagnostic feed. Diagnostic storage failure must warn without changing analysis or publication decisions.
@@ -121,6 +123,8 @@ Run without interactive responses when unattended operation is selected. Return 
 For full assessments, `--non-interactive` explicitly disables budget questions. Missing input or diagnostic terminals, recognized CI environments, `--quiet`, and machine-readable controller output also disable them. Unattended execution never raises its spending limit automatically.
 
 ## REQ-023: Control time and spending
+
+Standalone `preflight --test-model` explicitly selects one synthetic primary STRIDE-model exchange with no automatic retry and a finite execution limit. Monetary providers require an explicit separate USD budget rather than relying on profile defaults; Codex CLI requires an explicit exchange limit and reports plan consumption without inventing monetary cost. Use existing isolated transports, credential, request, token, response and accounting controls. Do not upload source content, start an assessment, or increase another run's budget. Report untested role models and live assessment quality as unverified.
 
 Apply documented finite default spending limits for full assessments and separate audits, allow explicit overrides, show the selected limit before starting, and explain limits for focused analysis. Profile `budget` values are always USD. Do not impose a default OpenAI output-token cap; omit the API parameter unless explicitly configured. Reserve each request against bounded input and the selected output cap or catalog model maximum. A role may need a larger per-call reservation without increasing the total authorized budget. Enforce finite work, retry, and time bounds. Reserve required completion work before optional model calls; when budget cannot cover required assessment work, preserve validated progress in a clearly incomplete result.
 
@@ -177,6 +181,8 @@ Repository content must not activate its own instructions or hooks, select execu
 Block publication of generated artifacts containing unmasked secrets. Avoid copying credentials or sensitive source details into reports and diagnostics; keep retained intermediate data private.
 
 ## REQ-033: Explain what leaves the machine
+
+Preflight progress identifies the selected API destination and model before sending authenticated metadata queries; these queries contain no source content. Before an optional generation test, identify its destination, synthetic-only prompt, separate budget or plan-allowance use, and remaining verification limits.
 
 Before a model-backed operation, explain which source excerpts, context, and answers leave the machine and which selected host receives them. Distinguish model transmission from explicitly selected Git retrieval. Do not equate a request to disable provider storage with a verified retention guarantee.
 

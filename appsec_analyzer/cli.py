@@ -82,6 +82,34 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         ),
     )
     _add_assessment_arguments(scan, default_repo=True, organization=organization)
+    preflight = commands.add_parser(
+        "preflight",
+        help="Check Git read access and provider setup without starting an assessment",
+        description="Check local/remote repositories and provider setup. No generation unless --test-model is selected.",
+    )
+    preflight.add_argument("--repo", action="append", metavar="PATH_OR_URL")
+    preflight.add_argument("--profile", metavar="NAME_OR_FILE")
+    preflight.add_argument("--host", choices=("claude-cli", "codex-cli", "openai", "lite", "bedrock"))
+    preflight.add_argument("--model", metavar="MODEL")
+    preflight.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), action=_Explicit)
+    preflight.add_argument(
+        "--budget",
+        dest="hard_budget",
+        type=_positive_budget,
+        action=_Explicit,
+        metavar="USD",
+        help="Explicit separate spending limit required with --test-model (except codex-cli)",
+    )
+    preflight.add_argument(
+        "--max-calls", type=int, help="Explicit plan-use limit required with --test-model for codex-cli"
+    )
+    preflight.add_argument(
+        "--test-model",
+        action="store_true",
+        help="Authorize one primary-model call using a synthetic prompt; may consume money or plan allowance",
+    )
+    preflight.add_argument("--quiet", action="store_true")
+    preflight.add_argument("--json", action="store_true")
     sources = commands.add_parser("scan-sources", help="Run deterministic source scanners without a model")
     sources.add_argument("--repo", action="append", required=True, metavar="PATH")
     sources.add_argument("--output", metavar="DIR", help="Existing directory outside every selected checkout")
@@ -364,6 +392,7 @@ def _capabilities() -> dict:
         "interface_version": INTERFACE_VERSION,
         "engine_version": ENGINE_VERSION,
         "scan": {"available": True, "model_calls": True},
+        "preflight": {"available": True, "default_model_calls": False, "optional_primary_model_test": True},
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
         "analyze_threats": {
@@ -782,6 +811,7 @@ def _assess(ns: argparse.Namespace) -> int:
     from orchestrator.orchestration_controller import assess_main
     from runtime.remote_repositories import checkout_arguments
 
+    runtime = None
     if host == "claude-cli":
         from appsec_analyzer.hosts import claude_preflight
 
@@ -859,6 +889,19 @@ def _assess(ns: argparse.Namespace) -> int:
     ):
         if getattr(ns, flag):
             args.append("--" + flag.replace("_", "-"))
+    from appsec_analyzer.preflight import print_result
+    from appsec_analyzer.preflight import run as run_preflight
+
+    if ns.command == "preflight" and getattr(ns, "test_model", False):
+        if host == "codex-cli":
+            if ns.max_calls is None:
+                raise ValueError("preflight --test-model with codex-cli requires explicit --max-calls (one exchange)")
+        elif "hard_budget" not in getattr(ns, "explicit", ()) or ns.hard_budget < 0.01:
+            raise ValueError("preflight --test-model requires an explicit --budget of at least USD 0.01")
+    result = run_preflight(ns, api_profile=api_profile, runtime=runtime)
+    if ns.command == "preflight":
+        print_result(result, as_json=ns.json)
+        return 0
     with checkout_arguments(args) as local_args:
         from appsec_analyzer.profiles import reject_source_paths
 
@@ -1036,6 +1079,11 @@ def _authnz(ns: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None, *, organization=None) -> int:
     ns = _parser(organization=organization).parse_args(argv)
+    if ns.command == "preflight":
+        # Share scan defaults and profile resolution without accepting assessment-only options.
+        supplied = {key: value for key, value in vars(ns).items() if value is not None}
+        ns = _parser(organization=organization).parse_args(["scan"])
+        vars(ns).update(supplied)
     try:
         if organization is not None:
             if ns.command == "organization":
@@ -1044,7 +1092,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     document["valid"] = True
                 print(json.dumps(document, indent=2, sort_keys=True))
                 return 0
-            if ns.command in ("scan", "assess"):
+            if ns.command in ("scan", "assess", "preflight"):
                 organization.apply(ns)
         if ns.command == "profiles":
             from appsec_analyzer.profiles import DEPTHS, list_profiles, resolve_scan
@@ -1080,7 +1128,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     }
             print(json.dumps(document, indent=2, sort_keys=True))
             return 0
-        if ns.command in ("scan", "assess"):
+        if ns.command in ("scan", "assess", "preflight"):
             _prepare_profile(ns)
         if ns.command == "audit-requirements":
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
@@ -1097,7 +1145,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return _scan(ns)
         if ns.command == "score":
             return _score(ns)
-        if ns.command in ("scan", "assess"):
+        if ns.command in ("scan", "assess", "preflight"):
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)
@@ -1115,6 +1163,9 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
         if ns.command == "authnz-review":
             return _authnz(ns)
         raise ValueError(f"{ns.command} is not implemented")
+    except KeyboardInterrupt:
+        print("appsec-analyzer: cancelled", file=sys.stderr)
+        return 130
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"appsec-analyzer: error: {exc}", file=sys.stderr)
         return 2

@@ -71,6 +71,12 @@ test-analyzer:  ## Current standalone CLI, audit, provider, state, and completio
 		tests/test_review_sources.py \
 		tests/test_analyst_isolation.py \
 		tests/test_api_hosts.py \
+		tests/test_startup_preflight.py \
+		tests/test_remote_repositories.py::test_preflight_reads_remote_head_without_checkout \
+		tests/test_remote_repositories.py::test_preflight_git_failure_is_safe \
+		tests/test_remote_repositories.py::test_preflight_rejects_empty_repository \
+		tests/test_remote_repositories.py::test_preflight_timeout_stops_child_group \
+		tests/test_remote_repositories.py::test_preflight_dns_denial_prevents_git_connection \
 		tests/test_codex_cli.py \
 		tests/test_profiles.py \
 		tests/test_provider_backends.py \

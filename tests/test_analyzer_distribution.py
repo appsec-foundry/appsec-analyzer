@@ -58,7 +58,7 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         [
             sys.executable,
             "-c",
-            "import sys; import appsec_analyzer.score.service; import appsec_analyzer.analyze_threats.cli; import appsec_analyzer.assessment.console; assert 'appsec_analyzer.cli' not in sys.modules",
+            "import sys; import appsec_analyzer.score.service; import appsec_analyzer.analyze_threats.cli; import appsec_analyzer.assessment.console; import appsec_analyzer.preflight; assert 'appsec_analyzer.cli' not in sys.modules",
         ],
         cwd=tmp_path,
         env={**os.environ, "PYTHONPATH": str(build)},
