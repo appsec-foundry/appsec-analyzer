@@ -766,11 +766,22 @@ def _assessment_session(
     from runtime.assessment_jobs import AssessmentJobs
     from runtime.assessment_state import CACHE_NAME, RUN_DIAGNOSTIC_NAMES, AssessmentPaused, AssessmentState
 
-    cfg = resolve_config.resolve_assessment(scope, arguments, PLUGIN_ROOT, model=model)
+    organization_profile = None
+    if run_profile is not None and "organization_config" in run_profile:
+        from appsec_analyzer.organization import effective_config
+
+        organization_profile = effective_config(run_profile["organization_config"], run_profile["organization_preset"])
+    cfg = resolve_config.resolve_assessment(
+        scope,
+        arguments,
+        PLUGIN_ROOT,
+        model=model,
+        **({"organization_profile": organization_profile} if organization_profile is not None else {}),
+    )
     # The case matcher, renderer and deriver consume the retained flat path;
     # the configuration resolver records the active profile in its metadata.
     org_profile = cfg.get("org_profile") or {}
-    if org_profile.get("active"):
+    if org_profile.get("active") and org_profile.get("path"):
         cfg["org_profile_path"] = org_profile["path"]
     cfg["max_parallel"] = budget.max_parallel
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):

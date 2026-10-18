@@ -1656,6 +1656,7 @@ def resolve(
     *,
     create_output_dir: bool = True,
     source_count: int | None = None,
+    organization_profile: dict | None = None,
 ) -> dict:
     if source_count is not None and (type(source_count) is not int or not 0 <= source_count <= 320_000):
         raise SystemExit("Error: invalid captured source count")
@@ -1830,7 +1831,7 @@ def resolve(
     # cfg (e.g. assessment_depth for quick_default_active rules). Direct CLI
     # flags always win — org-profile only fills in fields that were not
     # explicitly toggled by the user.
-    cfg.update(_apply_org_profile(ns, cfg, plugin_root))
+    cfg.update(_apply_org_profile(ns, cfg, plugin_root, effective=organization_profile))
 
     # There is one producer generation. The controller separately rejects
     # modes for which that runtime has no safe compact implementation.
@@ -1869,7 +1870,9 @@ def resolve(
     return cfg
 
 
-def resolve_assessment(scope, argv: list[str], plugin_root: Path, *, model: str | None = None) -> dict:
+def resolve_assessment(
+    scope, argv: list[str], plugin_root: Path, *, model: str | None = None, organization_profile: dict | None = None
+) -> dict:
     """Resolve shared full-run settings without selecting a primary repository.
 
     Admission belongs to the controller. Configuration uses each root's frozen
@@ -1899,6 +1902,7 @@ def resolve_assessment(scope, argv: list[str], plugin_root: Path, *, model: str 
                 plugin_root,
                 create_output_dir=False,
                 source_count=source_count,
+                **({"organization_profile": organization_profile} if organization_profile is not None else {}),
             )
         candidates.append({key: value for key, value in cfg.items() if key not in transient})
     if any(cfg != candidates[0] for cfg in candidates[1:]):
@@ -1962,38 +1966,39 @@ def _compute_total_stages(cfg: dict) -> int:
     return total
 
 
-def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path) -> dict:
+def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, effective: dict | None = None) -> dict:
     """Layer org-profile defaults under the user's CLI flags.
 
     Returns a dict of fields to ``cfg.update()``. When no org profile is
     active the returned dict carries only inert metadata so downstream
     behaviour is bit-identical to a pre-org-profile run.
     """
-    try:
-        rop = _load_resolve_org_profile_module(plugin_root)
-    except Exception as exc:  # noqa: BLE001
-        # Resolver missing or import error: leave behaviour unchanged.
-        return {
-            "org_profile": {"active": False, "source": "unavailable", "error": str(exc)},
-            "preset": None,
-            "org_profile_defaults": {},
-            "org_profile_requirements_source": None,
-            "org_profile_skill_toggles": {},
-            "org_profile_context_documents": [],
-            "org_profile_security_coach": None,
-            "org_profile_llm_policy": None,
-        }
-    effective, errors = rop.resolve(
-        ns.org_profile,
-        ns.preset,
-        bool(getattr(ns, "no_org_profile", False)),
-        ns.repo,
-        plugin_root,
-    )
-    if errors:
-        # Hard-fail early; the skill layer expects the resolver to refuse
-        # an invocation against an invalid profile so Stage 1 never starts.
-        raise SystemExit("Error: " + "; ".join(errors))
+    if effective is None:
+        try:
+            rop = _load_resolve_org_profile_module(plugin_root)
+        except Exception as exc:  # noqa: BLE001
+            # Resolver missing or import error: leave behaviour unchanged.
+            return {
+                "org_profile": {"active": False, "source": "unavailable", "error": str(exc)},
+                "preset": None,
+                "org_profile_defaults": {},
+                "org_profile_requirements_source": None,
+                "org_profile_skill_toggles": {},
+                "org_profile_context_documents": [],
+                "org_profile_security_coach": None,
+                "org_profile_llm_policy": None,
+            }
+        effective, errors = rop.resolve(
+            ns.org_profile,
+            ns.preset,
+            bool(getattr(ns, "no_org_profile", False)),
+            ns.repo,
+            plugin_root,
+        )
+        if errors:
+            # Hard-fail early; the skill layer expects the resolver to refuse
+            # an invocation against an invalid profile so Stage 1 never starts.
+            raise SystemExit("Error: " + "; ".join(errors))
 
     org_block = {
         "org_profile": effective["org_profile"],

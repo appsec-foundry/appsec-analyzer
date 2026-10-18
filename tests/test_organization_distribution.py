@@ -387,7 +387,7 @@ def test_composition_config_preserves_defaults_and_mandatory_policy(tmp_path, ca
     assert result["defaults"]["assessment_depth"] == expected
     assert result["policy"] == document["profile"]["policy"]
     assert result["score_uses_assessment_depth"] is False
-    assert result["supported_commands"] == ["score"]
+    assert result["supported_commands"] == ["score", "scan", "assess"]
 
 
 @pytest.mark.parametrize(
@@ -460,7 +460,7 @@ def test_composition_config_rejects_source_owned_profile_and_unsupported_workflo
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setattr(cli, "_score", lambda ns: pytest.fail("Source-owned config must fail"))
     assert cli.main(["organization-config", "run", "--config", str(path), "--", "score", str(tmp_path)]) == 2
-    assert cli.main(["organization-config", "run", "--config", str(path), "--", "assess"]) == 2
+    assert cli.main(["organization-config", "run", "--config", str(path), "--", "authnz-review"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -497,3 +497,269 @@ def test_composition_missing_source_retains_operational_exit_with_ancestor_git_m
     source = str(tmp_path / missing)
     assert cli.main(["organization-config", "run", "--config", str(path), "--", "score", source]) == 1
     assert observed == [source]
+
+
+@pytest.mark.parametrize(
+    "command,flags,depth",
+    [
+        ("scan", [], "standard"),
+        ("assess", ["--profile=claude"], "standard"),
+        ("scan", ["--assessment-depth=quick"], "quick"),
+        ("assess", ["--profile=claude", "--assessment-depth=thorough"], "thorough"),
+    ],
+)
+def test_composed_assessment_reaches_existing_resolver_without_model_access(
+    tmp_path, monkeypatch, command, flags, depth
+):
+    path, document = _composition_config(tmp_path)
+    (tmp_path / "source").mkdir()
+    subprocess.run(["git", "init", "-q", str(tmp_path / "source")], check=True)
+
+    monkeypatch.setenv("APPSEC_ADVISOR_ORG_PROFILE", "/ignored-invalid-ambient.yaml")
+    monkeypatch.setenv("APPSEC_ADVISOR_NO_ORG_PROFILE", "1")
+    observed = []
+
+    def assess(ns):
+        from runtime import resolve_config
+
+        effective = organization.effective_config(
+            ns.run_profile["organization_config"], ns.run_profile["organization_preset"]
+        )
+        cfg = resolve_config.resolve(
+            [
+                "--repo",
+                str(tmp_path / "source"),
+                "--output",
+                str(tmp_path / "output"),
+                "--assessment-depth",
+                ns.assessment_depth,
+                "--no-org-profile",
+            ],
+            ROOT,
+            create_output_dir=False,
+            source_count=0,
+            organization_profile=effective,
+        )
+        assert cfg["opus_disabled"] is True
+        assert cfg["org_profile_defaults"]["url_allowlist"] == ["git.example.org"]
+        assert cfg["org_profile"]["source"] == "composition" and cfg["org_profile"]["path"] is None
+        assert cfg["assessment_depth"] == depth
+        assert ns.hard_budget == 20
+        assert ns.no_org_profile is True
+        observed.append(cfg["org_profile"]["profile_fingerprint"])
+        return 7
+
+    monkeypatch.setattr(cli, "_assess", assess)
+    assert (
+        cli.main(
+            [
+                "organization-config",
+                "run",
+                "--config",
+                str(path),
+                "--",
+                command,
+                "--repo",
+                str(tmp_path / "source"),
+                *flags,
+            ]
+        )
+        == 7
+    )
+    assert observed
+
+
+@pytest.mark.parametrize("flags,selected", [([], "thorough"), (["--assessment-depth=quick"], "quick")])
+def test_composed_assessment_inspection_resolves_preset_and_clamps_models(
+    tmp_path, monkeypatch, capsys, flags, selected
+):
+    path, _ = _composition_config(tmp_path)
+    monkeypatch.setattr(cli, "_assess", lambda *a: pytest.fail("Inspection cannot execute an assessment"))
+    assert (
+        cli.main(
+            [
+                "organization-config",
+                "show",
+                "--config",
+                str(path),
+                "--preset",
+                "release",
+                "--",
+                "scan",
+                "--repo",
+                "/neutral/service",
+                "--model=opus",
+                *flags,
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    profile = result["assessment_profile"]
+    assert profile["settings"]["assessment_depth"] == selected
+    assert all("opus" not in model["model"] for model in profile["models"].values())
+    assert profile["organization_config"]["profile"]["policy"]["disable_opus"] is True
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["scan", "--repo", "https://outside.example.net/project.git"],
+        [
+            "assess",
+            "--profile=codex",
+            "--repo",
+            "/neutral/source",
+            "--repo",
+            "git@git.example.org.attacker.net:team/service.git",
+        ],
+        ["scan", "--repo", "/neutral/source", "--requirements=https://outside.example.net/catalog.yaml"],
+        ["scan", "--repo", "/neutral/source", "--context=https://outside.example.net/context.md"],
+        ["scan", "--repo", "/neutral/source", "--no-org-profile"],
+        ["scan", "--repo", "/neutral/source", "--org-profile=/unchecked.yaml"],
+        ["scan", "--repo", "/neutral/source", "--preset=unchecked"],
+    ],
+)
+def test_composed_assessment_rejects_policy_bypasses_before_preparation(tmp_path, monkeypatch, arguments):
+    path, _ = _composition_config(tmp_path)
+    monkeypatch.setattr(cli, "_prepare_profile", lambda *a: pytest.fail("Policy must precede provider settings"))
+    monkeypatch.setattr(cli, "_assess", lambda *a: pytest.fail("Rejected config must not access credentials or Git"))
+    assert cli.main(["organization-config", "run", "--config", str(path), "--", *arguments]) == 2
+
+
+@pytest.mark.parametrize("source_flag", ["--repo", "--repo=", "--rep"])
+def test_composed_assessment_checks_original_profile_against_every_source(tmp_path, monkeypatch, source_flag):
+    path, _ = _composition_config(tmp_path)
+    origin = tmp_path / "selected source" / "operator.yaml"
+    origin.parent.mkdir()
+    origin.write_text("untrusted source data")
+    flags = [source_flag, str(origin.parent)] if not source_flag.endswith("=") else [source_flag + str(origin.parent)]
+    monkeypatch.setattr(
+        cli, "_prepare_profile", lambda *a: pytest.fail("Source-owned selection must precede preparation")
+    )
+    assert (
+        cli.main(
+            [
+                "organization-config",
+                "run",
+                "--config",
+                str(path),
+                "--profile-source",
+                str(origin),
+                "--",
+                "scan",
+                "--repo",
+                "/other/source",
+                *flags,
+            ]
+        )
+        == 2
+    )
+
+
+def test_composed_assessment_controller_consumes_policy_and_resumes_with_relocated_envelope(tmp_path, monkeypatch):
+    from orchestrator import assessment_context
+    from orchestrator import orchestration_controller as controller
+    from runtime.assessment_jobs import AssessmentBudget
+    from runtime.multi_repo_scope import admit
+
+    path, document = _composition_config(tmp_path)
+    root = tmp_path / "source"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "initial",
+        ],
+        check=True,
+    )
+    (root / "app.py").write_text("value = 1\n")
+    scope = admit([str(root)], str(tmp_path / "output"), minimum=1)
+    monkeypatch.setattr(controller, "_assessment_runtime_fingerprint", lambda: "a" * 64)
+    monkeypatch.setenv("APPSEC_STRIDE_MODEL", "claude-opus-4-7")
+    snapshots = []
+    for index in (0, 1):
+        relocated = tmp_path / ("config-" + str(index) + ".yaml")
+        relocated.write_text(json.dumps(document))
+        ns = cli._parser().parse_args(["scan", "--repo", str(root)])
+        organization._configured_assessment(ns, organization.load_config(relocated), "daily", None)
+        with controller._assessment_session(
+            scope,
+            ["--no-requirements", "--assessment-depth", "standard", "--no-org-profile"],
+            budget=AssessmentBudget(2, 0.05, 60, 3600),
+            host_factory=lambda *a: pytest.fail("Config/session checks must not execute a model"),
+            resume=bool(index),
+            run_profile=ns.run_profile,
+        ) as (cfg, state, jobs):
+            assert cfg["opus_disabled"] and "opus" not in cfg["stride_model"]
+            assert "org_profile_path" not in cfg
+            effective = assessment_context._org_profile(cfg)
+            assert effective["defaults"]["url_allowlist"] == ["git.example.org"]
+            snapshots.append(state.identity["configuration_sha256"])
+    assert snapshots[0] == snapshots[1]
+    from runtime.assessment_host import ExchangeError
+
+    document["profile"]["policy"]["url_allowlist"] = ["changed.example.org"]
+    ns = cli._parser().parse_args(["scan", "--repo", str(root)])
+    organization._configured_assessment(ns, document, "daily", None)
+    with (
+        pytest.raises(ExchangeError, match="settings|configuration"),
+        controller._assessment_session(
+            scope,
+            ["--no-requirements", "--assessment-depth", "standard", "--no-org-profile"],
+            budget=AssessmentBudget(2, 0.05, 60, 3600),
+            host_factory=lambda *a: pytest.fail("Changed resume policy must not execute a model"),
+            resume=True,
+            run_profile=ns.run_profile,
+        ),
+    ):
+        pytest.fail("Changed organization policy must invalidate resume")
+
+
+@pytest.mark.parametrize("family,permitted", [(None, False), ("opus", False), ("non-opus", True)])
+def test_composed_assessment_provider_policy_precedes_credentials(tmp_path, monkeypatch, family, permitted):
+    path, _ = _composition_config(tmp_path)
+    observed = []
+
+    def prepare(ns):
+        ns.run_profile = {
+            "adapter": "lite",
+            "models": {"stride_analyzer": {"model": "approved-alias", "model_family": family}},
+            "settings": {},
+        }
+
+    monkeypatch.setattr(cli, "_prepare_profile", prepare)
+    monkeypatch.setattr(cli, "_assess", lambda ns: observed.append(ns) or 8)
+    assert cli.main(
+        [
+            "organization-config",
+            "run",
+            "--config",
+            str(path),
+            "--",
+            "assess",
+            "--profile=lite",
+            "--repo",
+            "/neutral/source",
+        ]
+    ) == (8 if permitted else 2)
+    assert len(observed) == int(permitted)
+
+
+@pytest.mark.parametrize("flag", ["--conf", "--profile-sour"])
+def test_composition_control_options_require_exact_names(tmp_path, monkeypatch, flag):
+    path, _ = _composition_config(tmp_path)
+    monkeypatch.setattr(cli, "_assess", lambda *a: pytest.fail("Unknown controls cannot execute"))
+    with pytest.raises(SystemExit) as error:
+        cli.main(["organization-config", "show", "--config", str(path), flag, "/unchecked.yaml"])
+    assert error.value.code == 2

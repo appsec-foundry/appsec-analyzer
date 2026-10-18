@@ -312,3 +312,31 @@ def test_profile_allowlist_read_from_the_checkouts_assessment_directory(tmp_path
         json.dumps({"defaults": {"url_allowlist": ["security.acme.example"]}})
     )
     assert guard._allowlist_from_profile() == ["security.acme.example"]
+
+
+@pytest.mark.parametrize(
+    "host,allowed",
+    [
+        ("git.example.org", True),
+        ("sub.git.example.org", True),
+        ("other.example.net", False),
+        ("git.example.org.attacker.net", False),
+    ],
+)
+def test_composition_profile_cannot_be_widened_by_environment(tmp_path, monkeypatch, host, allowed):
+    import json
+
+    output = tmp_path / "private run"
+    output.mkdir()
+    (output / ".org-profile-effective.json").write_text(
+        json.dumps(
+            {
+                "org_profile": {"source": "composition"},
+                "defaults": {"url_allowlist": ["git.example.org"]},
+            }
+        )
+    )
+    monkeypatch.setenv("OUTPUT_DIR", str(output))
+    monkeypatch.setenv("APPSEC_URL_ALLOWLIST", "other.example.net,git.example.org.attacker.net")
+    result = guard.validate_target_url("https://" + host + "/catalog", check_ip_safety=False)
+    assert result.ok is allowed

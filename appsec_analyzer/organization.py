@@ -107,14 +107,14 @@ def main(package: str, argv: list[str] | None = None) -> int:
 CONFIG_CAPABILITY = {
     "available": True,
     "schema_version": 1,
-    "commands": ["score"],
+    "commands": ["score", "scan", "assess"],
+    "profile_source_validation": True,
     "profile_fields": ["policy.disable_opus", "policy.url_allowlist", "presets.*.base_mode"],
 }
 
 
 def load_config(path: Path, *, repositories=()) -> dict:
     """Validate an engine-only projection without importing Advisor host settings."""
-    import json
 
     # Score admits only the explicitly selected top-level checkout. Walking
     # to an ancestor Git marker here misclassifies missing or invalid sources
@@ -124,7 +124,13 @@ def load_config(path: Path, *, repositories=()) -> dict:
         if "://" not in selection and not selection.startswith("git@"):
             if path.expanduser().absolute().is_relative_to(Path(selection).expanduser().resolve()):
                 raise ProfileError("organization configuration must be outside the selected source")
-    document = read_document(path)
+    return validate_config(read_document(path))
+
+
+def validate_config(document: dict) -> dict:
+    """Validate an in-memory envelope before consumer dispatch or persistence."""
+    import json
+
     schema = json.loads((resource_root() / "schemas/organization-config.schema.json").read_text())
     if not Draft202012Validator(schema).is_valid(document):
         raise ProfileError("invalid organization configuration envelope")
@@ -142,9 +148,75 @@ def load_config(path: Path, *, repositories=()) -> dict:
     initialize()
     from validators.validate_org_profile import validate
 
-    if validate(profile, path.parent, plugin_version=document["advisor_core_version"]):
+    if validate(profile, Path.cwd(), plugin_version=document["advisor_core_version"]):
         raise ProfileError("projected organization profile is incompatible or invalid")
     return document
+
+
+def effective_config(document: dict, preset: str) -> dict:
+    """Adapt admitted fields to the existing organization consumer contract."""
+    import hashlib
+    import json
+
+    profile = validate_config(document)["profile"]
+    if preset not in profile["presets"]:
+        raise ProfileError("organization preset is unavailable")
+    identity = profile["organization"]
+    return {
+        "org_profile": {
+            "active": True,
+            "source": "composition",
+            "path": None,
+            "id": identity["id"],
+            "name": identity["name"],
+            "version": identity["profile_version"],
+            "owner": identity.get("owner"),
+            "profile_fingerprint": hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest(),
+        },
+        "preset": {"name": preset, "base_mode": profile["presets"][preset]["base_mode"]},
+        "defaults": dict(profile.get("policy", {})),
+        "requirements_source": None,
+        "llm_context_documents": [],
+        "skill_toggles": {},
+        "security_coach": None,
+        "llm_policy": None,
+    }
+
+
+def _configured_assessment(parsed, document: dict, preset: str, depth: str | None) -> None:
+    """Resolve defaults and model ceilings before any credential or source access."""
+    from appsec_analyzer.cli import _prepare_profile
+    from appsec_analyzer.profiles import resolve_model
+
+    if parsed.org_profile is not None or parsed.no_org_profile or parsed.preset is not None:
+        raise ProfileError("select profiles and presets through the outer organization-config interface")
+    if "assessment_depth" not in getattr(parsed, "explicit", ()):
+        parsed.assessment_depth = depth or document["profile"]["presets"][preset]["base_mode"]
+        parsed.explicit = set(getattr(parsed, "explicit", ())) | {"assessment_depth"}
+    _prepare_profile(parsed)
+    profile = parsed.run_profile
+    if document["profile"].get("policy", {}).get("disable_opus"):
+        if profile["adapter"] == "claude-cli":
+            for name in ("model", "reasoning_model", "stride_model", "triage_model", "merger_model"):
+                if "opus" in str(getattr(parsed, name, "")).lower():
+                    setattr(parsed, name, "sonnet")
+            for settings in profile["models"].values():
+                if "opus" in settings["model"].lower():
+                    options = {
+                        key: settings[key] for key in ("reasoning_effort", "max_output_tokens") if key in settings
+                    }
+                    settings.update(resolve_model({**options, "model": "sonnet"}, "claude-cli"))
+        elif profile["adapter"] in ("lite", "bedrock"):
+            if any(
+                settings.get("model_family") != "non-opus" or "opus" in settings["model"].lower()
+                for settings in profile["models"].values()
+            ):
+                raise ProfileError("provider model is not approved under the organization Opus restriction")
+    # The controller receives stable validated data, never a temporary profile path.
+    profile["organization_config"] = document
+    profile["organization_preset"] = preset
+    # Explicit composition replaces ambient legacy profile discovery.
+    parsed.no_org_profile = True
 
 
 def config_command(namespace) -> int:
@@ -157,22 +229,56 @@ def config_command(namespace) -> int:
     arguments = list(namespace.arguments)
     if arguments[:1] == ["--"]:
         arguments.pop(0)
-    if namespace.config_action != "run" and arguments:
-        raise ProfileError("organization inspection does not accept workflow arguments")
-    if namespace.config_action == "run" and namespace.config_depth is not None:
-        raise ProfileError("score does not accept an assessment-depth override")
+
     parsed = None
     repositories = []
-    if namespace.config_action == "run":
-        if not arguments or arguments[0] not in CONFIG_CAPABILITY["commands"]:
-            raise ProfileError("organization-config supports only the declared score workflow")
+    if arguments:
+        if arguments[0] not in CONFIG_CAPABILITY["commands"]:
+            raise ProfileError("organization-config supports only its declared workflows")
         parsed = _parser().parse_args(arguments)
-        repositories = [parsed.repo]
+        repositories = [parsed.repo] if parsed.command == "score" else parsed.repo or [str(Path.cwd())]
+    elif namespace.config_action == "run":
+        raise ProfileError("organization-config requires a declared workflow")
+    if namespace.config_depth is not None and parsed is not None and parsed.command == "score":
+        raise ProfileError("score does not accept an assessment-depth override")
+    origin = getattr(namespace, "profile_source", None)
+    if origin is not None:
+        if not origin:
+            raise ProfileError("profile source requires a nonempty path")
+        for selection in repositories:
+            if "://" not in selection and not selection.startswith("git@"):
+                if Path(origin).expanduser().resolve().is_relative_to(Path(selection).expanduser().resolve()):
+                    raise ProfileError("organization profile source must be outside the selected source")
     document = load_config(Path(namespace.config), repositories=repositories)
     profile = document["profile"]
     preset = namespace.config_preset if namespace.config_preset is not None else profile["default_preset"]
     if preset not in profile["presets"]:
         raise ProfileError("organization preset is unavailable")
+    from appsec_analyzer.engine import initialize
+
+    initialize()
+    from runtime.remote_repositories import parse_remote
+
+    selections = list(repositories)
+    if parsed is not None and parsed.command in ("scan", "assess"):
+        selections.extend(value for value in (parsed.context, parsed.requirements) if value)
+    allowlist = profile.get("policy", {}).get("url_allowlist", [])
+    from urllib.parse import urlsplit
+
+    for selection in selections:
+        if selection.startswith(("http://", "https://")):
+            host = urlsplit(selection).hostname
+        else:
+            remote = parse_remote(selection)
+            host = remote.host if remote else None
+        if (
+            host
+            and allowlist
+            and not any(host == allowed.lower() or host.endswith("." + allowed.lower()) for allowed in allowlist)
+        ):
+            raise ProfileError("Git or context destination is outside the organization allowlist")
+    if parsed is not None and parsed.command in ("scan", "assess"):
+        _configured_assessment(parsed, document, preset, namespace.config_depth)
     if namespace.config_action != "run":
         print(
             json.dumps(
@@ -185,24 +291,18 @@ def config_command(namespace) -> int:
                     "policy": profile.get("policy", {}),
                     "supported_commands": CONFIG_CAPABILITY["commands"],
                     "score_uses_assessment_depth": False,
+                    **(
+                        {"workflow": parsed.command, "assessment_profile": parsed.run_profile}
+                        if parsed is not None and parsed.command in ("scan", "assess")
+                        else {}
+                    ),
                 },
                 sort_keys=True,
             )
         )
         return 0
-    from appsec_analyzer.engine import initialize
+    if parsed.command in ("scan", "assess"):
+        from appsec_analyzer.cli import _assess
 
-    initialize()
-    from runtime.remote_repositories import parse_remote
-
-    remote = parse_remote(parsed.repo)
-    allowlist = profile.get("policy", {}).get("url_allowlist", [])
-    if (
-        remote is not None
-        and allowlist
-        and not any(remote.host == host.lower() or remote.host.endswith("." + host.lower()) for host in allowlist)
-    ):
-        raise ProfileError("Git destination is outside the organization allowlist")
-    # Score has no model calls, report exports, or assessment depth. The only
-    # applicable declared restriction is checked before Git or credentials.
+        return _assess(parsed)
     return analyzer_main(arguments)

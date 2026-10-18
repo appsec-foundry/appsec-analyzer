@@ -86,6 +86,10 @@ def _allowlist_from_env() -> list[str] | None:
     return [h.strip().lower() for h in raw.split(",") if h.strip()]
 
 
+class _CompositionAllowlist(list):
+    """A mandatory policy from the validated composition consumer record."""
+
+
 def _allowlist_from_profile() -> list[str] | None:
     """Read ``policy.url_allowlist`` from the active org profile, if any.
 
@@ -113,15 +117,19 @@ def _allowlist_from_profile() -> list[str] | None:
             continue
         hosts = (eff.get("defaults") or {}).get("url_allowlist")
         if isinstance(hosts, list) and hosts:
-            return [str(h).strip().lower() for h in hosts if str(h).strip()]
+            normalized = [str(h).strip().lower() for h in hosts if str(h).strip()]
+            if (eff.get("org_profile") or {}).get("source") == "composition":
+                return _CompositionAllowlist(normalized)
+            return normalized
     return None
 
 
 def _active_allowlist() -> list[str] | None:
-    """Union of the env allowlist and the org-profile allowlist (either may be
-    None). A non-None result means the host must be on the list."""
+    """Retain legacy union semantics; composition policy cannot be widened."""
     env = _allowlist_from_env()
     prof = _allowlist_from_profile()
+    if isinstance(prof, _CompositionAllowlist):
+        return sorted(prof)
     if env is None and prof is None:
         return None
     return sorted(set((env or []) + (prof or [])))

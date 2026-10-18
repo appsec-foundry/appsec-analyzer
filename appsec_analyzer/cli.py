@@ -54,13 +54,18 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         org = commands.add_parser("organization", help="Inspect or validate the bundled defaults without model calls")
         org.add_argument("action", choices=("show", "validate"))
     config = commands.add_parser(
-        "organization-config", help="Validate, inspect or run an engine-only organization projection"
+        "organization-config",
+        allow_abbrev=False,
+        help="Validate, inspect or run an engine-only organization projection",
     )
     config_actions = config.add_subparsers(dest="config_action", required=True)
     for action in ("show", "validate", "run"):
-        operation = config_actions.add_parser(action)
+        operation = config_actions.add_parser(action, allow_abbrev=False)
         operation.add_argument("--config", required=True, metavar="FILE")
         operation.add_argument("--preset", dest="config_preset")
+        operation.add_argument(
+            "--profile-source", metavar="FILE", help="Original operator profile before host projection"
+        )
         operation.add_argument("--assessment-depth", dest="config_depth", choices=("quick", "standard", "thorough"))
         operation.add_argument("arguments", nargs=argparse.REMAINDER)
     commands.add_parser("version", help="Show engine and public interface versions")
