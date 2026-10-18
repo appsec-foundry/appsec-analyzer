@@ -738,11 +738,15 @@ class _AssessmentConsole:
     def _fact(self, key: str, line: str) -> str:
         if not self.st.enabled:
             return line
-        head, sep, tail = line.partition(" (")
         if key == "Trust mode":
-            role = "ok" if line == "untrusted" else "warn" if line.startswith("trusted") else "muted"
+            role = "ok" if line.startswith("untrusted") else "warn" if line.startswith("trusted") else "muted"
             return self.st(line, role)
-        return self.st(head, self.FACT_ROLES.get(key, "bold")) + self.st(sep + tail, "muted")
+        if key == "Models":
+            # The compact lineup joins models on one line; each model is coloured.
+            return self.st(" · ", "muted").join(self._fact("Model", model) for model in line.split(" · "))
+        head, sep, tail = line.partition(" (")
+        role = self.FACT_ROLES.get("Models" if key == "Model" else key, "bold")
+        return self.st(head, role) + self.st(sep + tail, "muted")
 
     def step(self, text: str) -> None:
         if text.startswith("Coverage gap: "):

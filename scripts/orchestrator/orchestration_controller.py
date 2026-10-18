@@ -2685,7 +2685,10 @@ def _assessment_intro(
         cut += " (change with --budget USD)"
     limit = _elapsed(budget.timeout_s)
     # The trust mode only decides whether the start check runs; Preflight shows its result.
-    trust = ns.trust_mode
+    trust = {
+        "untrusted": "untrusted (trust check required before analysis)",
+        "trusted": "trusted (trust check skipped)",
+    }.get(ns.trust_mode, ns.trust_mode)
     plan = [
         ("Artifacts", _assessment_artifacts(cfg)) if cfg is not None else ("", ""),
         ("Options", _assessment_options(ns, cfg)) if cfg is not None else ("", ""),

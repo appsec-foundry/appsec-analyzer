@@ -711,7 +711,7 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     assert rows["Time limit"] == "4h" and rows["Depth"] == "standard"
     assert rows["Max parallel"] == "2"
     assert rows["Models"] == "m1 (a, b)\nm2 (c)"
-    assert rows["Trust mode"] == "untrusted"
+    assert rows["Trust mode"] == "untrusted (trust check required before analysis)"
     assert rows["Output"] == "/o (--rebuild: replaces any earlier assessment)"
     assert "Phases" not in rows and rows["Pipeline"] == "P"
     ns = parse(
@@ -720,7 +720,7 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "quick", "Models: m1 (a)", "P"))
     assert rows["Budget"].split("\n")[0] == "model calls stop at $5.00 (change with --budget USD)"
     assert rows["Time limit"] == "1h05m"
-    assert rows["Trust mode"] == "trusted" and rows["Output"] == "/o"
+    assert rows["Trust mode"] == "trusted (trust check skipped)" and rows["Output"] == "/o"
     ns = parse(["--repo", "/r", "--output", "/o", "--interactive-launch"])
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "standard", "Models: m1 (a)", "P"))
     assert rows["Budget"].split("\n")[0] == (
@@ -808,7 +808,7 @@ def test_compact_header_distinguishes_limits_and_retains_warnings(subscription, 
     assert rows["Artifacts"] == "security-assessment.md · security-assessment.yaml"
     assert "report take priority" in detailed["Budget"]
     # The start check's result is a Preflight row, not a header fact.
-    assert rows["Trust mode"] == trust_mode
+    assert rows["Trust mode"].partition(" (")[0] == trust_mode
 
 
 @pytest.mark.parametrize("terminal", [False, True])
@@ -2654,6 +2654,16 @@ def _coloured_console_output(monkeypatch, capsys, **env):
     console.notice("model call stalled")
     console.close()
     return capsys.readouterr().err
+
+
+def test_every_model_of_the_compact_lineup_is_coloured(monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    line = console._fact("Models", "gpt-6-luna (recon_scanner) · gpt-6.1-sol (14 roles)")
+    for model in ("gpt-6-luna", "gpt-6.1-sol"):
+        assert console.st(model, "agent") in line
+    assert _ANSI.sub("", line) == "gpt-6-luna (recon_scanner) · gpt-6.1-sol (14 roles)"
 
 
 def test_colour_changes_no_column_of_the_console(monkeypatch, capsys):
