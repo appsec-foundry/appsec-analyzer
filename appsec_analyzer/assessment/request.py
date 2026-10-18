@@ -35,6 +35,8 @@ class AssessmentOptions:
     progress_file: str | None = None
     # Completed start checks as (symbol, label, message), shown under the run summary.
     preflight_checks: tuple[tuple[str, str, str], ...] = ()
+    # The selections as given, for display: a Git URL instead of its temporary checkout.
+    repo_sources: tuple[str, ...] = ()
 
     def __post_init__(self):
         from appsec_analyzer.execution_limits import validate_max_parallel
@@ -121,6 +123,8 @@ class AssessmentRequest(Sequence[str]):
             if hasattr(namespace, field.name)
         }
         selected["repo"] = tuple(arguments[i + 1] for i, arg in enumerate(arguments[:-1]) if arg == "--repo")
+        sources = tuple(getattr(namespace, "repo", None) or ())
+        selected["repo_sources"] = sources if len(sources) == len(selected["repo"]) else ()
         # These are host-specific effective values, as admitted by the CLI.
         selected["max_calls"] = namespace.run_profile["settings"]["max_calls"] if "--max-calls" in arguments else None
         selected["hard_budget"] = namespace.hard_budget if "--hard-budget" in arguments else None

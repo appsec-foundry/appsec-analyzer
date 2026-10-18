@@ -374,8 +374,11 @@ def _private_directory(path: Path) -> None:
 
 
 @contextmanager
-def checkout_arguments(argv: list[str]):
-    """Resolve all URL selections atomically; never mutate caller-owned local roots."""
+def checkout_arguments(argv: list[str], on_clone=None):
+    """Resolve all URL selections atomically; never mutate caller-owned local roots.
+
+    ``on_clone(number, total, remote)`` runs after each completed clone.
+    """
     indexes = [i + 1 for i, a in enumerate(argv) if a == "--repo" and i + 1 < len(argv)]
     remotes = {i: remote for i in indexes if (remote := parse_remote(argv[i])) is not None}
     if not remotes:
@@ -411,6 +414,8 @@ def checkout_arguments(argv: list[str]):
             if "--quiet" not in argv:
                 print(f"Preparing remote repository {number}/{len(remotes)} ({remote.scheme.upper()})", file=sys.stderr)
             clone(remote, root)
+            if on_clone:
+                on_clone(number, len(remotes), remote)
             result[index] = str(root)
         yield result
     finally:

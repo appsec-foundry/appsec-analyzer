@@ -2681,12 +2681,8 @@ def _assessment_intro(
     else:
         cut += " (change with --budget USD)"
     limit = _elapsed(budget.timeout_s)
-    # The trust mode only decides whether this start check runs; the analysis is the same.
-    trust = (
-        "untrusted: start check passed\nno escaping symlinks, IDE-loaded files or unlisted related-repository URLs"
-        if ns.trust_mode == "untrusted"
-        else "trusted: start check skipped\nescaping symlinks, IDE-loaded files and related-repository URLs are not checked"
-    )
+    # The trust mode only decides whether the start check runs; Preflight shows its result.
+    trust = ns.trust_mode
     plan = [
         ("Artifacts", _assessment_artifacts(cfg)) if cfg is not None else ("", ""),
         ("Options", _assessment_options(ns, cfg)) if cfg is not None else ("", ""),
@@ -2700,7 +2696,7 @@ def _assessment_intro(
             )
         )
     rows = [
-        ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(ns.repo)),
+        ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(getattr(ns, "repo_sources", ()) or ns.repo)),
         ("Output", output),
         (
             "Billing",
@@ -2737,9 +2733,6 @@ def _assessment_intro(
             continue
         elif key == "Billing":
             value = {"api": "API", "subscription": "Subscription"}.get(value, value)
-        elif key == "Trust mode":
-            # A skipped check must retain its warning in the compact view too.
-            value = value.split("\n")[0] if ns.trust_mode == "untrusted" else value.replace("\n", "; ")
         elif key in ("Models", "Artifacts", "Options"):
             value = value.replace("\n", " · ")
         concise.append((key, value))
@@ -3465,10 +3458,22 @@ def assess_repositories(
 
     budget.on_retry = report_retry
     if ns.trust_mode == "untrusted":
-        # The console header reports the result once every pre-run check passed.
+        # The console's Preflight rows report the result once every pre-run check passed.
         if not console:
             say("Checking every selected repository for repository-owned agent configuration")
         _assessment_preflight(ns.repo)
+        trust_check = ("✓", "Trust check", "no escaping symlinks, IDE-loaded files or unlisted related-repository URLs")
+    else:
+        # A skipped check keeps its warning in every console view.
+        trust_check = (
+            "⚠",
+            "Trust check",
+            "skipped (trusted mode); escaping symlinks, IDE-loaded files and related-repository URLs are not checked",
+        )
+    checks = tuple(getattr(ns, "preflight_checks", ()))
+    # Source checks come before host checks: after the repository and checkout rows.
+    at = sum(label.startswith(("Repo", "Checkout")) for _, label, _ in checks)
+    ns.preflight_checks = (*checks[:at], trust_check, *checks[at:])
     # Before admission: the scope fingerprints the checkout, so a later
     # .gitignore write would make the source look changed at publication.
     ensure_output_gitignore.ensure(Path(ns.output))

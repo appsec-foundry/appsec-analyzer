@@ -229,7 +229,7 @@ def test_assessment_preflight_hands_completed_checks_to_the_console(repository, 
         (
             ("✓", "Repository", "local Git checkout"),
             ("✓", "Codex CLI", "0.163.0 · ChatGPT login configured"),
-            ("·", "Provider", "not tested; no model call before the assessment"),
+            ("·", "Provider", "not tested yet; the first model call in Reconnaissance checks it"),
         )
     ]
 
@@ -316,6 +316,33 @@ def test_failed_remote_stops_before_any_clone_or_assessment(monkeypatch, tmp_pat
         cli.main(["scan", "--repo", "https://git.example/team/source.git", "--output", str(tmp_path / "output")]) == 2
     )
     assert not (tmp_path / "output").exists()
+
+
+def test_remote_checkout_is_a_preflight_row_and_the_summary_names_the_url(monkeypatch, tmp_path):
+    from appsec_analyzer import codex_cli
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+    from runtime import remote_repositories
+
+    url = "https://git.example/team/source.git"
+    seen = []
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(remote_repositories.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(remote_repositories, "check_access", lambda remote: None)
+    monkeypatch.setattr(remote_repositories, "clone", lambda remote, root: root.mkdir())
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda request, **kw: seen.append(request) or 0)
+    output = tmp_path / "output"
+    assert cli.main(["scan", "--repo", url, "--profile", "codex-cli", "--output", str(output)]) == 0
+    options = seen[0].options
+    assert [label for _, label, _ in options.preflight_checks] == ["Repository", "Checkout", "Codex CLI", "Provider"]
+    assert options.preflight_checks[1] == (
+        "✓",
+        "Checkout",
+        "shallow HTTPS clone into a temporary directory, removed after the run",
+    )
+    # The controller reads the temporary checkout; the summary names what the operator selected.
+    assert options.repo != (url,) and options.repo_sources == (url,)
 
 
 def test_live_probe_requires_explicit_budget(repository, monkeypatch):

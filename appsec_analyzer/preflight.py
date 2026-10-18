@@ -148,7 +148,11 @@ def run(ns, *, api_profile=None, runtime=None):
     for limitation in result["limitations"]:
         if not test_model:
             if result["provider_check"] == "local_configuration":
-                limitation = "not tested; no model call before the assessment"
+                limitation = (
+                    "not tested; no model call before the assessment"
+                    if getattr(ns, "command", "preflight") == "preflight"
+                    else "not tested yet; the first model call in Reconnaissance checks it"
+                )
             else:
                 limitation += " No model call made."
         # The default check is limited by design; the note informs, it does not warn.

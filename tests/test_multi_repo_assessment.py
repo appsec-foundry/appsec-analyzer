@@ -398,6 +398,7 @@ def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
     console.preflight(
         [
             ("✓", "Repository", "local Git checkout"),
+            ("⚠", "Trust check", "skipped (trusted mode)"),
             ("·", "Provider", "not tested; no model call before the assessment"),
         ]
     )
@@ -407,6 +408,7 @@ def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
     assert lines[0].split() == ["TIME", "PHASE", "EVENT", "PROGRESS", "ELAPSED", "LEFT", "DETAIL"]
     assert [line.split(None, 3)[1:] for line in lines[1:]] == [
         ["Preflight", "✓", "Repository: local Git checkout"],
+        ["Preflight", "⚠", "Trust check: skipped (trusted mode)"],
         ["Preflight", "·", "Provider: not tested; no model call before the assessment"],
     ]
     # The grid header is not repeated when the first phase starts.
@@ -671,7 +673,7 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     assert rows["Time limit"] == "4h" and rows["Depth"] == "standard"
     assert rows["Max parallel"] == "2"
     assert rows["Models"] == "m1 (a, b)\nm2 (c)"
-    assert rows["Trust mode"].startswith("untrusted: start check passed\n")
+    assert rows["Trust mode"] == "untrusted"
     assert rows["Output"] == "/o (--rebuild: replaces any earlier assessment)"
     assert "Phases" not in rows and rows["Pipeline"] == "P"
     ns = parse(
@@ -680,7 +682,7 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "quick", "Models: m1 (a)", "P"))
     assert rows["Budget"].split("\n")[0] == "model calls stop at $5.00 (change with --budget USD)"
     assert rows["Time limit"] == "1h05m"
-    assert rows["Trust mode"].startswith("trusted: start check skipped\n") and rows["Output"] == "/o"
+    assert rows["Trust mode"] == "trusted" and rows["Output"] == "/o"
     ns = parse(["--repo", "/r", "--output", "/o", "--interactive-launch"])
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "standard", "Models: m1 (a)", "P"))
     assert rows["Budget"].split("\n")[0] == (
@@ -767,11 +769,8 @@ def test_compact_header_distinguishes_limits_and_retains_warnings(subscription, 
     assert rows["Models"] == "m1 (14 roles) · m2 (recon_scanner)"
     assert rows["Artifacts"] == "security-assessment.md · security-assessment.yaml"
     assert "report take priority" in detailed["Budget"]
-    if trust_mode == "trusted":
-        assert "start check skipped" in rows["Trust mode"]
-        assert "escaping symlinks, IDE-loaded files and related-repository URLs are not checked" in rows["Trust mode"]
-    else:
-        assert rows["Trust mode"] == "untrusted: start check passed"
+    # The start check's result is a Preflight row, not a header fact.
+    assert rows["Trust mode"] == trust_mode
 
 
 @pytest.mark.parametrize("terminal", [False, True])
@@ -2606,7 +2605,7 @@ def _coloured_console_output(monkeypatch, capsys, **env):
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     console.facts(
         "appsec-analyzer — LLM-backed code assessment (alpha)",
-        [("Repository", "/srv/app"), ("Trust mode", "untrusted: start check passed")],
+        [("Repository", "/srv/app"), ("Trust mode", "untrusted")],
     )
     console.plan_components(2)
     console.step("Assessing controls: Gateway (1/2)")

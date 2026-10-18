@@ -127,7 +127,7 @@ def test_real_checkout_and_cleanup_with_stable_identity(transport, tmp_path, url
     assert paths[0] == paths[1]
 
 
-def test_multiple_urls_and_local_paths_share_one_invocation(transport, tmp_path):
+def test_multiple_urls_and_local_paths_share_one_invocation(transport, tmp_path, monkeypatch):
     local = tmp_path / "local"
     local.mkdir()
     args = [
@@ -140,6 +140,16 @@ def test_multiple_urls_and_local_paths_share_one_invocation(transport, tmp_path)
         "--output",
         str(tmp_path / "report"),
     ]
+    reported = []
+    clone = remote.clone
+    cloned = []
+    monkeypatch.setattr(remote, "clone", lambda selected, root: (clone(selected, root), cloned.append(selected.name)))
+    on_clone = lambda number, total, selected: reported.append((number, total, selected.name, list(cloned)))  # noqa: E731
+    with remote.checkout_arguments(args, on_clone=on_clone) as result:
+        roots = [Path(result[i]) for i in (1, 3, 5)]
+    # Reported after each completed clone, never for a local path.
+    assert reported == [(1, 2, "storefront", ["storefront"]), (2, 2, "ledger", ["storefront", "ledger"])]
+    assert not roots[0].exists() and not roots[2].exists()
     with remote.checkout_arguments(args) as result:
         roots = [Path(result[i]) for i in (1, 3, 5)]
         assert all(root.is_dir() for root in roots)

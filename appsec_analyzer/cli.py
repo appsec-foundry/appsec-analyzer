@@ -907,7 +907,16 @@ def _assess(ns: argparse.Namespace) -> int:
     if ns.command == "preflight":
         print_result(result, as_json=ns.json)
         return 0
-    with checkout_arguments(args) as local_args:
+
+    def report_clone(number, total, remote):
+        # Shown with the other start checks, after the repository rows.
+        checks = tuple(getattr(ns, "preflight_checks", ()))
+        at = sum(label.startswith(("Repo", "Checkout")) for _, label, _ in checks)
+        label = "Checkout" if total == 1 else f"Checkout {number}/{total}"
+        row = ("✓", label, f"shallow {remote.scheme.upper()} clone into a temporary directory, removed after the run")
+        ns.preflight_checks = (*checks[:at], row, *checks[at:])
+
+    with checkout_arguments(args, on_clone=report_clone) as local_args:
         from appsec_analyzer.profiles import reject_source_paths
 
         reject_source_paths(

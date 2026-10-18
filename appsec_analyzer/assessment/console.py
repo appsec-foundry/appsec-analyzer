@@ -733,7 +733,7 @@ class _AssessmentConsole:
             return line
         head, sep, tail = line.partition(" (")
         if key == "Trust mode":
-            role = "ok" if line.endswith("passed") else "warn" if line.endswith("skipped") else "muted"
+            role = "ok" if line == "untrusted" else "warn" if line.startswith("trusted") else "muted"
             return self.st(line, role)
         return self.st(head, self.FACT_ROLES.get(key, "bold")) + self.st(sep + tail, "muted")
 
