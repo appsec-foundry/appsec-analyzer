@@ -19,7 +19,7 @@ If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor]
 
 ## Quick start
 
-This example assesses the intentionally vulnerable [OWASP Juice Shop](https://github.com/juice-shop/juice-shop). You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/).
+This example assesses the intentionally vulnerable [OWASP Juice Shop](https://github.com/juice-shop/juice-shop). You need Python 3.10+, Git, [pipx](https://pipx.pypa.io/stable/), and a set-up [model provider](#model-provider).
 
 1. **Install Analyzer** from GitHub (preview):
 
@@ -33,13 +33,16 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
    appsec-analyzer scan --repo https://github.com/juice-shop/juice-shop.git --output ~/assessments/juice-shop
    ```
 
-   For your own code, pass its Git URL or local path to `--repo`. Analyzer uses the Claude CLI by default; you can also use [Codex CLI, the OpenAI API, LiteLLM, or Amazon Bedrock](#model-provider).
+   For your own code, pass its Git URL or local path to `--repo`.
 
 3. **Review the findings with your coding agent.** Discuss the results and plan fixes in Claude Code or Codex:
 
    ```sh
    appsec-analyzer review ~/assessments/juice-shop
    ```
+
+> [!NOTE]
+> With API billing, the Juice Shop scan costs about USD 14. Analyzer asks before it exceeds the default limit of USD 20.
 
 ## Commands
 
