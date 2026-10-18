@@ -864,6 +864,7 @@ requirements:
       - tests/test_multi_repo_assessment.py::test_skipped_reviews_are_permanent_and_phase_counts_describe_actual_checks
       - tests/test_multi_repo_assessment.py::test_gap_messages_never_echo_host_errors_or_untrusted_selectors
       - tests/test_multi_repo_assessment.py::test_review_gaps_and_counts_are_written_to_the_progress_feed
+      - tests/test_multi_repo_assessment.py::test_model_updates_keep_the_component_rows_visible
       - tests/test_assessment_review.py::test_abuse_coverage_distinguishes_checked_partial_and_missing_results
       - tests/test_assessment_review.py::test_missing_architect_proposals_are_reported_as_unreviewed
 

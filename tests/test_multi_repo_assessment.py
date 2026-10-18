@@ -2700,6 +2700,30 @@ def test_each_running_component_gets_its_own_bar_and_the_area_clears_whole(capsy
     controller._AssessmentConsole.clear_status()
 
 
+@pytest.mark.parametrize(
+    "message",
+    ["starting model exchange", "1 min: model is thinking (~2,000 tokens)", "result: 2 threats (10 s)"],
+)
+def test_model_updates_keep_the_component_rows_visible(capsys, monkeypatch, message):
+    """A host callback between ticks must not collapse and restore the component area."""
+    monkeypatch.setenv("COLUMNS", "200")
+    console = controller._AssessmentConsole(False, [].append, live=True)
+    console.plan_components(3)
+    console.step("Analyzing all STRIDE categories: Gateway (1/3)")
+    console.step("Analyzing all STRIDE categories: Ledger (2/3)")
+    console.step("Finished STRIDE job: Gateway (10/20)")
+    console.tick()
+    console.call(message, "stride_analyzer")
+    console.tick()
+    frames = _status_frames(capsys.readouterr().err)
+    controller._AssessmentConsole.clear_status()
+    assert len(frames) == 3
+    for frame in frames:
+        assert len(frame) == 3
+        assert "Gateway" in frame[0] and frame[0].endswith("10/20 STRIDE jobs")
+        assert "Ledger" in frame[1]
+
+
 @pytest.mark.parametrize("verbose", [False, True], ids=["default", "verbose"])
 def test_a_successful_correction_is_counted_not_listed(verbose):
     """MR-17: corrections repair themselves; the done line counts them per role, --verbose names each."""

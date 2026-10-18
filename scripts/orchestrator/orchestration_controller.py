@@ -2885,19 +2885,16 @@ class _AssessmentConsole:
         else:
             working = ""
         self.frame += 1
-        if self.units:
-            # One line and bar per running component; the grid row below carries the run.
-            with _AssessmentConsole._lock:
-                units = list(self.units.items())
-            spin = self.st(SPINNER[self.frame % len(SPINNER)], "accent")
-            above = [
-                f"{'':10}{spin} {name[: self.UNIT_NAME]:<{self.UNIT_NAME}}  "
-                f"{self.st.bar(self._unit_progress(unit), 100, self.BAR_WIDTH)}  {self._unit_label(unit)}"
-                for name, unit in units
-            ]
-        else:
-            above = []
-        self._status(self._row("·", " · ".join(part for part in (self.current, working) if part), live=True), above)
+        self._status(self._row("·", " · ".join(part for part in (self.current, working) if part), live=True))
+
+    def _unit_rows(self) -> list[str]:
+        """Component bars shared by ticker and model callbacks; caller holds the console lock."""
+        spin = self.st(SPINNER[self.frame % len(SPINNER)], "accent")
+        return [
+            f"{'':10}{spin} {name[: self.UNIT_NAME]:<{self.UNIT_NAME}}  "
+            f"{self.st.bar(self._unit_progress(unit), 100, self.BAR_WIDTH)}  {self._unit_label(unit)}"
+            for name, unit in self.units.items()
+        ]
 
     @classmethod
     def planned_phases(cls, *, abuse_cases: bool) -> list[str]:
@@ -3017,18 +3014,20 @@ class _AssessmentConsole:
     _lock = threading.RLock()
     _stopped = threading.Event()
 
-    def _status(self, text: str, above: list[str] = ()) -> None:
-        """Draw the status line, with `above` lines (one per running component) over it."""
+    def _status(self, text: str, above: list[str] | None = None) -> None:
+        """Redraw the complete live area, retaining component bars on every update."""
         if not self.live:
             return
-        lines = [*above, f"{self.st(self._stamp(self.clock()), 'muted')}  {text}"]
-        # A wrapped status line would survive the next clear as a stray row.
-        # Measured without colour codes; a line that must be cut loses its colour.
-        width = self.columns() - 1
-        for index, line in enumerate(lines):
-            if len(ANSI_RE.sub("", line)) > width:
-                lines[index] = ANSI_RE.sub("", line)[: max(width - 1, 0)] + "…"
         with _AssessmentConsole._lock:
+            if above is None:
+                above = self._unit_rows()
+            lines = [*above, f"{self.st(self._stamp(self.clock()), 'muted')}  {text}"]
+            # A wrapped status line would survive the next clear as a stray row.
+            # Measured without colour codes; a line that must be cut loses its colour.
+            width = self.columns() - 1
+            for index, line in enumerate(lines):
+                if len(ANSI_RE.sub("", line)) > width:
+                    lines[index] = ANSI_RE.sub("", line)[: max(width - 1, 0)] + "…"
             # Overwrite in place instead of clearing first: a cleared line is
             # painted empty between ticks (Windows Terminal via ConPTY does so
             # even within one write), and the area flickers. Each line clears
