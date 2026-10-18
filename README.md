@@ -109,7 +109,19 @@ appsec-analyzer analyze-threats "Does this change weaken access control?" --stag
 
 # Discuss a planned feature before it is built
 appsec-analyzer analyze-threats "How should we protect the new CSV export?" --design
+
+# Review a design document instead of typing the design
+appsec-analyzer analyze-threats --design-file docs/export-design.md
+
+# Review a GitHub pull request (GitLab: --mr); --preview shows the scope without a model call
+appsec-analyzer analyze-threats --pr https://github.com/team/app/pull/42 --preview
+
+# Check a change against your own requirements and threat model
+appsec-analyzer analyze-threats "Does this change violate our requirements?" --staged \
+  --context requirements.md --context docs/security/threatmodel.md
 ```
+
+`--design-file`, `--context`, `--mr`, and `--pr` take documents or a remote change as input. Documents given with `--context` add background and do not replace the question or the change under review.
 
 ### `authnz-review`: authentication and authorization review
 
