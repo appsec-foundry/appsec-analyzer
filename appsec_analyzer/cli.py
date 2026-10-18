@@ -168,6 +168,18 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     formats = score.add_mutually_exclusive_group()
     formats.add_argument("--json", action="store_true", help="Print the complete machine-readable JSON result")
     formats.add_argument("--yaml", action="store_true", help="Print the same result as YAML")
+    profile = commands.add_parser(
+        "repo-profile",
+        help="Show a repository's size, languages, and build manifests without model calls",
+        description=(
+            "Profile a local directory before scanning it: working-tree size, language split by bytes,\n"
+            "build manifests and their roots, and tracked versus untracked content.\n"
+            "Reads directory entries only, never file contents. It is not a security check."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    profile.add_argument("repo", nargs="?", default=".", metavar="REPO", help="Local directory (default: current)")
+    profile.add_argument("--json", action="store_true", help="Print the profile as machine-readable JSON")
     assess = commands.add_parser(
         "assess",
         help="Run a full semantic assessment"
@@ -488,6 +500,7 @@ def _capabilities() -> dict:
         "preflight": {"available": True, "default_model_calls": False, "optional_primary_model_test": True},
         "scan_sources": {"available": True, "model_calls": False},
         "score": {"available": True, "model_calls": False, "scoring_version": 2},
+        "repo_profile": {"available": True, "model_calls": False},
         "export": {"available": True, "model_calls": False, "requires_completed_assessment": True},
         "review": {
             "available": True,
@@ -1320,6 +1333,11 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return _scan(ns)
         if ns.command == "score":
             return _score(ns)
+        if ns.command == "repo-profile":
+            _engine_imports()
+            from analyzers.repo_profile import main as repo_profile
+
+            return repo_profile(["--repo", ns.repo, *(["--json"] if ns.json else [])])
         if ns.command in ("scan", "assess", "preflight"):
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):

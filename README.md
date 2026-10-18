@@ -58,6 +58,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 | [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. | Yes, up to USD 5 |
 | [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. | No |
 | [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. | No |
+| [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. | No |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
 ### `scan`: full security assessment
@@ -154,6 +155,15 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 ```sh
 # Show what the scanners found, without a rating
 appsec-analyzer scan-sources --repo /path/to/project
+```
+
+### `repo-profile`: size, languages, and layout
+
+`repo-profile` shows what a scan would have to read: working-tree size, how much of it is installed dependencies or build output, the language split by bytes, the build manifests and whether they sit in one root or several, and tracked versus untracked content. It reads directory entries only and passes no judgement on security.
+
+```sh
+# Profile the current directory, or print JSON for scripts
+appsec-analyzer repo-profile /path/to/project --json
 ```
 
 ### `export`: other report formats

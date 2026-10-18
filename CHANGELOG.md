@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `appsec-analyzer repo-profile` shows a local repository's size, languages, and build manifests before a scan, without model calls.
 - Experimental: repeat `--repo` in the headless runner to assess several local checkouts as one system, with evidenced cross-repository calls and repository attribution in the model, report, and Figure 1; replacing an earlier combined report requires `--rebuild`.
 - Standard and thorough runs check business abuse cases, thorough runs add application-specific cases, and repositories and organization profiles can supply their own checks; `/appsec-advisor:abuse-cases` lists cases and results or explains a selected case.
 - The Threat Analyst checks concrete hypotheses or a selected abuse case against code at a Git revision, answers change-specific questions with `--question`, and supports read-only repository exploration for design questions and reviews with `--explore`.
