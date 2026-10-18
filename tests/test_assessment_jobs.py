@@ -677,6 +677,50 @@ def test_optional_work_protects_pending_analysis_and_uses_measured_job_cost(tmp_
     assert host.calls == 1
 
 
+def test_one_expensive_batch_does_not_reserve_its_cost_for_every_pending_batch(tmp_path):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(10.0, 2.0, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", 10)
+    for usd in (0.6, 0.2, 0.2, 0.2):
+        jobs.budget.accepted("stride:done", "stride_analyzer", usd, 1)
+    jobs.budget.accepted("review:done", "architecture_analyst", 0.1, 1)
+    jobs.budget.spent_usd = 3.0
+    # 10 pending batches at 1.5 x the USD 0.30 average plus the USD 2 report
+    # leave USD 0.50; doubling the USD 0.60 outlier would reserve USD 14.
+    assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "accepted"}
+    assert host.calls == 1 and jobs.gaps == []
+    jobs.budget.spent_usd = 3.45
+    assert jobs.execute(**{**kwargs, "selector": "two"}, on_failure=lambda reason: {"result": "not reviewed"}) == {
+        "result": "not reviewed"
+    }
+    assert host.calls == 1 and jobs.gaps[0]["budget"]
+
+
+def test_optional_work_waits_for_pending_analysis_before_asking_for_more_budget(tmp_path):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(1.0, 0.05, 100, 7200)
+    jobs.budget.plan_completion()
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", 4)
+    jobs.budget.spent_usd = 0.73
+    asked = []
+    jobs.budget.on_budget_increase = asked.append
+    optional = dict(on_failure=lambda reason: {"result": "not reviewed"})
+    # The controller retries this budget gap once the analysis reserve is released.
+    assert jobs.execute(**kwargs, **optional) == {"result": "not reviewed"}
+    assert asked == [] and jobs.gaps[0]["budget"] and host.calls == 0
+    # Required analysis that cannot fit still asks.
+    jobs.budget.spent_usd = 0.99
+    with pytest.raises(ExchangeError, match="budget"):
+        jobs.execute(**{**kwargs, "role": "stride_analyzer", "selector": "stride:remaining"})
+    assert len(asked) == 1 and host.calls == 0
+    # Once only the report reserve remains, an optional shortfall asks too.
+    jobs.budget.plan_required("stride:remaining", "stride_analyzer", 0)
+    jobs.budget.spent_usd = 0.94
+    assert jobs.execute(**{**kwargs, "selector": "two"}, **optional) == {"result": "not reviewed"}
+    assert len(asked) == 2 and host.calls == 0
+
+
 @pytest.mark.parametrize(
     "max_parallel, pending, skipped", [(1, 4, True), (2, 4, True), (4, 4, False), (2, 3, True), (16, 17, True)]
 )

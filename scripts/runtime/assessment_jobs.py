@@ -37,6 +37,10 @@ MAX_ASSESSMENT_CALLS = (1600 * 2 + 4096 + 500 + 16 * 4 + 16) * MAX_EXCHANGES
 MAX_ASSESSMENT_SECONDS = 43_200
 # Local composition, validation and publication need time even after the last call.
 FINALIZATION_SECONDS = 120
+# A pending job reserves the average accepted job of its role plus half again,
+# which leaves room for corrections without multiplying one outlier across
+# every pending batch.
+COST_HEADROOM = 1.5
 REPORT_JOB = "stage2:security-architecture"
 SUMMARY_JOB = "stage2:management-summary"
 
@@ -94,6 +98,12 @@ class AssessmentBudget(DiscoveryBudget):
     def request_more_budget(self, should_stop) -> bool:
         if self.subscription or self.on_budget_increase is None or self.unsettled or self._inflight or should_stop():
             return False
+        group, _role, optional = getattr(self._local, "job", (None, None, False))
+        # While source analysis is pending, its reserve shrinks with every
+        # accepted batch, and the controller retries the optional job's budget
+        # gap afterwards; asking now would pause the run for nothing.
+        if optional and any(key not in (group, REPORT_JOB) for key in self.required):
+            return False
         previous = self.max_usd
         self.on_budget_increase(should_stop)
         return self.max_usd > previous
@@ -121,19 +131,19 @@ class AssessmentBudget(DiscoveryBudget):
     def accepted(self, group, role, usd, seconds=None):
         """Learn only from accepted jobs under this run's fixed model selection."""
         with self._lock:
-            cost, duration = self.observed.get(role, (0.0, 0.0))
+            cost, jobs, duration = self.observed.get(role, (0.0, 0, 0.0))
             # Subscription completion reserves use calls and time only.
             estimate = 0.0 if self.subscription else usd
-            self.observed[role] = (max(cost, estimate), max(duration, seconds or 0.0))
+            self.observed[role] = (cost + estimate, jobs + 1, max(duration, seconds or 0.0))
             if group in self.required:
                 planned_role, count = self.required[group]
                 self.plan_required(group, planned_role, count - 1)
 
     def _estimate(self, role):
-        cost, seconds = self.observed.get(role, (0.0, 0.0))
+        cost, jobs, seconds = self.observed.get(role, (0.0, 0, 0.0))
         # A cold role keeps a full call allowance. Measurements include all
-        # exchanges of a job; double the largest accepted job for correction.
-        allowance = 0.0 if self.subscription else (max(0.05, 2 * cost) if cost else self.call_usd)
+        # exchanges of a job, so earlier corrections are part of the average.
+        allowance = 0.0 if self.subscription else (max(0.05, COST_HEADROOM * cost / jobs) if cost else self.call_usd)
         return allowance, 2 * seconds if seconds else MAX_CALL_SECONDS
 
     def _reserve(self):
