@@ -54,6 +54,7 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert not other.exists()
     assert (package / "scripts" / "runtime" / "multi_repo_scope.py").is_file()
     assert (package / "data" / "stride-analysis-policy.md").is_file()
+    assert (package / "data" / "architecture-analysis-policy.md").is_file()
     probe = subprocess.run(
         [
             sys.executable,
@@ -359,6 +360,8 @@ print(json.dumps(result))
     assert "appsec_analyzer/codex_cli.py" in source_files
     assert "appsec_analyzer/scripts/runtime/multi_repo_scope.py" in wheel_files
     assert "appsec_analyzer/data/stride-analysis-policy.md" in wheel_files
+    assert "appsec_analyzer/data/architecture-analysis-policy.md" in wheel_files
+    assert "data/architecture-analysis-policy.md" in source_files
     assert "appsec_analyzer/agents/appsec-stride-analyzer-v2.md" not in wheel_files
     assert "scripts/runtime/multi_repo_scope.py" in source_files
     assert "agents/appsec-stride-analyzer-v2.md" not in source_files

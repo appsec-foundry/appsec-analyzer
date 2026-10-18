@@ -128,10 +128,19 @@ def failure_fields(error: BaseException) -> dict:
         return {"reason": "cancelled"}
     # Review and schema failures are controller-authored; arbitrary exceptions
     # (including provider-library failures) must not bring their text into logs.
-    from runtime.assessment_host import ExchangeError
+    from runtime.assessment_host import MAX_EXCHANGES, ExchangeError, ModelAnswerFailure
 
     if isinstance(error, ExchangeError):
-        return {"reason": "validation", "detail": safe_reason(str(error))}
+        fields = {"reason": "validation", "detail": safe_reason(str(error))}
+        if isinstance(error, ModelAnswerFailure):
+            for field, value in (
+                ("exchanges", error.calls_used),
+                ("source_read_rounds", error.read_rounds),
+                ("rejected_results", error.attempts),
+            ):
+                if type(value) is int and 0 <= value <= MAX_EXCHANGES:
+                    fields[field] = value
+        return fields
     result = {"reason": "internal_error"}
     if type(error).__name__ in {
         "OSError",

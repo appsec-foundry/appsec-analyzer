@@ -58,6 +58,8 @@ Command adapters call application workflows, which use shared services and engin
 
 Source admission, model permissions, budgets, and artifact publication remain enforced by their existing runtime and controller boundaries. Agent Markdown, repository text, and model output are runtime inputs and cannot grant execution authority. See [SECURITY.md](SECURITY.md), the [orchestration contract](docs/internal/contracts/orchestration-actions.md), and the [context-routing contract](docs/internal/contracts/context-routing.md).
 
+The active architecture and STRIDE jobs use the controller-native analysis policies in [architecture-analysis-policy.md](data/architecture-analysis-policy.md) and [stride-analysis-policy.md](data/stride-analysis-policy.md), selected by [model_roles.py](appsec_analyzer/model_roles.py). Architecture receives finalized components and returns flows, external entities and assets; its policy does not run discovery, shell tools, artifact writes or publication. The structured host reserves correction exchanges within its fixed job limit. Retained agent files describe earlier execution procedures and must not be substituted for these active policies.
+
 ## Compatibility and migration limits
 
 [engine.py](appsec_analyzer/engine.py) locates the retained engine domains in checkouts and installed wheels without importing the CLI. Engine modules still use domain imports such as `runtime`, `model`, and `orchestrator`. The engine directories remain under `scripts/`; this refactoring did not relocate the entire engine into the application package.

@@ -63,6 +63,8 @@ def test_required_failure_retains_selector_role_and_long_rejection(tmp_path):
     rejections = [row for row in rows if row["event"] == "answer_rejected"]
     assert len(rejections) == 2 and all(reason == row["detail"] for row in rejections)
     assert rows[-1]["event"] == "job_failed" and reason in rows[-1]["detail"]
+    assert rows[-1]["exchanges"] == 3 and rows[-1]["source_read_rounds"] == 0
+    assert rows[-1]["rejected_results"] == 3
     assert not list(jobs.directory.glob("*.receipt.json"))
 
 

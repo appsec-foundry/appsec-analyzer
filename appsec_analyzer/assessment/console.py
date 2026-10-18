@@ -52,14 +52,20 @@ def model_failure_lines(error) -> list[str]:
         return []
     job = getattr(error, "assessment_job", {})
     role = job.get("role")
-    phase = "Threat analysis" if role == "stride_analyzer" else _AssessmentConsole.ROLE_LABELS.get(role, "Analysis")
+    phase = {"stride_analyzer": "Threat analysis", "architecture_analyst": "Architecture"}.get(
+        role, _AssessmentConsole.ROLE_LABELS.get(role, "Analysis")
+    )
     lines = [f"✗ assessment stopped: {phase} could not produce a valid result"]
     label = safe_reason(job.get("label", ""))
     batch = re.search(r":(\d+)/(\d+)$", job.get("selector", ""))
     if label:
-        lines.append(f"  Component: {label}" + (f" · batch {batch[1]} of {batch[2]}" if batch else ""))
+        lines.append(
+            f"  {job.get('subject', 'Component')}: {label}" + (f" · batch {batch[1]} of {batch[2]}" if batch else "")
+        )
     if error.attempts:
-        lines.append(f"  The model's answer failed validation after {error.attempts} attempts.")
+        lines.append(f"  The model's answer failed validation after {_count_noun(error.attempts, 'attempt')}.")
+    if error.calls_used is not None:
+        lines.append(f"  Job exchanges used: {error.calls_used}; source-read rounds: {error.read_rounds or 0}.")
     issues = getattr(error.rejection, "surface_issues", ())
     if issues:
         for issue in issues[:3]:

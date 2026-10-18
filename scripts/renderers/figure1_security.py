@@ -182,8 +182,38 @@ def access_groups(flows):
         else:
             valid = valid and all(s is None for s in steps)
         if not valid:
+            reasons = []
+            if len(members) < 2:
+                reasons.append("requires at least two flows")
+            for fields, label in (
+                (("from", "from_entity"), "sending endpoints"),
+                (("to", "to_entity"), "receiving endpoints"),
+                (("protocol",), "protocols"),
+                (("direction",), "directions"),
+            ):
+                if any(tuple(f.get(k) for k in fields) != tuple(members[0].get(k) for k in fields) for f in members):
+                    reasons.append(f"members have different {label}")
+            if mode not in ("alternatives", "sequence"):
+                reasons.append("mode must be alternatives or sequence")
+            if any(f["access_group"].get("mode") != mode for f in members):
+                reasons.append("members have different group modes")
+            if not isinstance(first.get("label"), str) or not first["label"].strip():
+                reasons.append("requires a nonempty group label")
+            elif any(f["access_group"].get("label") != first["label"] for f in members):
+                reasons.append("members have different group labels")
+            if any(f.get("interaction") or f.get("protocol_group") for f in members):
+                reasons.append("cannot combine access_group with interaction or protocol_group")
+            if any(authentication_profile(f)["scheme"] == "unknown" for f in members):
+                reasons.append("each member needs a known authentication method supported by source evidence")
+            if mode == "sequence" and not (
+                all(type(s) is int for s in steps) and sorted(steps) == list(range(1, len(members) + 1))
+            ):
+                reasons.append("sequence steps must be unique consecutive integers starting at 1")
+            elif mode == "alternatives" and any(s is not None for s in steps):
+                reasons.append("alternatives cannot have sequence steps")
             errors.append(
-                f"access_group {gid}: requires evidenced methods, consistent endpoints/protocol/direction/label and unique consecutive sequence steps"
+                f"access_group {gid}: {'; '.join(reasons)}. "
+                "Correct the group only from source evidence, or omit access_group and keep every individual flow."
             )
         else:
             accepted[gid] = sorted(members, key=lambda f: f["access_group"].get("step", 0) or f["id"])

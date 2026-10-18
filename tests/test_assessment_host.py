@@ -255,13 +255,16 @@ def test_repeated_reads_and_incomplete_results_are_not_silently_accepted(tmp_pat
         invoke(Model([{"action": "complete", "reads": [], "artifact": None}] * 3), tmp_path)
 
 
-def test_last_exchange_requires_completion_and_keeps_the_same_call_limit(tmp_path):
+@pytest.mark.parametrize("rejected_drafts", [0, 1, 2])
+def test_last_exchange_requires_completion_and_keeps_the_same_call_limit(tmp_path, rejected_drafts):
+    drafts = []
+
     class ReadsUntilCompletionRequired(Model):
         def invoke(self, system, prompt, schema, timeout_s, should_stop):
             packet = json.loads(prompt.split(f"<<<{host.MARKER}\n")[1].split(f"\n{host.MARKER}>>>")[0])
             self.prompts.append(prompt)
             if packet["completion_required"]:
-                assert packet["exchange_calls_remaining"] == 1
+                assert packet["exchange_calls_remaining"] == host.MAX_CORRECTIONS + 1 - len(drafts)
                 assert packet["source_reads_remaining"] == 0
                 properties = schema["properties"]
                 assert properties["action"] == {"enum": ["complete"]}
@@ -272,9 +275,29 @@ def test_last_exchange_requires_completion_and_keeps_the_same_call_limit(tmp_pat
             return HostReply(read(), 0.01)
 
     model = ReadsUntilCompletionRequired([])
-    result = invoke(model, tmp_path)
-    assert result.calls == len(model.prompts) == host.MAX_EXCHANGES
-    assert result.usd == pytest.approx(0.01 * host.MAX_EXCHANGES)
+
+    def review(artifact, slices):
+        drafts.append(artifact)
+        if len(drafts) <= rejected_drafts:
+            raise host.Rejection("Invalid flow group", ["members have different receiving endpoints"])
+
+    result = host.run_exchange(
+        model,
+        view(tmp_path),
+        instructions="trusted task",
+        context={},
+        artifact_schema=ARTIFACT,
+        allowed_sources=frozenset({(REPO, "app.py")}),
+        timeout_s=30,
+        should_stop=lambda: False,
+        review=review,
+    )
+    expected = host.MAX_EXCHANGES - host.MAX_CORRECTIONS + rejected_drafts
+    assert result.calls == len(model.prompts) == expected <= host.MAX_EXCHANGES
+    assert result.usd == pytest.approx(0.01 * expected)
+    assert len(drafts) == rejected_drafts + 1
+    if rejected_drafts:
+        assert "different receiving endpoints" in model.prompts[-1]
 
 
 def test_a_last_exchange_read_is_not_served_when_the_host_ignores_the_schema(tmp_path, monkeypatch):
@@ -288,22 +311,27 @@ def test_a_last_exchange_read_is_not_served_when_the_host_ignores_the_schema(tmp
     monkeypatch.setattr(host, "read_slice", record)
     final_read = read()
     final_read["reads"][0]["end_line"] = 1
-    model = Model([read()] * (host.MAX_EXCHANGES - 1) + [final_read])
+    model = Model([read()] * (host.MAX_EXCHANGES - host.MAX_CORRECTIONS - 1) + [final_read])
     with pytest.raises(host.ModelAnswerFailure, match="exchange limit"):
         invoke(model, tmp_path)
-    assert len(model.prompts) == host.MAX_EXCHANGES
+    assert len(model.prompts) == host.MAX_EXCHANGES - host.MAX_CORRECTIONS
     assert len(served) == 1 and served[0] == (REPO, "app.py", 1, 2)
 
 
 def test_final_completion_still_requires_evidence_validation(tmp_path):
-    model = Model([read()] * (host.MAX_EXCHANGES - 1) + [complete()])
+    model = Model(
+        [read()] * (host.MAX_EXCHANGES - host.MAX_CORRECTIONS - 1) + [complete()] * (host.MAX_CORRECTIONS + 2)
+    )
 
     def reject(artifact, slices):
         raise ValueError("Required evidence is missing")
 
-    with pytest.raises(host.ModelAnswerFailure, match="Required evidence is missing"):
+    with pytest.raises(host.ModelAnswerFailure, match="Required evidence is missing") as caught:
         _reviewed(model, tmp_path, reject)
     assert len(model.prompts) == host.MAX_EXCHANGES
+    assert caught.value.attempts == host.MAX_CORRECTIONS + 1
+    assert caught.value.calls_used == host.MAX_EXCHANGES
+    assert caught.value.read_rounds == host.MAX_EXCHANGES - host.MAX_CORRECTIONS - 1
 
 
 @pytest.mark.parametrize(
@@ -1098,7 +1126,7 @@ def test_repeated_unlisted_proposals_exhaust_exchange_limit_without_retrieval(tm
     model = Model([read("guessed.ts")] * host.MAX_EXCHANGES)
     with pytest.raises(host.ModelAnswerFailure, match="exchange limit"):
         invoke(model, tmp_path)
-    assert len(model.prompts) == host.MAX_EXCHANGES
+    assert len(model.prompts) == host.MAX_EXCHANGES - host.MAX_CORRECTIONS
 
 
 def test_read_batch_with_a_fatal_proposal_is_rejected_before_any_retrieval(tmp_path, monkeypatch):

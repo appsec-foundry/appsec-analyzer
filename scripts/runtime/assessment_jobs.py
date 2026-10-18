@@ -373,6 +373,7 @@ class AssessmentJobs:
                     "role": kwargs["role"],
                     "selector": kwargs["selector"],
                     "label": safe_reason(str(component.get("name") or context.get("label") or "")),
+                    "subject": "Component" if component.get("name") else "Repository",
                     "reason": safe_reason(str(error)),
                 }
                 if trace:

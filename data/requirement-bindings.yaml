@@ -606,6 +606,7 @@ requirements:
       - schemas/figure2-diagram.schema.json
       - data/business-impact-taxonomy.yaml
       - agents/appsec-architecture-analyst.md
+      - data/architecture-analysis-policy.md
       - agents/appsec-threat-renderer.md
       - data/attack-class-taxonomy.yaml
       - schemas/fragments/security-posture-attack-paths.schema.json
@@ -772,6 +773,7 @@ requirements:
       - tests/test_figure1_dfd.py::test_authentication_markers_use_the_same_hexagon_at_accesses_and_in_legend
       - tests/test_figure1_dfd.py::test_explicit_access_groups_preserve_methods_and_individual_detail
       - tests/test_figure1_security.py::test_access_groups_reject_ambiguous_or_unevidenced_relationships
+      - tests/test_figure1_security.py::test_access_group_rejection_names_the_actual_violation_without_changing_flows
       - tests/test_figure1_security.py::test_missing_authentication_never_becomes_none
       - tests/test_figure1_security.py::test_catalog_reuses_method_not_component_name_or_evidence
       - tests/test_figure1_dfd.py::test_scenario_title_is_preserved_without_inventing_mechanisms
@@ -1394,6 +1396,9 @@ requirements:
       - tests/test_codex_cli.py::test_request_capacity_includes_instructions_schema_and_utf8
       - tests/test_assessment_host.py::test_host_capacity_bounds_reads_and_includes_the_complete_request
       - tests/test_assessment_host.py::test_last_exchange_requires_completion_and_keeps_the_same_call_limit
+      - tests/test_multi_repo_analysis.py::test_architecture_read_rounds_leave_room_to_correct_real_flow_invariants
+      - tests/test_active_stride_policy.py::test_active_architecture_prompt_matches_the_toolless_finalized_component_job
+      - tests/test_multi_repo_controller.py::test_architecture_failure_names_repository_and_exchange_usage
       - tests/test_assessment_host.py::test_a_last_exchange_read_is_not_served_when_the_host_ignores_the_schema
       - tests/test_assessment_host.py::test_final_completion_still_requires_evidence_validation
       - tests/test_assessment_host.py::test_invalid_host_context_limits_fail_before_dispatch

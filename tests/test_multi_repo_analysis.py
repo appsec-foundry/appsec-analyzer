@@ -1181,6 +1181,79 @@ def test_local_architecture_returns_every_combined_flow_invariant_to_its_author(
         )
 
 
+@pytest.mark.parametrize("corrected", [True, False])
+def test_architecture_read_rounds_leave_room_to_correct_real_flow_invariants(tmp_path, corrected):
+    from runtime.analyst_host import HostReply
+    from runtime.assessment_host import MARKER, MAX_EXCHANGES, ModelAnswerFailure, run_exchange
+
+    scope, components, evidence, _, identity = sources(tmp_path)
+    rid = evidence[0]["repository_id"]
+    local = [dict(components[0], id="component-api")]
+    fixed = _role_architecture(evidence[0], identity, ["none", "none"], via_client=False)
+    invalid = copy.deepcopy(fixed)
+    for flow in invalid["data_flows"]:
+        flow["access_group"] = dict(id="login-sequence", mode="sequence", label="Login", step=1)
+
+    class ReadsUntilDraftRequired:
+        def __init__(self):
+            self.prompts, self.drafts = [], 0
+
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            self.prompts.append(prompt)
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            if not packet["completion_required"]:
+                return HostReply(
+                    dict(
+                        action="read",
+                        artifact=None,
+                        reads=[
+                            dict(repository_id=rid, path="app.py", start_line=1, end_line=1),
+                        ],
+                    ),
+                    0.01,
+                )
+            self.drafts += 1
+            if self.drafts > 1:
+                assert "sequence steps must be unique consecutive" in packet["rejected_result"]["reason"]
+            artifact = fixed if corrected and self.drafts == 3 else invalid
+            return HostReply(dict(action="complete", reads=[], artifact=copy.deepcopy(artifact)), 0.01)
+
+    model = ReadsUntilDraftRequired()
+
+    def run():
+        return run_exchange(
+            model,
+            scope,
+            instructions="Return evidenced architecture and correct rejected drafts.",
+            context={},
+            artifact_schema=stage.contract("multi-repo-architecture.schema.json"),
+            allowed_sources=stage.source_selection(local),
+            timeout_s=30,
+            should_stop=lambda: False,
+            review=lambda artifact, slices: stage.validate_local_architecture(
+                scope,
+                rid,
+                dict(components=local + components[1:], source_scope_sha256=identity["source_scope_sha256"]),
+                dict(component_inventory_fingerprint=FP),
+                artifact,
+                slices,
+            ),
+        )
+
+    if corrected:
+        result = run()
+        assert result.calls == MAX_EXCHANGES
+        assert result.artifact == fixed
+        assert len(result.artifact["data_flows"]) == len(invalid["data_flows"])
+    else:
+        with pytest.raises(ModelAnswerFailure) as caught:
+            run()
+        assert caught.value.attempts == 3 and caught.value.read_rounds == 3
+    assert len(model.prompts) == MAX_EXCHANGES and model.drafts == 3
+    # The invalid group was not silently repaired or accepted by the controller.
+    assert all("access_group" in f for f in invalid["data_flows"])
+
+
 @pytest.mark.parametrize(
     ("scheme", "entity_kind", "with_client"),
     [
