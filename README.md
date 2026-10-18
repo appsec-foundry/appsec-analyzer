@@ -26,7 +26,7 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/
    pipx install "git+https://github.com/appsec-foundry/appsec-analyzer.git"
    ```
 
-2. Get a free first impression without model calls:
+2. Get a quick score. This makes no model calls and costs nothing:
 
    ```sh
    appsec-analyzer score /path/to/project
@@ -48,23 +48,98 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/
 
 ## Modes
 
-Prefix each command with `appsec-analyzer` and add `--help` for its options.
+Analyzer offers deterministic checks without model calls, a full model-backed assessment, and narrower model-backed reviews. Every command is a subcommand of `appsec-analyzer`; add `--help` to see all its options.
 
-| Command | What it does | Model calls |
+| If you want to | Use | Model calls and default limit |
 | --- | --- | --- |
-| `score PATH_OR_URL` | Score from 0 to 100 with findings, coverage, and limits. Reports `undetermined` when coverage is too low. [Security score](docs/security-score.md) | No |
-| `scan-sources --repo PATH` | Unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. | No |
-| `scan --repo PATH` | Full assessment: architecture, controls, findings, open questions, and prioritized fixes. [Security assessment](docs/security-assessment.md) | Yes, budgeted |
-| `assess --repo PATH --host HOST` | The same assessment with an explicitly selected model host. [Hosts and models](docs/model-selection.md) | Yes, budgeted |
-| `review ASSESSMENT` | Opens a saved assessment in Claude Code or Codex to discuss findings and plan fixes. [Review guide](docs/security-assessment.md#review-an-assessment-with-ai) | Yes, billed to the assistant |
-| `analyze-threats "Question"` | Focused question, design, staged change, MR, or PR review. [Threat Analyst](docs/threat-analyst.md) | Yes |
-| `authnz-review --repo PATH` | Authentication and authorization review only. [AuthNZ review](docs/authnz-review.md) | Yes |
-| `audit-requirements` | Checks a security requirements catalog, optionally as a CI gate. [Requirements audit](docs/security-requirements-audit-skill.md) | Yes |
-| `export --assessment DIR` | Exports a completed assessment to other formats. | No |
+| Get a quick score for a repository | [`score`](#deterministic-checks) | None |
+| See raw scanner observations | [`scan-sources`](#deterministic-checks) | None |
+| Assess a whole system | [`scan` or `assess`](#full-assessment) | Yes, USD 20 per run |
+| Discuss a saved assessment | [`review`](#saved-assessments) | Yes, billed to the assistant's own account |
+| Ask about a design or a change | [`analyze-threats`](#focused-reviews) | Yes, USD 1 per model call |
+| Review authentication and authorization only | [`authnz-review`](#focused-reviews) | Yes, USD 5 per run |
+| Check a security requirements catalog | [`audit-requirements`](#focused-reviews) | Yes, USD 5 per run |
+| Convert a saved assessment to other formats | [`export`](#saved-assessments) | None |
 
-The deterministic commands (`score`, `scan-sources`) only see what their rules cover and do not replace a full assessment. `analyze-threats`, `authnz-review`, and `audit-requirements` have their own narrower scope.
+### Deterministic checks
 
-Helper commands: `preflight` checks repository access and provider setup, `status`, `progress`, `results`, and `stop` follow a run, `profiles` lists and validates profiles, and `capabilities` shows scanners and provider qualification.
+`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It reports `undetermined` when coverage is too low. See [Security score](docs/security-score.md).
+
+```sh
+appsec-analyzer score /path/to/project
+appsec-analyzer score https://github.com/your-org/your-project.git --json
+```
+
+`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage.
+
+```sh
+appsec-analyzer scan-sources --repo /path/to/project
+```
+
+Both commands only see what their rules cover. They do not replace a full assessment.
+
+### Full assessment
+
+`scan` maps architecture and data flows, checks the security controls, and reports findings, open questions, and prioritized fixes. Repeat `--repo` to assess several repositories as one system. See [Security assessment](docs/security-assessment.md).
+
+```sh
+appsec-analyzer scan --repo /path/to/project
+appsec-analyzer scan --repo /path/to/service --repo /path/to/client --budget 30
+```
+
+`assess` runs the same assessment but has no defaults: it requires `--repo` and an explicit `--profile`. Use it in scripts and CI. See [Hosts and models](docs/model-selection.md).
+
+```sh
+appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
+```
+
+### Focused reviews
+
+These commands have a narrower scope than a full assessment and need no prior assessment.
+
+`analyze-threats` answers a security question about the code, a planned design, or a selected change. See [Threat Analyst](docs/threat-analyst.md).
+
+```sh
+appsec-analyzer analyze-threats "Can a normal user read another tenant's records?"
+appsec-analyzer analyze-threats "Does this remove an authorization check?" --staged
+appsec-analyzer analyze-threats "How should we protect exports?" --design
+appsec-analyzer analyze-threats "Does this weaken tenant isolation?" --pr https://github.com/your-org/your-project/pull/42
+```
+
+`authnz-review` checks routes, authentication checks, and authorization patterns of one repository. `--gate` fails on Critical or High findings. See [AuthNZ review](docs/authnz-review.md).
+
+```sh
+appsec-analyzer authnz-review --repo /path/to/project
+appsec-analyzer authnz-review --repo /path/to/project --save --gate
+```
+
+`audit-requirements` checks whether a repository implements each requirement of a local YAML catalog. The output directory must exist. `--demo` uses a bundled sample catalog instead of `--requirements`. See [Requirements audit](docs/security-requirements-audit-skill.md).
+
+```sh
+appsec-analyzer audit-requirements --repo /path/to/project \
+  --requirements /path/to/catalog.yaml --output /path/to/audit \
+  --host claude-cli --md --gate
+```
+
+### Saved assessments
+
+`review` opens a completed assessment in Claude Code or Codex so you can discuss findings and plan fixes. It uses the assistant's own login and usage limits, not the scan budget. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
+
+```sh
+appsec-analyzer review /path/to/assessment
+appsec-analyzer review /path/to/assessment --with codex --preview
+```
+
+`export` writes a completed assessment to other formats without model calls. See [Reports and exports](#reports-and-exports).
+
+### Helper commands
+
+| Command | Purpose |
+| --- | --- |
+| `preflight` | Checks repository access and provider setup before you spend budget. |
+| `status`, `progress`, `results`, `stop` | Follow, inspect, or stop a running assessment. |
+| `profiles` | Lists and validates scan and model profiles. |
+| `capabilities` | Shows the available scanners and provider qualification. |
 
 ## Workflow
 
@@ -132,16 +207,43 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples 
 
 ### Model provider
 
-`score` and `scan-sources` need no provider. Model-backed commands need one of these:
+`score` and `scan-sources` need no provider. `scan` and `assess` select their provider with `--profile`; without it, `scan` uses `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
 
-| Profile | Requirement |
-| --- | --- |
-| `claude` (default) | `claude` on your `PATH` with a working login or externally configured Anthropic API credentials. |
-| `codex` (experimental) | `OPENAI_API_KEY`. |
-| `codex-cli` (experimental) | Codex CLI 0.163.0 signed in with a ChatGPT plan. See [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). |
-| `bedrock` and LiteLLM (experimental) | An external Bedrock API key or LiteLLM gateway with verified connection and price settings. See [LiteLLM and Bedrock setup](docs/providers.md). |
+| `--profile` | Provider | Requirement |
+| --- | --- | --- |
+| `claude` (default) | Claude CLI | `claude` on your `PATH` with a working login or externally configured Anthropic API credentials. |
+| `codex` (experimental) | OpenAI API | `OPENAI_API_KEY`. |
+| `codex-cli` (experimental) | Codex CLI with your ChatGPT plan | Codex CLI 0.163.0, signed in with `codex login`. See [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). |
+| `lite` (experimental) | LiteLLM gateway | `LITELLM_API_KEY` and a gateway entry in `providers.yaml` with verified prices. See [LiteLLM setup](docs/providers.md#use-litellm). |
+| `bedrock` (experimental) | Amazon Bedrock Converse API | `AWS_BEARER_TOKEN_BEDROCK` and a Bedrock entry in `providers.yaml` with verified prices. See [Bedrock setup](docs/providers.md#use-amazon-bedrock). |
 
-The experimental profiles have not completed live assessment qualification. To use your ChatGPT plan, run `codex login` and then `appsec-analyzer scan --profile codex-cli --max-calls 1000`; this profile counts model exchanges instead of money and rejects USD budget options.
+The experimental profiles have not completed live assessment qualification. Run `appsec-analyzer profiles list` to see all built-in and user profiles, and `preflight` with the same `--profile` to check the setup without model calls:
+
+```sh
+appsec-analyzer preflight --repo /path/to/project --profile codex
+```
+
+Examples for each provider:
+
+```sh
+# Claude CLI (default)
+appsec-analyzer scan --repo /path/to/project
+
+# OpenAI API
+appsec-analyzer scan --repo /path/to/project --profile codex
+
+# Codex CLI with a ChatGPT plan: counts model exchanges instead of USD
+codex login
+appsec-analyzer scan --repo /path/to/project --profile codex-cli --max-calls 1000
+
+# LiteLLM gateway: "claude" names the model entry in providers.yaml
+appsec-analyzer scan --repo /path/to/project --profile "lite claude" --budget 20
+
+# Amazon Bedrock
+appsec-analyzer scan --repo /path/to/project --profile bedrock --budget 20
+```
+
+`codex-cli` rejects USD budget options; limit it with `--max-calls` and optionally `--max-duration SECONDS`. All other profiles use the USD budget from `--budget`.
 
 [Configuration](docs/configuration.md) describes provider setup in detail. Organizations can ship preconfigured profiles; see the [organization packaging guide](docs/organization-distributions.md).
 
