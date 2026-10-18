@@ -20,10 +20,10 @@ It does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime 
 
 You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/path/to/project` with the repository you want to examine.
 
-1. Install the preview from the `dev` branch:
+1. Install the preview from GitHub:
 
    ```sh
-   pipx install "git+https://github.com/appsec-foundry/appsec-analyzer.git@dev"
+   pipx install "git+https://github.com/appsec-foundry/appsec-analyzer.git"
    ```
 
 2. Get a free first impression without model calls:
@@ -90,7 +90,7 @@ Analyzed repositories are untrusted input: their content cannot authorize tools 
 
 ## Install
 
-pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The install command only works if the `dev` branch is reachable for your GitHub account. The package is not yet on PyPI.
+pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The install command only works if the repository is reachable for your GitHub account. The package is not yet on PyPI.
 
 <details>
 <summary>Install with pip or from a local checkout</summary>
@@ -98,13 +98,13 @@ pipx creates its own virtual environment and puts `appsec-analyzer` on your `PAT
 With `pip`, inside an activated virtual environment:
 
 ```sh
-python -m pip install "git+https://github.com/appsec-foundry/appsec-analyzer.git@dev"
+python -m pip install "git+https://github.com/appsec-foundry/appsec-analyzer.git"
 ```
 
 From a local checkout, for example to install local changes:
 
 ```sh
-git clone --branch dev https://github.com/appsec-foundry/appsec-analyzer.git
+git clone https://github.com/appsec-foundry/appsec-analyzer.git
 cd appsec-analyzer
 python3 -m venv .venv
 . .venv/bin/activate
