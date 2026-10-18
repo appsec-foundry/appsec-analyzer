@@ -48,18 +48,18 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/
 
 ## Modes
 
-Analyzer offers deterministic checks without model calls, a full model-backed assessment, and narrower model-backed reviews. Every command is a subcommand of `appsec-analyzer`; add `--help` to see all its options.
+Analyzer offers deterministic checks without model calls, a full model-backed assessment, and narrower model-backed reviews. Every command is a subcommand of `appsec-analyzer`; add `--help` to see all its options. The examples use `project` for the analyzed repository and `assessment` for a results directory.
 
-| If you want to | Use | Model calls and default limit |
+| Mode | What it does | Example |
 | --- | --- | --- |
-| Get a quick score for a repository | [`score`](#deterministic-checks) | None |
-| See raw scanner observations | [`scan-sources`](#deterministic-checks) | None |
-| Assess a whole system | [`scan` or `assess`](#full-assessment) | Yes, USD 20 per run |
-| Discuss a saved assessment | [`review`](#saved-assessments) | Yes, billed to the assistant's own account |
-| Ask about a design or a change | [`analyze-threats`](#focused-reviews) | Yes, USD 1 per model call |
-| Review authentication and authorization only | [`authnz-review`](#focused-reviews) | Yes, USD 5 per run |
-| Check a security requirements catalog | [`audit-requirements`](#focused-reviews) | Yes, USD 5 per run |
-| Convert a saved assessment to other formats | [`export`](#saved-assessments) | None |
+| [`score`](#deterministic-checks) | Quick 0–100 score for a repository. No model calls. | `appsec-analyzer score project` |
+| [`scan-sources`](#deterministic-checks) | Raw scanner observations. No model calls. | `appsec-analyzer scan-sources --repo project` |
+| [`scan`, `assess`](#full-assessment) | Full assessment of a whole system. Model calls, default limit USD 20 per run. | `appsec-analyzer scan --repo project --output assessment` |
+| [`review`](#saved-assessments) | Discuss a saved assessment in Claude Code or Codex. Model calls, billed to the assistant's own account. | `appsec-analyzer review assessment` |
+| [`analyze-threats`](#focused-reviews) | Ask about a design or a change. Model calls, default limit USD 1 per call. | `appsec-analyzer analyze-threats "Can a user read another tenant's records?"` |
+| [`authnz-review`](#focused-reviews) | Review authentication and authorization only. Model calls, default limit USD 5 per run. | `appsec-analyzer authnz-review --repo project` |
+| [`audit-requirements`](#focused-reviews) | Check a security requirements catalog. Model calls, default limit USD 5 per run. | `appsec-analyzer audit-requirements --repo project --demo --output audit --host claude-cli` |
+| [`export`](#saved-assessments) | Convert a saved assessment to other formats. No model calls. | `appsec-analyzer export --assessment assessment --output export` |
 
 ### Deterministic checks
 
@@ -272,10 +272,8 @@ Each assessment writes `security-assessment.md` for reading and `security-assess
 
 The runtime architecture with its data flows and attack paths, shown as a detail. Click the image to open the full diagram:
 
-<a href="docs/images/figure1-example.svg"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-crop-dark.svg">
-  <img src="docs/images/figure1-example-crop.svg" alt="Detail of the runtime architecture and attack paths in the Juice Shop assessment">
-</picture></a>
+[![Detail of the runtime architecture and attack paths in the Juice Shop assessment](docs/images/figure1-example-crop.svg#gh-light-mode-only)](docs/images/figure1-example.svg)
+[![Detail of the runtime architecture and attack paths in the Juice Shop assessment](docs/images/figure1-example-crop-dark.svg#gh-dark-mode-only)](docs/images/figure1-example-dark.svg)
 
 The build pipeline and the most severe supply-chain attacks on it:
 

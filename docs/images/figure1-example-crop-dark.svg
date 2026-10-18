@@ -907,4 +907,10 @@ df-018: OAuth profile request (HTTPS); The provider checks the OAuth access toke
 <text x="14.0" y="48.0" font-family="Helvetica, Arial, sans-serif" font-size="8" fill="#89909d" text-anchor="start" font-weight="normal">Labels behind +N on their element:</text>
 <text x="14.0" y="66.0" font-family="Helvetica, Arial, sans-serif" font-size="8" fill="#89909d" text-anchor="start" font-weight="normal">C-02: XML parsing, Server-side templates, LLM calls</text>
 </g>
+<g data-crop-marker="true">
+<defs><linearGradient id="crop-fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d1117" stop-opacity="0"/><stop offset="1" stop-color="#0d1117" stop-opacity="1"/></linearGradient></defs>
+<rect x="0" y="660" width="1174" height="140" fill="url(#crop-fade)"/>
+<rect x="437" y="756" width="300" height="30" rx="15" fill="#334d6e"/>
+<text x="587" y="776" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#ffffff" text-anchor="middle" font-weight="bold">Detail · click for the full diagram</text>
+</g>
 </svg>
