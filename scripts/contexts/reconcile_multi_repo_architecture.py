@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from runtime.assessment_host import Rejection
 from runtime.multi_repo_scope import AssessmentScope, ScopeError
 
 SCHEMA = Path(__file__).resolve().parents[2] / "schemas" / "multi-repo-discovery.schema.json"
@@ -24,6 +25,13 @@ OUTPUT_SCHEMA = SCHEMA.with_name("multi-repo-connections.schema.json")
 
 class ArchitectureError(ValueError):
     """Observations cannot be reconciled without losing scope or evidence."""
+
+
+class QuotationRejection(ArchitectureError, Rejection):
+    """A discovery rejection that can correct only its specific source citations."""
+
+    def __init__(self, reason, quotations):
+        Rejection.__init__(self, reason, [], quotations=quotations)
 
 
 def _id(kind: str, *parts: str) -> str:
@@ -50,6 +58,8 @@ def validate_discovery(scope: AssessmentScope, expected_repository: str, documen
             )
     interface_ids: set[str] = set()
     unsupported_identities = []
+    mismatched_quotes = []
+    quotation_corrections = []
     for index, interface in enumerate(document["interfaces"]):
         if interface["id"] in interface_ids or interface["component_id"] not in components:
             raise ArchitectureError("Duplicate interface or unknown component")
@@ -66,19 +76,42 @@ def validate_discovery(scope: AssessmentScope, expected_repository: str, documen
         if interface["operation"] is None and interface["role"] in {"publish", "consume"}:
             raise ArchitectureError("A published or consumed message must name its topic")
         quotes = []
-        for reference in interface["evidence"]:
+        for evidence_index, reference in enumerate(interface["evidence"]):
             try:
                 piece = scope.read(expected_repository, reference["file"], reference["line"], reference["line"])
             except ScopeError:
                 raise ArchitectureError("Interface cites uncaptured source") from None
             if reference["quote"] not in piece["lines"][0]:
-                raise ArchitectureError("Interface quotation does not match its source")
+                mismatched_quotes.append(f"interfaces/{index}/evidence/{evidence_index}/quote")
+                quotation_corrections.append(
+                    {
+                        "pointer": ("interfaces", index, "evidence", evidence_index),
+                        "repository_id": expected_repository,
+                        "claim": {
+                            key: interface[key]
+                            for key in ("component_id", "role", "protocol", "address", "deployment", "operation")
+                        },
+                    }
+                )
             quotes.append(reference["quote"])
         # Identity strings without source support cannot manufacture a match.
         for key in ("address", "deployment", "operation"):
             value = interface[key]
             if value is not None and not any(value in quote for quote in quotes):
                 unsupported_identities.append(f"interfaces/{index}/{key}")
+    if mismatched_quotes:
+        locations = ", ".join(mismatched_quotes[:32])
+        if len(mismatched_quotes) > 32:
+            locations += f"; {len(mismatched_quotes) - 32} further quotation mismatches"
+        raise QuotationRejection(
+            "Interface quotation does not match its source at " + locations + ". "
+            "For each listed evidence entry, copy an exact substring of the cited source_slices line, "
+            "preserving its punctuation and spacing and excluding the displayed line-number prefix. "
+            "If the quote belongs to another retrieved line in the same file, correct its line number. "
+            "Do not paraphrase, join separate lines or invent source text. Correct every listed entry "
+            "in the included result and return the complete artifact.",
+            quotation_corrections,
+        )
     if unsupported_identities:
         locations = ", ".join(unsupported_identities[:32])
         if len(unsupported_identities) > 32:

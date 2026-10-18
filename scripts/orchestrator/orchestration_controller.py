@@ -1312,16 +1312,14 @@ def _assessment_architecture(scope, jobs, *, progress):
             rid: {key: row[key] for key in ("role_units", "egress", "topology", "serving_units")}
             for rid, row in inventories.items()
         },
+        progress=progress,
     )
     components, receipt = finalize_assessment(
         scope, list(discovery.observations), routes={rid: row["route_rows"] for rid, row in inventories.items()}
     )
     files = sum(len(repository.files) for repository in scope.repositories)
-    _phase_result(
-        progress,
-        "Reconnaissance",
-        f"{_count_noun(len(scope.repositories), 'repository')} · {_count_noun(files, 'file')}",
-    )
+    # The console's done line already counts the discovered repositories.
+    _phase_result(progress, "Reconnaissance", _count_noun(files, "file"))
     progress("Reviewing evidenced cross-repository connection candidates")
     review = review_connections(
         scope,
@@ -1353,7 +1351,7 @@ def _assessment_architecture(scope, jobs, *, progress):
             for flow in flows["data_flows"]
             if "connection_id" in flow and any(e["repository_id"] == rid for e in flow["evidence"])
         ]
-        progress("Analyzing local architecture: " + labels[rid])
+        progress(f"Analyzing local architecture: {labels[rid]} ({index + 1}/{len(scope.repositories)})")
         model_leads[rid] = analysis.model_integration_leads(scope, local)
         client_entries = analysis.client_entry_evidence(scope, rid, local, inventories[rid]["serving_units"]["units"])
         artifact = jobs.execute(
@@ -2487,7 +2485,10 @@ class _ReportedTransport:
     def _observe(self, event):
         self.active = time.monotonic()
         if event.get("type") == "host_activity":
-            if event.get("phase") in ("thinking", "writing"):
+            if event.get("phase") == "reconnecting":
+                self.phase = "reconnecting"
+                self.report("host connection interrupted; reconnecting")
+            elif event.get("phase") in ("thinking", "writing"):
                 self.phase = event["phase"]
                 count = event.get("characters", 0)
                 if type(count) is int and 0 <= count <= 1_048_576:
@@ -2508,6 +2509,8 @@ class _ReportedTransport:
         quiet = round(time.monotonic() - self.active)
         if not self.activity_available:
             return "model call is running; intermediate activity is unavailable"
+        if self.phase == "reconnecting":
+            return f"host connection interrupted; reconnecting; no progress update for {quiet} s"
         if quiet >= self.SILENT_SECONDS:
             return f"no progress update for {quiet} s; model call is still running"
         if self.phase == "writing":

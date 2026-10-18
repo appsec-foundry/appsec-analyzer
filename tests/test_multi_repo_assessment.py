@@ -645,6 +645,44 @@ def test_count_noun_inflects_regular_and_y_plurals():
     assert controller._count_noun(0, "finding") == "0 findings"
 
 
+def test_default_console_names_each_discovered_repository():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.step("Discovering every selected repository")
+    console.step("Discovering repository: web (1/2)")
+    console.call("reads web/server.ts:1-160 (3 s)", "recon_scanner", "luna")
+    console.step("Discovering repository: api (2/2)")
+    console.close()
+    details = [row[5] for row in _rows(lines)]
+    assert "repository 1/2 · web" in details and "repository 2/2 · api" in details
+    # Model reads stay behind --verbose.
+    assert not any("reads" in detail for detail in details)
+
+
+def test_verbose_console_labels_a_corrected_answer_as_correction_not_part():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(True, lines.append, clock=clock)
+    console.step("Discovering repository: web (1/1)")
+    console.call("result: 2 components (9 s)", "recon_scanner", "luna")
+    console.call("answer rejected, asking for a correction: missing quote", "recon_scanner", "luna")
+    console.call("result: 2 components (14 s)", "recon_scanner", "luna")
+    console.call("result: 1 component (5 s)", "recon_scanner", "luna")
+    console.close()
+    details = [row[5] for row in _rows(lines)]
+    assert "discovery [luna] (corrected) answered — 14s" in details
+    # A further answer without a rejection is still a separate part.
+    assert "discovery [luna] (part 2) answered — 5s" in details
+    assert not any("part 3" in detail for detail in details)
+
+
+def test_local_architecture_names_its_repository_position():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(True, lines.append, clock=clock)
+    console.step("Analyzing local architecture: juice-shop (1/1)")
+    console.close()
+    assert "repository 1/1 · juice-shop" in [row[5] for row in _rows(lines)]
+
+
 def test_verbose_console_keeps_the_grid_and_adds_every_step_and_call():
     verbose, clock = [], _Clock()
     console = controller._AssessmentConsole(True, verbose.append, clock=clock)

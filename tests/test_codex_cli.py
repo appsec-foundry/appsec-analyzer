@@ -19,7 +19,17 @@ FEATURES = {
 }
 
 
-def events(payload):
+def events(payload, *, object_schema=False):
+    def generic(value):
+        if isinstance(value, dict):
+            return {"entries": [{"key": k, "value": generic(v)} for k, v in value.items()]}
+        if isinstance(value, list):
+            return [generic(v) for v in value]
+        return value
+
+    structured = generic(payload)
+    if object_schema:
+        structured = {"__extra": [{"key": k, "value": generic(v)} for k, v in payload.items()]}
     return b"\n".join(
         json.dumps(e).encode()
         for e in [
@@ -27,7 +37,7 @@ def events(payload):
             {"type": "turn.started"},
             {
                 "type": "item.completed",
-                "item": {"type": "agent_message", "text": json.dumps({"payload_json": json.dumps(payload)})},
+                "item": {"type": "agent_message", "text": json.dumps({"payload": structured})},
             },
             {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}},
         ]
@@ -52,7 +62,7 @@ def test_structured_reply_and_isolated_configuration(transport, monkeypatch):
         assert Path(kwargs["cwd"]).is_dir()
         schema = Path(argv[argv.index("--output-schema") + 1])
         assert json.loads(schema.read_text())["additionalProperties"] is False
-        return 0, events({"artifact": None}), b""
+        return 0, events({"artifact": None}, object_schema=True), b""
 
     monkeypatch.setattr(codex_cli, "_run", run)
     result = transport.invoke("trusted", "source", {"type": "object"}, 5, lambda: False)
@@ -61,8 +71,13 @@ def test_structured_reply_and_isolated_configuration(transport, monkeypatch):
     assert not {"OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"} & seen["env"].keys()
     assert "--ignore-user-config" in seen["argv"] and "--ephemeral" in seen["argv"]
     assert 'forced_login_method="chatgpt"' in seen["argv"]
-    assert 'model_provider="openai"' in seen["argv"]
+    assert 'model_provider="appsec_chatgpt"' in seen["argv"]
     assert 'web_search="disabled"' in seen["argv"]
+    assert "model_providers.appsec_chatgpt.requires_openai_auth=true" in seen["argv"]
+    assert "model_providers.appsec_chatgpt.supports_websockets=false" in seen["argv"]
+    assert "model_providers.appsec_chatgpt.request_max_retries=0" in seen["argv"]
+    assert "model_providers.appsec_chatgpt.stream_max_retries=0" in seen["argv"]
+    assert "model_providers.appsec_chatgpt.stream_idle_timeout_ms=60000" in seen["argv"]
     assert not Path(seen["cwd"]).exists()
 
 
@@ -122,7 +137,13 @@ def test_response_failure_classification_is_safe_and_never_uses_earlier_answer(t
         rows.append(item)
     else:
         if change == "payload":
-            item["item"]["text"] = json.dumps({"payload_json": '{"private":"PRIVATE_RESPONSE", "private":1}'})
+            item["item"]["text"] = json.dumps(
+                {
+                    "payload": {
+                        "entries": [{"key": "private", "value": "PRIVATE_RESPONSE"}, {"key": "private", "value": 1}]
+                    }
+                }
+            )
         elif change == "tool":
             item["item"]["type"] = "command_execution"
         elif change == "invalid_text":
@@ -144,6 +165,73 @@ def test_usage_limit_is_redacted_and_has_no_optional_fallback(transport, monkeyp
         transport.invoke("trusted", "source", {}, 5, lambda: False)
     assert caught.value.reason == "quota_exhausted"
     assert "SOURCE_SECRET" not in str(caught.value)
+
+
+@pytest.mark.parametrize("exit_code,terminal", [(0, None), (1, None), (0, "turn.failed"), (0, "error")])
+def test_reconnect_notice_does_not_override_terminal_outcome(transport, monkeypatch, exit_code, terminal):
+    rows = [json.loads(line) for line in events({"ok": True}).splitlines()]
+    rows.insert(2, {"type": "error", "message": "Reconnecting... 1/5 (PRIVATE provider detail)"})
+    if terminal:
+        rows.insert(-1, {"type": terminal, "message": "PRIVATE terminal failure"})
+    monkeypatch.setattr(
+        codex_cli, "_run", lambda *a, **k: (exit_code, b"\n".join(json.dumps(r).encode() for r in rows), b"")
+    )
+    if not terminal and exit_code == 0:
+        assert transport.invoke("trusted", "source", {}, 5, lambda: False).payload == {"ok": True}
+    else:
+        with pytest.raises(TransportError):
+            transport.invoke("trusted", "source", {}, 5, lambda: False)
+
+
+@pytest.mark.parametrize(
+    "message,reason",
+    [
+        ("stream disconnected before completion: stream closed before response.completed", "stream_disconnected"),
+        ("stream disconnected before completion: idle timeout waiting for SSE", "connection_timeout"),
+        ("error sending request for url (PRIVATE)", "connection_failed"),
+        ("certificate verify failed", "tls_error"),
+        ("model_not_found", "model_unavailable"),
+        ("Rate limit reached", "rate_limit"),
+        ("usage_limit_reached", "quota_exhausted"),
+        ("401 unauthorized", "authentication_failed"),
+        ("unrecognized argument", "host_arguments"),
+        ("Error loading config.toml: reserved built-in provider IDs", "host_configuration"),
+    ],
+)
+@pytest.mark.parametrize("channel", ["stdout", "stderr"])
+def test_provider_failure_is_classified_from_events_or_stderr(transport, monkeypatch, message, reason, channel):
+    from runtime.assessment_diagnostics import failure_fields, transport_summary
+
+    private = message + " PRIVATE_SOURCE https://private.invalid/?token=PRIVATE_TOKEN\u001b"
+    stream = json.dumps({"type": "turn.failed", "error": {"message": private}}).encode()
+    monkeypatch.setattr(
+        codex_cli,
+        "_run",
+        lambda *a, **k: (1, stream if channel == "stdout" else b"", private.encode() if channel == "stderr" else b""),
+    )
+    with pytest.raises(TransportError) as caught:
+        transport.invoke("trusted", "source", {}, 5, lambda: False)
+    assert failure_fields(caught.value) == {"reason": reason, "exit_code": 1}
+    assert reason in transport_summary(caught.value)
+    assert "PRIVATE" not in str(caught.value) + transport_summary(caught.value)
+
+
+def test_reconnect_activity_is_visible_and_contains_no_provider_text(transport):
+    from orchestrator.orchestration_controller import _ReportedTransport
+
+    reports = []
+    reported = _ReportedTransport(transport, reports.append)
+    event = {"type": "error", "message": "Reconnecting... 2/5 (PRIVATE_SOURCE\u001b)"}
+    statuses = []
+    codex_cli._activity(json.dumps(event).encode(), statuses.append)
+    assert statuses == [{"type": "host_activity", "phase": "reconnecting", "attempt": 2, "limit": 5}]
+    reported._observe(statuses[0])
+    assert reports == ["host connection interrupted; reconnecting"]
+    assert "host connection interrupted; reconnecting" in reported.state()
+    assert "PRIVATE" not in json.dumps(statuses) + reported.state()
+    for message in ("Reconnecting... 0/5", "Reconnecting... 6/5", "Reconnecting... 1/100", "PRIVATE"):
+        codex_cli._activity(json.dumps({"type": "error", "message": message}).encode(), statuses.append)
+    assert len(statuses) == 1
 
 
 def test_activity_is_streamed_before_completion_without_model_text(transport, monkeypatch, tmp_path):
@@ -184,7 +272,7 @@ def test_activity_is_streamed_before_completion_without_model_text(transport, mo
     assert statuses[1] == {
         "type": "host_activity",
         "phase": "writing",
-        "characters": len(json.dumps({"payload_json": json.dumps({"ok": "\u20ac"})})),
+        "characters": len(json.loads(events({"ok": "\u20ac"}).splitlines()[2])["item"]["text"]),
     }
     assert len(statuses) == 2
     assert "PRIVATE_SOURCE" not in json.dumps(statuses)
@@ -231,9 +319,15 @@ def test_activity_callback_failure_does_not_change_reply(transport, monkeypatch)
 def test_request_capacity_includes_instructions_schema_and_utf8(transport, monkeypatch):
     system, schema = "trusted \u20ac", {"type": "object", "description": "\u20ac"}
     capacity = codex_cli.prompt_capacity(system, schema)
-    assert capacity + len(codex_cli._instructions(system, schema).encode()) == codex_cli.MAX_REQUEST_BYTES
+    assert (
+        capacity
+        + len(codex_cli._instructions(system).encode())
+        + len(json.dumps(codex_cli.CodexSchema(schema).schema, separators=(",", ":")).encode())
+    ) == codex_cli.MAX_REQUEST_BYTES
     calls = []
-    monkeypatch.setattr(codex_cli, "_run", lambda *args, **kwargs: (calls.append(kwargs) or 0, events({}), b""))
+    monkeypatch.setattr(
+        codex_cli, "_run", lambda *args, **kwargs: (calls.append(kwargs) or 0, events({}, object_schema=True), b"")
+    )
     # Admission counts encoded bytes, including the trusted instructions.
     transport.invoke(system, "\u20ac" + "x" * (capacity - 3), schema, 5, lambda: False)
     assert len(calls) == 1
@@ -405,7 +499,7 @@ def test_subscription_controller_publishes_validated_reports(tmp_path, monkeypat
 def test_duplicate_json_fields_are_rejected(transport, monkeypatch):
     # Use an explicit agent message so the duplicate survives JSONL encoding.
     rows = [json.loads(line) for line in events({}).splitlines()]
-    rows[2]["item"]["text"] = '{"payload_json":"{}","payload_json":"{}"}'
+    rows[2]["item"]["text"] = '{"payload":{},"payload":{}}'
     reply = b"\n".join(json.dumps(row).encode() for row in rows)
     monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, reply, b""))
     with pytest.raises(TransportError, match="Invalid Codex structured"):

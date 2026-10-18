@@ -1064,11 +1064,64 @@ def test_missing_updates_are_information_and_timeouts_remain_warnings(monkeypatc
 
     records = []
     monkeypatch.setattr(_AssessmentConsole, "record", lambda self, event, text: records.append((event, text)))
-    console = object.__new__(_AssessmentConsole)
+    console = _AssessmentConsole(False, write=lambda text: None, live=False)
     console.call("2 min: no progress update for 120 s; model call is still running")
     console.call("1 min: model call is running; intermediate activity is unavailable")
     console.call("model call stopped after 300 s: it exceeded its time limit")
     assert [event for event, _ in records] == ["·", "·", "⚠"]
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_live_missing_updates_refresh_one_row_without_permanent_heartbeat_lines(monkeypatch, verbose):
+    from orchestrator.orchestration_controller import _AssessmentConsole, _ReportedTransport
+
+    records, status = [], []
+    console = _AssessmentConsole(verbose, write=lambda text: None, live=True)
+    console.phase = "Reconnaissance"
+    console.started = console.clock()
+    call = _ReportedTransport(type("Host", (), {"on_event": None})(), lambda text: None, name="discovery")
+    call.active -= 120
+    console.running[1] = call
+    monkeypatch.setattr(console, "record", lambda event, text, *args: records.append((event, text)))
+    monkeypatch.setattr(console, "_status", status.append)
+    for minute in range(2, 11):
+        console.call(
+            f"{minute} min: no progress update for {minute * 60} s; model call is still running",
+            "recon_scanner",
+            "gpt-6-luna",
+        )
+        console.tick()
+    assert records == []
+    assert len(status) == 9 and all("no progress update for" in row for row in status)
+    console.call("host connection interrupted; reconnecting", "recon_scanner", "gpt-6-luna")
+    console.call("model call stopped after 300 s: it exceeded its time limit")
+    assert [event for event, _ in records] == ["⚠", "⚠"]
+
+
+def test_plain_missing_updates_are_logged_once_until_the_call_changes_state(monkeypatch):
+    from orchestrator.orchestration_controller import _AssessmentConsole
+
+    records = []
+    console = _AssessmentConsole(False, write=lambda text: None, live=False)
+    monkeypatch.setattr(console, "record", lambda event, text, *args: records.append((event, text)))
+    for minute in range(2, 11):
+        console.call(
+            f"{minute} min: no progress update for {minute * 60} s; model call is still running",
+            "recon_scanner",
+            "gpt-6-luna",
+        )
+    assert len(records) == 1
+    console.call("result: 1 artifact (650 s)", "recon_scanner", "gpt-6-luna")
+    console.call("2 min: no progress update for 120 s; model call is still running", "recon_scanner", "gpt-6-luna")
+    assert len(records) == 2
+    # Concurrent jobs of the same role retain their own notice even when IDs
+    # are hidden in normal output.
+    for job in ("job-first", "job-second", "job-first"):
+        console.call(
+            f"[{job}] 2 min: no progress update for 120 s; model call is still running", "recon_scanner", "gpt-6-luna"
+        )
+    assert len(records) == 4
+    assert not any("job-" in text for _, text in records)
 
 
 def test_each_cli_host_call_records_its_events_in_its_own_file(tmp_path):
@@ -1315,7 +1368,15 @@ def test_stride_batches_reserve_the_full_codex_request(tmp_path, monkeypatch):
     )
     architecture = controller._assessment_architecture(scope, jobs, progress=lambda text: None)
     jobs.prompt_capacity = codex_cli.prompt_capacity
-    monkeypatch.setattr(analysis, "analysis_lenses", lambda *args: ([], "policy " * 28_000))
+    # Keep the same pressure on packet space after adding the native output
+    # schema to admission. A fixed instruction count would now leave less
+    # room than the mandatory context itself, before batching any sources.
+    output_schema = codex_cli.CodexSchema(
+        host_schema(response_schema(analysis.contract("multi-repo-stride.schema.json")))
+    )
+    output_bytes = len(json.dumps(output_schema.schema, separators=(",", ":")).encode())
+    lens_policy = "policy " * (28_000 - (output_bytes + 6) // 7)
+    monkeypatch.setattr(analysis, "analysis_lenses", lambda *args: ([], lens_policy))
     observed = []
 
     class Captured(Exception):
@@ -1328,7 +1389,13 @@ def test_stride_batches_reserve_the_full_codex_request(tmp_path, monkeypatch):
         slices = [read_slice(scope, *key) for key in job["preload"]]
         prompt = _prompt({"context": job["context"], "source_slices": slices, "source_reads_remaining": 12})
         assert len(prompt.encode()) <= codex_cli.prompt_capacity(system, schema)
-        assert "Selected analysis lenses:" in system and "policy " * 28_000 in system
+        capacity = codex_cli.prompt_capacity(system, schema)
+        assert 15_000 < capacity < 45_000
+        total = len(prompt.encode()) + len(codex_cli._instructions(system).encode())
+        total += len(json.dumps(codex_cli.CodexSchema(schema).schema, separators=(",", ":")).encode())
+        assert total <= codex_cli.MAX_REQUEST_BYTES
+        assert slices  # The request must still contain real source windows.
+        assert "Selected analysis lenses:" in system and lens_policy in system
         observed.append(job)
         raise Captured
 

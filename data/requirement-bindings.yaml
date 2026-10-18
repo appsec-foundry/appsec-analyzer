@@ -946,6 +946,7 @@ requirements:
       - scripts/runtime/multi_repo_discovery.py
       - scripts/runtime/assessment_jobs.py
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/codex_schema.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
       - scripts/runtime/resolve_config.py
@@ -974,6 +975,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_codex_schema.py::test_source_strings_are_data_even_when_they_contain_invalid_json_syntax
+      - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
+      - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
+      - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_assessment_state.py::test_runtime_change_cannot_reset_exhausted_resume_limits
       - tests/test_assessment_scope.py::test_scope_describes_model_backed_analysis_and_loaded_defaults
       - tests/test_assessment_scope.py::test_scope_counts_enabled_cases_and_deduplicates_explicit_repository_files
@@ -989,12 +994,21 @@ requirements:
       - tests/test_startup_preflight.py::test_codex_preflight_displays_completed_checks_and_unverified_access
       - tests/test_startup_preflight.py::test_preflight_failure_has_no_completed_summary
       - tests/test_codex_cli.py::test_commentary_before_final_structured_reply_is_accepted
+      - tests/test_codex_cli.py::test_reconnect_notice_does_not_override_terminal_outcome
+      - tests/test_codex_cli.py::test_provider_failure_is_classified_from_events_or_stderr
+      - tests/test_codex_cli.py::test_reconnect_activity_is_visible_and_contains_no_provider_text
       - tests/test_codex_cli.py::test_response_failure_classification_is_safe_and_never_uses_earlier_answer
       - tests/test_startup_preflight.py::test_failed_remote_stops_before_any_clone_or_assessment
       - tests/test_assessment_jobs.py::test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_receipted
       - tests/test_assessment_diagnostics.py::test_required_failure_retains_selector_role_and_long_rejection
       - tests/test_multi_repo_discovery.py::test_two_rejected_discoveries_complete_within_the_original_exchange_limit
       - tests/test_multi_repo_discovery.py::test_identity_rejection_guides_one_correction_without_manufacturing_a_link
+      - tests/test_multi_repo_discovery.py::test_quotation_correction_after_two_reads_preserves_exact_evidence_and_retry_bounds
+      - tests/test_assessment_host.py::test_quotation_repair_changes_only_verified_line_and_quote_in_a_retrieved_window
+      - tests/test_assessment_host.py::test_quotation_repair_cannot_read_more_source_or_expand_its_authority
+      - tests/test_assessment_host.py::test_cancellation_after_a_quotation_reply_prevents_acceptance
+      - tests/test_reconcile_multi_repo_architecture.py::test_quotation_feedback_names_all_affected_entries_without_echoing_source_or_model_text
+      - tests/test_reconcile_multi_repo_architecture.py::test_quotation_feedback_is_bounded_and_counts_remaining_errors
       - tests/test_reconcile_multi_repo_architecture.py::test_unsupported_identity_feedback_names_the_field_without_echoing_its_value
       - tests/test_reconcile_multi_repo_architecture.py::test_identity_feedback_reports_multiple_unsupported_fields_together
       - tests/test_reconcile_multi_repo_architecture.py::test_unknown_interface_identities_remain_unresolved_instead_of_creating_a_link
@@ -1011,6 +1025,8 @@ requirements:
       - tests/test_multi_repo_controller.py::test_a_silent_model_call_reports_missing_updates_without_inventing_a_cause
       - tests/test_multi_repo_controller.py::test_a_host_without_activity_events_reports_that_limit
       - tests/test_multi_repo_controller.py::test_missing_updates_are_information_and_timeouts_remain_warnings
+      - tests/test_multi_repo_controller.py::test_live_missing_updates_refresh_one_row_without_permanent_heartbeat_lines
+      - tests/test_multi_repo_controller.py::test_plain_missing_updates_are_logged_once_until_the_call_changes_state
       - tests/test_multi_repo_controller.py::test_a_runtime_change_during_the_session_is_disclosed_not_fatal
       - tests/test_multi_repo_controller.py::test_a_runtime_that_cannot_be_fingerprinted_mid_run_is_disclosed_not_fatal
       - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
@@ -1315,6 +1331,7 @@ requirements:
       - scripts/runtime/assessment_host.py
       - scripts/contexts/multi_repo_analysis.py
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/codex_schema.py
       - data/scan-profiles/codex-cli.yaml
       - schemas/assessment-job-receipt.schema.json
       - appsec_analyzer/execution_limits.py
@@ -1350,6 +1367,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_codex_schema.py::test_source_strings_are_data_even_when_they_contain_invalid_json_syntax
+      - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
+      - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
+      - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_assessment_state.py::test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchanged_jobs
       - tests/test_startup_preflight.py::test_live_probe_requires_explicit_budget
       - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
@@ -1370,6 +1391,7 @@ requirements:
       - tests/test_codex_cli.py::test_subscription_rejects_monetary_reply_and_counts_failure
       - tests/test_codex_cli.py::test_subscription_controller_publishes_validated_reports
       - tests/test_codex_cli.py::test_bounded_process_execution
+      - tests/test_codex_cli_wire.py::test_real_codex_has_no_tools_and_ignores_project_and_user_configuration
       - tests/test_profiles.py::test_catalog_prices_determine_role_reservations
       - tests/test_api_hosts.py::test_default_output_allowance_is_not_reduced_to_fit_budget
       - tests/test_public_scan_cli.py::test_public_budget_reaches_assessment_controller
@@ -1634,6 +1656,7 @@ requirements:
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/codex_schema.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
       - scripts/runtime/remote_repositories.py
@@ -1653,6 +1676,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_codex_schema.py::test_source_strings_are_data_even_when_they_contain_invalid_json_syntax
+      - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
+      - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
+      - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_public_scan_cli.py::test_preflight_never_discloses_external_declaration
       - tests/test_public_export_cli.py::test_document_export_rejects_external_resources_before_embedding
       - tests/test_startup_preflight.py::test_failed_metadata_never_reads_error_body_or_follows_redirect
@@ -1703,6 +1730,7 @@ requirements:
       - appsec_analyzer/score/**
       - appsec_analyzer/scanners/**
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/codex_schema.py
       - scripts/validators/secret_scan.py
       - scripts/validators/redact_known_secrets.py
       - appsec_analyzer/requirements_audit.py
@@ -1715,6 +1743,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_codex_schema.py::test_source_strings_are_data_even_when_they_contain_invalid_json_syntax
+      - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
+      - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
+      - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_public_export_cli.py::test_export_secret_rejection_does_not_disclose_input
       - tests/test_public_scan_cli.py::test_preflight_diagnostics_never_echo_declaration_values
       - tests/test_startup_preflight.py::test_connection_failure_is_redacted
@@ -1727,6 +1759,8 @@ requirements:
       - tests/test_public_score_cli.py::test_terminal_output_cannot_render_repository_control_characters
       - tests/test_codex_cli.py::test_activity_is_streamed_before_completion_without_model_text
       - tests/test_codex_cli.py::test_activity_ignores_invalid_untrusted_and_stderr_events
+      - tests/test_codex_cli.py::test_provider_failure_is_classified_from_events_or_stderr
+      - tests/test_codex_cli.py::test_reconnect_activity_is_visible_and_contains_no_provider_text
       - tests/test_codex_cli.py::test_usage_limit_is_redacted_and_has_no_optional_fallback
       - tests/test_redact_known_secrets.py::test_a_pattern_secret_left_in_the_model_blocks_publication
       - tests/test_redact_known_secrets.py::test_a_clean_report_passes_the_secret_gate

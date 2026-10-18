@@ -113,8 +113,15 @@ def test_every_root_is_freshly_discovered_with_only_its_sources(tmp_path, names,
     scope = sources(tmp_path, names, operation)
     host = ScriptedHost(scope)
     limits = budget()
-    result = discovery.discover(scope, host_factory=host.factory, budget=limits, should_stop=lambda: False)
+    steps = []
+    result = discovery.discover(
+        scope, host_factory=host.factory, budget=limits, should_stop=lambda: False, progress=steps.append
+    )
     assert {d["repository_id"] for d in result.observations} == {r.repository_id for r in scope.repositories}
+    # Each repository is named by its label before its discovery starts.
+    labels = {r["repository_id"]: r["label"] for r in scope.inventory()["repositories"]}
+    ordered = sorted(labels)
+    assert steps == [f"Discovering repository: {labels[rid]} ({i}/2)" for i, rid in enumerate(ordered, 1)]
     assert len(result.connections["candidates"]) == 1
     assert result.connections["candidates"][0]["status"] == "requires-architecture-review"
     assert all(r["unread_paths"] == ["notes.txt"] for r in result.retrieval)
@@ -236,6 +243,83 @@ def test_identity_rejection_guides_one_correction_without_manufacturing_a_link(t
     assert all(document["components"] and document["interfaces"] for document in result.observations)
     assert result.connections["candidates"] == []
     assert len(result.connections["unresolved"]) == 2
+
+
+@pytest.mark.parametrize("correct", [True, False])
+def test_quotation_correction_after_two_reads_preserves_exact_evidence_and_retry_bounds(tmp_path, correct):
+    scope = sources(tmp_path)
+    counts, feedback_seen, targeted = {}, [], []
+
+    class QuoteCorrectingHost(ScriptedHost):
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            if "quotation_corrections" in packet["context"]:
+                rid = packet["source_slices"][0]["repository_id"]
+                counts[rid] += 1
+                targeted.append(packet)
+                assert packet["source_reads_remaining"] == 0
+                assert len(packet["context"]["quotation_corrections"]) == 2
+                quote = packet["source_slices"][0]["lines"][0].split(": ", 1)[1]
+                return HostReply(
+                    {
+                        "quotations": [
+                            {
+                                "citation_id": entry["citation_id"],
+                                "line": 1,
+                                "quote": quote if correct else "PRIVATE_WRONG_QUOTE_ONE",
+                            }
+                            for entry in packet["context"]["quotation_corrections"]
+                        ]
+                    },
+                    self.usd,
+                )
+            rid = packet["context"]["repository_id"]
+            counts[rid] = number = counts.get(rid, 0) + 1
+            reply = super().invoke(system, prompt, schema, timeout_s, should_stop)
+            if number == 2:
+                return HostReply(
+                    {
+                        "action": "read",
+                        "artifact": None,
+                        "reads": [{"repository_id": rid, "path": "notes.txt", "start_line": 1, "end_line": 1}],
+                    },
+                    self.usd,
+                )
+            if reply.payload["action"] != "complete":
+                return reply
+            if number == 3:
+                row = reply.payload["artifact"]["interfaces"][0]
+                row["evidence"] = [
+                    {"file": "service.txt", "line": 1, "quote": "PRIVATE_WRONG_QUOTE_ONE"},
+                    {"file": "service.txt", "line": 1, "quote": "PRIVATE_WRONG_QUOTE_TWO"},
+                ]
+            elif number > 3:
+                feedback = packet["rejected_result"]
+                feedback_seen.append(feedback["reason"])
+                assert all(f"interfaces/0/evidence/{i}/quote" in feedback["reason"] for i in range(2))
+                assert "PRIVATE" not in feedback["reason"]
+                artifact = copy.deepcopy(feedback["result"])
+                assert artifact["interfaces"][0]["evidence"][0]["quote"] == "PRIVATE_WRONG_QUOTE_ONE"
+                if correct:
+                    source = next(s for s in packet["source_slices"] if s["path"] == "service.txt")
+                    quote = source["lines"][0].split(": ", 1)[1]
+                    for reference in artifact["interfaces"][0]["evidence"]:
+                        reference["quote"] = quote
+                reply.payload["artifact"] = artifact
+            return reply
+
+    model, limits = QuoteCorrectingHost(scope), budget()
+    if correct:
+        result = discovery.discover(scope, host_factory=model.factory, budget=limits, should_stop=lambda: False)
+        assert limits.calls == 8 and len(targeted) == 2 and not feedback_seen
+        assert all(row["calls"] == 4 for row in result.retrieval)
+        assert len(result.connections["candidates"]) == 1
+        assert all("PRIVATE" not in str(row) for row in result.observations)
+    else:
+        with pytest.raises(ModelAnswerFailure, match="exchange limit"):
+            discovery.discover(scope, host_factory=model.factory, budget=limits, should_stop=lambda: False)
+        assert limits.calls == 6 and len(targeted) == 2 and len(feedback_seen) == 1
+        assert not scope.output.exists()
 
 
 @pytest.mark.parametrize("when", ["before", "during"])

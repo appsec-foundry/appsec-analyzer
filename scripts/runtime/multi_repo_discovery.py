@@ -31,7 +31,10 @@ never directories, wildcards or inferred import targets. Batch
 needed source requests so the remaining exchanges can produce and correct
 the final artifact. For HTTP, HTTPS and gRPC use request or serve; publish
 and consume are only for AMQP and Kafka. Cite an exact
-single-line quotation for each interface observation. Identity strings for
+single-line quotation for each interface observation. Copy it literally from
+the cited numbered source line, including punctuation and spacing; exclude
+only the displayed line-number prefix. Never paraphrase or combine source
+lines into one quotation. Check each quotation before completing. Identity strings for
 address, deployment, and operation must occur verbatim in those quotations.
 Do not construct a URL from separate host and port values or prefix a route
 with an HTTP method unless that entire value occurs in one quoted line.
@@ -525,6 +528,7 @@ def discover(
     should_stop: Callable[[], bool],
     jobs=None,
     inventories: dict[str, dict] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> DiscoveryResult:
     """Discover every admitted target or return no combined result.
 
@@ -540,9 +544,12 @@ def discover(
     labels = {r["repository_id"]: r["label"] for r in inventory["repositories"]}
     host = BudgetedHost(host_factory, budget)
     observations, retrieval = [], []
-    for repo in sorted(scope.repositories, key=lambda r: r.repository_id):
+    ordered = sorted(scope.repositories, key=lambda r: r.repository_id)
+    for position, repo in enumerate(ordered, 1):
         if should_stop():
             raise HostCancelled("Discovery cancelled")
+        if progress:
+            progress(f"Discovering repository: {labels[repo.repository_id]} ({position}/{len(ordered)})")
         if not repo.files:
             raise ExchangeError("Selected repository has no admitted discovery sources")
         context = {

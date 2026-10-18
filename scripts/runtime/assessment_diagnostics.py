@@ -27,6 +27,11 @@ MAX_LOG_BYTES = 8 * 1024 * 1024
 FAILURE_CODES = frozenset(
     {
         "transport",
+        "connection_timeout",
+        "connection_failed",
+        "stream_disconnected",
+        "tls_error",
+        "model_unavailable",
         "timeout",
         "authentication_failed",
         "billing_error",
@@ -150,6 +155,11 @@ def transport_summary(error: TransportError) -> str:
     if reason == "request_too_large":
         return "request_too_large; the request must be reduced before retrying; --resume alone does not fix it"
     hints = {
+        "connection_timeout": "Codex's provider stream timed out; check connectivity and provider availability",
+        "connection_failed": "Codex could not maintain the provider connection; check connectivity",
+        "stream_disconnected": "Codex's provider stream ended before completion; no answer was accepted",
+        "tls_error": "Codex could not verify the secure provider connection; check the certificate configuration",
+        "model_unavailable": "check that the selected model is supported for this account and host",
         "authentication_failed": "check external credentials or sign in again (/login for Claude; codex login for Codex CLI)",
         "billing_error": "the account has no usage left; check provider billing",
         "quota_exhausted": "wait for the subscription allowance to reset",
@@ -160,7 +170,7 @@ def transport_summary(error: TransportError) -> str:
         "invalid_response": "the host returned an invalid structured answer; check the private diagnostic feed",
         "invalid_response_stream": "Codex returned malformed JSON events; check the supported CLI version",
         "invalid_response_envelope": "Codex's final message did not match the required JSON envelope",
-        "invalid_response_payload": "Codex's final envelope contained invalid or ambiguous payload JSON",
+        "invalid_response_payload": "Codex's final envelope contained an invalid or ambiguous structured payload",
         "unexpected_host_item": "Codex emitted a tool or unsupported item; check CLI isolation before retrying",
         "incomplete_response": "Codex did not return one completed turn with a final answer",
     }

@@ -165,6 +165,7 @@ class _AssessmentConsole:
     PHASES = (
         ("Collecting the deterministic route", "Reconnaissance"),
         ("Discovering every selected repository", "Reconnaissance"),
+        ("Discovering repository", "Reconnaissance"),
         ("Reviewing evidenced cross-repository", "Architecture"),
         ("Analyzing local architecture", "Architecture"),
         ("Measuring the boundary source context", "Trust boundaries"),
@@ -199,6 +200,7 @@ class _AssessmentConsole:
     # Steps whose subject (component, section, abuse case) is worth a
     # progress line; model reads and per-call results stay behind --verbose.
     SUBJECTS = (
+        "Discovering repository",
         "Analyzing local architecture",
         "Reviewing trust crossing",
         "Assessing controls",
@@ -209,12 +211,14 @@ class _AssessmentConsole:
         "Stage 2:",
     )
     # Subjects that also get a permanent line each, so the run's console
-    # names every analyzed component and every verified abuse case.
-    LISTED = ("Analyzing all STRIDE categories", "Verifying abuse case")
+    # names every discovered repository, analyzed component and verified abuse case.
+    LISTED = ("Discovering repository", "Analyzing all STRIDE categories", "Verifying abuse case")
     # Listed names come from repository files and model output.
     _NAME_MAX = 100
     # What a phase's subjects are, for progress lines and the done line's count.
     NOUNS = {
+        "Discovering repository": "repository",
+        "Analyzing local architecture": "repository",
         "Reviewing trust crossing": "crossing",
         "Assessing controls": "component",
         "Analyzing all STRIDE categories": "component",
@@ -271,6 +275,8 @@ class _AssessmentConsole:
         # whether the phase reports positions at all.
         self.current, self.count, self.positioned = "", None, False
         self.parts: dict = {}
+        # Roles whose last answer was rejected: their next answer is the correction.
+        self.correcting: set = set()
         # Components in analysis, in start order: name -> finished and planned
         # STRIDE jobs and the current stage; and the components finished.
         self.units: dict[str, dict] = {}
@@ -286,6 +292,7 @@ class _AssessmentConsole:
         # Model calls in flight (_ReportedTransport registers itself) and the
         # last controller step with its start, for the terminal's status line.
         self.running: dict[int, Any] = {}
+        self._call_notices: set[tuple[str, str]] = set()
         self.prompting = False
         self.activity, self.activity_started = "", time.monotonic()
 
@@ -878,22 +885,34 @@ class _AssessmentConsole:
     def call(self, text: str, role: str | None = None, model: str | None = None) -> None:
         """Show missing updates and timeouts; show every model-call line with --verbose."""
         context = ""
+        identity = ""
         if text.startswith("[job-") and "] " in text:
             context, _, text = text.partition("] ")
+            identity = context
             context = context + "] " if getattr(self, "verbose", False) else ""
         label = self.ROLE_LABELS.get(role, (role or "").replace("_", " "))
         who = context + (f"{label} [{model}]: " if role and model else (f"{label}: " if role else ""))
-        if "no model activity" in text or text.startswith("model call stopped"):
+        call_key = identity + "|" + (role or "") + "|" + (model or "")
+        if "no model activity" in text or text.startswith(("model call stopped", "host connection interrupted")):
             self.record("⚠", f"{who}{text}")
             return
         if "no progress update for" in text or "intermediate activity is unavailable" in text:
-            self.record("·", f"{who}{text}")
+            # The ticker already renders the current call's age and state in
+            # place. Plain logs retain one notice until the call changes state.
+            kind = "silent" if "no progress update for" in text else "unavailable"
+            with _AssessmentConsole._lock:
+                if not self.live and (call_key, kind) not in self._call_notices:
+                    self.record("·", f"{who}{text}")
+                self._call_notices.add((call_key, kind))
             return
+        with _AssessmentConsole._lock:
+            self._call_notices = {notice for notice in self._call_notices if notice[0] != call_key}
         if text.startswith("answer rejected"):
             # MR-17: a correction repairs itself; the phase's done line counts it,
             # and only --verbose names each reason.
             with _AssessmentConsole._lock:
                 self.corrections[label or "model"] += 1
+                self.correcting.add(role)
             if self.verbose:
                 self.record("↻", f"{who}{text}")
             return
@@ -906,9 +925,13 @@ class _AssessmentConsole:
             self._advance(self.finished_jobs / (self.finished_jobs + 1))
         if self.verbose:
             if finished:
-                # A subject's second job of one role is a further batch or part.
-                self.parts[role] = self.parts.get(role, 0) + 1
-                part = f" (part {self.parts[role]})" if self.parts[role] > 1 else ""
+                if role in self.correcting:
+                    self.correcting.discard(role)
+                    part = " (corrected)"
+                else:
+                    # A subject's second job of one role is a further batch or part.
+                    self.parts[role] = self.parts.get(role, 0) + 1
+                    part = f" (part {self.parts[role]})" if self.parts[role] > 1 else ""
                 answered = f"{who.rstrip(': ') or 'model call'}{part} answered — {_duration(int(finished[1]))}"
                 self.record("·", answered, now)
             else:

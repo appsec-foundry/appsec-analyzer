@@ -8,6 +8,7 @@ No credential file is read or copied by Analyzer.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import selectors
@@ -19,6 +20,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from jsonschema.exceptions import SchemaError
+
 from appsec_analyzer import resource_root
 
 _scripts = str(resource_root() / "scripts")
@@ -27,23 +30,35 @@ if _scripts not in sys.path:
 
 from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, TransportError
 
-from appsec_analyzer.api_hosts import _WIRE_SCHEMA
+from appsec_analyzer.codex_schema import CodexSchema
 
 SUPPORTED_VERSION = "0.163.0"
 MAX_BYTES = 1_048_576
 MAX_REQUEST_BYTES = 240_000
+# One stateless exchange: do not let the CLI silently replay it outside the
+# controller's call accounting. Bound the wait for incoming SSE events.
+STREAM_IDLE_TIMEOUT_MS = 60_000
 
 
-def _instructions(system, schema):
+def _instructions(system):
     return (
-        system + "\nReturn one JSON object with payload_json: a JSON string containing your response "
-        "to this canonical contract. Preserve null and absent fields exactly. Contract:\n" + json.dumps(schema)
+        system + "\nReturn one JSON object matching the output schema, with your response as structured payload. "
+        "Do not serialize the response document into a string; source quotations remain strings. Optional canonical fields use presence wrappers: "
+        '{"present":false} means absent; {"present":true,"value":...} means present, including explicit null. '
+        "Dynamic object members use key/value entry arrays in __extra fields; unconstrained JSON objects "
+        "use an entries wrapper. These are wire representations only; follow the trusted task for the canonical result."
     )
 
 
 def prompt_capacity(system, schema):
     """Prompt bytes left after the same instructions invoke will actually send."""
-    return max(0, MAX_REQUEST_BYTES - len(_instructions(system, schema).encode("utf-8")))
+    wire = CodexSchema(schema)
+    return max(
+        0,
+        MAX_REQUEST_BYTES
+        - len(_instructions(system).encode("utf-8"))
+        - len(json.dumps(wire.schema, separators=(",", ":")).encode("utf-8")),
+    )
 
 
 def _json(data):
@@ -58,7 +73,13 @@ def _json(data):
     def invalid_constant(value):
         raise ValueError("non-finite JSON")
 
-    return json.loads(data, object_pairs_hook=unique, parse_constant=invalid_constant)
+    def finite(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("non-finite JSON")
+        return number
+
+    return json.loads(data, object_pairs_hook=unique, parse_constant=invalid_constant, parse_float=finite)
 
 
 def _stop(proc):
@@ -90,11 +111,53 @@ def environment() -> dict[str, str]:
     return {key: os.environ[key] for key in allowed if key in os.environ}
 
 
+def _reconnect(event):
+    if event.get("type") != "error" or type(event.get("message")) is not str:
+        return None
+    match = re.match(r"^Reconnecting\.\.\. ([0-9]{1,2})/([0-9]{1,2})(?: \(|$)", event["message"])
+    if match and 1 <= int(match[1]) <= int(match[2]) <= 99:
+        return int(match[1]), int(match[2])
+    return None
+
+
+def _failure(failures, stderr, code):
+    """Classify CLI error events as well as stderr; return no provider prose."""
+    text = (json.dumps(failures) + " " + stderr[-16384:].decode("utf-8", errors="replace")).lower()
+    rules = (
+        ("quota_exhausted", ("usage_limit", "usage limit", "quota")),
+        ("rate_limit", ("rate_limit", "rate limit", "429")),
+        ("authentication_failed", ("unauthorized", "authentication", "401", "403")),
+        ("host_configuration", ("error loading config", "reserved built-in provider")),
+        ("model_unavailable", ("model_not_found", "model not found", "not supported", "does not exist")),
+        ("tls_error", ("certificate", "tls handshake")),
+        ("connection_timeout", ("timed out", "timeout")),
+        ("stream_disconnected", ("stream disconnected", "stream closed", "connection closed")),
+        ("connection_failed", ("error sending request", "failed to connect", "connection reset", "dns error")),
+        ("server_error", ("internal server error", "service unavailable", "bad gateway")),
+        ("invalid_request", ("invalid_request", "invalid schema")),
+    )
+    reason = next((reason for reason, markers in rules if any(marker in text for marker in markers)), None)
+    if reason is None:
+        from runtime.analyst_host import _stderr_failure
+
+        reason, _ = _stderr_failure(text.encode())
+        if reason == "no_result":
+            reason = "transport"
+    from runtime.assessment_diagnostics import transport_summary
+
+    error = TransportError("Codex CLI exchange failed", reason=reason, exit_code=code)
+    error.args = ("Codex CLI exchange failed: " + transport_summary(error),)
+    return error
+
+
 def _activity(line, on_event):
     """Forward only fixed status values and counts, never model-controlled text."""
     try:
         event = _json(line)
         if type(event) is not dict:
+            return
+        if reconnect := _reconnect(event):
+            on_event({"type": "host_activity", "phase": "reconnecting", "attempt": reconnect[0], "limit": reconnect[1]})
             return
         if event.get("type") not in ("item.started", "item.updated", "item.completed"):
             return
@@ -239,7 +302,9 @@ class CodexCliTransport:
         )
         config = {
             "features": features,
-            "model_provider": '"openai"',
+            # Built-in IDs are reserved in 0.163.0. A dedicated definition
+            # retains Codex-managed OpenAI auth and its default ChatGPT route.
+            "model_provider": '"appsec_chatgpt"',
             "forced_login_method": '"chatgpt"',
             "approval_policy": '"never"',
             "web_search": '"disabled"',
@@ -248,6 +313,13 @@ class CodexCliTransport:
             "history.persistence": '"none"',
             "model_reasoning_effort": json.dumps(self.effort),
             "model_instructions_file": json.dumps(str(instructions_path)),
+            "model_providers.appsec_chatgpt.name": '"OpenAI"',
+            "model_providers.appsec_chatgpt.requires_openai_auth": "true",
+            "model_providers.appsec_chatgpt.wire_api": '"responses"',
+            "model_providers.appsec_chatgpt.supports_websockets": "false",
+            "model_providers.appsec_chatgpt.request_max_retries": "0",
+            "model_providers.appsec_chatgpt.stream_max_retries": "0",
+            "model_providers.appsec_chatgpt.stream_idle_timeout_ms": str(STREAM_IDLE_TIMEOUT_MS),
         }
         return [
             self.runtime["executable"],
@@ -275,14 +347,19 @@ class CodexCliTransport:
             raise TransportError("Invalid Codex request", reason="invalid_request")
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise TransportError("Invalid Codex timeout", reason="invalid_request")
-        instructions = _instructions(system, schema)
+        try:
+            wire_schema = CodexSchema(schema)
+        except (ValueError, KeyError, TypeError, IndexError, RecursionError, SchemaError):
+            raise TransportError("Unsupported Codex output contract", reason="invalid_request") from None
+        instructions = _instructions(system)
         data = prompt.encode("utf-8")
-        if len(instructions.encode("utf-8")) + len(data) > MAX_REQUEST_BYTES:
+        encoded_schema = json.dumps(wire_schema.schema, separators=(",", ":"))
+        if len(instructions.encode("utf-8")) + len(data) + len(encoded_schema.encode("utf-8")) > MAX_REQUEST_BYTES:
             raise TransportError("Codex request exceeds its size limit", reason="request_too_large")
         with tempfile.TemporaryDirectory(prefix="codex-", dir=self.work_root) as work:
             root = Path(work)
             schema_path, instructions_path = root / "schema.json", root / "instructions.txt"
-            schema_path.write_text(json.dumps(_WIRE_SCHEMA), encoding="utf-8")
+            schema_path.write_text(encoded_schema, encoding="utf-8")
             instructions_path.write_text(instructions, encoding="utf-8")
             schema_path.chmod(0o600)
             instructions_path.chmod(0o600)
@@ -300,27 +377,15 @@ class CodexCliTransport:
             events = [_json(line) for line in out.splitlines() if line]
             if any(type(event) is not dict for event in events):
                 raise ValueError
-            failures = [e for e in events if e.get("type") in ("turn.failed", "error")]
+            # Codex emits recoverable reconnect notices as top-level errors.
+            # A successful terminal turn may follow them. Unknown errors and
+            # turn.failed remain fatal, even if an answer appears afterwards.
+            failures = [
+                e for e in events if e.get("type") == "turn.failed" or (e.get("type") == "error" and not _reconnect(e))
+            ]
             if code or failures:
-                # Classify without echoing model text, source excerpts, paths or credentials.
-                failure = json.dumps(failures).lower() + " " + err[-16384:].decode("utf-8", errors="replace").lower()
-                if any(x in failure for x in ("usage_limit", "usage limit", "quota", "rate_limit", "rate limit")):
-                    raise TransportError(
-                        "ChatGPT usage limit reached; wait for your allowance to reset and resume",
-                        reason="quota_exhausted",
-                        exit_code=code,
-                    )
-                if any(x in failure for x in ("unauthorized", "authentication", "401", "403")):
-                    raise TransportError(
-                        "Codex ChatGPT authentication failed; run codex login",
-                        reason="authentication_failed",
-                        exit_code=code,
-                    )
-                from runtime.analyst_host import _stderr_failure
-
-                reason, hint = _stderr_failure(err[-16384:])
-                reason = "transport" if reason == "no_result" else reason
-                raise TransportError("Codex CLI exchange failed: " + hint, reason=reason, exit_code=code)
+                errors = [e for e in events if e.get("type") in ("turn.failed", "error")]
+                raise _failure(errors, err, code)
             completed = [e for e in events if e.get("type") == "turn.completed"]
             messages = []
             response_reason = "unexpected_host_item"
@@ -344,10 +409,10 @@ class CodexCliTransport:
             # back to an earlier valid object when the final message is invalid.
             response_reason = "invalid_response_envelope"
             wire = _json(messages[-1])
-            if type(wire) is not dict or set(wire) != {"payload_json"} or type(wire["payload_json"]) is not str:
+            if type(wire) is not dict or set(wire) != {"payload"}:
                 raise ValueError
             response_reason = "invalid_response_payload"
-            payload = _json(wire["payload_json"])
+            payload = wire_schema.decode(wire)
         except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
             raise TransportError(
                 "Invalid Codex structured response: " + response_reason, reason=response_reason, exit_code=code

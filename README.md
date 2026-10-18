@@ -133,13 +133,15 @@ codex login
 appsec-analyzer scan --profile codex-cli --max-calls 1000
 ```
 
-This profile uses plan allowance or available credits and defaults to 1,000 model exchanges, four hours, and serial component processing. It rejects USD budget options and reports monetary cost as unavailable. Source excerpts and context still leave the machine. See [setup, recovery, and limitations](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli); live assessment quality remains unqualified.
+This profile uses plan allowance or available credits and defaults to 1,000 model exchanges, four hours, and serial component processing. It rejects USD budget options and reports monetary cost as unavailable. Source excerpts and context still leave the machine. Responses use a native structured schema and retain full result validation. See [setup, recovery, and limitations](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli); live assessment quality remains unqualified.
 
 The terminal shows progress. Completed results include `security-assessment.md` for reading and `security-assessment.yaml` for further processing. Results go to a private directory under your user's `appsec-analyzer/assessments` data directory, outside the analyzed repository.
 
 The startup header groups settings into Run, Scope, and Workflow & results, with the billing mode and either a USD budget or subscription call limit. It shows the planned focus, loaded abuse-case sources, coverage limits, and excluded checks. It distinguishes built-in, organization, and user-supplied cases or disabled verification. Loaded cases have not yet been matched or verified; the results show actual coverage. The assessment does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime testing.
 
 Use `--verbose` for job and call identities and detailed sanitized correction messages. Full assessments retain private per-attempt diagnostics across compatible resumes; see [diagnostics and limits](docs/security-assessment.md).
+
+While a model call is waiting, the terminal updates one status row. Plain logs report missing updates once until the call changes state; connection interruptions and timeouts remain separate warnings.
 
 Progress output immediately warns when optional model jobs are skipped. Architect Review and abuse-case totals distinguish actual checks from unchecked work, including at `thorough` depth. See [assessment coverage and limits](docs/security-assessment.md).
 

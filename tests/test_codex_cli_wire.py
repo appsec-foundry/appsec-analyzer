@@ -23,8 +23,21 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("success,commentary", [(False, False), (True, False), (True, True)])
-def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_path, monkeypatch, success, commentary):
+@pytest.mark.parametrize(
+    "success,commentary,reconnect,failure_mode",
+    [
+        (False, False, False, None),
+        (True, False, False, None),
+        (True, True, False, None),
+        (True, False, True, None),
+        (False, False, False, "server_error"),
+        (False, False, False, "stream_disconnected"),
+        (False, False, False, "connection_timeout"),
+    ],
+)
+def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(
+    tmp_path, monkeypatch, success, commentary, reconnect, failure_mode
+):
     executable = shutil.which("codex")
     assert executable
     env = {
@@ -51,17 +64,28 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
     }
     disabled["skip_host_skill_discovery"] = True
     requests = []
+    release = threading.Event()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
             requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            if (reconnect and len(requests) == 1) or failure_mode in ("stream_disconnected", "connection_timeout"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                if failure_mode == "connection_timeout":
+                    self.wfile.write(b": synthetic keepalive\n\n")
+                    self.wfile.flush()
+                    release.wait(5)
+                return
             if not success:
-                self.send_response(400)
+                self.send_response(503 if failure_mode == "server_error" else 400)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(b'{"error":{"message":"offline fixture completed","type":"invalid_request_error"}}')
+                message = "service unavailable" if failure_mode == "server_error" else "offline fixture completed"
+                self.wfile.write(json.dumps({"error": {"message": message, "type": "invalid_request_error"}}).encode())
                 return
-            text = json.dumps({"payload_json": json.dumps({"ok": True})})
+            text = json.dumps({"payload": {"ok": True}})
             part = {"type": "output_text", "text": text, "annotations": []}
             message = {
                 "id": "msg_fixture",
@@ -170,15 +194,24 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
 
             def argv(schema, instructions):
                 command = [
-                    arg.replace('model_provider="openai"', 'model_provider="fixture"').replace(
-                        'forced_login_method="chatgpt"', 'forced_login_method="api"'
+                    arg.replace('forced_login_method="chatgpt"', 'forced_login_method="api"').replace(
+                        "model_providers.appsec_chatgpt.requires_openai_auth=true",
+                        "model_providers.appsec_chatgpt.requires_openai_auth=false",
                     )
                     for arg in original_argv(schema, instructions)
                 ]
                 command[-1:-1] = [
                     "-c",
-                    f'model_providers.fixture={{name="fixture",base_url="http://127.0.0.1:{server.server_port}/v1",env_key="FIXTURE_KEY",wire_api="responses"}}',
+                    f'model_providers.appsec_chatgpt.base_url="http://127.0.0.1:{server.server_port}/v1"',
+                    "-c",
+                    'model_providers.appsec_chatgpt.env_key="FIXTURE_KEY"',
                 ]
+                if reconnect:
+                    # Exercise recovery semantics even though production disables stream retries.
+                    command[-1:-1] = ["-c", "model_providers.appsec_chatgpt.stream_max_retries=1"]
+                if failure_mode == "connection_timeout":
+                    # Shorten only the fixture's idle clock; retain production retry settings.
+                    command[-1:-1] = ["-c", "model_providers.appsec_chatgpt.stream_idle_timeout_ms=100"]
                 return command
 
             # Only this local fixture replaces provider/auth, never production.
@@ -195,7 +228,16 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
             monkeypatch.setattr(codex_cli, "_run", observed_run)
             if success:
                 result = transport.invoke(
-                    "Return the requested JSON without tools.", "Return JSON.", {"type": "object"}, 20, lambda: False
+                    "Return the requested JSON without tools.",
+                    "Return JSON.",
+                    {
+                        "type": "object",
+                        "properties": {"ok": {"type": "boolean"}},
+                        "required": ["ok"],
+                        "additionalProperties": False,
+                    },
+                    20,
+                    lambda: False,
                 )
                 assert result.payload == {"ok": True} and result.usd is None
                 messages = [
@@ -207,12 +249,23 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(tmp_
             else:
                 from runtime.analyst_host import TransportError
 
-                with pytest.raises(TransportError):
+                with pytest.raises(TransportError) as caught:
                     transport.invoke("Return JSON.", "Return JSON.", {}, 20, lambda: False)
+                if failure_mode:
+                    assert caught.value.reason == failure_mode
         finally:
+            release.set()
             server.shutdown()
             thread.join(timeout=2)
-    assert len(requests) == 1
+    assert len(requests) == (2 if reconnect else 1)
     assert requests[0].get("tools", []) == []
+    output_schema = requests[0]["text"]["format"]["schema"]
+    assert set(output_schema["properties"]) == {"payload"}
+    assert "payload_json" not in json.dumps(output_schema)
+    if success:
+        from jsonschema import Draft202012Validator
+
+        Draft202012Validator(output_schema).validate({"payload": {"ok": True}})
+        assert not Draft202012Validator(output_schema).is_valid({"payload": '{"ok":true}'})
     assert "FORBIDDEN_PROJECT_INSTRUCTION" not in json.dumps(requests)
     assert not marker.exists()

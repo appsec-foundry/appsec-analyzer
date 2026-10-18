@@ -156,6 +156,37 @@ def test_identity_feedback_reports_multiple_unsupported_fields_together(tmp_path
     assert "PRIVATE" not in str(caught.value)
 
 
+def test_quotation_feedback_names_all_affected_entries_without_echoing_source_or_model_text(tmp_path):
+    scope, documents = fixture(tmp_path)
+    row = documents[0]["interfaces"][0]
+    row["evidence"] = [
+        {"file": "config.txt", "line": 1, "quote": "PRIVATE_FIRST_WRONG_QUOTE"},
+        {"file": "config.txt", "line": 1, "quote": "PRIVATE_SECOND_WRONG_QUOTE"},
+    ]
+    other = copy.deepcopy(row)
+    other["id"] = "second-interface"
+    documents[0]["interfaces"].append(other)
+    with pytest.raises(architecture.ArchitectureError) as caught:
+        architecture.validate_discovery(scope, documents[0]["repository_id"], documents[0])
+    message = str(caught.value)
+    assert all(f"interfaces/{i}/evidence/{j}/quote" in message for i in range(2) for j in range(2))
+    assert "exact substring" in message and "line-number prefix" in message
+    assert "PRIVATE" not in message and "deployment=system-one" not in message and "config.txt" not in message
+
+
+def test_quotation_feedback_is_bounded_and_counts_remaining_errors(tmp_path):
+    scope, documents = fixture(tmp_path)
+    row = documents[0]["interfaces"][0]
+    row["evidence"][0]["quote"] = "PRIVATE_WRONG_QUOTE"
+    documents[0]["interfaces"] = [{**copy.deepcopy(row), "id": f"interface-{i}"} for i in range(40)]
+    with pytest.raises(architecture.ArchitectureError) as caught:
+        architecture.validate_discovery(scope, documents[0]["repository_id"], documents[0])
+    message = str(caught.value)
+    assert "interfaces/31/evidence/0/quote" in message and "interfaces/32/evidence/0/quote" not in message
+    assert "8 further quotation mismatches" in message
+    assert len(message) < 2000 and "PRIVATE" not in message
+
+
 def test_unknown_interface_identities_remain_unresolved_instead_of_creating_a_link(tmp_path):
     scope, documents = fixture(tmp_path)
     for document in documents:

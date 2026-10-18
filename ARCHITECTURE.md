@@ -52,6 +52,7 @@ Command adapters call application workflows, which use shared services and engin
 | Requirements catalog admission | [catalogs.py](appsec_analyzer/catalogs.py) |
 | Terminal fields and export targets | [terminal.py](appsec_analyzer/terminal.py), [targets.py](appsec_analyzer/targets.py) |
 | Scanner execution and output validation | [scanners/execution.py](appsec_analyzer/scanners/execution.py) |
+| Codex structured output | [codex_schema.py](appsec_analyzer/codex_schema.py) projects analysis contracts into the CLI output schema and decodes native JSON values; the controller retains canonical validation and action authorization. |
 | Repository preflight | [runtime/source_preflight.py](scripts/runtime/source_preflight.py) |
 | Configuration-surface discovery | [analyzers/iac_surface.py](scripts/analyzers/iac_surface.py) |
 

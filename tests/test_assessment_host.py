@@ -799,6 +799,135 @@ class Recorded(Model):
         return super().invoke(system, prompt, schema, timeout_s, should_stop)
 
 
+@pytest.mark.parametrize("failure", [None, "quote", "line", "id", "duplicate", "file", "claim", "boolean-line"])
+def test_quotation_repair_changes_only_verified_line_and_quote_in_a_retrieved_window(failure):
+    import copy
+    import time
+
+    artifact = {
+        "interfaces": [
+            {"operation": None, "role": "serve", "evidence": [{"file": "app.py", "line": 1, "quote": "WRONG"}]}
+        ]
+    }
+    original = copy.deepcopy(artifact)
+    citations = [
+        {
+            "pointer": ("interfaces", 0, "evidence", 0),
+            "repository_id": REPO,
+            "claim": {"operation": None, "role": "serve"},
+        }
+    ]
+    slices = [
+        {
+            "repository_id": REPO,
+            "path": "app.py",
+            "sha256": "a" * 64,
+            "start_line": 1,
+            "end_line": 2,
+            "lines": ["1: # listener", "2: server.listen(port)"],
+        }
+    ]
+    answer = {"citation_id": "q1", "line": 2, "quote": "server.listen(port)"}
+    if failure == "quote":
+        answer["quote"] = "server.listen(invented)"
+    elif failure == "line":
+        answer["line"] = 3
+    elif failure == "boolean-line":
+        answer["line"] = True
+    elif failure == "id":
+        answer["citation_id"] = "q2"
+    elif failure == "file":
+        answer["file"] = "other.py"
+    elif failure == "claim":
+        answer["operation"] = "invented"
+    payload = {"quotations": [answer, copy.deepcopy(answer)] if failure == "duplicate" else [answer]}
+    model = Recorded([payload])
+    fixed, usd, called = host._correct_quotations(
+        model, artifact, citations, slices, time.monotonic() + 30, lambda: False, host.MAX_CONTEXT_BYTES
+    )
+    assert called and usd == 0.01 and artifact == original
+    assert len(model.prompts) == 1
+    assert '"quotation_corrections"' in model.prompts[0]
+    if failure:
+        assert fixed is None
+    else:
+        assert fixed == {
+            "interfaces": [
+                {
+                    "operation": None,
+                    "role": "serve",
+                    "evidence": [{"file": "app.py", "line": 2, "quote": "server.listen(port)"}],
+                }
+            ]
+        }
+
+
+@pytest.mark.parametrize("failure", ["repository", "unretrieved-line", "unretrieved-file", "packet-limit", "cancelled"])
+def test_quotation_repair_cannot_read_more_source_or_expand_its_authority(failure):
+    import time
+
+    artifact = {"evidence": {"file": "app.py", "line": 1, "quote": "WRONG"}}
+    citations = [{"pointer": ("evidence",), "repository_id": REPO, "claim": {}}]
+    slices = [
+        {
+            "repository_id": REPO,
+            "path": "app.py",
+            "sha256": "a" * 64,
+            "start_line": 1,
+            "end_line": 1,
+            "lines": ["1: server.listen(port)"],
+        }
+    ]
+    if failure == "repository":
+        slices[0]["repository_id"] = "repo-ffffffffffffffff"
+    elif failure == "unretrieved-line":
+        artifact["evidence"]["line"] = 2
+    elif failure == "unretrieved-file":
+        artifact["evidence"]["file"] = "other.py"
+    model = Model([])
+    result = host._correct_quotations(
+        model,
+        artifact,
+        citations,
+        slices,
+        time.monotonic() + 30,
+        lambda: failure == "cancelled",
+        1 if failure == "packet-limit" else host.MAX_CONTEXT_BYTES,
+    )
+    assert result == (None, 0.0, False) and model.prompts == []
+
+
+def test_cancellation_after_a_quotation_reply_prevents_acceptance():
+    import time
+
+    stopped = [False]
+
+    class CancelledReply:
+        def invoke(self, *args):
+            stopped[0] = True
+            return HostReply({"quotations": [{"citation_id": "q1", "line": 1, "quote": "listen()"}]}, None)
+
+    with pytest.raises(HostCancelled):
+        host._correct_quotations(
+            CancelledReply(),
+            {"evidence": {"file": "app.py", "line": 1, "quote": "wrong"}},
+            [{"pointer": ("evidence",), "repository_id": REPO, "claim": {}}],
+            [
+                {
+                    "repository_id": REPO,
+                    "path": "app.py",
+                    "sha256": "a" * 64,
+                    "start_line": 1,
+                    "end_line": 1,
+                    "lines": ["1: listen()"],
+                }
+            ],
+            time.monotonic() + 30,
+            lambda: stopped[0],
+            host.MAX_CONTEXT_BYTES,
+        )
+
+
 def _anchored(tmp_path, path, source, cited, replies):
     import hashlib
 
