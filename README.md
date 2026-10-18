@@ -4,7 +4,6 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](setup.py)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Claude CLI](https://img.shields.io/badge/default%20provider-Claude%20CLI-5A67D8.svg)](docs/model-selection.md)
-[![Security assessment](https://img.shields.io/badge/security%20assessment-repository--based-5A67D8)](docs/security-assessment.md)
 [![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 
 > [!NOTE]
@@ -12,7 +11,9 @@
 
 AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or on several repositories that form one system.
 
-It does not perform SCA/CVE scanning, comprehensive secret scanning, or runtime testing. Deployment controls and business assumptions still need your own review.
+It does not scan dependencies for known CVEs, search comprehensively for secrets, or test the running application. Deployment controls and business assumptions still need your own review.
+
+If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor), which packages it as a Claude Code plugin.
 
 [Quick start](#quick-start) · [Modes](#modes) · [Workflow](#workflow) · [Data use](#security-and-data-use) · [Install](#install) · [Options](#options) · [Reports](#reports-and-exports) · [Documentation](#documentation)
 
@@ -32,13 +33,12 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/
    appsec-analyzer score /path/to/project
    ```
 
-3. Run a full assessment. This needs a [model provider](#model-provider) and makes paid model calls with a default limit of **USD 20**:
+3. Run a full assessment into a private directory outside the repository. This needs a [model provider](#model-provider) and makes paid model calls up to a default limit of **USD 20**:
 
    ```sh
+   mkdir -m 700 /path/to/assessment
    appsec-analyzer scan --repo /path/to/project --output /path/to/assessment
    ```
-
-   `/path/to/assessment` is a new directory outside the analyzed repository. Without `--output`, results go to your user's `appsec-analyzer/assessments` data directory.
 
 4. Discuss the findings and plan fixes in Claude Code or Codex:
 
@@ -48,22 +48,22 @@ You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/
 
 ## Modes
 
-Every mode is a subcommand of `appsec-analyzer`; add `--help` to see its options. `score`, `scan-sources`, and `export` work without model calls. All other modes send source excerpts to a model provider and stop at a spending limit; see [Security and data use](#security-and-data-use) and [Options](#options).
+Every mode is a subcommand of `appsec-analyzer`; add `--help` to see its options. Modes with model calls send source excerpts to a model provider; see [Security and data use](#security-and-data-use). Each of them has a default cost limit that you can change with `--budget` (`--max-budget-usd` for `analyze-threats`).
 
-| Mode | Purpose |
-| --- | --- |
-| [`scan`](#scan-full-security-assessment) | Full security assessment of a repository or a system of repositories. |
-| [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. |
-| [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. |
-| [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. |
-| [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. |
-| [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. |
-| [`review`](#review-discuss-an-assessment-with-ai) | Discuss a finished assessment and plan fixes with an AI coding assistant. |
-| [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. |
+| Mode | Purpose | Model calls |
+| --- | --- | --- |
+| [`scan`](#scan-full-security-assessment) | Full security assessment of a repository or a system of repositories. | Yes, up to USD 20 |
+| [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. | Yes, up to USD 1 per call |
+| [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. | Yes, up to USD 5 |
+| [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. | Yes, up to USD 5 |
+| [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. | No |
+| [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. | No |
+| [`review`](#review-discuss-an-assessment-with-ai) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
+| [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
 ### `scan`: full security assessment
 
-`scan` maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It uses model calls. See [Security assessment](docs/security-assessment.md).
+`scan` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
 
 ```sh
 # Assess one repository
@@ -82,7 +82,7 @@ appsec-analyzer assess --repo /path/to/project --profile claude --non-interactiv
 
 ### `analyze-threats`: answer a security question
 
-`analyze-threats` answers one security question about the current code, a planned design, or a selected change. It needs no prior assessment and uses model calls. See [Threat Analyst](docs/threat-analyst.md).
+`analyze-threats` answers one security question about the current code, a planned design, or a selected change. It needs no prior assessment. See [Threat Analyst](docs/threat-analyst.md).
 
 ```sh
 # Ask about the current code
@@ -97,7 +97,7 @@ appsec-analyzer analyze-threats "How should we protect the new CSV export?" --de
 
 ### `authnz-review`: authentication and authorization review
 
-`authnz-review` checks the routes, authentication checks, and authorization patterns of one repository. It needs no prior assessment and uses model calls. See [AuthNZ review](docs/authnz-review.md).
+`authnz-review` checks the routes, login checks, and permission checks of one repository. It needs no prior assessment. See [AuthNZ review](docs/authnz-review.md).
 
 ```sh
 # Review login and permission checks
@@ -109,7 +109,7 @@ appsec-analyzer authnz-review --repo /path/to/project --save --gate
 
 ### `audit-requirements`: requirements audit
 
-`audit-requirements` checks whether a repository implements each requirement of a local YAML catalog. It uses model calls through Claude CLI. The output directory must already exist. See [Requirements audit](docs/security-requirements-audit-skill.md).
+`audit-requirements` checks whether a repository implements each requirement of a local YAML catalog. The output directory must already exist. See [Requirements audit](docs/security-requirements-audit-skill.md).
 
 ```sh
 # Try the audit with the bundled sample catalog
@@ -123,7 +123,7 @@ appsec-analyzer audit-requirements --repo /path/to/project \
 
 ### `score`: deterministic security rating
 
-`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It makes no model calls. It reports `undetermined` when coverage is too low. It sees only what its rules cover and does not replace `scan`. See [Security score](docs/security-score.md).
+`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `scan`. See [Security score](docs/security-score.md).
 
 ```sh
 # Rate a local checkout
@@ -135,7 +135,7 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 
 ### `scan-sources`: raw scanner observations
 
-`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It makes no model calls and does not replace `scan`.
+`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `scan`.
 
 ```sh
 # Show what the scanners found, without a rating
@@ -144,7 +144,7 @@ appsec-analyzer scan-sources --repo /path/to/project
 
 ### `review`: discuss an assessment with AI
 
-`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows the handoff without model calls. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
+`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
 
 ```sh
 # Discuss the findings with the assistant recorded in the assessment
@@ -156,7 +156,7 @@ appsec-analyzer review /path/to/assessment --with codex
 
 ### `export`: other report formats
 
-`export` writes a finished assessment to other formats without model calls. The destination must be a new directory. See [Reports and exports](#reports-and-exports).
+`export` writes a finished assessment to other formats. The destination must be a new directory outside any Git checkout. See [Reports and exports](#reports-and-exports).
 
 ```sh
 # Create SARIF for code scanning and HTML for reading
@@ -174,7 +174,7 @@ appsec-analyzer export --assessment /path/to/assessment --output /path/to/export
 
 ## Workflow
 
-This example takes one repository from a free first check to a reviewed assessment. It uses a fixed output directory so that every later command can find the same assessment.
+This example takes one repository from a free first check to a reviewed assessment. All commands after the scan use the same `--output` directory to find the assessment.
 
 ```sh
 # 1. Free first check: no model calls, no cost.
@@ -196,11 +196,11 @@ appsec-analyzer review /path/to/assessment
 
 Notes on the steps:
 
-1. `score` shows whether a full assessment is worth its cost. `scan-sources` lists the underlying scanner observations instead of a score.
+1. `score` helps you decide whether a full assessment is worth its cost.
 2. `preflight` is optional. `scan` runs the same checks before it starts; see [preflight checks](docs/security-assessment.md#preflight-checks).
-3. `scan` stops spending at USD 20 by default; `--budget 10` sets a different limit. The limit is a maximum, not an estimate. When it runs out, the run keeps its progress and reports the assessment as incomplete. If you omit `--output`, results go to a private directory under your user's `appsec-analyzer/assessments` data directory. An explicit `--output` must be a private directory outside every analyzed repository.
-4. `status` and `stop` take the same `--output` option. To continue an interrupted or paused run, repeat the `scan` command from step 3 and add `--resume`.
-5. `review` starts Claude Code or Codex in read-only mode. It uses the assistant's own account, not the scan budget. `--with` selects the assistant, and `--preview` shows the handoff without model calls.
+3. `--budget 10` sets a different cost limit. The limit is a maximum, not an estimate. When it runs out, the run keeps its progress and reports the assessment as incomplete. If you omit `--output`, results go to a private directory under your user's `appsec-analyzer/assessments` data directory.
+4. `status` and `stop` take the same `--output` option. If the provider rate-limits the run or the connection stays down, Analyzer retries and then pauses with exit code 3. To continue an interrupted or paused run, repeat the `scan` command from step 3 and add `--resume`.
+5. `review` uses the assistant recorded in the assessment; `--with codex` or `--with claude` selects another one.
 
 To get SARIF, HTML, PDF, or other formats later, use `export`; see [Reports and exports](#reports-and-exports). For unattended runs and recovery, see [command-line operation](docs/headless-mode.md).
 
@@ -244,7 +244,7 @@ appsec-analyzer version
 <details>
 <summary>Run from a checkout without installing</summary>
 
-`python3` needs the runtime dependencies from [setup.py](setup.py): `PyYAML>=6,<7`, `jsonschema>=4.20,<5`, and `Jinja2>=3.1,<4`.
+Install the runtime dependencies listed in [setup.py](setup.py) first (PyYAML, jsonschema, and Jinja2).
 
 ```sh
 cd /path/to/appsec-analyzer
@@ -267,17 +267,11 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples 
 | `lite` (experimental) | LiteLLM gateway | `LITELLM_API_KEY` and a gateway entry in `providers.yaml` with verified prices. See [LiteLLM setup](docs/providers.md#use-litellm). |
 | `bedrock` (experimental) | Amazon Bedrock Converse API | `AWS_BEARER_TOKEN_BEDROCK` and a Bedrock entry in `providers.yaml` with verified prices. See [Bedrock setup](docs/providers.md#use-amazon-bedrock). |
 
-The experimental profiles have not completed live assessment qualification. Run `appsec-analyzer profiles list` to see all built-in and user profiles, and `preflight` with the same `--profile` to check the setup without model calls:
+The experimental profiles have not yet been qualified in live assessments. `appsec-analyzer profiles list` shows all built-in and user profiles.
 
 ```sh
+# Check the provider setup without model calls
 appsec-analyzer preflight --repo /path/to/project --profile codex
-```
-
-Examples for each provider:
-
-```sh
-# Claude CLI (default)
-appsec-analyzer scan --repo /path/to/project
 
 # OpenAI API
 appsec-analyzer scan --repo /path/to/project --profile codex
@@ -304,7 +298,7 @@ Command-line options override the defaults from a scan profile.
 | Option | Effect |
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
-| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. `--hard-budget` is an alias. |
+| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. |
 | `--assessment-depth LEVEL` | `standard` (default, includes business-logic analysis) or `thorough`, which can cost more without producing more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
@@ -314,13 +308,11 @@ Command-line options override the defaults from a scan profile.
 
 [Scan and model profiles](docs/profiles.md) explains how to store settings and choose models per role.
 
-If a provider rate-limits the run or the connection stays down, Analyzer retries and then pauses with exit code 3. Accepted work is kept; rerun the same command with `--resume` later.
-
 ## Reports and exports
 
-Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. These examples come from an assessment of OWASP Juice Shop.
+Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
 
-The runtime architecture with its data flows and attack paths, shown as a detail. Click the image to open the full diagram:
+The runtime architecture with its data flows and attack paths:
 
 <a href="docs/images/figure1-example.svg">
 <picture>
@@ -329,7 +321,7 @@ The runtime architecture with its data flows and attack paths, shown as a detail
 </picture>
 </a>
 
-The build pipeline and the most severe supply-chain attacks on it, shown as a detail. Click the image to open the full diagram:
+The build pipeline and the most severe supply-chain attacks on it:
 
 <a href="docs/images/figure1b-example.svg">
 <picture>
@@ -348,7 +340,7 @@ Request more formats when you start the scan, for example `scan --repo /path/to/
 | `--threatdragon` | OWASP Threat Dragon model. |
 | `--pentest-tasks` | Tasks for follow-up penetration testing. |
 
-To export a completed assessment later, without model calls:
+To export a finished assessment later:
 
 ```sh
 appsec-analyzer export --assessment /path/to/assessment \
@@ -364,11 +356,10 @@ The export directory must be new and outside any Git checkout. See [export prere
 - [Configuration](docs/configuration.md) and [organization profiles](docs/org-profiles.md): settings for local and team use.
 - [Hosts, models, and cost](docs/model-selection.md): provider support and spending limits.
 - [Command-line operation](docs/headless-mode.md): unattended runs and lifecycle commands.
-- [Engine-only composition configuration](docs/organization-distributions.md#engine-only-configuration-for-a-composed-plugin): model-free validation and a configured deterministic score for composed plugins.
 - [Documentation index](docs/README.md): all current guides and maintainer references.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and tests, and [product requirements](requirements.md) for intended behavior. Read [AGENTS.md](AGENTS.md) before changing runtime behavior or report contracts.
 
-AppSec Analyzer grew out of [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor) and is distributed under the [Apache 2.0 license](LICENSE).
+AppSec Analyzer grew out of AppSec Advisor and is distributed under the [Apache 2.0 license](LICENSE).
