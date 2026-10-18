@@ -15,50 +15,51 @@ It does not scan dependencies for known CVEs, search comprehensively for secrets
 
 If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor), which packages it as a Claude Code plugin.
 
-[Quick start](#quick-start) · [Modes](#modes) · [Workflow](#workflow) · [Data use](#security-and-data-use) · [Install](#install) · [Options](#options) · [Reports](#reports-and-exports) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Commands](#commands) · [Data use](#security-and-data-use) · [Install](#install) · [Options](#options) · [Reports](#reports-and-exports) · [Documentation](#documentation)
 
 ## Quick start
 
-You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/). Replace `/path/to/project` with the repository you want to examine.
+You need Python 3.10+, Git, and [pipx](https://pipx.pypa.io/stable/).
 
 1. Install the preview from GitHub:
 
    ```sh
-   pipx install "git+https://github.com/appsec-foundry/appsec-analyzer.git"
+   pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
    ```
 
-2. Get a quick score. This makes no model calls and costs nothing:
+2. Run a full assessment of a local checkout or a Git URL. Analyzer creates the private output directory outside the repository. This makes paid model calls; the default cost limit is USD 20 and `--budget` changes it:
 
    ```sh
-   appsec-analyzer score /path/to/project
-   ```
-
-3. Run a full assessment into a private directory outside the repository. This needs a [model provider](#model-provider) and makes paid model calls up to a default limit of **USD 20**:
-
-   ```sh
-   mkdir -m 700 /path/to/assessment
    appsec-analyzer scan --repo /path/to/project --output /path/to/assessment
    ```
 
-4. Discuss the findings and plan fixes in Claude Code or Codex:
+   The default profile uses the Claude CLI. To use your ChatGPT plan through the Codex CLI instead, select the `codex-cli` profile and limit the model exchanges:
+
+   ```sh
+   appsec-analyzer scan --repo /path/to/project --output /path/to/assessment --profile codex-cli --max-calls 1000
+   ```
+
+   [Model provider](#model-provider) lists all profiles and their setup.
+
+3. Discuss the findings and plan fixes in Claude Code or Codex:
 
    ```sh
    appsec-analyzer review /path/to/assessment
    ```
 
-## Modes
+## Commands
 
-Every mode is a subcommand of `appsec-analyzer`; add `--help` to see its options. Modes with model calls send source excerpts to a model provider; see [Security and data use](#security-and-data-use). Each of them has a default cost limit that you can change with `--budget` (`--max-budget-usd` for `analyze-threats`).
+`appsec-analyzer <command> --help` lists the options of each command. Commands with model calls send source excerpts to your provider (see [Security and data use](#security-and-data-use)) and stay within the default cost limit shown below. Change it with `--budget`, or `--max-budget-usd` for `analyze-threats`.
 
-| Mode | Purpose | Model calls |
+| Command | Purpose | Model calls |
 | --- | --- | --- |
 | [`scan`](#scan-full-security-assessment) | Full security assessment of a repository or a system of repositories. | Yes, up to USD 20 |
+| [`review`](#review-discuss-an-assessment-with-ai) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
 | [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. | Yes, up to USD 1 per call |
 | [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. | Yes, up to USD 5 |
 | [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. | Yes, up to USD 5 |
 | [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. | No |
 | [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. | No |
-| [`review`](#review-discuss-an-assessment-with-ai) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
 ### `scan`: full security assessment
@@ -66,8 +67,11 @@ Every mode is a subcommand of `appsec-analyzer`; add `--help` to see its options
 `scan` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
 
 ```sh
-# Assess one repository
+# Assess a local checkout
 appsec-analyzer scan --repo /path/to/project
+
+# Assess a remote repository; Analyzer clones it into a temporary directory
+appsec-analyzer scan --repo https://github.com/your-org/your-project.git
 
 # Assess a backend and its web frontend together as one system
 appsec-analyzer scan --repo /path/to/backend --repo /path/to/frontend
@@ -78,6 +82,18 @@ appsec-analyzer scan --repo /path/to/backend --repo /path/to/frontend
 ```sh
 # Run in CI with a fixed provider profile and without questions
 appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
+```
+
+### `review`: discuss an assessment with AI
+
+`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
+
+```sh
+# Discuss the findings with the assistant recorded in the assessment
+appsec-analyzer review /path/to/assessment
+
+# Use Codex instead
+appsec-analyzer review /path/to/assessment --with codex
 ```
 
 ### `analyze-threats`: answer a security question
@@ -142,18 +158,6 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 appsec-analyzer scan-sources --repo /path/to/project
 ```
 
-### `review`: discuss an assessment with AI
-
-`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
-
-```sh
-# Discuss the findings with the assistant recorded in the assessment
-appsec-analyzer review /path/to/assessment
-
-# Use Codex instead
-appsec-analyzer review /path/to/assessment --with codex
-```
-
 ### `export`: other report formats
 
 `export` writes a finished assessment to other formats. The destination must be a new directory outside any Git checkout. See [Reports and exports](#reports-and-exports).
@@ -171,38 +175,6 @@ appsec-analyzer export --assessment /path/to/assessment --output /path/to/export
 | `status`, `progress`, `results`, `stop` | Follow, inspect, or stop a running assessment. |
 | `profiles` | Lists and validates scan and model profiles. |
 | `capabilities` | Shows the available scanners and provider qualification. |
-
-## Workflow
-
-This example takes one repository from a free first check to a reviewed assessment. All commands after the scan use the same `--output` directory to find the assessment.
-
-```sh
-# 1. Free first check: no model calls, no cost.
-appsec-analyzer score /path/to/project
-
-# 2. Check repository access and provider setup. No assessment starts yet.
-appsec-analyzer preflight --repo /path/to/project
-
-# 3. Run the full assessment into a private directory outside the repository.
-mkdir -m 700 /path/to/assessment
-appsec-analyzer scan --repo /path/to/project --output /path/to/assessment
-
-# 4. From a second terminal: follow or stop the running assessment.
-appsec-analyzer progress --output /path/to/assessment
-
-# 5. Discuss the finished assessment with an AI coding assistant.
-appsec-analyzer review /path/to/assessment
-```
-
-Notes on the steps:
-
-1. `score` helps you decide whether a full assessment is worth its cost.
-2. `preflight` is optional. `scan` runs the same checks before it starts; see [preflight checks](docs/security-assessment.md#preflight-checks).
-3. `--budget 10` sets a different cost limit. The limit is a maximum, not an estimate. When it runs out, the run keeps its progress and reports the assessment as incomplete. If you omit `--output`, results go to a private directory under your user's `appsec-analyzer/assessments` data directory.
-4. `status` and `stop` take the same `--output` option. If the provider rate-limits the run or the connection stays down, Analyzer retries and then pauses with exit code 3. To continue an interrupted or paused run, repeat the `scan` command from step 3 and add `--resume`.
-5. `review` uses the assistant recorded in the assessment; `--with codex` or `--with claude` selects another one.
-
-To get SARIF, HTML, PDF, or other formats later, use `export`; see [Reports and exports](#reports-and-exports). For unattended runs and recovery, see [command-line operation](docs/headless-mode.md).
 
 ## Security and data use
 
