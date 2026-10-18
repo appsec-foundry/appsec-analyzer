@@ -376,3 +376,11 @@ def build(
         ):
             raise ContextContractError("document provenance does not match its delivered sources")
     return context
+
+
+def validate_selected_context(selected: dict[str, Path]) -> None:
+    """Validate explicitly selected structured context before starting a job."""
+    if "requirements" in selected:
+        _requirements(selected["requirements"], True)
+    if "threat_model" in selected:
+        _threat_model(selected["threat_model"], True, [])

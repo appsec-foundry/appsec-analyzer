@@ -14,12 +14,14 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import yaml
 
 from appsec_analyzer import ENGINE_VERSION, INTERFACE_VERSION, resource_root
+from appsec_analyzer.artifacts import read_bounded as _bounded_file
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, MAX_PARALLEL
+from appsec_analyzer.targets import pentest_target as _pentest_target
+from appsec_analyzer.terminal import field as _terminal_field
 
 # Operator-selected built-ins only; repository content cannot select a provider.
 _PROFILE_HOSTS = {
@@ -39,9 +41,10 @@ class _Explicit(argparse.Action):
 
 
 def _engine_imports() -> None:
-    scripts = str(resource_root() / "scripts")
-    if scripts not in sys.path:
-        sys.path.insert(0, scripts)
+    """Compatibility entry for callers predating the engine boundary."""
+    from appsec_analyzer.engine import initialize
+
+    initialize()
 
 
 def _parser(*, organization=None) -> argparse.ArgumentParser:
@@ -131,7 +134,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     analyst = commands.add_parser("analyst", help="Focused design, change, and hypothesis analysis", add_help=False)
     analyst.add_argument("-h", "--help", action="store_true", dest="analyst_help")
     analyst.add_argument("args", nargs=argparse.REMAINDER)
-    from appsec_analyzer.threat_analysis import add_arguments as threat_arguments
+    from appsec_analyzer.analyze_threats.cli import add_arguments as threat_arguments
 
     focused = commands.add_parser(
         "analyze-threats",
@@ -218,22 +221,6 @@ def _positive_budget(value: str) -> float:
     if not math.isfinite(amount) or amount <= 0:
         raise argparse.ArgumentTypeError("must be a positive finite USD amount")
     return amount
-
-
-def _pentest_target(value: str) -> str:
-    if any(char.isspace() or ord(char) < 32 or 127 <= ord(char) <= 159 for char in value):
-        raise argparse.ArgumentTypeError("must be an HTTP or HTTPS URL without control characters")
-    try:
-        parsed = urlsplit(value)
-        valid = (
-            parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
-        )
-        _ = parsed.port
-    except ValueError:
-        valid = False
-    if not valid:
-        raise argparse.ArgumentTypeError("must be an HTTP or HTTPS URL without embedded credentials")
-    return value
 
 
 def _slug(value: str) -> str:
@@ -459,14 +446,15 @@ def _score(ns: argparse.Namespace) -> int:
 
 
 def _run_score(ns: argparse.Namespace) -> int:
-    from appsec_analyzer.score_progress import ScoreProgress
+    from appsec_analyzer.score.progress import ScoreProgress
 
     with ScoreProgress(repository=ns.repo) as progress:
         try:
             _engine_imports()
             from renderers.term_style import Style
 
-            from appsec_analyzer.scoring import ScoreError, render_text, score_repository
+            from appsec_analyzer.score.render import render_text
+            from appsec_analyzer.score.service import ScoreError, score_repository
         except (ImportError, OSError, RuntimeError):
             progress.finish("failed")
             print(
@@ -504,8 +492,8 @@ def _scan_local(ns: argparse.Namespace) -> int:
     _engine_imports()
     from jsonschema import Draft202012Validator
     from model.assessment_scanner_findings import SIDECARS, _scanner_outputs
-    from orchestrator.orchestration_controller import _assessment_preflight
     from runtime.multi_repo_scope import ScopeError, admit
+    from runtime.source_preflight import check_repositories as _assessment_preflight
 
     if ns.trust_mode == "untrusted":
         _assessment_preflight(ns.repo)
@@ -595,11 +583,6 @@ def _scan_local(ns: argparse.Namespace) -> int:
         else:
             sys.stdout.write(_scan_summary(result, output=ns.output))
     return 0
-
-
-def _terminal_field(value: object) -> str:
-    """Keep repository-controlled names and scanner text on one terminal line."""
-    return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(value))).strip()[:240]
 
 
 def _scan_summary(result: dict, *, output: str | None) -> str:
@@ -882,9 +865,12 @@ def _assess(ns: argparse.Namespace) -> int:
         reject_source_paths(
             ns.run_profile["files"], [local_args[i + 1] for i, arg in enumerate(local_args[:-1]) if arg == "--repo"]
         )
+        from appsec_analyzer.assessment.request import AssessmentRequest
+
+        request = AssessmentRequest.from_cli(ns, local_args)
         if api_profile is not None:
-            return assess_main(local_args, api_profile=api_profile, run_profile=ns.run_profile)
-        return assess_main(local_args, run_profile=ns.run_profile)
+            return assess_main(request, api_profile=api_profile, run_profile=ns.run_profile)
+        return assess_main(request, run_profile=ns.run_profile)
 
 
 def _state(ns: argparse.Namespace) -> tuple[Path, dict]:
@@ -895,21 +881,6 @@ def _state(ns: argparse.Namespace) -> tuple[Path, dict]:
     _real_directory(output)
     state = _read_state(output / STATE_NAME)
     return output, state
-
-
-def _bounded_file(path: Path, limit: int) -> bytes:
-    """Read a regular, singly linked owned artifact without following links."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:
-            raise ValueError("assessment artifact is not a bounded regular file")
-        data = os.read(fd, limit + 1)
-        if len(data) > limit:
-            raise ValueError("assessment artifact exceeds its size limit")
-        return data
-    finally:
-        os.close(fd)
 
 
 def _inspect(ns: argparse.Namespace) -> int:
@@ -1136,7 +1107,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return _analyst(ns)
         if ns.command == "analyze-threats":
             _engine_imports()
-            from appsec_analyzer.threat_analysis import run
+            from appsec_analyzer.analyze_threats.cli import run
 
             return run(ns)
         if ns.command == "audit-requirements":

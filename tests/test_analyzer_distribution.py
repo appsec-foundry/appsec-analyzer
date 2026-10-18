@@ -54,6 +54,19 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
     assert not other.exists()
     assert (package / "scripts" / "runtime" / "multi_repo_scope.py").is_file()
     assert (package / "data" / "stride-analysis-policy.md").is_file()
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import appsec_analyzer.score.service; import appsec_analyzer.analyze_threats.cli; import appsec_analyzer.assessment.console; assert 'appsec_analyzer.cli' not in sys.modules",
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(build)},
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert probe.returncode == 0, probe.stderr
     score_repo = tmp_path / "score-repository"
     score_repo.mkdir()
     (score_repo / "service.py").write_text("def service():\n    return 1\n")
@@ -271,6 +284,25 @@ print(json.dumps(result))
         assert "appsec_analyzer/" + relative in wheel_files
         assert relative in source_files
     assert "appsec_analyzer/codex_cli.py" in wheel_files
+    for relative in (
+        "score/service.py",
+        "score/calculation.py",
+        "score/collection.py",
+        "score/events.py",
+        "score/render.py",
+        "score/progress.py",
+        "analyze_threats/cli.py",
+        "analyze_threats/preparation.py",
+        "assessment/request.py",
+        "assessment/console.py",
+        "scanners/execution.py",
+        "engine.py",
+        "artifacts.py",
+        "catalogs.py",
+        "model_roles.py",
+    ):
+        assert "appsec_analyzer/" + relative in wheel_files
+        assert "appsec_analyzer/" + relative in source_files
     assert "appsec_analyzer/scoring.py" in wheel_files
     assert "appsec_analyzer/scoring.py" in source_files
     assert "appsec_analyzer/authnz_review.py" in wheel_files

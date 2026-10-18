@@ -447,9 +447,9 @@ def restore_profile(profile: dict, output: Path, *, resume: bool) -> dict:
 
 def apply_runtime_profile(profile: dict, cfg: dict, arguments: list[str], *, model=None) -> None:
     """Apply typed settings after organization defaults, before session identity."""
-    from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
-    from orchestrator.orchestration_controller import SEMANTIC_ROLE_MODEL_KEYS
     from runtime import resolve_config
+
+    from appsec_analyzer.model_roles import RENDERER_MODEL_KEYS, SEMANTIC_ROLE_MODEL_KEYS
 
     selected = resolve_config.build_parser().parse_known_args(arguments)[0]
     keys = {**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}

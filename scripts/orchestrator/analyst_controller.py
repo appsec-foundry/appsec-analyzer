@@ -736,6 +736,63 @@ def _question_report(job_id: str, questions: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class WaitingJob:
+    """Presentation data for a waiting job; no persistence paths escape."""
+
+    model: str
+    mode: str
+    scope: dict
+    sources: list[dict]
+    review_origin: dict | None
+    outcome: Outcome
+
+
+def waiting_job(job_id: str, repo_root: Path, state_root: Path | None = None) -> WaitingJob:
+    """Read one consistent waiting checkpoint of the selected repository."""
+    root = st.job_path(job_id, repo_root.resolve(), state_root)
+    job = st.acquire(root)
+    try:
+        state = st.read_artifact(root, "state.json")
+        request = st.read_artifact(root, "request.json")
+        if not isinstance(state, dict) or state.get("state") != "awaiting_answers" or not isinstance(request, dict):
+            raise ValueError("Job is not waiting for answers.")
+        if (
+            validate_request(request)
+            or st.validate_state(state)
+            or request["job_id"] != job_id
+            or state["job_id"] != job_id
+            or request["repository"]["root"] != str(repo_root.resolve())
+        ):
+            raise ValueError("Waiting job does not match the selected repository and job.")
+        context = st.read_artifact(root, "context.json")
+        saved = st.read_artifact(root, "questions.json")
+        if not isinstance(context, dict) or not isinstance(saved, dict) or not isinstance(saved.get("questions"), list):
+            raise ValueError("Waiting job checkpoint is incomplete.")
+        if any(
+            not isinstance(question, dict)
+            or not all(isinstance(question.get(key), str) for key in ("id", "asks", "why"))
+            or type(question.get("required")) is not bool
+            for question in saved["questions"]
+        ):
+            raise ValueError("Waiting job checkpoint is malformed.")
+        questions = [q for q in saved["questions"] if q["id"] in state["pending_questions"]]
+        if {q["id"] for q in questions} != set(state["pending_questions"]):
+            raise ValueError("Waiting job checkpoint is incomplete.")
+        return WaitingJob(
+            request["host"]["model"],
+            request["mode"],
+            request["scope"],
+            context.get("sources", []),
+            request.get("review_origin"),
+            Outcome(EXIT_NOT_COMPLETE, "awaiting_answers", job_id, "Continue the frozen analysis.", questions),
+        )
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise ValueError("Waiting job checkpoint is malformed.") from None
+    finally:
+        st.release(job)
+
+
 def answer(
     job_id: str,
     repo_root: Path,

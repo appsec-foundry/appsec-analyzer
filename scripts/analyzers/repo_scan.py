@@ -15,6 +15,7 @@ from pathlib import Path as _Path
 
 if not __package__:
     _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 
 import argparse
@@ -38,7 +39,8 @@ sys.path.insert(0, str(HERE))
 from shared._path_guard import iter_escaping_symlinks  # noqa: E402
 
 from analyzers.scan_excludes import is_assessment_artifact  # noqa: E402
-from analyzers.security_score import _clone, _remote_url  # noqa: E402
+from appsec_analyzer.sources.legacy_git import clone as _clone  # noqa: E402
+from appsec_analyzer.sources.legacy_git import remote_url as _remote_url
 
 SCANS = ("config", "source", "authz", "mass-assignment", "architecture", "endpoints", "stack")
 FINDING_SCANS = ("config", "source", "mass-assignment")

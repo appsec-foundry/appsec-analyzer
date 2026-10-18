@@ -7,16 +7,16 @@ import json
 import math
 import os
 import re
-import stat
 import tempfile
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 
-import yaml
 from jsonschema import Draft202012Validator
 
 from appsec_analyzer import INTERFACE_VERSION, resource_root
+from appsec_analyzer.artifacts import publish_exclusive as _publish_exclusive
+from appsec_analyzer.catalogs import read_catalog as _bounded_catalog
 
 BATCH_SIZE = 10
 MAX_REQUIREMENTS = 160
@@ -25,26 +25,6 @@ MAX_INVENTORY_BYTES = 120_000
 _STATUSES = ("PASS", "PARTIAL", "FAIL", "UNVERIFIABLE", "NOT_APPLICABLE")
 _CONCLUSIVE = frozenset(("PASS", "PARTIAL", "FAIL"))
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\Z")
-
-
-def _bounded_catalog(path: Path) -> tuple[bytes, dict]:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MAX_CATALOG_BYTES:
-            raise ValueError("requirements catalog must be a bounded regular file")
-        body = os.read(fd, MAX_CATALOG_BYTES + 1)
-        if len(body) > MAX_CATALOG_BYTES:
-            raise ValueError("requirements catalog exceeds its size limit")
-    finally:
-        os.close(fd)
-    from requirements.requirements_state import validate_catalog
-
-    errors, _warnings = validate_catalog(body)
-    if errors:
-        raise ValueError("requirements catalog violates its schema")
-    catalog = yaml.safe_load(body)
-    return body, catalog
 
 
 def _items(catalog: dict, category_filter: str | None) -> list[dict]:
@@ -160,25 +140,6 @@ def _markdown(document: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _publish_exclusive(path: Path, body: bytes) -> None:
-    """Publish a complete 0600 artifact only when this run owns its name."""
-    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    temporary = f".{path.name}.{os.getpid()}.tmp"
-    try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
-        try:
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(body)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.link(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
-            os.fsync(directory)
-        finally:
-            os.unlink(temporary, dir_fd=directory)
-    finally:
-        os.close(directory)
-
-
 def audit_repository(
     *,
     repo: str,
@@ -195,10 +156,9 @@ def audit_repository(
     host_factory=None,
 ) -> tuple[int, dict]:
     """Produce one validated audit; no verdict is published on a partial run."""
-    from appsec_analyzer.cli import _engine_imports
+    from appsec_analyzer.engine import initialize as _engine_imports
 
     _engine_imports()
-    from orchestrator.orchestration_controller import _assessment_preflight
     from requirements.requirements_gate import _PRIORITY_RANK, _is_gating
     from requirements.requirements_report import recompute_summary
     from runtime.analyst_host import ClaudeCliTransport
@@ -206,6 +166,7 @@ def audit_repository(
     from runtime.assessment_state import _real_directory
     from runtime.multi_repo_discovery import BudgetedHost, DiscoveryBudget
     from runtime.multi_repo_scope import admit
+    from runtime.source_preflight import check_repositories as _assessment_preflight
     from validators.secret_scan import scan_text
 
     if type(hard_budget) not in (int, float) or not math.isfinite(hard_budget) or hard_budget < 0.05:

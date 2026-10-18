@@ -89,7 +89,7 @@ For report sections, follow the [section runbook](docs/internal/runbooks/adding-
 
 | Path | Purpose |
 | --- | --- |
-| `appsec_analyzer/` | Public CLI, resource lookup, API hosts, profiles, independent audit. |
+| `appsec_analyzer/` | Public CLI, score and focused-analysis workflows, assessment request and console, shared application services, hosts, and profiles; see the [module boundaries](scripts/README.md#application-modules). |
 | `scripts/` | Analysis engine, lifecycle, renderers, validators, maintainer tools. |
 | `agents/` | Role instructions and shared contracts consumed by the engine. |
 | `skills/` | Current entry skill and retained Advisor material; selected resources enter the wheel. |

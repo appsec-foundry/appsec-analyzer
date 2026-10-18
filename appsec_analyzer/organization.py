@@ -77,7 +77,7 @@ def load(package: str) -> Organization:
     for depth in DEPTHS:
         resolve_scan(str(scan), depth=depth)
     document = read_document(org)
-    from appsec_analyzer.cli import _engine_imports
+    from appsec_analyzer.engine import initialize as _engine_imports
 
     _engine_imports()
     from validators.validate_org_profile import validate

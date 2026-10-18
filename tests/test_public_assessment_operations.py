@@ -324,7 +324,10 @@ def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(
     assert observed["profile"].model == "gpt-6.1-sol"
     assert observed["profile"].reasoning_effort == effort
     assert observed["profile"].max_output_tokens == output_cap
-    assert observed["arguments"][0:2] == ["--repo", str(tmp_path)]
+    from appsec_analyzer.assessment.request import AssessmentRequest
+
+    assert isinstance(observed["arguments"], AssessmentRequest)
+    assert list(observed["arguments"][0:2]) == ["--repo", str(tmp_path)]
     assert observed["arguments"][observed["arguments"].index("--assessment-depth") + 1] == depth
 
 

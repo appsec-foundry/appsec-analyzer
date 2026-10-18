@@ -48,7 +48,8 @@ MAX_INLINE_FILL = 600
 MAX_BLOCK_FILL = 2_500
 
 # Model key the single-repository Stage 2 resolves for both renderer profiles.
-RENDERER_MODEL_KEYS = {"ms_renderer": "renderer_model", "secarch_renderer": "renderer_model"}
+from appsec_analyzer.model_roles import RENDERER_MODEL_KEYS as RENDERER_MODEL_KEYS
+
 _AGENT_FILES = {
     "ms_renderer": AGENTS / "appsec-ms-renderer.md",
     "secarch_renderer": AGENTS / "appsec-secarch-renderer.md",

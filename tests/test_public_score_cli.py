@@ -726,7 +726,9 @@ def test_unexpected_score_errors_are_contained_without_publishing_or_exposing_de
     if stage == "scanner":
         monkeypatch.setattr(scoring.security_score, "collect", fail)
     elif stage == "renderer":
-        monkeypatch.setattr(scoring, "render_text", fail)
+        from appsec_analyzer.score import render
+
+        monkeypatch.setattr(render, "render_text", fail)
     elif stage == "storage":
         monkeypatch.setattr(scoring.tempfile, "TemporaryDirectory", fail)
     else:

@@ -101,6 +101,10 @@ requirements:
 
   REQ-001:
     applies_to:
+      - appsec_analyzer/scanners/**
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/artifacts.py
+      - appsec_analyzer/engine.py
       - appsec_analyzer/cli.py
       - schemas/deterministic-scan-result.schema.json
       - docs/internal/contracts/requirement-acceptance.md
@@ -116,8 +120,13 @@ requirements:
 
   REQ-036:
     applies_to:
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/artifacts.py
+      - appsec_analyzer/engine.py
       - appsec_analyzer/cli.py
       - appsec_analyzer/scoring.py
+      - appsec_analyzer/score/**
+      - appsec_analyzer/scanners/**
       - appsec_analyzer/score_progress.py
       - scripts/analyzers/security_score.py
       - data/security-score-indicators.yaml
@@ -139,6 +148,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_module_boundaries.py::test_calculation_with_loaded_policy_needs_no_files_or_processes
+      - tests/test_module_boundaries.py::test_structured_progress_keeps_scanner_failure_visible
       - tests/test_public_score_cli.py::test_score_runs_without_model_and_preserves_target
       - tests/test_public_score_cli.py::test_startup_is_visible_before_runtime_preparation_even_with_piped_stderr
       - tests/test_public_score_cli.py::test_score_startup_identifies_repository_without_credentials_or_terminal_injection
@@ -196,6 +207,7 @@ requirements:
       - scripts/runtime/multi_repo_scope.py
       - scripts/orchestrator/assessment_workspace.py
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - skills/appsec-analyzer/**
       - appsec_analyzer/cli.py
       - docs/internal/contracts/requirement-acceptance.md
@@ -260,6 +272,7 @@ requirements:
       - agents/shared/prose-style.md
       - appsec_analyzer/cli.py
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -497,6 +510,7 @@ requirements:
       - scripts/contexts/load_business_context.py
       - schemas/known-threats.schema.yaml
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/runtime/aggregate_run_issues.py
       - scripts/renderers/compose_threat_model.py
       - scripts/runtime/resolve_config.py
@@ -520,6 +534,7 @@ requirements:
     applies_to:
       - appsec_analyzer/cli.py
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - schemas/scan-profile.schema.yaml
       - scripts/model/promote_verified_abuse_cases.py
       - scripts/model/match_abuse_cases.py
@@ -893,8 +908,10 @@ requirements:
       - scripts/runtime/assessment_jobs.py
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - scripts/runtime/resolve_config.py
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/model/persist_run_baseline.py
       - scripts/runtime/assessment_state.py
       - skills/appsec-analyzer/**
@@ -962,6 +979,7 @@ requirements:
     applies_to:
       - scripts/runtime/resolve_config.py
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/model/persist_run_baseline.py
       - scripts/runtime/assessment_state.py
       - skills/appsec-analyzer/**
@@ -1001,6 +1019,7 @@ requirements:
       - data/model-profiles/codex-cli.yaml
       - data/scan-profiles/codex-cli.yaml
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - appsec_analyzer/execution_limits.py
       - data/scan-profiles/**
       - data/model-profiles/**
@@ -1059,7 +1078,7 @@ requirements:
       - tests/test_profiles.py::test_custom_models_cannot_bypass_organization_opus_rule
       - tests/test_resolve_actors.py::test_resolver_never_writes_actor_choices_back_to_repo
       - tests/test_build_threat_modeling_context.py::test_rejects_invalid_known_threats_before_context_publication
-      - tests/test_org_profile_schema.py::test_valid_org_profile_fixture_passes
+      - tests/test_org_profile_schema.py::test_validator_returns_zero_on_success
       - tests/test_resolve_analyst_catalog.py::test_ci_requires_pinned_trusted_packages_from_outside_the_checkout
       - tests/test_resolve_analyst_catalog.py::test_conflicting_definitions_under_one_identity_are_rejected
       - tests/test_analyst_controller.py::test_organization_required_packages_apply_to_every_invoked_analysis
@@ -1073,6 +1092,7 @@ requirements:
 
   REQ-019:
     applies_to:
+      - appsec_analyzer/engine.py
       - appsec_analyzer/organization.py
       - schemas/organization-distribution.schema.yaml
       - examples/organization-distribution/**
@@ -1098,6 +1118,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_module_boundaries.py::test_assessment_identity_includes_application_implementation
+      - tests/test_module_boundaries.py::test_application_identity_rejects_links
       - tests/test_organization_distribution.py::test_incompatible_or_unknown_manifest_fields_fail_before_dispatch
       - tests/test_organization_distribution.py::test_missing_bundled_resources_stop_without_fallback
       - tests/test_organization_distribution.py::test_installed_wheel_uses_bundled_defaults_after_source_checkout_is_removed
@@ -1116,6 +1138,7 @@ requirements:
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - data/model-catalog.yaml
       - appsec_analyzer/cli.py
       - appsec_analyzer/api_hosts.py
@@ -1151,6 +1174,7 @@ requirements:
       - scripts/validators/redact_known_secrets.py
       - data/completeness-contract.yaml
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/contexts/context_routing.py
       - scripts/validators/validate_intermediate.py
       - scripts/renderers/compose_threat_model.py
@@ -1192,6 +1216,7 @@ requirements:
       - scripts/runtime/remote_repositories.py
       - scripts/run-headless.sh
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/appsec-analyst-cli
       - scripts/orchestrator/analyst_controller.py
       - scripts/validators/validate_analyst.py
@@ -1233,10 +1258,13 @@ requirements:
       - scripts/runtime/interactive_budget.py
       - schemas/multi-repo-state.schema.json
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - appsec_analyzer/api_hosts.py
       - data/model-catalog.yaml
       - appsec_analyzer/cli.py
       - appsec_analyzer/requirements_audit.py
+      - appsec_analyzer/catalogs.py
+      - appsec_analyzer/artifacts.py
       - scripts/run-headless.sh
       - scripts/runtime/budget_watchdog.py
       - scripts/runtime/resolve_config.py
@@ -1245,6 +1273,7 @@ requirements:
       - scripts/runtime/assessment_state.py
       - scripts/runtime/multi_repo_discovery.py
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -1301,7 +1330,12 @@ requirements:
 
   REQ-024:
     applies_to:
+      - appsec_analyzer/scanners/**
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/artifacts.py
+      - appsec_analyzer/engine.py
       - appsec_analyzer/threat_analysis.py
+      - appsec_analyzer/analyze_threats/**
       - scripts/contexts/analyst_documents.py
       - scripts/contexts/build_analyst_context.py
       - schemas/analyst-context.schema.json
@@ -1324,6 +1358,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_module_boundaries.py::test_waiting_job_cannot_read_another_repository_or_a_live_controller
+      - tests/test_module_boundaries.py::test_waiting_job_rejects_forged_repository_identity_and_releases_lock
       - tests/test_threat_analysis_cli.py::test_terminal_question_asks_scope_and_never_assumes_whole_repository
       - tests/test_threat_analysis_cli.py::test_preview_discovers_context_without_job_or_model
       - tests/test_threat_analysis_cli.py::test_dialogue_collects_real_answers_and_resumes_same_job
@@ -1347,6 +1383,7 @@ requirements:
     applies_to:
       - appsec_analyzer/review_sources.py
       - appsec_analyzer/threat_analysis.py
+      - appsec_analyzer/analyze_threats/**
       - scripts/contexts/analyst_documents.py
       - schemas/analyst-response.schema.json
       - scripts/renderers/render_analyst_report.py
@@ -1368,6 +1405,7 @@ requirements:
   REQ-026:
     applies_to:
       - appsec_analyzer/threat_analysis.py
+      - appsec_analyzer/analyze_threats/**
       - scripts/contexts/analyst_documents.py
       - scripts/appsec-analyst-cli
       - scripts/orchestrator/analyst_controller.py
@@ -1403,6 +1441,7 @@ requirements:
   REQ-027:
     applies_to:
       - appsec_analyzer/threat_analysis.py
+      - appsec_analyzer/analyze_threats/**
       - scripts/appsec-analyst-cli
       - scripts/runtime/analyst_host.py
       - scripts/validators/validate_analyst.py
@@ -1428,6 +1467,7 @@ requirements:
   REQ-028:
     applies_to:
       - appsec_analyzer/threat_analysis.py
+      - appsec_analyzer/analyze_threats/**
       - scripts/contexts/analyst_questions.py
       - schemas/analyst-feature.schema.json
       - docs/internal/contracts/requirement-acceptance.md
@@ -1444,6 +1484,9 @@ requirements:
 
   REQ-029:
     applies_to:
+      - appsec_analyzer/scanners/**
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/engine.py
       - skills/audit-security-requirements/**
       - scripts/contexts/build_requirements_contexts.py
       - scripts/requirements/resolve_requirements_source.py
@@ -1456,6 +1499,8 @@ requirements:
       - schemas/threat-model.output.schema.yaml
       - schemas/requirements-audit.schema.json
       - appsec_analyzer/requirements_audit.py
+      - appsec_analyzer/catalogs.py
+      - appsec_analyzer/artifacts.py
       - appsec_analyzer/cli.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
@@ -1486,6 +1531,8 @@ requirements:
       - scripts/shared/_requirements_gate.py
       - skills/audit-security-requirements/**
       - appsec_analyzer/requirements_audit.py
+      - appsec_analyzer/catalogs.py
+      - appsec_analyzer/artifacts.py
       - appsec_analyzer/cli.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
@@ -1502,14 +1549,20 @@ requirements:
 
   REQ-031:
     applies_to:
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/artifacts.py
+      - appsec_analyzer/engine.py
       - scripts/contexts/analyst_documents.py
       - appsec_analyzer/review_sources.py
       - appsec_analyzer/authnz_review.py
       - appsec_analyzer/scoring.py
+      - appsec_analyzer/score/**
+      - appsec_analyzer/scanners/**
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - scripts/runtime/remote_repositories.py
       - scripts/validators/preflight_untrusted.py
       - scripts/runtime/multi_repo_scope.py
@@ -1569,10 +1622,14 @@ requirements:
       - scripts/runtime/assessment_diagnostics.py
       - scripts/runtime/analyst_host.py
       - appsec_analyzer/scoring.py
+      - appsec_analyzer/score/**
+      - appsec_analyzer/scanners/**
       - appsec_analyzer/codex_cli.py
       - scripts/validators/secret_scan.py
       - scripts/validators/redact_known_secrets.py
       - appsec_analyzer/requirements_audit.py
+      - appsec_analyzer/catalogs.py
+      - appsec_analyzer/artifacts.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -1620,10 +1677,12 @@ requirements:
   REQ-034:
     applies_to:
       - appsec_analyzer/threat_analysis.py
+      - appsec_analyzer/analyze_threats/**
       - appsec_analyzer/codex_cli.py
       - scripts/runtime/assessment_host.py
       - data/stride-analysis-policy.md
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/runtime/analyst_host.py
       - data/required-permissions.yaml
       - scripts/appsec-analyst-cli
@@ -1665,13 +1724,20 @@ requirements:
 
   REQ-035:
     applies_to:
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/artifacts.py
+      - appsec_analyzer/engine.py
       - appsec_analyzer/review_sources.py
       - appsec_analyzer/authnz_review.py
       - scripts/runtime/assessment_diagnostics.py
       - appsec_analyzer/scoring.py
+      - appsec_analyzer/score/**
+      - appsec_analyzer/scanners/**
       - appsec_analyzer/codex_cli.py
       - appsec_analyzer/profiles.py
+      - appsec_analyzer/model_roles.py
       - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/assessment/**
       - scripts/runtime/ensure_output_gitignore.py
       - scripts/shared/assessment_location.py
       - scripts/runtime/agent_logger.py

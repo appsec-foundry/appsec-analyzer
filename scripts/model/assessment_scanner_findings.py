@@ -7,7 +7,6 @@ evidence verifier then decides it like a STRIDE finding.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import tempfile
@@ -17,7 +16,7 @@ import yaml
 from analyzers import authz_confirm, config_iac_scanner, mass_assignment_scanner, source_auth_scanner
 from analyzers.route_inventory import build_inventory
 from jsonschema import Draft202012Validator
-from runtime.assessment_diagnostics import DiagnosticCapture, ScannerFailure
+from runtime.assessment_diagnostics import ScannerFailure
 from shared._atomic_io import atomic_write_json
 from validators.validate_intermediate import validate_config_scan_findings
 
@@ -32,22 +31,7 @@ SIDECARS = (".source-auth-findings.json", ".authz-confirm-findings.json", ".mass
 LOCAL_ID_PREFIX = "deterministic-scan-"
 
 
-def _scanner_call(name, call):
-    captured = DiagnosticCapture()
-    try:
-        with contextlib.redirect_stderr(captured), contextlib.redirect_stdout(captured):
-            code = call()
-    except (OSError, ValueError, KeyError, UnicodeError) as error:
-        reason = "filesystem_error" if isinstance(error, OSError) else "invalid_input"
-        raise ScannerFailure(name, reason) from None
-    if code:
-        text = captured.text.lower()
-        reason = "execution_error"
-        if "failed to load checks" in text or "checks file" in text or "plugin root" in text:
-            reason = "scanner_configuration"
-        elif any(word in text for word in ("parse", "syntax", "invalid json", "invalid yaml")):
-            reason = "input_parse_error"
-        raise ScannerFailure(name, reason, code if type(code) is int else None)
+from appsec_analyzer.scanners.execution import call_in_process as _scanner_call
 
 
 def _run_scanners(root: Path, output: Path) -> None:
@@ -68,9 +52,9 @@ def config_scan(root: Path, depth: str) -> dict | None:
     check, so a repository without IaC files reports no catalog absences.
     """
     # Imported here: the controller imports this module lazily as well.
-    from orchestrator.orchestration_controller import _has_iac_surface
+    from analyzers.iac_surface import has_iac_surface
 
-    if not _has_iac_surface(root):
+    if not has_iac_surface(root):
         return None
     with tempfile.TemporaryDirectory(prefix="appsec-config-") as directory:
         path = Path(directory) / ".config-scan-findings.json"

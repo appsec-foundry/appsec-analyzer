@@ -19,7 +19,8 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from appsec_analyzer import INTERFACE_VERSION, resource_root
-from appsec_analyzer.requirements_audit import _bounded_catalog, _publish_exclusive
+from appsec_analyzer.artifacts import publish_exclusive as _publish_exclusive
+from appsec_analyzer.catalogs import read_catalog as _bounded_catalog
 
 REPORT_OUTPUTS = ("markdown", "json", "yaml", "pentest-tasks")
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\Z")
@@ -37,7 +38,7 @@ def _schema(name: str) -> dict:
 
 
 def _read_document(path: Path) -> dict:
-    from appsec_analyzer.cli import _bounded_file
+    from appsec_analyzer.artifacts import read_bounded as _bounded_file
 
     try:
         document = json.loads(_bounded_file(path, _LIMIT))
@@ -67,9 +68,9 @@ def _scan(scope, work: Path, progress) -> tuple[dict, dict, dict]:
                 str(work),
             ]
             try:
-                result = subprocess.run(
-                    argv, cwd=work, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120
-                )
+                from appsec_analyzer.scanners.execution import run_python
+
+                result = run_python(argv[1:], cwd=work, timeout_s=120, capture=False)
             except subprocess.TimeoutExpired:
                 raise ReviewError(f"AuthNZ scanner exceeded its time limit: {label}") from None
             if result.returncode:
@@ -77,8 +78,14 @@ def _scan(scope, work: Path, progress) -> tuple[dict, dict, dict]:
     documents = []
     for name, schema in zip(_SIDECARS, _SCHEMAS, strict=True):
         document = _read_document(work / name)
-        if not Draft202012Validator(_schema(schema)).is_valid(document) or "parse_error" in document:
-            raise ReviewError("AuthNZ scanner produced invalid analysis data")
+        from jsonschema import ValidationError
+
+        from appsec_analyzer.scanners.execution import validate_output
+
+        try:
+            validate_output(document, _schema(schema))
+        except (ValidationError, ValueError):
+            raise ReviewError("AuthNZ scanner produced invalid analysis data") from None
         # Temporary paths are not provenance. The public source manifest is.
         if "repo_root" in document:
             document["repo_root"] = "."
@@ -269,16 +276,17 @@ def review_repository(
     progress=None,
 ) -> tuple[int, dict]:
     """Run a bounded standalone review; persistent output is explicitly selected."""
-    from appsec_analyzer.cli import _engine_imports, _pentest_target
+    from appsec_analyzer.engine import initialize as _engine_imports
+    from appsec_analyzer.targets import pentest_target as _pentest_target
 
     _engine_imports()
     from model.authnz_report import finalize
-    from orchestrator.orchestration_controller import _assessment_preflight
     from renderers.render_pentest_tasks import _authnz_finding_to_merged, build_document
     from runtime.analyst_host import ClaudeCliTransport
     from runtime.assessment_host import run_exchange
     from runtime.multi_repo_discovery import BudgetedHost, DiscoveryBudget
     from runtime.multi_repo_scope import admit
+    from runtime.source_preflight import check_repositories as _assessment_preflight
     from validators.secret_scan import mask_text, scan_text
 
     if not _MODEL_ID.fullmatch(model):

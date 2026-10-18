@@ -15,6 +15,7 @@ from pathlib import Path as _Path
 
 if not __package__:
     _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 
 import argparse
@@ -1188,13 +1189,13 @@ def _main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate":
             catalog, bindings, _, _ = load_catalog_contracts()
-            import orchestrator.orchestration_controller as controller
+            from appsec_analyzer import model_roles
 
             validate_catalog_semantics(
                 catalog,
                 bindings,
-                semantic_roles=controller.SEMANTIC_ROLE_REGISTRY,
-                model_keys=controller.SEMANTIC_ROLE_MODEL_KEYS,
+                semantic_roles=model_roles.SEMANTIC_ROLE_REGISTRY,
+                model_keys=model_roles.SEMANTIC_ROLE_MODEL_KEYS,
             )
             print(
                 f"context-routing: schema- and semantic-valid catalog with {len(catalog['categories'])} categories, "
