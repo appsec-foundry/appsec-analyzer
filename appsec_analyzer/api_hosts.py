@@ -528,9 +528,11 @@ class ResponsesTransport:
                     or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", cost)
                 ):
                     raise ValueError("gateway cost unavailable")
-                measured = float(cost)
-                if not math.isfinite(measured) or measured < 0:
+                charged = float(cost)
+                if not math.isfinite(charged) or charged < 0:
                     raise ValueError("gateway cost invalid")
+                # A gateway without prices may report zero; configured rates remain the floor.
+                measured = max(measured, charged)
             if measured > self.ceiling:
                 raise ValueError("cost ceiling exceeded")
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError):

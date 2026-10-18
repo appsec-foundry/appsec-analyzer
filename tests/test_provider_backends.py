@@ -250,6 +250,13 @@ def test_lite_wire_checks_deployment_and_uses_gateway_charge(connections, wire):
     assert headers["x-litellm-num-retries"] == "0"
 
 
+@pytest.mark.parametrize("charge", ["0", "0.0001"])
+def test_lite_gateway_charge_below_configured_rates_counts_configured_cost(connections, wire, charge):
+    wire[1].headers = {**wire[1].headers, "x-litellm-response-cost": charge}
+    response = invoke("lite", wire)
+    assert response.usd == pytest.approx((100 * 3.0 + 20 * 15.0) / 1_000_000)
+
+
 @pytest.mark.parametrize(
     "header,value",
     [
