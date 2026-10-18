@@ -327,6 +327,30 @@ class TestEvidenceDedup:
         assert len(result) == 1
         assert result[0]["risk"] == "Critical"
 
+    def test_folded_member_keeps_its_requirement_links(self, mt):
+        ev = {"file": "routes/x.ts", "line": 9}
+        unlinked = _threat(component_id="a", risk="Critical", evidence=dict(ev), title="t-crit")
+        linked = _threat(
+            component_id="b",
+            stride="Elevation of Privilege",
+            risk="High",
+            evidence=dict(ev),
+            title="t-high",
+            violated_requirements=["SEC-INJ-1", "SEC-LOG-2"],
+        )
+        also = _threat(component_id="c", risk="Medium", evidence=dict(ev), violated_requirements=["SEC-INJ-1"])
+
+        [kept] = mt._dedupe_evidence([unlinked, linked, also])
+
+        assert kept["title"] == "t-crit"
+        assert kept["violated_requirements"] == ["SEC-INJ-1", "SEC-LOG-2"]
+
+    def test_unlinked_members_add_no_requirement_links(self, mt):
+        ev = {"file": "routes/x.ts", "line": 9}
+        [kept] = mt._dedupe_evidence([_threat(evidence=dict(ev)), _threat(risk="Low", evidence=dict(ev))])
+
+        assert "violated_requirements" not in kept
+
     def test_same_sink_merges_despite_three_boundary_references(self, mt):
         """Regression for Juice Shop F-010/F-011 and walkthroughs 3.3/3.4."""
 

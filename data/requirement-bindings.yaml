@@ -1605,6 +1605,8 @@ requirements:
       - scripts/requirements/resolve_requirements_source.py
       - scripts/requirements/requirements_report.py
       - scripts/renderers/compose_threat_model.py
+      - scripts/orchestrator/assessment_stage2.py
+      - scripts/model/merge_threats.py
       - scripts/model/build_threat_model_yaml.py
       - scripts/model/emit_requirement_trace_to_model.py
       - scripts/validators/validate_intermediate.py
@@ -1629,6 +1631,9 @@ requirements:
       - tests/test_requirements_mapping.py::test_legacy_requirement_id_is_honoured_and_unlinked_threats_excluded
       - tests/test_requirements_mapping.py::test_remediation_reference_ignored_without_requirements_yaml
       - tests/test_requirements_mapping.py::test_cited_finding_opens_a_row_when_no_threat_declares_the_requirement
+      - tests/test_assessment_stage2.py::test_a_requirement_a_finding_violates_cannot_pass
+      - tests/test_assessment_stage2.py::test_a_failed_compliance_job_still_fails_requirements_findings_violate
+      - tests/test_merge_threats.py::TestEvidenceDedup::test_folded_member_keeps_its_requirement_links
       - tests/test_build_threat_model_yaml.py::test_strict_export_rejects_an_incomplete_assessment
       - tests/test_requirements_trace.py::TestPostComposeRequirementsExport::test_complete_stage2_assessment_is_persisted_in_the_yaml
       - tests/test_requirements_trace.py::TestPostComposeRequirementsExport::test_missing_stage2_assessment_fails_without_rewriting_yaml

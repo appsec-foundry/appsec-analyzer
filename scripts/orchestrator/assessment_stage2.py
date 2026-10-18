@@ -75,6 +75,9 @@ REQUIREMENT_STATUSES = {
     "UNVERIFIABLE": "❓ UNVERIFIABLE",
     "N/A": "➖ N/A",
 }
+# A requirement a published finding names as violated cannot pass, be out of
+# scope, or stay unverifiable: §7b and the traceability table would hide it.
+VIOLATED_STATUSES = ("FAIL", "PARTIAL")
 MAX_EVIDENCE = 400
 MAX_SUMMARY = 900
 
@@ -99,7 +102,8 @@ _REQUIREMENTS_ADAPTATION = (
     "status icon, and links `finding_ids` after your evidence. You have no repository access; ground each status in "
     "the supplied findings and security controls, and use UNVERIFIABLE when they cannot establish it. `evidence` is "
     "one plain sentence without finding ids, links, HTML or pipes. List a finding in `finding_ids` only when its "
-    "`violated_requirements` names that requirement. `title` is the short requirement title for the table cell."
+    "`violated_requirements` names that requirement. A requirement that a finding's `violated_requirements` names "
+    "is FAIL or PARTIAL. `title` is the short requirement title for the table cell."
 )
 _SECARCH_ADAPTATION = (
     "Fill the narrative placeholders of the §6 scaffold. `scaffold` shows each placeholder as ⟦P-NNN⟧ and "
@@ -422,6 +426,12 @@ def render_requirements(catalog: dict, findings: dict, artifact) -> str:
         for ref in refs:
             if ref not in findings or rid not in findings[ref]["violated_requirements"]:
                 raise ExchangeError(f"Requirement {rid} cites {ref} without a matching violated_requirements entry")
+        violating = _violating_findings(findings, rid)
+        if violating and row["status"] not in VIOLATED_STATUSES:
+            raise ExchangeError(
+                f"Requirement {rid} is {row['status']} although {', '.join(violating)} names it in "
+                "violated_requirements; use FAIL or PARTIAL"
+            )
         evidence = row["evidence"].strip()
         if refs:
             evidence += " (" + ", ".join(f"[{ref}](#{ref.lower()})" for ref in refs) + ")"
@@ -492,27 +502,36 @@ def _requirements_compliance(jobs, workspace: Path, override) -> str:
         allowed_sources=frozenset(),
         validate=validate,
         # OR-39: after STRIDE a failed model job is replaced, not fatal.
-        on_failure=lambda reason: _unassessed_requirements(catalog),
+        on_failure=lambda reason: _unassessed_requirements(catalog, findings),
     )
     fragment = _check_requirements(workspace, catalog, findings, artifact)
     _publish(workspace, {"requirements-compliance.md": fragment}, (), {})
     return f"stage2: requirements compliance assessed {len(catalog)} requirement(s)"
 
 
-def _unassessed_requirements(catalog: dict) -> dict:
-    """The deterministic replacement: every requirement stays unverifiable, citing no finding."""
-    return {
-        "summary": "Requirements compliance was not assessed in this run; the requirements job failed.",
-        "rows": [
+def _violating_findings(findings: dict, rid: str) -> list[str]:
+    """Published findings whose `violated_requirements` name the requirement, in register order."""
+    return [ref for ref, finding in findings.items() if rid in finding["violated_requirements"]]
+
+
+def _unassessed_requirements(catalog: dict, findings: dict) -> dict:
+    """The deterministic replacement: a requirement a finding violates fails, every other stays unverifiable."""
+    rows = []
+    for key, row in catalog.items():
+        violating = _violating_findings(findings, key)[:5]
+        rows.append(
             {
                 "id": key,
                 "title": str(row.get("title") or key)[:120],
-                "status": "UNVERIFIABLE",
-                "evidence": "Not assessed: the requirements job failed in this run.",
-                "finding_ids": [],
+                "status": "FAIL" if violating else "UNVERIFIABLE",
+                "evidence": "Not assessed: the requirements job failed in this run."
+                + (" A finding names this requirement as violated." if violating else ""),
+                "finding_ids": violating,
             }
-            for key, row in catalog.items()
-        ],
+        )
+    return {
+        "summary": "Requirements compliance was not assessed in this run; the requirements job failed.",
+        "rows": rows,
     }
 
 

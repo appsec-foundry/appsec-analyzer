@@ -409,6 +409,48 @@ def test_invalid_compliance_is_rejected_and_not_written(catalog_workspace, row):
     assert not (catalog_workspace / ".fragments" / "requirements-compliance.md").exists()
 
 
+@pytest.mark.parametrize("status", ["PASS", "N/A", "UNVERIFIABLE"])
+def test_a_requirement_a_finding_violates_cannot_pass(catalog_workspace, status):
+    compliance = copy.deepcopy(COMPLIANCE)
+    compliance["rows"][0].update(status=status, finding_ids=[])
+
+    with pytest.raises(ExchangeError, match="SEC-001 .*F-001 names it"):
+        stage2.render(FakeJobs(_with_compliance(catalog_workspace, compliance)), catalog_workspace)
+    assert not (catalog_workspace / ".fragments" / "requirements-compliance.md").exists()
+
+
+def test_a_requirement_a_finding_violates_may_be_partial(catalog_workspace):
+    compliance = copy.deepcopy(COMPLIANCE)
+    compliance["rows"][0].update(status="PARTIAL", finding_ids=[])
+
+    stage2.render(FakeJobs(_with_compliance(catalog_workspace, compliance)), catalog_workspace)
+
+    fragment = (catalog_workspace / ".fragments" / "requirements-compliance.md").read_text(encoding="utf-8")
+    assert "| SEC-001: Parameterized queries | ⚠️ PARTIAL | MUST |" in fragment
+
+
+class FailingComplianceJobs(FakeJobs):
+    """The requirements job fails; the caller's deterministic replacement is used instead."""
+
+    def execute(self, *, selector, on_failure=None, **kwargs):
+        if selector == "stage2:requirements-compliance":
+            self.calls.append({"selector": selector})
+            return on_failure("model job failed")
+        return super().execute(selector=selector, on_failure=on_failure, **kwargs)
+
+
+def test_a_failed_compliance_job_still_fails_requirements_findings_violate(catalog_workspace, tmp_path):
+    receipts = stage2.render(FailingComplianceJobs(_replies(catalog_workspace)), catalog_workspace)
+
+    assert "requirements compliance assessed 2" in receipts[2]
+    staging = tmp_path / "staging"
+    shutil.copytree(catalog_workspace, staging)
+    compliance = build_requirements_compliance(staging, strict=True)
+    assert {r["id"]: r["status"] for r in compliance["requirements"]} == {"SEC-001": "FAIL", "SEC-002": "UNVERIFIABLE"}
+    assert compliance["requirements"][0]["finding_ids"] == ["F-001"]
+    assert compliance["requirements"][1]["finding_ids"] == []
+
+
 @pytest.mark.parametrize("catalog", [None, "source: skipped\ncategories: []\n"], ids=["absent", "skipped-stub"])
 def test_no_configured_catalog_authors_no_compliance(workspace, catalog):
     if catalog is not None:

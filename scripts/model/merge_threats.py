@@ -1369,6 +1369,7 @@ def _consolidate_config_checks(threats: list[dict]) -> list[dict]:
             survivor["boundary_refs"] = boundary_refs
         survivor["title"] = _declassify_config_title(survivor.get("title", ""))
         _union_lens_ids(survivor, members)
+        _union_violated_requirements(survivor, members)
         # Record the consolidated local_ids for traceability.
         refs = [m.get("config_scan_ref") for m in members if m.get("config_scan_ref")]
         if refs:
@@ -1632,6 +1633,7 @@ def _consolidate_by_group(threats: list[dict]) -> list[dict]:
         survivor["systemic"] = True
         survivor["consolidation_group"] = g["id"]
         _union_lens_ids(survivor, members)
+        _union_violated_requirements(survivor, members)
         if g.get("title"):
             survivor["title"] = g["title"]
             # Survivors of one group that differ only by their object would
@@ -2216,6 +2218,17 @@ def _union_lens_ids(survivor: dict, members: list[dict]) -> None:
             survivor[field] = ids
 
 
+def _union_violated_requirements(survivor: dict, members: list[dict]) -> None:
+    """Keep every member's requirement link: §7b may cite a finding only for a requirement it names."""
+    ids: list[str] = []
+    for member in [survivor, *members]:
+        for value in member.get("violated_requirements") or []:
+            if isinstance(value, str) and value and value not in ids:
+                ids.append(value)
+    if ids:
+        survivor["violated_requirements"] = ids
+
+
 def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: bool) -> None:
     """Preserve merged metadata and bounded boundary traceability on survivor."""
     instances: list[dict] = []
@@ -2286,6 +2299,7 @@ def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: boo
     if additional_categories:
         survivor["additional_categories"] = additional_categories
     _union_lens_ids(survivor, members)
+    _union_violated_requirements(survivor, members)
     # A folded scanner member carries the anchors the deterministic remediation
     # backfill keys off. Losing them to an LLM-authored survivor would downgrade
     # the fix card to generic prose for a finding a check catalog can answer.
