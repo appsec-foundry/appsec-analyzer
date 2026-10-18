@@ -7,16 +7,35 @@ import math
 import os
 import sys
 import tempfile
+import textwrap
 from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from appsec_analyzer.terminal import field
 
+_LABEL = 12
 
-def _say(ns, message, *, always=False):
+
+def _say(ns, label, message, *, status="muted", always=False):
+    """One ``  ✓ Label       value`` row under a single ``Preflight`` heading."""
     if always or not ns.quiet:
-        print("Preflight: " + message, file=sys.stderr, flush=True)
+        from renderers.term_style import Style
+
+        style = Style.for_stream(sys.stderr)
+        if not getattr(ns, "_preflight_heading", False):
+            ns._preflight_heading = True
+            print(style("Preflight", "bold"), file=sys.stderr, flush=True)
+        width = max(60, min(getattr(ns, "width", None) or 100, 160))
+        symbol = {"ok": "✓", "warn": "⚠", "critical": "✗", "muted": "·"}[status]
+        indent = 4 + _LABEL
+        body = textwrap.fill(message, width=width - indent, break_on_hyphens=False)
+        body = body.replace("\n", "\n" + " " * indent)
+        print(
+            f"  {style(symbol, status)} {style(f'{label:<{_LABEL}}', 'muted')}{body}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def run(ns, *, api_profile=None, runtime=None):
@@ -37,10 +56,7 @@ def run(ns, *, api_profile=None, runtime=None):
         raise ValueError("Preflight requires distinct repositories")
     checks = []
     for index, (value, remote) in enumerate(zip(repositories, selections), 1):
-        _say(
-            ns,
-            f"checking repository {index}/{len(repositories)} ({'remote read access' if remote else 'local Git checkout'})",
-        )
+        label = "Repository" if len(repositories) == 1 else f"Repo {index}/{len(repositories)}"
         try:
             if remote:
                 check_access(remote)
@@ -52,8 +68,10 @@ def run(ns, *, api_profile=None, runtime=None):
             from runtime.remote_repositories import RemoteError
 
             reason = str(exc) if isinstance(exc, (ScopeError, RemoteError)) else "repository could not be checked"
+            _say(ns, label, "access check failed", status="critical")
             raise ValueError(f"Preflight repository {index}: {reason}") from None
         checks.append({"repository": index, "status": "readable"})
+        _say(ns, label, "remote read access" if remote else "local Git checkout", status="ok")
     host = ns.run_profile["adapter"]
     result = {
         "interface_version": 1,
@@ -78,17 +96,21 @@ def run(ns, *, api_profile=None, runtime=None):
                 continue
             seen.add(identity)
             destination = urlsplit(profile.endpoint).hostname
-            _say(
-                ns,
-                f"checking {field(profile.kind)} model {field(profile.model)} at {field(destination)} (no generation)",
-            )
             try:
                 status = preflight(profile, metadata=not test_model)
             except ApiTransportError as exc:
+                _say(ns, "Model", f"{field(profile.model)}: provider check failed", status="critical")
                 raise ValueError(
                     f"Preflight model {field(profile.model)}: {exc.reason}; check provider credentials, "
                     "model access and network configuration"
                 ) from None
+            checked = "model metadata accessible" if status == "model_metadata" else "TLS and credential format checked"
+            _say(
+                ns,
+                "Model",
+                f"{field(profile.model)} ({field(profile.kind)}, {field(destination)}) · {checked}",
+                status="ok",
+            )
         result["provider_check"] = status
         if status == "model_metadata":
             result["limitations"].append(
@@ -100,6 +122,10 @@ def run(ns, *, api_profile=None, runtime=None):
             )
     else:
         result["provider_check"] = "local_configuration"
+        if host == "codex-cli":
+            _say(ns, "Codex CLI", f"{field(runtime['version'])} · ChatGPT login configured", status="ok")
+        else:
+            _say(ns, "Local CLI", "login or credential configuration checked", status="ok")
         result["limitations"].append(
             "Local CLI login or credential configuration checked; server authentication, model access and quota remain unverified."
         )
@@ -113,8 +139,13 @@ def run(ns, *, api_profile=None, runtime=None):
             "Only the primary STRIDE model was tested for generation; other roles and live assessment quality remain unverified."
         ]
     for limitation in result["limitations"]:
-        _say(ns, limitation)
-    _say(ns, "checks completed; assessment has not started")
+        if not test_model:
+            if result["provider_check"] == "local_configuration":
+                limitation = "not tested; no model call before the assessment"
+            else:
+                limitation += " No model call made."
+        # The default check is limited by design; the note informs, it does not warn.
+        _say(ns, "Provider", limitation)
     return result
 
 
@@ -135,13 +166,14 @@ def _test_model(ns, *, api_profile, runtime):
     selected_model = (ns.stride_model or ns.model or settings["model"]) if host == "claude-cli" else settings["model"]
     _say(
         ns,
-        f"generation test for {field(selected_model)} at {field(destination)}: fixed synthetic prompt only; no repository content",
+        "Model test",
+        f"{field(selected_model)} at {field(destination)}: fixed synthetic prompt only; no repository content",
         always=True,
     )
     if host == "codex-cli":
-        _say(ns, "one exchange consumes ChatGPT plan allowance", always=True)
+        _say(ns, "", "one exchange consumes ChatGPT plan allowance", always=True)
     else:
-        _say(ns, f"separate generation-test budget: USD {ns.hard_budget:g}", always=True)
+        _say(ns, "", f"separate generation-test budget: USD {ns.hard_budget:g}", always=True)
     with tempfile.TemporaryDirectory(prefix="appsec-model-check-") as work:
         reject_source_paths([work], ns.repo or [str(Path.cwd())])
         if api_profile is not None:
@@ -183,6 +215,11 @@ def _test_model(ns, *, api_profile, runtime):
                 "timeout",
                 "output_token_limit",
                 "invalid_response",
+                "invalid_response_stream",
+                "invalid_response_envelope",
+                "invalid_response_payload",
+                "unexpected_host_item",
+                "incomplete_response",
                 "invalid_request",
             }
             reason = exc.reason if exc.reason in allowed else "host_failure"
@@ -191,7 +228,7 @@ def _test_model(ns, *, api_profile, runtime):
             ) from None
         if type(reply.payload) is not dict or reply.payload != {"ok": True} or type(reply.payload["ok"]) is not bool:
             raise ValueError("Preflight generation test returned an invalid response")
-        _say(ns, "primary model generation test passed")
+        _say(ns, "Model test", "primary model generation passed", status="ok")
 
 
 def print_result(result, *, as_json=False):

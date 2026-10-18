@@ -181,12 +181,41 @@ def test_cli_preflight_never_clones_or_starts_assessment(repository, monkeypatch
     monkeypatch.setattr(remote_repositories, "clone", lambda *a: pytest.fail("no clone"))
     monkeypatch.setattr(orchestration_controller, "assess_main", lambda *a, **kw: pytest.fail("no assessment"))
     assert cli.main(["preflight", "--repo", str(repository), "--json", "--quiet"]) == 0
-    result = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = json.loads(captured.out)
     assert result["assessment_status"] == "not_run"
     assert result["provider_check"] == "local_configuration"
     assert result["generation_test"] == "not_run"
     assert "unverified" in result["limitations"][0]
     assert sorted(p.name for p in repository.iterdir()) == [".git"]
+
+
+def test_codex_preflight_displays_completed_checks_and_unverified_access(repository, monkeypatch, capsys):
+    from appsec_analyzer import codex_cli
+
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(codex_cli.CodexCliTransport, "invoke", lambda *a, **kw: pytest.fail("no model call"))
+    assert cli.main(["preflight", "--repo", str(repository), "--profile", "codex-cli", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["generation_test"] == "not_run"
+    assert captured.err.splitlines() == [
+        "Preflight",
+        "  ✓ Repository  local Git checkout",
+        "  ✓ Codex CLI   0.163.0 · ChatGPT login configured",
+        "  · Provider    not tested; no model call before the assessment",
+    ]
+    assert max(map(len, captured.err.splitlines())) <= 100
+    assert str(repository) not in captured.err
+
+
+def test_preflight_failure_has_no_completed_summary(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    assert cli.main(["preflight", "--repo", str(tmp_path / "missing"), "--json"]) == 2
+    captured = capsys.readouterr()
+    assert "✗ Repository  access check failed" in captured.err
+    assert "completed" not in captured.err and "✓" not in captured.err
+    assert captured.out == ""
 
 
 def test_url_preflight_checks_read_access_without_output_or_clone(monkeypatch, capsys):
