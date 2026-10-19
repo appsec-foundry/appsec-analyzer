@@ -24,17 +24,29 @@ The implementation lives on the local branch `feat/aspect-test-cases`, derived f
 - Without the setting, output is unchanged.
 - The model-backed building blocks exist and are tested offline, but nothing calls them yet.
 
-## Still to build, in dependency order
+## First visible run
 
-1. **Controller pilot phase.** New module `scripts/orchestrator/assessment_test_cases.py` with `run_pilot(...)`, called inside `_assessment_stride` after the STRIDE work is accepted and before `merge_assessment`. For each component and pilot aspect it builds candidates with `case_candidates`, dispatches one `test_case_investigator` job, validates with `case_analysis.validate_investigation`, runs the post-checks, and turns the reply into rows with `case_outcomes.investigation_results`. A failed or unaffordable job becomes `replacement_result`. Then one `open_reviewer` job per component. Use `AssessmentBudget.hold` for the 20% open review reserve and `release` when the group finishes. Producers are missing for the context artifacts `.dispatch-context/{component_id}/test-case-candidates.json` and `test-case-results.json`.
-2. **Merge.** Add a `pilot_documents` argument to `merge_assessment` so pilot findings enter the merge with `test_case_ids`, and union `test_case_ids` instead of overwriting them in `annotate_threats`. Map the reply-local `finding_ids` in the component rows to final finding IDs after the merge.
-3. **Results block.** Read per-component rows from a sidecar such as `.test-case-pilot.json` in `case_outcomes.build_block`. The block already accepts the additive fields.
-4. **Removal rule.** A deterministic scanner finding is removed only when a post-check confirms the control and the evidence verifier has not marked the finding verified. Otherwise it stays and records `test_case_disagreement`.
-5. **Comparison file.** `security-assessment.test-case-comparison.json` with a schema: per finding in a pilot aspect whether STRIDE, a test case, or the open review found it, plus contradicted claims, removed scanner findings, and cost. This is the input for the pilot exit criteria.
-6. **Progress and report.** Console phase "Security checks" with per-component progress lines, stage-stats entries for the new roles, and rendering of per-component rows in the appendix. The composer currently keys rows by test case ID only.
-7. **Documentation.** `docs/internal/contracts/context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds. Guides for the pilot setting once it runs.
-8. **Batching.** Candidates beyond the cap of 40 per call count as `unexamined` and block `control`. Large repositories need several calls per aspect or the result stays `undecidable`.
-9. **Fixtures.** Every catalog test case names `tests/fixtures/test-cases/TC-.../` for code with and without the weakness. None exist yet, and no test checks that the directories exist. The recorded-response evaluation from the proposal also depends on them.
+The next step is a run whose result can be inspected, not the complete pilot. It needs three pieces on the same branch:
+
+1. **Controller phase for one aspect, for example AuthZ.** New module `scripts/orchestrator/assessment_test_cases.py` with `run_pilot(...)`, called inside `_assessment_stride` after the STRIDE work is accepted and before `merge_assessment`. For each component it builds candidates with `case_candidates`, dispatches one `test_case_investigator` job, validates with `case_analysis.validate_investigation`, runs the post-checks, and turns the reply into rows with `case_outcomes.investigation_results`. A failed or unaffordable job becomes `replacement_result`. Producers are missing for the context artifacts `.dispatch-context/{component_id}/test-case-candidates.json` and `test-case-results.json`.
+2. **Component rows in `test_case_results`.** `case_outcomes.build_block` reads the rows from a sidecar such as `.test-case-pilot.json`. The schema and the report appendix already accept the additive fields, but the appendix keys rows by test case ID only and needs a per-component view.
+3. **Pilot findings visible.** List them separately in the YAML and the report, without merging them with the STRIDE findings.
+
+Build and test these offline with a fake host. The run on Juice Shop causes real model cost and needs explicit authorization of its spending first. Compare the pilot and STRIDE results by hand for the first look.
+
+## After the first run: decide with real results
+
+| Item | Becomes necessary when |
+| --- | --- |
+| Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | The first run shows what the investigator alone misses. |
+| Batching for candidates beyond the cap of 40 per call | The run shows that the cap blocks `control` on large repositories. |
+| Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
+| Removal rule: a confirmed post-check removes a scanner finding unless the evidence verifier marked it verified, otherwise the finding records `test_case_disagreement` | The merge exists. |
+| Comparison file `security-assessment.test-case-comparison.json` with a schema | The comparison format is settled and the exit criteria are measured. |
+| Fixtures `tests/fixtures/test-cases/TC-.../` and the recorded-response evaluation | The catalog grows beyond the pilot aspects or moves into the default run. One or two AuthZ fixtures are enough for the first run. |
+| Console phase "Security checks", stage-stats entries, per-component report rows | The pilot becomes product behavior. |
+| `context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds; guides for the pilot setting | The phase exists. |
+| Replacing the STRIDE step, the REQ-004 change, score integration, `TC-APP` test cases, control posture feeding | A positive pilot decision. |
 
 ## Decisions taken during the implementation
 
