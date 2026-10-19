@@ -337,7 +337,7 @@ def test_request_capacity_includes_instructions_schema_and_utf8(transport, monke
 
 
 @pytest.mark.parametrize("budget,expected", [(None, 0), (20, 2)])
-@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("command", ["scan"])
 @pytest.mark.parametrize("parallel", [None, 1])
 def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected, command, parallel):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)

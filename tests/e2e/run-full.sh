@@ -37,7 +37,7 @@ if [ "$REPO" = "$ROOT/tests/fixtures/e2e/synthetic-repo" ]; then
 fi
 
 echo "Manual assessment output: $OUTPUT"
-appsec-analyzer assess --host claude-cli --repo "$REPO" --output "$OUTPUT" \
+appsec-analyzer scan --host claude-cli --repo "$REPO" --output "$OUTPUT" \
     --hard-budget "$BUDGET" --assessment-depth "$DEPTH" \
     --requirements "$ROOT/examples/appsec-requirements-example.yaml" \
     --sarif --pentest-tasks

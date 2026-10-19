@@ -387,7 +387,7 @@ def test_composition_config_preserves_defaults_and_mandatory_policy(tmp_path, ca
     assert result["defaults"]["assessment_depth"] == expected
     assert result["policy"] == document["profile"]["policy"]
     assert result["score_uses_assessment_depth"] is False
-    assert result["supported_commands"] == ["score", "scan", "assess"]
+    assert result["supported_commands"] == ["score", "scan"]
 
 
 @pytest.mark.parametrize(
@@ -503,9 +503,8 @@ def test_composition_missing_source_retains_operational_exit_with_ancestor_git_m
     "command,flags,depth",
     [
         ("scan", [], "standard"),
-        ("assess", ["--profile=claude"], "standard"),
         ("scan", ["--assessment-depth=quick"], "quick"),
-        ("assess", ["--profile=claude", "--assessment-depth=thorough"], "thorough"),
+        ("scan", ["--profile=claude", "--assessment-depth=thorough"], "thorough"),
     ],
 )
 def test_composed_assessment_reaches_existing_resolver_without_model_access(
@@ -606,7 +605,7 @@ def test_composed_assessment_inspection_resolves_preset_and_clamps_models(
     [
         ["scan", "--repo", "https://outside.example.net/project.git"],
         [
-            "assess",
+            "scan",
             "--profile=codex",
             "--repo",
             "/neutral/source",
@@ -747,7 +746,7 @@ def test_composed_assessment_provider_policy_precedes_credentials(tmp_path, monk
             "--config",
             str(path),
             "--",
-            "assess",
+            "scan",
             "--profile=lite",
             "--repo",
             "/neutral/source",

@@ -1,6 +1,6 @@
 # LiteLLM and Amazon Bedrock
 
-`scan` and `assess` now check provider setup before cloning. Use `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json` for a separate check with no generation. LiteLLM checks its authenticated model list; Bedrock checks credential format and TLS only, leaving server authentication and model access unverified. `preflight --test-model --budget USD` explicitly authorizes one separate primary-model generation test with a synthetic prompt. See [preflight checks and limitations](security-assessment.md#preflight-checks).
+`scan` now check provider setup before cloning. Use `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json` for a separate check with no generation. LiteLLM checks its authenticated model list; Bedrock checks credential format and TLS only, leaving server authentication and model access unverified. `preflight --test-model --budget USD` explicitly authorizes one separate primary-model generation test with a synthetic prompt. See [preflight checks and limitations](security-assessment.md#preflight-checks).
 
 Full assessments can use a LiteLLM gateway or the Amazon Bedrock Converse API. Both adapters have offline transport and controller tests; neither has passed live assessment qualification. The requirements audit and focused analyst keep their existing provider options.
 
@@ -21,7 +21,7 @@ Use the `lite` prefix followed by the configured model name:
 ```sh
 appsec-analyzer profiles validate "lite claude"
 appsec-analyzer scan --repo /path/to/project --model "lite claude" --budget 20
-appsec-analyzer assess --repo /path/to/project --profile "lite claude" --budget 20 --non-interactive
+appsec-analyzer scan --repo /path/to/project --profile "lite claude" --budget 20 --non-interactive
 ```
 
 `--profile lite --model "lite claude"` is equivalent for a new run. The prefix selects LiteLLM; `claude` selects the `lite.models.claude` entry in the connection file, whose `model` value is sent to the gateway. It does not invoke Claude CLI. An explicit model option applies to all roles; use a model profile for different gateway models per role. A prefix conflicting with an explicitly selected provider is rejected.
@@ -41,7 +41,7 @@ Provide an externally generated Bedrock API key through `AWS_BEARER_TOKEN_BEDROC
 ```sh
 appsec-analyzer profiles validate "bedrock claude"
 appsec-analyzer scan --repo /path/to/project --profile bedrock --budget 20
-appsec-analyzer assess --repo /path/to/project --model "bedrock claude" --budget 20 --non-interactive
+appsec-analyzer scan --repo /path/to/project --model "bedrock claude" --budget 20 --non-interactive
 ```
 
 `bedrock claude` selects the `bedrock.models.claude` connection entry. Converse receives the existing role instructions, bounded excerpts and output contract, with no tools. The request sets `maxTokens` to the configured model maximum or an explicit lower role limit. Responses with tool use, truncation, missing token usage or unexpected cache accounting are rejected. Cost uses the configured regional input/output rates. Reasoning-effort mapping, prompt caching, SigV4 and nonstandard AWS partitions are not supported by this adapter.

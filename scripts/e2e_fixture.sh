@@ -3,7 +3,7 @@
 # e2e_fixture.sh - Run a single-repo fixture E2E and verify the generated
 #                  report against the matching out-of-repo oracle.
 #
-# This is a manual, opt-in wrapper around appsec-analyzer assess. It scans
+# This is a manual, opt-in wrapper around appsec-analyzer scan. It scans
 # exactly one fixture repo and runs the oracle only after report generation, so
 # expected signals never enter the analyzed repository context.
 #
@@ -63,7 +63,7 @@ Options:
                          default: <fixture-root>/outputs/<fixture>-e2e
   --depth <level>        quick | standard | thorough
                          default: standard
-  --max-duration <sec>   Pass through to appsec-analyzer assess
+  --max-duration <sec>   Pass through to appsec-analyzer scan
                          default: 3600
   --clean-output         Remove the output directory before running
   --oracle-json          Ask the oracle verifier to emit JSON
@@ -217,7 +217,7 @@ EOF
 START_TS=$(date +%s)
 PIPELINE_STATUS=0
 
-appsec-analyzer assess --host claude-cli --hard-budget "$HARD_BUDGET" \
+appsec-analyzer scan --host claude-cli --hard-budget "$HARD_BUDGET" \
     --repo "$REPO" \
     --output "$OUTPUT" \
     --sarif \

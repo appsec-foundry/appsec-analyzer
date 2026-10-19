@@ -4,7 +4,7 @@
 exchange with the suite's contract-valid replies in the CLI's own result
 format and fails planned calls the way the API does. Unlike the in-process
 `FullHost` tests, these runs cross the process boundaries a real run crosses:
-`appsec-analyzer assess` dispatch, `ClaudeCliTransport` argv, environment and
+`appsec-analyzer scan` dispatch, `ClaudeCliTransport` argv, environment and
 stream parsing, and the controller's exit status and messages.
 
 Run them alone with `make e2e-controller`; each run takes under a minute.
@@ -62,7 +62,7 @@ def _headless(argv, env, *extra):
     # The stub runs under the interpreter that runs the tests.
     path = f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}"
     return subprocess.run(
-        [sys.executable, "-m", "appsec_analyzer.cli", "assess", "--host", "claude-cli", *argv, *extra],
+        [sys.executable, "-m", "appsec_analyzer.cli", "scan", "--host", "claude-cli", *argv, *extra],
         env={**os.environ, **env, "PATH": path},
         capture_output=True,
         text=True,

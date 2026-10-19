@@ -195,13 +195,6 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     profile_choice = cases.add_mutually_exclusive_group()
     profile_choice.add_argument("--org-profile", metavar="PATH", help="Use this organization profile")
     profile_choice.add_argument("--no-org-profile", action="store_true", help="Ignore the active organization profile")
-    assess = commands.add_parser(
-        "assess",
-        help="Run a full semantic assessment"
-        if organization
-        else "Run a full semantic assessment with an explicit scan profile",
-    )
-    _add_assessment_arguments(assess, default_repo=False, organization=organization)
 
     for name, help_text in (
         ("status", "Inspect a versioned assessment state"),
@@ -807,9 +800,7 @@ def _assessment_host(ns: argparse.Namespace) -> str:
             raise ValueError("legacy --profile must match --assessment-depth; use --profile codex")
     if ns.host is not None:
         return ns.host
-    if ns.command == "scan":
-        return _PROFILE_HOSTS["claude"]
-    raise ValueError("assess requires --profile (claude, codex, or codex-cli) or a legacy --host")
+    return _PROFILE_HOSTS["claude"]
 
 
 def _prepare_profile(ns: argparse.Namespace) -> None:
@@ -834,8 +825,6 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         if not selection:
             raise ValueError(f"{host} has no configured model/depth profile")
     if not selection:
-        if ns.command == "assess":
-            _assessment_host(ns)
         selection = "claude"
     explicit = getattr(ns, "explicit", ())
     profile = resolve_scan(
@@ -1296,7 +1285,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     document["valid"] = True
                 print(json.dumps(document, indent=2, sort_keys=True))
                 return 0
-            if ns.command in ("scan", "assess", "preflight"):
+            if ns.command in ("scan", "preflight"):
                 organization.apply(ns)
         if ns.command == "profiles":
             from appsec_analyzer.profiles import DEPTHS, list_profiles, resolve_scan
@@ -1332,7 +1321,9 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     }
             print(json.dumps(document, indent=2, sort_keys=True))
             return 0
-        if ns.command in ("scan", "assess", "preflight"):
+        if ns.command == "scan" and ns.non_interactive and not (ns.repo and (ns.profile or ns.host)):
+            raise ValueError("scan --non-interactive requires --repo and an explicit --profile (or legacy --host)")
+        if ns.command in ("scan", "preflight"):
             _prepare_profile(ns)
         if ns.command == "audit-requirements":
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
@@ -1364,7 +1355,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             from analyzers.repo_profile import main as repo_profile
 
             return repo_profile(["--repo", ns.repo, *(["--json"] if ns.json else [])])
-        if ns.command in ("scan", "assess", "preflight"):
+        if ns.command in ("scan", "preflight"):
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)

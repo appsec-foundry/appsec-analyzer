@@ -14,7 +14,7 @@ Do not report vulnerabilities through public issues. Use the repository's privat
 | --- | --- | --- |
 | `scan-sources` | Deterministic inspection; no model host or model credentials needed. An explicitly selected Git URL requires network retrieval. | Summary or JSON, optionally `scan-result.json`. Findings are unverified observations. |
 | `score REPO` | Four deterministic scanners inspect an admitted redacted source snapshot; no model calls. Explicit Git URLs require network retrieval through the same checkout boundary. | Text, JSON, or YAML on stdout; no files in the target checkout. A limited indication with visible coverage and unverified observations. |
-| `scan` / `assess` | Admitted source excerpts, architecture/context packets, and model responses pass through the selected Claude CLI or OpenAI host. | Validated `security-assessment.md`, YAML, figures, and requested exports. |
+| `scan` | Admitted source excerpts, architecture/context packets, and model responses pass through the selected Claude CLI or OpenAI host. | Validated `security-assessment.md`, YAML, figures, and requested exports. |
 | `audit-requirements` | Selected catalog text, filenames, and bounded source excerpts pass through Claude CLI. | Separate requirements verdict and optional Markdown report. |
 | `analyst` analysis / answer | Scoped source or supplied design, context, and answers pass through Claude CLI. Optional exploration uses a redacted source copy. | Private analyst job state and requested result files. |
 | `status`, `progress`, `stop`, `results` | Local state operations; no model analysis. | Versioned lifecycle response or cancellation request. |

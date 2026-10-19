@@ -124,7 +124,7 @@ def test_subcommand_extraction_preserves_continued_invocations(tmp_path, monkeyp
 
 
 def test_public_cli_examples_are_extracted_from_installed_entry():
-    assert {row[2] for row in INVOCATIONS if row[1] == "appsec-analyzer"} >= {"scan-sources", "score", "assess"}
+    assert {row[2] for row in INVOCATIONS if row[1] == "appsec-analyzer"} >= {"scan-sources", "score", "scan"}
 
 
 def test_the_runtime_docs_actually_invoke_scripts():

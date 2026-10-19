@@ -77,11 +77,11 @@ appsec-analyzer scan --repo https://github.com/your-org/your-project.git
 appsec-analyzer scan --repo /path/to/backend --repo /path/to/frontend
 ```
 
-`assess` runs the same assessment without defaults: it requires `--repo` and an explicit `--profile`. Use it in scripts and CI. See [Hosts and models](docs/model-selection.md).
+With `--non-interactive`, `scan` requires `--repo` and an explicit `--profile`, so a script or CI job never starts on a default provider. See [Hosts and models](docs/model-selection.md).
 
 ```sh
 # Run in CI with a fixed provider profile and without questions
-appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
+appsec-analyzer scan --repo /path/to/project --profile claude --non-interactive
 ```
 
 ### `review`: discuss an assessment with your coding agent
@@ -254,7 +254,7 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples 
 
 ### Model provider
 
-`score` and `scan-sources` need no provider. `scan` and `assess` select their provider with `--profile`; without it, `scan` uses `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
+`score` and `scan-sources` need no provider. `scan` select their provider with `--profile`; without it, `scan` uses `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
 
 | `--profile` | Provider | Requirement |
 | --- | --- | --- |

@@ -127,7 +127,7 @@ test-controller:  ## One offline controller run over a small web-application fix
 	@$(PYTHON) -m pytest tests/test_controller_fixture.py -q --tb=short
 
 .PHONY: e2e-controller
-e2e-controller:  ## Offline end-to-end runs through appsec-analyzer assess and a fake Claude CLI (no LLM)
+e2e-controller:  ## Offline end-to-end runs through appsec-analyzer scan and a fake Claude CLI (no LLM)
 	@$(PYTHON) -m pytest tests/test_controller_e2e.py -q --tb=short $$($(PYTHON) -c 'import xdist' 2>/dev/null && echo '-n auto')
 
 .PHONY: e2e-controller-live
@@ -276,7 +276,7 @@ inspect-bundle:  ## Print a triage summary of a diagnostic bundle: make inspect-
 analyze:  ## Assessment against any repo: make analyze REPO=<path> [HARD_BUDGET=20] [BG=1] [EXTRA="--assessment-depth thorough"]
 	@test -n "$(REPO)" || { echo "ERROR: set REPO=<path to repo to analyze>, e.g. make analyze REPO=/home/mrohr/juice-shop"; exit 2; }
 	@log="$(or $(LOG),$(HOME)/appsec-$(notdir $(patsubst %/,%,$(REPO))).log)"; \
-	cmd='appsec-analyzer assess --host claude-cli --hard-budget $(or $(HARD_BUDGET),20) --repo "$(REPO)" --max-duration $(or $(MAX_DURATION),9000) $(EXTRA)'; \
+	cmd='appsec-analyzer scan --host claude-cli --hard-budget $(or $(HARD_BUDGET),20) --repo "$(REPO)" --max-duration $(or $(MAX_DURATION),9000) $(EXTRA)'; \
 	if [ -n "$(BG)" ]; then \
 		nohup sh -c "$$cmd" >"$$log" 2>&1 & \
 		echo "▶ analyzing $(REPO) in background (PID $$!)"; \

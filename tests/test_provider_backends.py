@@ -142,7 +142,7 @@ def test_cli_prefix_reaches_controller(connections, wire, tmp_path, monkeypatch,
     monkeypatch.setattr(controller, "assess_main", lambda args, **kw: seen.append(kw) or 0)
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    assert cli.main(["assess", "--repo", str(repo), *arguments]) == 0
+    assert cli.main(["scan", "--repo", str(repo), *arguments]) == 0
     expected = "bedrock" if any("bedrock" in arg for arg in arguments) else "lite"
     assert seen[0]["run_profile"]["adapter"] == expected
     assert seen[0]["api_profile"].kind == expected

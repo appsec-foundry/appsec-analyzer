@@ -22,7 +22,7 @@ echo "$ROOT"
 ## Run the assessment
 
 ```bash
-appsec-analyzer assess --host claude-cli --budget 20 \
+appsec-analyzer scan --host claude-cli --budget 20 \
   --repo "$ROOT/storefront" \
   --repo "$ROOT/orders-api" \
   --repo "$ROOT/fulfillment-worker" \

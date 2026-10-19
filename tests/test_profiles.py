@@ -85,7 +85,7 @@ def test_max_parallel_defaults_profile_cli_and_provenance(home):
     assert configured["definition_sha256"] != override["definition_sha256"]
 
 
-@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("command", ["scan"])
 @pytest.mark.parametrize("override, expected", [(None, 4), (1, 1), (16, 16)])
 def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     home, tmp_path, monkeypatch, command, override, expected
@@ -116,7 +116,7 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     assert seen["profile"]["settings"]["max_parallel"] == expected
 
 
-@pytest.mark.parametrize("command", ["scan", "assess", "profiles show", "profiles validate"])
+@pytest.mark.parametrize("command", ["scan", "profiles show", "profiles validate"])
 @pytest.mark.parametrize("value", ["0", "-1", "17", "2.5", "true", "many"])
 def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypatch, command, value):
     from appsec_analyzer import hosts
@@ -220,7 +220,7 @@ def test_abuse_case_profile_selection_and_cli_replacement(home):
     assert profiles.resolve_scan("release", abuse_case_files=[])["settings"]["abuse_case_files"] == []
 
 
-@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("command", ["scan"])
 @pytest.mark.parametrize("override", [False, True])
 def test_abuse_case_files_reach_controller_from_profile_or_cli(home, tmp_path, monkeypatch, command, override):
     from appsec_analyzer import hosts

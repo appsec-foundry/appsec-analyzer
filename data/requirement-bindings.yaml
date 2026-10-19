@@ -1188,7 +1188,7 @@ requirements:
       - tests/test_public_assessment_operations.py::test_claude_profile_preserves_controller_model_resolution
       - tests/test_public_assessment_operations.py::test_codex_profile_selects_the_model_configured_for_each_depth
       - tests/test_public_assessment_operations.py::test_codex_profile_invalid_combinations_fail_before_host
-      - tests/test_public_assessment_operations.py::test_assess_requires_explicit_profile_or_legacy_host
+      - tests/test_public_assessment_operations.py::test_non_interactive_scan_requires_repo_and_explicit_provider
 
   REQ-019:
     applies_to:

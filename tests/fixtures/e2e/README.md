@@ -27,7 +27,7 @@ are not part of this frozen fixture; tests for them live in
 planted SQL/command injection, SSRF, missing object authorization, hardcoded
 secrets, an LLM prompt boundary, multi-tenancy/B2B actor signals, and weak CI
 configuration. `run-full.sh` assesses a fresh standalone Git copy through
-`appsec-analyzer assess`, with an explicit budget and output under `/tmp`.
+`appsec-analyzer scan`, with an explicit budget and output under `/tmp`.
 
 `oracle/expected-signals.json` lives outside the scanned repo. The offline
 controller and fixture tests use the relevant expected signals.

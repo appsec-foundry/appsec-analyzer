@@ -12,7 +12,7 @@ Install the package, then invoke the same public program locally or in CI:
 appsec-analyzer scan --repo /checkout --budget 20 --output /private/assessment
 appsec-analyzer scan-sources --repo /checkout --output /private/source-scan
 appsec-analyzer score /checkout --json
-appsec-analyzer assess --repo /checkout --profile claude \
+appsec-analyzer scan --repo /checkout --profile claude \
   --budget 20 --output /private/assessment --non-interactive
 appsec-analyzer scan --repo /checkout --profile codex \
   --assessment-depth standard --budget 20 --output /private/openai-assessment
@@ -26,14 +26,14 @@ The `claude` and `codex` scan profiles use a USD 20 spending limit; user scan pr
 
 The `lite` and `bedrock` profiles also default to USD 20. Configure their separate operator connection and external credential first, then use `--model "lite claude"` or `--profile bedrock` with `--non-interactive`. See [provider setup](providers.md). These profiles run full assessments with offline protocol coverage; live quality remains unqualified.
 
-A [scan profile](profiles.md) selects the model profile, depth, USD budget, exports, and report attributes. A model profile supplies the connection and model settings, including optional per-role overrides. The default for `scan` is `--profile claude --assessment-depth standard`; `assess` requires an explicit profile or legacy host. Configure a Claude login or external Anthropic credentials for `claude`, or `OPENAI_API_KEY` for the experimental `codex` profile. Existing `--host` commands remain supported; see [profile compatibility](model-selection.md).
+A [scan profile](profiles.md) selects the model profile, depth, USD budget, exports, and report attributes. A model profile supplies the connection and model settings, including optional per-role overrides. The default for `scan` is `--profile claude --assessment-depth standard`; with `--non-interactive`, an explicit profile or legacy host is required. Configure a Claude login or external Anthropic credentials for `claude`, or `OPENAI_API_KEY` for the experimental `codex` profile. Existing `--host` commands remain supported; see [profile compatibility](model-selection.md).
 
-For ChatGPT plan usage on a trusted local machine, install the supported Codex CLI 0.163.0, sign in with `codex login`, and use `appsec-analyzer assess --repo /checkout --profile codex-cli --max-calls 1000 --max-duration 14400 --output /private/subscription-assessment --non-interactive`. This uses existing CLI authentication and sends selected context to OpenAI. It rejects USD budget flags, defaults to at most two concurrent components, and stops on allowance exhaustion. It does not provision a CI login or share your credentials with a runner. See [Codex CLI prerequisites, recovery, and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
+For ChatGPT plan usage on a trusted local machine, install the supported Codex CLI 0.163.0, sign in with `codex login`, and use `appsec-analyzer scan --repo /checkout --profile codex-cli --max-calls 1000 --max-duration 14400 --output /private/subscription-assessment --non-interactive`. This uses existing CLI authentication and sends selected context to OpenAI. It rejects USD budget flags, defaults to at most two concurrent components, and stops on allowance exhaustion. It does not provision a CI login or share your credentials with a runner. See [Codex CLI prerequisites, recovery, and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
 Create `/private/source-scan` before running `scan-sources`. That command prints
 readable scanner findings to stdout; `--json` prints its versioned JSON instead.
 With `--output`, the complete JSON is saved as `scan-result.json`. The full `scan`
-command uses the same assessment controller as `assess`, shows live progress, and
+command uses the same assessment controller as `scan --non-interactive`, shows live progress, and
 creates its private default destination if `--output` is omitted. A `stop` request preserves
 accepted assessment work for a compatible `--resume`. `--rebuild` starts over.
 

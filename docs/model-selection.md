@@ -8,7 +8,7 @@ appsec-analyzer scan --profile codex --assessment-depth thorough
 appsec-analyzer scan --profile claude --assessment-depth quick
 ```
 
-`scan` defaults to `claude` and `standard`. `assess` requires an explicit profile or legacy host selection. `claude` and `codex` use a USD 20 budget; `codex-cli` uses ChatGPT plan allowance with local call and time limits. For `claude` and `codex`, override the amount with `--budget USD` or define a budget in your own scan profile. See [scan and model profiles](profiles.md) for file locations, per-role settings, output formats, report attributes, and examples.
+`scan` defaults to `claude` and `standard`. With `--non-interactive`, `scan` requires an explicit profile or legacy host selection. `claude` and `codex` use a USD 20 budget; `codex-cli` uses ChatGPT plan allowance with local call and time limits. For `claude` and `codex`, override the amount with `--budget USD` or define a budget in your own scan profile. See [scan and model profiles](profiles.md) for file locations, per-role settings, output formats, report attributes, and examples.
 
 ## Codex profile
 

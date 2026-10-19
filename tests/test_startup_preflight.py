@@ -291,7 +291,7 @@ def test_cancelled_preflight_returns_130(repository, monkeypatch):
     assert cli.main(["preflight", "--repo", str(repository)]) == 130
 
 
-@pytest.mark.parametrize("command", ["scan", "assess", "preflight"])
+@pytest.mark.parametrize("command", ["scan", "preflight"])
 def test_invalid_local_source_stops_before_controller(tmp_path, monkeypatch, command):
     cli._engine_imports()
     from orchestrator import orchestration_controller

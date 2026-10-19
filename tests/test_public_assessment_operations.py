@@ -165,7 +165,7 @@ def test_assess_rejects_missing_operator_profile_before_host_call(tmp_path: Path
             sys.executable,
             "-m",
             "appsec_analyzer.cli",
-            "assess",
+            "scan",
             "--repo",
             str(repo),
             "--host",
@@ -208,7 +208,7 @@ def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, mon
     )
     ns = cli._parser().parse_args(
         [
-            "assess",
+            "scan",
             "--repo",
             str(repo),
             "--host",
@@ -316,7 +316,7 @@ def test_scan_kept_runtime_files_require_private_output(tmp_path: Path, monkeypa
     assert "requires an existing private --output directory" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("command", ["scan"])
 @pytest.mark.parametrize(
     "depth, effort, output_cap",
     [
@@ -370,7 +370,7 @@ def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(
     assert observed["arguments"][observed["arguments"].index("--assessment-depth") + 1] == depth
 
 
-@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("command", ["scan"])
 @pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
 def test_claude_profile_preserves_controller_model_resolution(tmp_path, monkeypatch, command, depth, git_root):
     from appsec_analyzer import cli, hosts
@@ -434,7 +434,7 @@ def test_codex_profile_selects_the_model_configured_for_each_depth(tmp_path, mon
         (["--profile", "codex", "--merger-model", "opus"], "cannot be used"),
     ],
 )
-@pytest.mark.parametrize("command", ["scan", "assess"])
+@pytest.mark.parametrize("command", ["scan"])
 def test_codex_profile_invalid_combinations_fail_before_host(tmp_path, monkeypatch, capsys, command, extra, message):
     from appsec_analyzer import cli, hosts
 
@@ -449,15 +449,35 @@ def test_codex_profile_invalid_combinations_fail_before_host(tmp_path, monkeypat
     assert message in capsys.readouterr().err
 
 
-def test_assess_requires_explicit_profile_or_legacy_host(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--repo", "{repo}"],
+        ["--profile", "claude"],
+        ["--host", "claude-cli"],
+        [],
+    ],
+)
+def test_non_interactive_scan_requires_repo_and_explicit_provider(tmp_path, monkeypatch, capsys, arguments):
     from appsec_analyzer import cli, hosts
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not be called"))
-    assert cli.main(["assess", "--repo", str(tmp_path)]) == 2
-    assert "requires --profile" in capsys.readouterr().err
+    arguments = [value.format(repo=tmp_path) for value in arguments]
+    assert cli.main(["scan", "--non-interactive", *arguments]) == 2
+    assert "requires --repo and an explicit --profile" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["scan", "assess"])
+def test_assess_command_is_removed(capsys):
+    from appsec_analyzer import cli
+
+    with pytest.raises(SystemExit) as error:
+        cli.main(["assess", "--repo", "."])
+    assert error.value.code == 2
+    assert "invalid choice: 'assess'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["scan"])
 def test_model_profile_defaults_to_standard_depth(command):
     from appsec_analyzer import cli
 

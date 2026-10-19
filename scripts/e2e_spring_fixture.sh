@@ -3,7 +3,7 @@
 # e2e_spring_fixture.sh — Run the Spring Boot fixture E2E and verify the report
 #                         against the out-of-repo oracle.
 #
-# This is a fixture driver for appsec-analyzer assess. It deliberately
+# This is a fixture driver for appsec-analyzer scan. It deliberately
 # runs the oracle only after the threat model has been generated, so the oracle
 # is not part of the repository context given to appsec-analyzer.
 #
@@ -68,7 +68,7 @@ Options:
                          default: <fixture-root>/outputs/spring-boot-threat-fixture-e2e
   --depth <level>        quick | standard | thorough
                          default: standard
-  --max-duration <sec>   Pass through to appsec-analyzer assess
+  --max-duration <sec>   Pass through to appsec-analyzer scan
                          default: 3600
   --clean-output         Remove the output directory before running
   --oracle-json          Ask the oracle verifier to emit JSON
@@ -197,7 +197,7 @@ EOF
 START_TS=$(date +%s)
 PIPELINE_STATUS=0
 
-appsec-analyzer assess --host claude-cli --hard-budget "${APPSEC_FIXTURE_E2E_HARD_BUDGET:-20}" \
+appsec-analyzer scan --host claude-cli --hard-budget "${APPSEC_FIXTURE_E2E_HARD_BUDGET:-20}" \
     --repo "$REPO" \
     --output "$OUTPUT" \
     --sarif \

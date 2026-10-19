@@ -3,7 +3,7 @@
 # e2e_cross_repo_fixture.sh - Run the cross-repo fixture E2E and verify the
 #                             report against an out-of-repo oracle.
 #
-# This is a manual, opt-in driver around appsec-analyzer assess. It scans only
+# This is a manual, opt-in driver around appsec-analyzer scan. It scans only
 # the consumer repository. Producer repositories are represented through the
 # consumer's docs/related-repos.yaml and pre-generated threat-model.yaml exports.
 #
@@ -66,7 +66,7 @@ Options:
                          default: <fixture-root>/outputs/cross-repo-threat-fixture-e2e
   --depth <level>        quick | standard | thorough
                          default: quick
-  --max-duration <sec>   Pass through to appsec-analyzer assess
+  --max-duration <sec>   Pass through to appsec-analyzer scan
                          default: 3600
   --clean-output         Remove the output directory before running
   --oracle-json          Ask the oracle verifier to emit JSON
@@ -202,7 +202,7 @@ EOF
 START_TS=$(date +%s)
 PIPELINE_STATUS=0
 
-appsec-analyzer assess --host claude-cli --hard-budget "${APPSEC_FIXTURE_E2E_HARD_BUDGET:-20}" \
+appsec-analyzer scan --host claude-cli --hard-budget "${APPSEC_FIXTURE_E2E_HARD_BUDGET:-20}" \
     --repo "$REPO" \
     --output "$OUTPUT" \
     --sarif \

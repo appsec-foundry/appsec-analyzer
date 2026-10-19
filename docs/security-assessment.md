@@ -2,7 +2,7 @@
 
 ## Preflight checks
 
-`scan` and `assess` check selected local Git roots, remote repository read access and provider setup before cloning repositories or starting analysis. Failures return exit 2 without starting the assessment. Checks run again on resume; a previous success does not guarantee continued access. `--quiet` suppresses progress; failures and generation-test data-use and spending notices remain visible.
+`scan` check selected local Git roots, remote repository read access and provider setup before cloning repositories or starting analysis. Failures return exit 2 without starting the assessment. Checks run again on resume; a previous success does not guarantee continued access. `--quiet` suppresses progress; failures and generation-test data-use and spending notices remain visible.
 
 The `preflight` command groups completed checks under one heading and uses the shared terminal colors. Before an assessment, completed checks appear as a `Preflight` phase in the progress grid, under the run summary and before the first analysis phase; a failed check prints at once and stops the run. Each repository and provider check appears once; the provider note states when model access was not tested. Long lines wrap; `--json` keeps the machine-readable result on stdout and progress on stderr.
 
@@ -41,7 +41,7 @@ snapshot; production behavior and business intent require human review.
 ```sh
 appsec-analyzer scan --repo /path/to/project \
   --budget 20 --assessment-depth standard
-appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
+appsec-analyzer scan --repo /path/to/service --repo /path/to/client \
   --profile claude --budget 30 --output /private/system-assessment
 ```
 
@@ -64,9 +64,9 @@ Supply-chain and secret-handling weaknesses can still be found in source and con
 
 Use `standard` as a starting point, including for business logic analysis. `thorough` can find additional problems, but more expensive early analysis can leave less budget for verification and combining related findings. More findings or abuse cases do not by themselves establish better coverage. See [the measured standard and thorough comparison](model-selection.md#choosing-standard-or-thorough) for costs and limits, and check the run summary for skipped model work.
 
-For `claude` and `codex`, the spending limit defaults to USD 20 for both `scan` and `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
+For `claude` and `codex`, the spending limit defaults to USD 20 for both `scan`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 
-Control analysis and STRIDE analysis each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `scan` or `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
+Control analysis and STRIDE analysis each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `scan`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
 
@@ -204,7 +204,7 @@ Launch arguments follow the [official OpenAI CLI reference](https://developers.o
 
 ## Exports and compatibility
 
-Exports can be requested on `scan` or `assess`, or generated later without model calls:
+Exports can be requested on `scan`, or generated later without model calls:
 
 ```sh
 appsec-analyzer export --assessment /path/to/assessment \

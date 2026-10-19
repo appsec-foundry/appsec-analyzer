@@ -21,7 +21,7 @@ The controller observes cancellation at its next checkpoint. Do not infer immedi
 Resume an interrupted run using the same selected source and compatible options:
 
 ```sh
-appsec-analyzer assess --repo /path/to/project --host claude-cli \
+appsec-analyzer scan --repo /path/to/project --host claude-cli \
   --budget 20 --output /private/assessment --resume
 ```
 

@@ -79,7 +79,7 @@ APPSEC_SPRING_E2E_OUTPUT=/path/to/outputs/spring-boot-threat-fixture-e2e \
 
 The script exits with `0` only when:
 
-- `appsec-analyzer assess --host claude-cli` completes successfully within the configured hard budget.
+- `appsec-analyzer scan --host claude-cli` completes successfully within the configured hard budget.
 - `security-assessment.md` and `security-assessment.yaml` exist in the output directory.
 - `oracle/verify_threat_model.py` finds all expected fixture signals in the generated report.
 - The oracle is not located inside the scanned repo.

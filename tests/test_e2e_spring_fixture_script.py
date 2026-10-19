@@ -24,7 +24,7 @@ def test_e2e_spring_fixture_script_exists_and_documents_defaults():
 def test_e2e_spring_fixture_runs_oracle_after_pipeline_only():
     text = SCRIPT.read_text()
 
-    run_headless_idx = text.index("appsec-analyzer assess --host claude-cli")
+    run_headless_idx = text.index("appsec-analyzer scan --host claude-cli")
     verifier_idx = text.index('python3 "$ORACLE/verify_threat_model.py"')
     assert run_headless_idx < verifier_idx
 

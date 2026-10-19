@@ -12,7 +12,7 @@ contract, not a dependency on an Advisor checkout.
 Select an existing local profile explicitly:
 
 ```sh
-appsec-analyzer assess --repo /checkout --host claude-cli --budget 20 \
+appsec-analyzer scan --repo /checkout --host claude-cli --budget 20 \
   --org-profile /private/policy/org-profile.yaml --preset release-review
 ```
 

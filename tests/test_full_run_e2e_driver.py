@@ -10,7 +10,7 @@ MAKEFILE = ROOT / "Makefile"
 
 def test_manual_full_driver_uses_public_cli_and_explicit_budget() -> None:
     text = RUN_FULL.read_text(encoding="utf-8")
-    assert "appsec-analyzer assess --host claude-cli" in text
+    assert "appsec-analyzer scan --host claude-cli" in text
     assert 'if [ -z "$BUDGET" ]; then' in text
     assert '--hard-budget "$BUDGET"' in text
     assert "scripts/run-headless.sh" not in text
