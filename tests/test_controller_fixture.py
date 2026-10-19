@@ -157,3 +157,30 @@ def test_web_application_run_publishes_a_valid_model(tmp_path, monkeypatch):
     head = subprocess.run(["git", "-C", str(tmp_path / "shop"), "rev-parse", "HEAD"], capture_output=True, text=True)
     assert model["meta"]["git"]["commit_sha"] == head.stdout.strip(), "the published model names its source revision"
     assert model.get("abuse_case_analysis", {}).get("status") != "not_run"
+
+
+def test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    outcome, _, out = _assess(
+        tmp_path, monkeypatch, ("shop",), ("--no-pdf", "--test-cases"), seed=_seed, host=WebApplicationHost()
+    )
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    block = model["test_case_results"]
+    assert {row["test_case_id"] for row in block["results"]} >= {"TC-CI-01", "TC-INFRA-01", "TC-SUPPLY-01"}
+    assert all(row["outcome"] != "control" or row["candidates"]["evidenced"] for row in block["results"])
+    report = (out / "security-assessment.md").read_text()
+    assert "## Appendix: Security Test Cases" in report
+    linked = [t for t in model["threats"] if t.get("test_case_ids")]
+    assert all(t["rule_ids"] for t in linked)
+
+
+def test_test_cases_stay_out_of_the_model_and_report_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert "test_case_results" not in model
+    assert not any("test_case_ids" in threat for threat in model["threats"])
+    assert "Appendix: Security Test Cases" not in (out / "security-assessment.md").read_text()

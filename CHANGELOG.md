@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A scan profile can set `test_cases: true` to link scanner findings to the named security test cases of a new catalog (REQ-040). The model gains a `test_case_results` block with the outcome of each rule-based test case, the report gains the appendix Security Test Cases, and SARIF names linked findings by test case. No model calls are added.
 - `appsec-analyzer abuse-cases` lists the defined abuse cases, or shows one with the result a saved assessment records, without model calls.
 - `appsec-analyzer platform-settings` checks security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, using read requests to the platform API and no model calls (REQ-038).
 - `appsec-analyzer distribution init` creates the files of an organization's own Analyzer distribution under its name, and `distribution update-engine` aligns its engine pins after an engine update; both work on local files only (REQ-039).
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Figure 1 legend no longer claims a STRIDE analysis per element, and every source-scanner rule maps to a STRIDE category by its weakness class instead of defaulting to Tampering.
 - Hardcoded secrets cited by findings, including keys passed as call arguments, are masked in every report output, and the secret gate fails if one remains.
 - `appsec-reviewer-cli` rejects repository-local Claude Code configuration unless `--trust-mode trusted` is passed and no longer accepts checkout verdict files as its own results; the Threat Analyst honors organization Opus bans.
 - Authentication checks recognize more JavaScript middleware and imported handlers, and ownership middleware suppresses findings only when its binding and execution order protect every recognized handler registration.

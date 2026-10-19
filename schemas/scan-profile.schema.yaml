@@ -29,6 +29,9 @@ properties:
     type: integer
     minimum: 1
     maximum: 16
+  test_cases:
+    description: Evaluate the selected security test cases during the assessment.
+    type: boolean
   outputs:
     type: array
     maxItems: 7

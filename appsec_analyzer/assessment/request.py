@@ -22,6 +22,7 @@ class AssessmentOptions:
     max_calls: int | None = None
     max_duration: int | None = None
     max_parallel: int | None = None
+    test_cases: bool = False
     pause_after: int | None = None
     model: str | None = None
     project: str | None = None
@@ -90,6 +91,7 @@ _FLAGS = frozenset(
         "--non-interactive",
         "--verbose",
         "--json",
+        "--test-cases",
     }
 )
 

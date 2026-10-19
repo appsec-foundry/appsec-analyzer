@@ -375,12 +375,21 @@ requirements:
       - data/architectural-controls.yaml
       - data/test-cases.yaml
       - schemas/test-cases.schema.yaml
+      - scripts/model/case_outcomes.py
+      - scripts/analyzers/config_iac_scanner.py
+      - scripts/orchestrator/orchestration_controller.py
+      - scripts/renderers/compose_threat_model.py
+      - scripts/renderers/summarize_threat_model.py
+      - scripts/exporters/export_sarif.py
+      - appsec_analyzer/profiles.py
       - scripts/model/merge_threats.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
       - docs/internal/contracts/requirement-acceptance.md
       - docs/internal/analysis/aspect-test-cases-proposal-2026-10-19.md
+      - docs/security-assessment.md
+      - docs/profiles.md
     coverage: partial
     guards:
       - tests/test_test_case_catalog.py::test_catalog_matches_its_schema
@@ -389,7 +398,33 @@ requirements:
       - tests/test_test_case_catalog.py::test_rules_mode_cases_are_driven_by_rules_alone
       - tests/test_test_case_catalog.py::test_schema_rejects_malformed_cases
       - tests/test_merge_threats.py::test_every_shipped_source_rule_has_an_explicit_stride_category
-
+      - tests/test_case_outcomes.py::test_only_rules_test_cases_get_an_outcome_without_a_model
+      - tests/test_case_outcomes.py::test_control_needs_every_applicable_rule_satisfied
+      - tests/test_case_outcomes.py::test_one_violated_rule_makes_a_finding_even_when_others_are_satisfied
+      - tests/test_case_outcomes.py::test_not_applicable_rules_do_not_count_as_candidates
+      - tests/test_case_outcomes.py::test_a_missing_scanner_result_is_never_read_as_a_control
+      - tests/test_case_outcomes.py::test_a_disabled_test_case_reports_disabled_and_keeps_its_findings_linked
+      - tests/test_case_outcomes.py::test_annotation_links_rules_and_instances_and_leaves_other_threats_alone
+      - tests/test_case_outcomes.py::test_statuses_follow_the_recorded_scanner_results
+      - tests/test_case_outcomes.py::test_a_skipped_config_scan_makes_iac_rules_not_applicable_not_satisfied
+      - tests/test_case_outcomes.py::test_build_block_reads_sidecars_and_tolerates_missing_or_broken_ones
+      - tests/test_case_outcomes.py::test_an_invalid_catalog_is_refused
+      - tests/test_case_outcomes.py::test_the_result_block_matches_the_output_schema
+      - tests/test_case_outcomes.py::test_the_output_schema_rejects_malformed_results
+      - tests/test_case_outcomes.py::test_appendix_lists_every_catalog_test_case_and_never_shows_an_unexamined_one_as_a_control
+      - tests/test_case_outcomes.py::test_appendix_is_absent_without_results
+      - tests/test_controller_fixture.py::test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
+      - tests/test_controller_fixture.py::test_test_cases_stay_out_of_the_model_and_report_by_default
+      - tests/test_config_iac_scanner.py::test_repository_checks_are_not_applicable_without_their_precondition
+      - tests/test_export_sarif.py::test_linked_findings_share_the_rule_of_their_test_case
+      - tests/test_export_sarif.py::test_unknown_test_case_ids_leave_the_finding_as_its_own_rule
+      - tests/test_compose_threat_model.py::test_classification_line_links_the_test_cases_and_rules_behind_a_finding
+      - tests/test_compose_threat_model.py::test_classification_line_ignores_malformed_test_case_and_rule_ids
+      - tests/test_summarize_threat_model.py::test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them
+      - tests/test_profiles.py::test_test_cases_defaults_to_false_and_keeps_older_identity
+      - tests/test_profiles.py::test_non_boolean_test_cases_is_rejected_before_host_or_checkout
+      - tests/test_profiles.py::test_public_test_cases_reaches_controller_from_profile
+      - tests/test_profiles.py::test_test_cases_change_requires_new_run_and_older_snapshot_means_false
   REQ-005:
     applies_to:
       - scripts/orchestrator/orchestration_controller.py

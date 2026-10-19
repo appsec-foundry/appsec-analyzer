@@ -116,6 +116,67 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     assert seen["profile"]["settings"]["max_parallel"] == expected
 
 
+def test_test_cases_defaults_to_false_and_keeps_older_identity(home):
+    plain = profiles.resolve_scan("claude")
+    assert plain["settings"]["test_cases"] is False
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
+    enabled = profiles.resolve_scan("cases")
+    assert enabled["settings"]["test_cases"] is True
+    assert enabled["origins"]["settings"]["test_cases"].endswith("cases.yaml")
+    assert enabled["definition_sha256"] != plain["definition_sha256"]
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, "yes"])
+def test_non_boolean_test_cases_is_rejected_before_host_or_checkout(home, monkeypatch, capsys, value):
+    from appsec_analyzer import hosts
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not start"))
+    write(home, "scan", "bad", {"schema_version": 1, "test_cases": value})
+    assert cli.main(["scan", "--repo", "https://example.invalid/repo.git", "--profile", "bad"]) == 2
+    assert "invalid scan profile (test_cases.type)" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_public_test_cases_reaches_controller_from_profile(home, tmp_path, monkeypatch, enabled):
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": enabled})
+    from appsec_analyzer import hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller as controller
+
+    seen = {}
+
+    def assess(args, **kwargs):
+        seen.update(args=args, profile=kwargs["run_profile"])
+        ns, _ = controller._assessment_argument_parser().parse_known_args(args)
+        assert ns.test_cases is enabled
+        return 0
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(controller, "assess_main", assess)
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    assert cli.main(["scan", "--repo", str(repo), "--profile", "cases"]) == 0
+    assert ("--test-cases" in seen["args"]) is enabled
+    assert seen["profile"]["settings"]["test_cases"] is enabled
+
+
+def test_test_cases_change_requires_new_run_and_older_snapshot_means_false(home, tmp_path, monkeypatch):
+    from runtime import assessment_state
+
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / assessment_state.STATE_NAME).write_text("{}")
+    older = profiles.resolve_scan("claude")
+    del older["settings"]["test_cases"]
+    monkeypatch.setattr(assessment_state, "_read_state", lambda p: {"operator_profile": older})
+    restored = profiles.restore_profile(profiles.resolve_scan("claude"), output, resume=True)
+    assert restored["settings"]["test_cases"] is False
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
+    with pytest.raises(profiles.ProfileError, match="changed"):
+        profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
+
+
 @pytest.mark.parametrize("command", ["scan", "profiles show", "profiles validate"])
 @pytest.mark.parametrize("value", ["0", "-1", "17", "2.5", "true", "many"])
 def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypatch, command, value):
@@ -167,6 +228,7 @@ def test_operator_can_override_builtin_recon_model(home, base, override):
         {"budget": True},
         {"budget": float("inf")},
         *({"max_parallel": value} for value in (0, -1, 17, True, 2.0, "3")),
+        *({"test_cases": value} for value in ("true", 1, 0, None, [])),
         {"model_profile": "../codex"},
         {"endpoint": "https://untrusted.invalid"},
         {"outputs": ["shell"]},

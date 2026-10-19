@@ -297,6 +297,7 @@ def resolve_scan(
         "assessment_depth": "standard",
         "budget": 20,
         "max_parallel": DEFAULT_MAX_PARALLEL,
+        "test_cases": False,
         "outputs": ["markdown", "yaml"],
         "abuse_case_files": [],
     }
@@ -312,6 +313,8 @@ def resolve_scan(
         if value is not None:
             _assign(settings, provenance, {key: value}, "CLI")
     settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
+    if type(settings["test_cases"]) is not bool:
+        raise ProfileError("test_cases must be true or false")
     try:
         validate_max_parallel(settings["max_parallel"])
     except ValueError as exc:
@@ -352,7 +355,9 @@ def resolve_scan(
         )
     elif max_calls is not None or "max_calls" in scan:
         raise ProfileError("max_calls is available only with codex-cli")
-    definition = {"scan": scan, "models": model["layers"], "settings": settings}
+    # A false value is the default of older snapshots; omitting it keeps their identity.
+    identity = {key: value for key, value in settings.items() if key != "test_cases" or value}
+    definition = {"scan": scan, "models": model["layers"], "settings": identity}
     if connection is not None:
         definition["provider_connection"] = connection
         definition["model_override"] = model_override

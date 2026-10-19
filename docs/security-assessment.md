@@ -142,6 +142,24 @@ A well-formed relative filename outside the task selection is refused without re
 
 Accepted jobs remain in the output directory. After correcting the cause, repeat the original command with the same output and `--resume` while its original limits and compatibility checks permit. If the deadline has expired, repeat the command without `--resume` or `--rebuild` to start a new attempt and reuse compatible accepted jobs. Changed STRIDE inputs require those jobs to run again. Resuming alone does not correct an unchanged model request.
 
+## Security test cases
+
+The catalog in [data/test-cases.yaml](../data/test-cases.yaml) names the security questions an assessment can answer, grouped by aspect, such as authorization or supply chain. Each test case lists the scanner rules that seed it, the evidence a finding or a protecting control needs, and the matching entries of the control catalog.
+
+Set `test_cases: true` in a scan profile to record the test cases in a run. This is the only setting; it makes no additional model calls and changes nothing about the analysis itself. In this version only the nine rule-based test cases receive an outcome, from the recorded results of their scanner rules. Test cases that need a model investigation are listed in the report as not examined.
+
+A rule-based test case has one of these outcomes: finding, control, partial, undecidable, or not applicable. It reports a control only when every applicable rule is satisfied and the scanner recorded a result for each. A rule without a recorded result never counts as satisfied. A control here means that the examined files contain the expected configuration. It does not show that the control works in production.
+
+With the setting on:
+
+- Findings from scanner rules carry `rule_ids` and `test_case_ids` in `security-assessment.yaml`, and their details link the test cases and rules.
+- `security-assessment.yaml` gains a `test_case_results` block.
+- The report gains the appendix Security Test Cases, which lists every catalog test case and its outcome.
+- The completion summary shows a Test cases row with the outcome counts.
+- In SARIF, a linked finding uses the test case ID as `ruleId`. The finding ID moves to the result property `findingId`.
+
+Operators cannot yet disable single test cases, and repository content cannot select or disable any. The design and open questions are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md).
+
 ## Known threats
 
 Place prior findings in `docs/known-threats.yaml`, using the [example](../examples/known-threats.yaml) and [schema](../schemas/known-threats.schema.yaml). The engine validates this declaration and records its repository provenance. A prior finding or accepted-risk statement is input to analysis; it does not establish that an attack works or that a control is effective. `--skip-context` skips business context but keeps known threats available.

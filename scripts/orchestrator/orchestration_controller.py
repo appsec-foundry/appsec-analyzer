@@ -774,6 +774,7 @@ def _assessment_session(
     rebuild=False,
     api_profile=None,
     run_profile=None,
+    test_cases=False,
 ):
     """Admit one owned analysis session without selecting a primary source root.
 
@@ -802,6 +803,7 @@ def _assessment_session(
     if org_profile.get("active") and org_profile.get("path"):
         cfg["org_profile_path"] = org_profile["path"]
     cfg["max_parallel"] = budget.max_parallel
+    cfg["test_cases"] = test_cases
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
 
@@ -2369,6 +2371,7 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-calls", type=int, metavar="N")
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
     parser.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
+    parser.add_argument("--test-cases", action="store_true", help="Set by the scan profile; not a public option.")
     # appsec-analyzer runs one phase per invocation and continues with --resume.
     parser.add_argument(
         "--pause-after",
@@ -2846,6 +2849,7 @@ def _assessment_intro(
         ("Time limit", limit),
         ("Depth", depth),
         ("Max parallel", str(budget.max_parallel)),
+        ("Test cases", "on" if ns.test_cases else "off"),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
         *(scope_facts or []),
         ("Trust mode", trust),
@@ -2865,7 +2869,9 @@ def _assessment_intro(
                     value += f" (1.25 × deprecated --soft-budget USD {ns.soft_budget:g})"
         elif key == "Time limit":
             key, value = "Settings", f"{depth} depth · {limit} limit · max parallel: {budget.max_parallel}"
-        elif key in ("Depth", "Max parallel"):
+            if ns.test_cases:
+                value += " · test cases"
+        elif key in ("Depth", "Max parallel", "Test cases"):
             continue
         elif key == "Billing":
             value = {"api": "API", "subscription": "Subscription"}.get(value, value)
@@ -3337,6 +3343,11 @@ def _assessment_render(
 
             if block := report_block(platform_settings):
                 model["meta"]["platform_security_settings"] = block
+        if cfg.get("test_cases"):
+            # REQ-040: links scanner findings to test cases and records the rules test case outcomes.
+            from model import case_outcomes
+
+            model["test_case_results"] = case_outcomes.build_block(workspace, model.get("threats") or [])
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -3582,6 +3593,8 @@ def assess_repositories(
         run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
         if ns.max_parallel is None:
             ns.max_parallel = run_profile["settings"]["max_parallel"]
+        # Snapshots saved before the setting existed carry no value: false.
+        ns.test_cases = ns.test_cases or bool(run_profile["settings"].get("test_cases", False))
         if ns.max_calls is None and run_profile["adapter"] == "codex-cli":
             ns.max_calls = run_profile["settings"]["max_calls"]
     # Opened first, so every refusal after this still ends the file with its `end` record.
@@ -3727,6 +3740,7 @@ def assess_repositories(
                 rebuild=ns.rebuild,
                 api_profile=api_profile,
                 run_profile=run_profile,
+                test_cases=ns.test_cases,
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)

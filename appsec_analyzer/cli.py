@@ -957,6 +957,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
     ns.assessment_depth = profile["settings"]["assessment_depth"]
     ns.hard_budget = profile["settings"]["budget"]
     ns.max_parallel = profile["settings"]["max_parallel"]
+    ns.test_cases = profile["settings"]["test_cases"]
     ns.abuse_case_file = profile["settings"]["abuse_case_files"]
     for output in OUTPUTS[2:]:
         setattr(ns, output.replace("-", "_"), output in selected)
@@ -1111,6 +1112,7 @@ def _assess(ns: argparse.Namespace) -> int:
         "ignore_legacy",
         "migrate_legacy",
         "no_org_profile",
+        "test_cases",
     ):
         if getattr(ns, flag):
             args.append("--" + flag.replace("_", "-"))
