@@ -104,6 +104,23 @@ $defs:
         type: array
         items:
           $ref: "#/$defs/finding"
+      # One entry per catalog check: violated, satisfied (its expected pattern
+      # or capability is present), or not applicable to this repository.
+      rules_evaluated:
+        type: array
+        items:
+          type: object
+          required: [check_id, status, files]
+          additionalProperties: false
+          properties:
+            check_id:
+              type: string
+              minLength: 1
+            status:
+              enum: [violated, satisfied, not_applicable]
+            files:
+              type: integer
+              minimum: 0
       supply_chain_facts:
         $ref: "#/$defs/supplyChainFacts"
       # Recognised IaC surfaces present in the repository for which the

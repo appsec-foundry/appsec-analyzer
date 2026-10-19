@@ -108,6 +108,7 @@ document:
     - abuse_cases
     - mitigation_register
     - out_of_scope
+    - { id: appendix_test_cases, condition: "has_test_case_results" }
     - appendix_run_statistics        # always — verbose flag only gates token/cost detail
     - { id: composition_notes, condition: "compose_warned" }  # M2.14 — only when prior compose warned
     # M3.3 — `run_issues` is no longer rendered into threat-model.md. The
@@ -164,6 +165,7 @@ document:
         - abuse_cases
         - mitigation_register
         - out_of_scope
+        - { id: appendix_test_cases, condition: "has_test_case_results" }
         - appendix_run_statistics
         - { id: composition_notes, condition: "compose_warned" }
         # M3.3 - run_issues removed; see comment on the same line in the
@@ -1490,6 +1492,15 @@ sections:
     heading_numbered: true
     fragment_type: markdown
     fragment: "out-of-scope.md"
+
+  # REQ-040: every catalog test case with its outcome in this run. Conditional: runs without
+  # `test_case_results` render no such appendix.
+  appendix_test_cases:
+    heading: "## Appendix: Security Test Cases"
+    heading_numbered: false
+    anchor: "appendix-test-cases"
+    fragment_type: computed
+    data_source: "threat-model.yaml#test_case_results + data/test-cases.yaml"
 
   appendix_run_statistics:
     heading: "## Appendix: Run Statistics"

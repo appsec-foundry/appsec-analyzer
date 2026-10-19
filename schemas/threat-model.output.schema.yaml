@@ -2062,6 +2062,60 @@ properties:
                 enum: [confirmed-exploitable]
               poc_hint: { type: [string, "null"] }
 
+  test_case_results:
+    type: object
+    description: >-
+      Outcomes of the security test case catalog (REQ-040). Present only for runs that enable test cases.
+      Rule-driven outcomes come from recorded scanner results; a rule without a result is unknown and
+      never counts as satisfied.
+    additionalProperties: false
+    required: [catalog_version, results]
+    properties:
+      catalog_version:
+        type: string
+        pattern: ^[0-9]+$
+      results:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [test_case_id, aspect, scope, outcome, reason, evidence_basis, candidates, rules, finding_ids]
+          properties:
+            test_case_id:
+              type: string
+              pattern: ^TC-[A-Z]+-[0-9]{2}$
+            aspect:
+              type: string
+              minLength: 1
+            scope:
+              enum: [repository, component]
+            outcome:
+              enum: [finding, control, partial, no_finding, undecidable, not_applicable, disabled]
+            reason:
+              type: string
+              minLength: 1
+            evidence_basis:
+              enum: [deterministic, model]
+            candidates:
+              type: object
+              additionalProperties: false
+              required: [applicable, evidenced]
+              properties:
+                applicable: { type: integer, minimum: 0 }
+                evidenced: { type: integer, minimum: 0 }
+            rules:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [rule_id, status]
+                properties:
+                  rule_id: { type: string, minLength: 1 }
+                  status: { enum: [violated, satisfied, not_applicable, unknown] }
+            finding_ids:
+              type: array
+              items: { type: string, minLength: 1 }
+
   threat_hypotheses:
     # DEPRECATED (P1, weakness-class evidence model): retired as a user-facing
     # category. The producer stops emitting this list (see P1.3

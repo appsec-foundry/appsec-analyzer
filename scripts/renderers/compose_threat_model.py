@@ -16504,6 +16504,86 @@ def _render_platform_security_settings(ctx: RenderContext, env: jinja2.Environme
     return "\n".join(lines).rstrip() + "\n"
 
 
+_TEST_CASE_OUTCOMES = {
+    "finding": "Finding",
+    "control": "Control evidenced",
+    "partial": "Partial control",
+    "no_finding": "No finding",
+    "undecidable": "Undecidable",
+    "not_applicable": "Not applicable",
+    "disabled": "Disabled",
+}
+
+
+def _table_text(value: object) -> str:
+    return " ".join(str(value).replace("|", "/").split())
+
+
+def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
+    """Every catalog test case with its outcome in this run (REQ-040).
+
+    The catalog supplies titles, objectives, and evidence rules; the model supplies the outcomes. A test
+    case without a result in this run is listed as not examined, never as a control."""
+    block = ctx.yaml_data.get("test_case_results")
+    results = block.get("results") if isinstance(block, dict) else None
+    if not isinstance(results, list):
+        return ""
+    by_id = {row["test_case_id"]: row for row in results if isinstance(row, dict) and "test_case_id" in row}
+    try:
+        catalog = yaml.safe_load((PLUGIN_ROOT / "data" / "test-cases.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        catalog = {}
+    cases = [case for case in catalog.get("test_cases", []) if isinstance(case, dict)]
+    counts: dict[str, int] = {}
+    for row in results:
+        counts[row.get("outcome")] = counts.get(row.get("outcome"), 0) + 1
+    summary = " · ".join(
+        f"{counts[key]} {label.lower()}" for key, label in _TEST_CASE_OUTCOMES.items() if key in counts
+    )
+    lines = [
+        '<a id="appendix-test-cases"></a>',
+        "## Appendix: Security Test Cases",
+        "",
+        f"Test case catalog version {block.get('catalog_version')}. Examined in this run: {summary or 'none'}. "
+        "A test case is reported as a control only when every applicable rule is satisfied; a rule without a "
+        "recorded scanner result never counts as satisfied. A finding that several test cases link counts once in "
+        "the severity totals and once per test case here.",
+        "",
+        "| Test case | Aspect | Outcome | Reason |",
+        "|---|---|---|---|",
+    ]
+    for case in cases:
+        row = by_id.get(case["id"])
+        outcome = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"]) if row else "Not examined"
+        reason = _table_text(row["reason"]) if row else "Needs a model investigation that this run did not make."
+        lines.append(f"| [{case['id']}](#{case['id'].lower()}) | {case['aspect']} | {outcome} | {reason} |")
+    lines.append("")
+    for case in cases:
+        row = by_id.get(case["id"])
+        lines += [
+            f'<a id="{case["id"].lower()}"></a>',
+            f"### {case['id']}: {_table_text(case['title'])}",
+            "",
+            f"Mode: {case['mode']}. STRIDE: {', '.join(case['stride'])}. CWE: {', '.join(case['cwe'])}.",
+            "",
+            f"Objective: {_table_text(case['objective'])}",
+            "",
+            f"Evidence for a control: {_table_text(case['evidence']['control'])}.",
+            "",
+        ]
+        if row:
+            rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
+            candidates = row.get("candidates") or {}
+            lines += [
+                f"Outcome: {_TEST_CASE_OUTCOMES.get(row['outcome'], row['outcome'])}. {_table_text(row['reason'])}. "
+                f"Evidenced for {candidates.get('evidenced', 0)} of {candidates.get('applicable', 0)} applicable rules.",
+                "",
+                f"Rules: {rules}" if rules else "Rules: none",
+                "",
+            ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _render_trust_boundary_catalog(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
     """A compact inventory of crossings, conditions and evidenced gaps.
 
@@ -18265,6 +18345,7 @@ def _render_by_id(ctx: RenderContext, env: jinja2.Environment, section_id: str, 
         "abuse_cases": _render_abuse_cases,
         "mitigation_register": _render_mitigation_register,
         "requirements_compliance": _render_requirements_compliance,
+        "appendix_test_cases": _render_appendix_test_cases,
         "appendix_run_statistics": _render_appendix_run_statistics,
         "composition_notes": _render_composition_notes,
         # M3.3 — `run_issues` no longer rendered into threat-model.md.
@@ -18626,6 +18707,7 @@ def render(
             or any((t.get("vektor") or "").strip() for t in (yaml_data.get("threats") or []) if isinstance(t, dict)),
             "has_trust_boundaries": bool(yaml_data.get("trust_boundaries")),
             "has_platform_settings": bool((yaml_data.get("meta") or {}).get("platform_security_settings")),
+            "has_test_case_results": bool((yaml_data.get("test_case_results") or {}).get("results")),
             # Quick-mode §7 gate. False suppresses §7 in both TOC and body
             # (resolver returned `""` — current depth is quick and no rich
             # prior content was found). True keeps §7 — either via the
