@@ -45,9 +45,11 @@ Before removing apparently dead code, check imports, lazy loading, script dispat
 
 ## Verification
 
-Use existing tests and run checks appropriate to changed behavior. Add intended and negative cases when changing a control or trust boundary. Do not remove, skip, weaken, or broadly mock failing tests to conceal an extraction or implementation defect.
+Run only tests that exercise the changed code: tests of changed modules and their direct consumers, plus the selectors the bindings name for affected requirement IDs. Documentation or instruction changes need no pytest run unless a test reads the changed file. Do not repeat a passing check unless its code changed; after a failure, rerun only the failing tests. Run whole-suite targets such as `make test`, `make check`, or `make test-changed`, which falls back to the whole suite, only on request; such a run must retain collection errors. Add intended and negative cases when changing a control or trust boundary. Do not remove, skip, weaken, or broadly mock failing tests to conceal an extraction or implementation defect.
 
-The standard standalone offline gate is shown below. Replace `<base-commit>` with the commit before the reviewed changes, usually the merge-base with the target branch. `BASE=HEAD` covers only uncommitted changes.
+Include `PYTHONPATH=.:scripts` when tests import extracted domain packages directly. Run Ruff lint and format checks on changed Python files. Controller changes need offline controller tests; report changes need relevant golden replay and schema checks.
+
+Run the standalone offline gate once before completion when the change touches public commands, packaging, requirements, or documented commands. Replace `<base-commit>` with the commit before the reviewed changes, usually the merge-base with the target branch. `BASE=HEAD` covers only uncommitted changes.
 
 ```sh
 make check-analyzer BASE=<base-commit>
@@ -55,7 +57,7 @@ make check-analyzer BASE=<base-commit>
 
 For specification checks alone, use `make check-specs BASE=<base-commit>`. Running `python3 scripts/check_specs.py` without a comparison revision checks only the current catalog, bindings, and acceptance sections. These checks do not establish requirement completion or approval.
 
-Select additional tests from the bindings and affected consumers. Include `PYTHONPATH=.:scripts` when tests import extracted domain packages directly. Run Ruff lint and format checks on changed Python files. Controller changes need offline controller tests; report changes need relevant golden replay and schema checks. Follow [CONTRIBUTING.md](CONTRIBUTING.md#verification) for commands, distribution checks, and known inherited-check limitations. Do not present failing or unexecuted checks as green gates. A full-suite diagnostic run must retain collection errors in its result.
+Report which checks ran and which broader checks were skipped. Follow [CONTRIBUTING.md](CONTRIBUTING.md#verification) for commands, distribution checks, and known inherited-check limitations. Do not present failing or unexecuted checks as green gates.
 
 Live model calls need explicit spending authorization. Building or reviewing a package does not authorize publication, pushes, tags, or messages to other people. Follow applicable tool and dependency permissions.
 
