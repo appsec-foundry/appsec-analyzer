@@ -15238,6 +15238,13 @@ def _build_threat_card(
         refs_parts.append(
             f"[OWASP {owasp_ref}:2025]({_OWASP_TOP10_2025_URLS.get(owasp_ref, 'https://owasp.org/Top10/2025/')})"
         )
+    case_ids = [c for c in (t.get("test_case_ids") or []) if re.fullmatch(r"TC-[A-Z]+-[0-9]{2}", str(c))]
+    if case_ids:
+        # REQ-040: the appendix "Security Test Cases" holds one anchor per test case.
+        refs_parts.append("Test cases: " + ", ".join(f"[{c}](#{c.lower()})" for c in case_ids))
+        rule_ids = [r for r in (t.get("rule_ids") or []) if re.fullmatch(r"[A-Z][A-Z0-9-]*", str(r))]
+        if rule_ids:
+            refs_parts.append("Rules: " + ", ".join(rule_ids))
     classification_line = ""
     if refs_parts:
         # Item 5: classification label is italic, not bold — the
