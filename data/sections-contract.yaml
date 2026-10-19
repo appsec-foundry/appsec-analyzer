@@ -68,6 +68,7 @@ document:
     - system_overview
     - { id: identified_actors, condition: "has_resolved_actors" }
     - { id: trust_boundary_catalog, condition: "has_trust_boundaries" }
+    - { id: platform_security_settings, condition: "has_platform_settings" }
     - architecture_diagrams
     # §3 Attack Walkthroughs — conditional on `not skip_attack_walkthroughs`.
     # `--quick` sets `skip_attack_walkthroughs=true` in `.skill-config.json`
@@ -147,6 +148,7 @@ document:
         - system_overview
         - { id: identified_actors, condition: "has_resolved_actors" }
         - { id: trust_boundary_catalog, condition: "has_trust_boundaries" }
+        - { id: platform_security_settings, condition: "has_platform_settings" }
         - architecture_diagrams
         # §3 conditional on `not skip_attack_walkthroughs` — see main `order:` block.
         - { id: attack_walkthroughs, condition: "not skip_attack_walkthroughs" }
@@ -677,6 +679,14 @@ sections:
     # caps it at 20 rows and points overflow to YAML/query output. A boundary a
     # finding references is always rendered, so every `#tb-N` link on a finding
     # card resolves; the cap bounds the unreferenced rows only.
+
+  platform_security_settings:
+    heading: "### Platform Security Settings"
+    heading_numbered: false
+    fragment_type: computed
+    # REQ-038: settings of the hosting platform per selected repository, read at check time. Present only
+    # when the model carries `meta.platform_security_settings`; older models render no such section. A
+    # local repository shows a skipped line instead of a result.
 
   architecture_diagrams:
     heading: "## 2. Architecture Diagrams"

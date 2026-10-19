@@ -60,6 +60,42 @@ properties:
       model_configuration:
         type: object
         description: Resolved model settings per assessment role; contains no credentials.
+      platform_security_settings:
+        type: object
+        description: >-
+          Platform security settings checked for the selected repositories (REQ-038). Fixed values only;
+          states describe the platform at check time and `not checkable` means unknown.
+        additionalProperties: false
+        required: [repositories]
+        properties:
+          repositories:
+            type: array
+            maxItems: 16
+            items:
+              type: object
+              additionalProperties: false
+              required: [selection, status]
+              properties:
+                selection: {type: integer, minimum: 1, maximum: 16}
+                status: {enum: [checked, skipped, failed]}
+                reason: {enum: [local_repository, unsupported_platform, check_failed]}
+                repository: {type: string, pattern: '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}(/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}){1,19}$'}
+                platform: {enum: [github, gitlab]}
+                access: {enum: [anonymous, token]}
+                visibility: {enum: [public, private, internal, unknown]}
+                checked_at: {type: string, pattern: '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$'}
+                checks:
+                  type: array
+                  maxItems: 32
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [id, title, state]
+                    properties:
+                      id: {type: string, pattern: '^PLATSEC-\d{3}$'}
+                      title: {type: string, maxLength: 120}
+                      state: {enum: [set, not set, not checkable]}
+                      reason: {enum: [missing permission, feature not offered by the platform or plan, platform error, null]}
       schema_version:
         const: 1
       project:

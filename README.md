@@ -196,7 +196,7 @@ appsec-analyzer platform-settings https://github.com/your-org/your-project
 appsec-analyzer platform-settings https://github.com/your-org/your-project --token-env GITHUB_READ_TOKEN --json
 ```
 
-`scan` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context; the report does not show it yet.
+`scan` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context, and the report shows it in a Platform Security Settings section.
 
 ### `export`: other report formats
 

@@ -3235,7 +3235,17 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
 
 
 def _assessment_render(
-    scope, jobs, names, cfg, workspace: Path, root: Path, *, captured, progress, history: Path | None = None
+    scope,
+    jobs,
+    names,
+    cfg,
+    workspace: Path,
+    root: Path,
+    *,
+    captured,
+    progress,
+    history: Path | None = None,
+    platform_settings=None,
 ) -> list[str]:
     """Run the existing deterministic Stage-1 tail, Stage 2 and QA gates in the workspace.
 
@@ -3322,6 +3332,11 @@ def _assessment_render(
         if cfg.get("operator_profile"):
             model["meta"]["report_attributes"] = cfg["operator_profile"]["attributes"]
             model["meta"]["model_configuration"] = cfg["operator_profile"]["models"]
+        if platform_settings is not None:
+            from appsec_analyzer.platform_settings.projection import report_block
+
+            if block := report_block(platform_settings):
+                model["meta"]["platform_security_settings"] = block
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -3902,6 +3917,7 @@ def assess_repositories(
                             captured=captured,
                             progress=say,
                             history=state.history_path,
+                            platform_settings=platform_settings,
                         )
                     )
                     _export_pentest_tasks_if_configured(workspace, settings)

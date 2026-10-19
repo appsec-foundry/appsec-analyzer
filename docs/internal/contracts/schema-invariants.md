@@ -34,6 +34,10 @@ Failure modes to watch for in PR review:
 
 The optional `meta.report_attributes` field contains at most 32 operator-supplied string labels. Keys and values follow the scan-profile schema. The composer validates and escapes them as literal text near the report title. They are excluded from recursive source-reference projection and qualification; a label named `file` is not evidence. `meta.model_configuration` records the effective model settings by role without credentials or provider endpoints. Neither field changes findings or grants runtime authority. Older models without these fields remain valid.
 
+## Platform security settings
+
+The optional `meta.platform_security_settings` field lists, per repository selection in order, a `checked`, `skipped`, or `failed` entry. A checked entry holds platform, repository name, visibility, access level, check time, and per check an ID, title, state, and reason, all from fixed value lists or validated patterns. A skipped or failed entry holds only a reason code. The field never holds local paths, URLs, credentials, or text returned by the platform. States describe the platform at check time; `not checkable` is unknown. The field changes no finding, severity, or control, and models without it remain valid. The composer renders it as the unnumbered `### Platform Security Settings` section below Trust Boundaries only when the field is present.
+
 ## Actor registration evidence
 
 Current actor resolutions carry `open_registration_resolution` with an open/disputed decision, reason, and repository file/line evidence; the YAML builder preserves it in `meta`. Reach-equivalence and abuse-case applicability consume this decision without rewriting recon evidence or changing STRIDE severity. Disputed candidates enter the shared team-question selection even when no finding anchor exists. Historical actor artifacts remain readable, and models without actor resolution retain their curated attack-surface fallback.

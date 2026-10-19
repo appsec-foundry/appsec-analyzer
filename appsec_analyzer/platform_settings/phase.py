@@ -67,9 +67,11 @@ def run_phase(
         try:
             repo = parse_repository(source)
         except SourceError:
-            reason = UNSUPPORTED if _looks_like_url(source) else LOCAL
+            code, reason = (
+                ("unsupported_platform", UNSUPPORTED) if _looks_like_url(source) else ("local_repository", LOCAL)
+            )
             say(f"Platform Security Settings: skipped for {label} ({reason})")
-            rows.append({"source": label, "status": "skipped", "reason": reason})
+            rows.append({"source": label, "status": "skipped", "reason": reason, "code": code})
             continue
         access = "with your read-only token" if token else "anonymously (public data only)"
         say(f"Platform Security Settings: sending read requests to {repo.host} {access}; no source code is sent")
@@ -77,7 +79,7 @@ def run_phase(
             result = check_platform_settings(source, token)
         except PlatformSettingsError:
             say(f"Platform Security Settings: {repo.label} could not be checked; treated as unknown")
-            rows.append({"source": label, "status": "failed", "reason": FAILED})
+            rows.append({"source": label, "status": "failed", "reason": FAILED, "code": "check_failed"})
             continue
         summary = result["summary"]
         say(

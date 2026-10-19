@@ -2224,7 +2224,7 @@ def _compute_toc_entries(ctx: RenderContext) -> list[dict[str, Any]]:
         # Computed §1 subsections fold below System Overview. Either may be
         # absent, so this is an explicit parent rule rather than adjacency.
         if (
-            sid in {"identified_actors", "trust_boundary_catalog"}
+            sid in {"identified_actors", "trust_boundary_catalog", "platform_security_settings"}
             and entries
             and entries[-1].get("_sid") == "system_overview"
         ):
@@ -16460,6 +16460,50 @@ def _boundary_assumption_verdict(row: dict, ctx: RenderContext) -> str:
     return _BOUNDARY_VERDICT_TEXT[state]
 
 
+_PLATFORM_SKIP_TEXT = {
+    "local_repository": "skipped (local repository; supply a GitHub or GitLab URL to check its platform settings)",
+    "unsupported_platform": "skipped (not a github.com or gitlab.com repository URL)",
+    "check_failed": "could not be checked; treated as unknown",
+}
+_PLATFORM_ID = re.compile(r"PLATSEC-\d{3}")
+
+
+def _render_platform_security_settings(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
+    """Platform settings per selected repository. Only validated fixed values are rendered."""
+    block = (ctx.yaml_data.get("meta") or {}).get("platform_security_settings")
+    rows = block.get("repositories") if isinstance(block, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return ""
+    lines = [
+        "### Platform Security Settings",
+        "",
+        "Settings of the hosting platform at check time, not of the examined source revision. `set` means "
+        "configured, not effective. `not checkable` means unknown, not missing protection.",
+        "",
+    ]
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("selection"), int):
+            continue
+        if row.get("status") != "checked":
+            text = _PLATFORM_SKIP_TEXT.get(row.get("reason"), _PLATFORM_SKIP_TEXT["check_failed"])
+            lines += [f"Repository selection {row['selection']}: {text}.", ""]
+            continue
+        lines += [
+            f"**{row['platform']}/{row['repository']}** ({row['visibility']}), {row['access']} access, "
+            f"checked {row['checked_at']}",
+            "",
+            "| ID | Check | State | Reason |",
+            "|---|---|---|---|",
+        ]
+        lines += [
+            f"| {c['id']} | {c['title']} | {c['state']} | {c.get('reason') or ''} |"
+            for c in row.get("checks") or []
+            if _PLATFORM_ID.fullmatch(str(c.get("id", "")))
+        ]
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _render_trust_boundary_catalog(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
     """A compact inventory of crossings, conditions and evidenced gaps.
 
@@ -18209,6 +18253,7 @@ def _render_by_id(ctx: RenderContext, env: jinja2.Environment, section_id: str, 
         "verdict": _render_verdict,
         "identified_actors": _render_identified_actors,
         "trust_boundary_catalog": _render_trust_boundary_catalog,
+        "platform_security_settings": _render_platform_security_settings,
         "assets": _render_assets,
         "security_posture_at_a_glance": _render_security_posture_at_a_glance,
         "skipped_sections_placeholder": _render_skipped_sections_placeholder,
@@ -18580,6 +18625,7 @@ def render(
             "has_resolved_actors": bool(inventory_actors(yaml_data))
             or any((t.get("vektor") or "").strip() for t in (yaml_data.get("threats") or []) if isinstance(t, dict)),
             "has_trust_boundaries": bool(yaml_data.get("trust_boundaries")),
+            "has_platform_settings": bool((yaml_data.get("meta") or {}).get("platform_security_settings")),
             # Quick-mode §7 gate. False suppresses §7 in both TOC and body
             # (resolver returned `""` — current depth is quick and no rich
             # prior content was found). True keeps §7 — either via the

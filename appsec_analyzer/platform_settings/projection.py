@@ -68,3 +68,40 @@ def model_context(document: object) -> dict | None:
     if not checked:
         return None
     return {"repositories": checked, "unchecked_repositories": len(rows) - len(checked), "note": NOTE}
+
+
+_CODES = {"local_repository", "unsupported_platform", "check_failed"}
+_VISIBILITY = {"public", "private", "internal", "unknown"}
+_TITLES = dict(checks.CATALOG)
+
+
+def report_block(document: object) -> dict | None:
+    """The `meta.platform_security_settings` block: fixed values only, in selection order."""
+    rows = document.get("repositories") if isinstance(document, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return None
+    out = []
+    for number, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        if row.get("status") == "checked" and (projected := _row(row.get("result"))):
+            visibility = row["result"].get("visibility")
+            out.append(
+                {
+                    "selection": number,
+                    "status": "checked",
+                    **projected,
+                    "visibility": visibility if visibility in _VISIBILITY else "unknown",
+                    "checks": [{**c, "title": _TITLES[c["id"]]} for c in projected["checks"]],
+                }
+            )
+        else:
+            code = row.get("code")
+            out.append(
+                {
+                    "selection": number,
+                    "status": "skipped" if row.get("status") == "skipped" else "failed",
+                    "reason": code if code in _CODES else "check_failed",
+                }
+            )
+    return {"repositories": out} if out else None

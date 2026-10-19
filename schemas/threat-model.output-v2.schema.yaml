@@ -40,6 +40,8 @@ properties:
       model_configuration:
         type: object
         description: Resolved model settings per assessment role; contains no credentials.
+      platform_security_settings:
+        $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/meta/properties/platform_security_settings
       schema_version:
         const: 2
       project:

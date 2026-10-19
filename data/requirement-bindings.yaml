@@ -205,6 +205,9 @@ requirements:
       - appsec_analyzer/cli.py
       - appsec_analyzer/platform_settings/**
       - scripts/orchestrator/orchestration_controller.py
+      - scripts/renderers/compose_threat_model.py
+      - schemas/threat-model.output.schema.yaml
+      - data/sections-contract.yaml
     decisions: []
     documents:
       - README.md
@@ -231,6 +234,9 @@ requirements:
       - tests/test_platform_security_settings.py::test_projection_passes_only_allow_listed_values
       - tests/test_platform_security_settings.py::test_projection_is_absent_when_nothing_was_checked
       - tests/test_platform_settings_controller.py::test_controls_and_stride_receive_only_the_allow_listed_projection
+      - tests/test_platform_security_settings.py::test_report_block_lists_skipped_and_failed_selections_without_paths_or_text
+      - tests/test_platform_security_settings.py::test_report_block_validates_against_the_output_schema
+      - tests/test_platform_security_settings.py::test_section_renders_checked_and_skipped_selections_and_is_absent_without_a_block
 
   REQ-002:
     applies_to:
