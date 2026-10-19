@@ -37,8 +37,9 @@ e2e-full-thorough:  ## Thorough depth with Stage-3 QA and Stage-4 architect revi
 	@./tests/e2e/run-full.sh --depth thorough --budget "$(BUDGET)"
 
 .PHONY: e2e-fixture-suite
-e2e-fixture-suite:  ## Run all six external language/architecture fixtures and their recall oracles
-	@./tests/e2e/run-fixture-suite.sh
+e2e-fixture-suite:  ## Live run over all external language/architecture fixtures and their recall oracles (costs up to BUDGET USD per fixture): make e2e-fixture-suite BUDGET=<USD>
+	@test -n "$(BUDGET)" || { echo "ERROR: set BUDGET=<USD per fixture> for this live run"; exit 2; }
+	@APPSEC_FIXTURE_E2E_HARD_BUDGET="$(BUDGET)" ./tests/e2e/run-fixture-suite.sh
 
 .PHONY: ci-triage
 ci-triage:  ## Fetch a dispatched run's artifacts (fixture E2E or threat model) and summarise failures: make ci-triage RUN_ID=<id> [INTO=.appsec-ci]
@@ -131,8 +132,9 @@ e2e-controller:  ## Offline end-to-end runs through appsec-analyzer scan and a f
 	@$(PYTHON) -m pytest tests/test_controller_e2e.py -q --tb=short $$($(PYTHON) -c 'import xdist' 2>/dev/null && echo '-n auto')
 
 .PHONY: e2e-controller-live
-e2e-controller-live:  ## Live quick controller run with the real claude CLI (costs up to BUDGET USD, default 3): make e2e-controller-live [REPO=<path>] [DEPTH=quick] [BUDGET=3]
-	@./tests/e2e/run-controller-live.sh $(if $(REPO),--repo "$(REPO)") --depth "$(or $(DEPTH),quick)" --budget "$(or $(BUDGET),3)"
+e2e-controller-live:  ## Live quick controller run with the real claude CLI (costs up to BUDGET USD): make e2e-controller-live BUDGET=<USD> [REPO=<path>] [DEPTH=quick]
+	@test -n "$(BUDGET)" || { echo "ERROR: set BUDGET=<USD> for this live run"; exit 2; }
+	@./tests/e2e/run-controller-live.sh $(if $(REPO),--repo "$(REPO)") --depth "$(or $(DEPTH),quick)" --budget "$(BUDGET)"
 
 .PHONY: test-full
 test-full:  ## Run the complete pytest suite without coverage (no LLM)

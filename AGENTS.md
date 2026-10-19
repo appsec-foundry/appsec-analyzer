@@ -47,6 +47,8 @@ Before removing apparently dead code, check imports, lazy loading, script dispat
 
 Run only tests that exercise the changed code: tests of changed modules and their direct consumers, plus the selectors the bindings name for affected requirement IDs. Documentation or instruction changes need no pytest run unless a test reads the changed file. Do not repeat a passing check unless its code changed; after a failure, rerun only the failing tests. Run whole-suite targets such as `make test`, `make check`, or `make test-changed`, which falls back to the whole suite, only on request; such a run must retain collection errors. Add intended and negative cases when changing a control or trust boundary. Do not remove, skip, weaken, or broadly mock failing tests to conceal an extraction or implementation defect.
 
+Run end-to-end targets only when the user asks for them. Offline runs such as `make e2e-controller` and `make test-incremental` are not part of routine verification; for controller changes, `make test-controller` and the affected controller tests suffice. Do not run `appsec-analyzer scan` or other model-backed commands to check a change. Live targets are `make e2e-full`, `e2e-full-standard`, `e2e-full-thorough`, `e2e-fixture-suite`, `e2e-controller-live`, `analyze-verify`, and `release-all`; each needs an explicit request with an authorized budget, and a request to test or verify a change is not one.
+
 Include `PYTHONPATH=.:scripts` when tests import extracted domain packages directly. Run Ruff lint and format checks on changed Python files. Controller changes need offline controller tests; report changes need relevant golden replay and schema checks.
 
 Run the standalone offline gate once before completion when the change touches public commands, packaging, requirements, or documented commands. Replace `<base-commit>` with the commit before the reviewed changes, usually the merge-base with the target branch. `BASE=HEAD` covers only uncommitted changes.
@@ -55,7 +57,7 @@ Run the standalone offline gate once before completion when the change touches p
 make check-analyzer BASE=<base-commit>
 ```
 
-For specification checks alone, use `make check-specs BASE=<base-commit>`. Running `python3 scripts/check_specs.py` without a comparison revision checks only the current catalog, bindings, and acceptance sections. These checks do not establish requirement completion or approval.
+If the change touches only requirements.md, the acceptance contract, requirement bindings, or change proposals, run `make check-specs BASE=<base-commit>` instead of the gate, plus tests that read the changed files. Running `python3 scripts/check_specs.py` without a comparison revision checks only the current catalog, bindings, and acceptance sections. These checks do not establish requirement completion or approval.
 
 Report which checks ran and which broader checks were skipped. Follow [CONTRIBUTING.md](CONTRIBUTING.md#verification) for commands, distribution checks, and known inherited-check limitations. Do not present failing or unexecuted checks as green gates.
 

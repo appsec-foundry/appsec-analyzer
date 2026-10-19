@@ -28,7 +28,7 @@ Choose additional explicit test files for changed producers and consumers. Requi
 | Change | Additional verification |
 | --- | --- |
 | CLI, source selection, state, or provider boundary | Public CLI tests and affected source, state, host, cancellation, and negative-input tests. |
-| Controller or deterministic stages | `make test-controller` and affected controller tests; `make e2e-controller` exercises the CLI with a fake Claude executable. |
+| Controller or deterministic stages | `make test-controller` and affected controller tests; `make e2e-controller` exercises the CLI with a fake Claude executable and runs only on request. |
 | Agent or skill instructions | Relevant prompt contracts and tests of the behavior they influence. These files are runtime inputs. |
 | Report, schema, or export | Producer and consumer tests, schema validation, and applicable golden replay. |
 | Requirements | Catalog, audit, and affected producer tests; record the change in `specs/changes/<name>/proposal.md`. |
@@ -54,6 +54,8 @@ Live tests call a paid provider and require an explicitly authorized budget. The
 make e2e-full BUDGET=<authorized-usd>
 make e2e-full-standard BUDGET=<authorized-usd>
 make e2e-full-thorough BUDGET=<authorized-usd>
+make e2e-fixture-suite BUDGET=<authorized-usd-per-fixture>
+make e2e-controller-live BUDGET=<authorized-usd>
 ```
 
 The driver calls the public CLI and checks published artifact digests. External fixture tests require the sibling fixture checkout; see the [fixture runbook](docs/internal/runbooks/e2e-fixtures.md). Fake-host success establishes pipeline behavior, not live host isolation, model quality, or actual cost accuracy.

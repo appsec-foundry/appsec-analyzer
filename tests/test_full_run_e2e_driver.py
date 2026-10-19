@@ -22,9 +22,20 @@ def test_manual_full_driver_uses_public_cli_and_explicit_budget() -> None:
 
 def test_manual_make_targets_require_cost_limit() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
-    for target in ("e2e-full", "e2e-full-standard", "e2e-full-thorough", "analyze-verify"):
-        assert f"{target}:" in text
+    for target in (
+        "e2e-full",
+        "e2e-full-standard",
+        "e2e-full-thorough",
+        "analyze-verify",
+        "e2e-fixture-suite",
+        "e2e-controller-live",
+    ):
+        assert f"\n{target}:" in text
+        recipe = text.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+        assert 'test -n "$(BUDGET)"' in recipe, target
     assert '--budget "$(BUDGET)"' in text
+    assert 'APPSEC_FIXTURE_E2E_HARD_BUDGET="$(BUDGET)"' in text
+    assert "$(or $(BUDGET)," not in text
     assert "e2e-full-repair:" not in text
     assert "e2e-full-eval:" not in text
 
