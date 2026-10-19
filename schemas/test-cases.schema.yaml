@@ -1,0 +1,186 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://appsec-analyzer.local/schemas/test-cases.schema.yaml
+title: Security test case catalog
+type: object
+additionalProperties: false
+required:
+  - version
+  - catalog_version
+  - aspects
+  - test_cases
+  - unmapped_rules
+properties:
+  version:
+    const: 1
+  catalog_version:
+    type: string
+    pattern: ^[0-9]+$
+  aspects:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      additionalProperties: false
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          pattern: ^[A-Za-z]+$
+        title:
+          type: string
+          minLength: 1
+  test_cases:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - aspect
+        - stride
+        - cwe
+        - mode
+        - objective
+        - applies_when
+        - starting_points
+        - guidance
+        - scope
+        - controls
+        - evidence
+        - post
+        - references
+        - fixtures
+      properties:
+        id:
+          type: string
+          pattern: ^TC-[A-Z]+-[0-9]{2}$
+        title:
+          type: string
+          minLength: 1
+        aspect:
+          type: string
+        stride:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            enum: [Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege]
+        cwe:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            pattern: ^CWE-[0-9]+$
+        mode:
+          enum: [rules, seeded, model]
+        objective:
+          type: string
+          minLength: 1
+        applies_when:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [signal]
+            properties:
+              signal:
+                enum:
+                  - always
+                  - routes
+                  - object_id_routes
+                  - jwt_usage
+                  - password_handling
+                  - session_handling
+                  - database_access
+                  - command_execution
+                  - outbound_requests
+                  - file_access
+                  - xml_or_deserialization
+                  - uploads_or_archives
+                  - crypto_usage
+                  - frontend_code
+                  - mobile_code
+                  - llm_features
+                  - tenant_identifier
+                  - iac_files
+              iac_type:
+                type: string
+                minLength: 1
+        starting_points:
+          type: object
+          additionalProperties: false
+          required: [rules]
+          properties:
+            rules:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+            facts:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+            abuse_cases:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+                pattern: ^AC-[TB]-[0-9]{3}$
+        guidance:
+          type: string
+          minLength: 1
+        scope:
+          enum: [component, repository]
+        controls:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        evidence:
+          type: object
+          additionalProperties: false
+          required: [finding, control]
+          properties:
+            finding:
+              type: string
+              minLength: 1
+            control:
+              type: string
+              minLength: 1
+        post:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [check]
+            properties:
+              check:
+                enum: [route-registered, handler-chain-lacks-guard, variant-search]
+              guard:
+                type: string
+              pattern:
+                type: string
+        references:
+          type: array
+          items:
+            type: string
+        fixtures:
+          type: string
+          pattern: ^tests/fixtures/test-cases/TC-[A-Z]+-[0-9]{2}/$
+  unmapped_rules:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: [rule, reason]
+      properties:
+        rule:
+          type: string
+        reason:
+          type: string
+          minLength: 1

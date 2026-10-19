@@ -373,14 +373,22 @@ requirements:
       - data/crypto-checks.yaml
       - data/architecture-coverage-rules.yaml
       - data/architectural-controls.yaml
+      - data/test-cases.yaml
+      - schemas/test-cases.schema.yaml
       - scripts/model/merge_threats.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
       - docs/internal/contracts/requirement-acceptance.md
       - docs/internal/analysis/aspect-test-cases-proposal-2026-10-19.md
-    coverage: advisory
-    guards: []
+    coverage: partial
+    guards:
+      - tests/test_test_case_catalog.py::test_catalog_matches_its_schema
+      - tests/test_test_case_catalog.py::test_every_shipped_rule_is_a_starting_point_or_recorded_as_unmapped
+      - tests/test_test_case_catalog.py::test_controls_and_abuse_cases_exist
+      - tests/test_test_case_catalog.py::test_rules_mode_cases_are_driven_by_rules_alone
+      - tests/test_test_case_catalog.py::test_schema_rejects_malformed_cases
+      - tests/test_merge_threats.py::test_every_shipped_source_rule_has_an_explicit_stride_category
 
   REQ-005:
     applies_to:
