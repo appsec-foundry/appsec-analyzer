@@ -24,3 +24,12 @@ The user approved the requirement wording in the conversation that drafted it. T
 - **Network and supply chain:** none. Neither command downloads, builds, installs or publishes anything. The generated dependency lock is the example's lock for Python 3.10 on Linux; the guide's instruction to review and resolve a lock for the organization's platforms still applies.
 - **Cost and data:** no model calls and no data leave the machine.
 - **Preview engine:** two engine commits can share the version `0.1.0a0`, so `update-engine` cannot tell them apart. The guide's advice to record both commit IDs in the release remains the organization's task.
+
+## Deferred work
+
+These items were left out on purpose or not yet done. They are listed in the order to take them up.
+
+1. **Offline gate and wheel check.** Run `make check-analyzer BASE=<commit before bb2da68b>` where the tests may copy the whole repository; the restricted session that wrote this change could not run `test_analyzer_distribution.py::test_reused_build_drops_retired_resources_and_keeps_guide_links` or the installed-wheel tests in `test_organization_distribution.py`. Then build both wheels from a repository made by `distribution init`, install them as the guide describes, and run `organization validate`. Only this shows that a generated repository builds.
+2. **`distribution build`.** Cloning both sources, building the wheels, assembling the wheelhouse and writing checksums and commit IDs in one command. It was left out because it downloads dependencies and runs build tools, which adds supply-chain exposure, and because releases are rare. Take it up if organizations report the manual steps in the [guide](../../../docs/organization-distributions.md) as the main obstacle. It needs its own requirement, with hash-pinned dependencies, a clean-source check and no network use beyond the configured package index.
+3. **Organization-owned checks.** A distribution can add abuse cases, actors, context and a requirements catalog, but not its own checks on results and not replacement agents or data files. Hooks for either would be a new requirement; until then an organization evaluates reports or SARIF in its own CI.
+4. **Lock for other platforms.** `init` copies the example's runtime lock for Python 3.10 on Linux. A command that resolves a lock for the organization's platforms would need network access and belongs with item 2.
