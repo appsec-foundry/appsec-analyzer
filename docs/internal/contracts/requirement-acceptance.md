@@ -150,6 +150,16 @@ An independently packaged organization distribution may pin the engine and ship 
 
 Version public interfaces and incompatible artifact or organization-contract changes. Provide explicit migration or rejection for incompatible state.
 
+## REQ-039: Build your own command on Analyzer
+
+Offer `distribution init NAME [DIR]` and `distribution update-engine [DIR]` in the public CLI only; the command of an installed organization distribution does not offer them. Both use local files only: no model calls, no network requests, no package build, no installation and no publication. Neither command reads the assessed repositories, credentials or provider settings.
+
+`init` accepts a name of 2 to 30 lowercase letters and digits that starts with a letter, and creates the organization repository from the packaged example distribution under that name: the user command `NAME-appsec`, the package `NAME_appsec`, the organization identity, and the dependency, lock and manifest pins. The target must not exist or must be an empty real directory; refuse a symlinked or non-empty target without writing. Omit the example's fictional wording from the organization name, copy no cache or build output, and write only inside the target. The result must pass the engine's organization validation (REQ-018). State that the profiles, context, abuse cases and requirements are sample content to replace.
+
+`update-engine` sets the engine version in the package dependency, in the runtime lock entry, and in the manifest, and the public interface version in the manifest, to the installed engine's values. It needs exactly one organization package under `src/` and exactly one place for each pin. If any file is missing, is not a regular file, or lacks or repeats a pin, stop with exit code 2 and change nothing. Report each file with the old and new value, and report when the files named different engine versions before the update. Say that both wheels must be rebuilt and tested before release. Do not change the organization's own version, profiles or locks of other dependencies.
+
+Invalid names, unsafe targets and incomplete repositories exit with 2 and a message that names the cause, without a traceback. Keep building, dependency downloads, checksums and release approval in the [organization packaging guide](../../organization-distributions.md); do not describe them as commands of this requirement. Cover with offline tests: a generated distribution that the engine validates, names that leave no example wording, rejected names and targets, no overwrite, no network connection, all pins updated, and no change after a missing, ambiguous or symlinked pin.
+
 ## REQ-020: Show which providers have been tested
 
 Distinguish available adapters from providers and profiles whose live assessment quality has been qualified.

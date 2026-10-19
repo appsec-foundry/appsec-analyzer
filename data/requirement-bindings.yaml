@@ -238,6 +238,37 @@ requirements:
       - tests/test_platform_security_settings.py::test_report_block_validates_against_the_output_schema
       - tests/test_platform_security_settings.py::test_section_renders_checked_and_skipped_selections_and_is_absent_without_a_block
 
+  REQ-039:
+    applies_to:
+      - appsec_analyzer/distribution.py
+      - appsec_analyzer/cli.py
+      - examples/organization-distribution/**
+    decisions: []
+    documents:
+      - README.md
+      - docs/organization-distributions.md
+      - skills/appsec-analyzer/SKILL.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_distribution.py::test_init_creates_a_distribution_the_engine_accepts
+      - tests/test_distribution.py::test_init_uses_the_organization_name_everywhere
+      - tests/test_distribution.py::test_init_pins_the_installed_engine
+      - tests/test_distribution.py::test_init_copies_no_credentials_results_or_caches
+      - tests/test_distribution.py::test_init_makes_no_network_connection
+      - tests/test_distribution.py::test_init_rejects_names_that_are_not_safe_identifiers
+      - tests/test_distribution.py::test_init_never_overwrites_a_non_empty_target
+      - tests/test_distribution.py::test_init_refuses_a_symlinked_target
+      - tests/test_distribution.py::test_update_engine_sets_every_pin_to_the_installed_engine
+      - tests/test_distribution.py::test_update_engine_reports_pins_that_had_drifted_apart
+      - tests/test_distribution.py::test_update_engine_changes_nothing_when_a_pin_is_missing
+      - tests/test_distribution.py::test_update_engine_changes_nothing_when_a_pin_is_ambiguous
+      - tests/test_distribution.py::test_update_engine_refuses_a_symlinked_file_and_does_not_write_through_it
+      - tests/test_distribution.py::test_update_engine_refuses_a_package_directory_that_leaves_the_repository
+      - tests/test_distribution.py::test_update_engine_needs_exactly_one_organization_package
+      - tests/test_distribution.py::test_cli_errors_exit_two_without_a_traceback
+      - tests/test_distribution.py::test_the_installed_organization_command_does_not_offer_distribution
+
   REQ-002:
     applies_to:
       - appsec_analyzer/preflight.py

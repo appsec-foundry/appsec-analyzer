@@ -61,6 +61,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 | [`abuse-cases`](#abuse-cases-list-the-defined-cases) | List the defined abuse cases, or show one with the result a saved assessment records. | No |
 | [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. | No |
 | [`platform-settings`](#platform-settings-github-and-gitlab-security-settings) | Security settings of a GitHub or GitLab repository, such as branch protection. | No |
+| [`distribution`](#distribution-start-your-organizations-own-command) | Create the files for your organization's own command, and align its engine pins after an engine update. | No |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
 ### `scan`: full security assessment
@@ -197,6 +198,20 @@ appsec-analyzer platform-settings https://github.com/your-org/your-project --tok
 ```
 
 `scan` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context, and the report shows it in a Platform Security Settings section.
+
+### `distribution`: start your organization's own command
+
+`distribution` helps an organization ship its own command, such as `northstar-appsec`, on top of this engine. It reads and writes local files only: no model calls, no network, no build, and nothing existing is overwritten.
+
+```sh
+# Create the organization repository from the example, under your name
+appsec-analyzer distribution init northstar ./northstar-appsec
+
+# After installing a newer engine: set every engine pin in that repository to it
+appsec-analyzer distribution update-engine ./northstar-appsec
+```
+
+`init` needs a name of 2 to 30 lowercase letters and digits, and a directory that does not exist or is empty. The profiles, context, abuse cases and requirements it creates are sample content to replace. `update-engine` changes the engine version in `setup.cfg`, `requirements.lock` and `organization.yaml`, and stops without changes if one is missing. Building the wheels, installing and releasing remain manual; see the [organization packaging guide](docs/organization-distributions.md).
 
 ### `export`: other report formats
 

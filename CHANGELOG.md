@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `appsec-analyzer abuse-cases` lists the defined abuse cases, or shows one with the result a saved assessment records, without model calls.
 - `appsec-analyzer platform-settings` checks security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, using read requests to the platform API and no model calls (REQ-038).
+- `appsec-analyzer distribution init` creates the files of an organization's own Analyzer distribution under its name, and `distribution update-engine` aligns its engine pins after an engine update; both work on local files only (REQ-039).
 - `appsec-analyzer repo-profile` shows a local repository's size, languages, and build manifests before a scan, without model calls.
 - Experimental: repeat `--repo` in the headless runner to assess several local checkouts as one system, with evidenced cross-repository calls and repository attribution in the model, report, and Figure 1; replacing an earlier combined report requires `--rebuild`.
 - Standard and thorough runs check business abuse cases, thorough runs add application-specific cases, and repositories and organization profiles can supply their own checks; `/appsec-advisor:abuse-cases` lists cases and results or explains a selected case.

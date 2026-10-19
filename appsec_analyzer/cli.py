@@ -68,6 +68,32 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         )
         operation.add_argument("--assessment-depth", dest="config_depth", choices=("quick", "standard", "thorough"))
         operation.add_argument("arguments", nargs=argparse.REMAINDER)
+    if organization is None:
+        distribution = commands.add_parser(
+            "distribution",
+            help="Create an organization distribution or align its engine pins, without model calls",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=(
+                "Prepare your organization's own command on top of this engine. Both actions only read and write\n"
+                "files in the directory you name; no model calls, no network, no build, no publication.\n"
+                "Building and releasing stay manual: see docs/organization-distributions.md."
+            ),
+            epilog=(
+                "Examples:\n"
+                "  appsec-analyzer distribution init northstar ./northstar-appsec\n"
+                "  appsec-analyzer distribution update-engine ./northstar-appsec"
+            ),
+        )
+        distribution_actions = distribution.add_subparsers(dest="distribution_action", required=True)
+        init = distribution_actions.add_parser(
+            "init", help="Create the organization repository files; nothing existing is overwritten"
+        )
+        init.add_argument("name", metavar="NAME", help="Organization name: 2-30 lowercase letters and digits")
+        init.add_argument("target", nargs="?", metavar="DIR", help="New or empty directory (default: ./NAME-appsec)")
+        update = distribution_actions.add_parser(
+            "update-engine", help="Set every engine pin to the installed engine version"
+        )
+        update.add_argument("repo", nargs="?", default=".", metavar="DIR", help="Organization repository (default: .)")
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
     from appsec_analyzer.assessment_entry import add_arguments as entry_arguments
@@ -674,6 +700,22 @@ def _run_score(ns: argparse.Namespace) -> int:
         progress.finish(result["verdict"])
     print(output, end="", flush=True)
     return {"scored": 0, "undetermined": 2, "incomplete": 1}[result["verdict"]]
+
+
+def _distribution(ns: argparse.Namespace) -> int:
+    from appsec_analyzer.distribution import diverged, init, update_engine
+
+    if ns.distribution_action == "init":
+        created = init(ns.name, ns.target or f"{ns.name}-appsec")
+        print(f"Created {created}. Replace the sample content, then build and test it as described in the guide.")
+        return 0
+    changes = update_engine(ns.repo)
+    for change in changes:
+        print(f"{change['file']}: {change['pin']} {change['old']} -> {change['new']}")
+    if diverged(changes):
+        print("The files named different engine versions before this update; they now agree.", file=sys.stderr)
+    print("Rebuild both wheels and test them before approving the release.")
+    return 0
 
 
 def _platform_settings(ns: argparse.Namespace) -> int:
@@ -1345,6 +1387,8 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             from appsec_analyzer.organization import config_command
 
             return config_command(ns)
+        if ns.command == "distribution":
+            return _distribution(ns)
         if organization is not None:
             if ns.command == "organization":
                 document = organization.describe()

@@ -58,6 +58,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-019:** **Handle version changes clearly.** Public interfaces carry a version, and incompatible changes to saved results or organization profiles are versioned too. When saved work is incompatible, Analyzer provides an explicit migration or explains why it cannot use it.
 
+- **REQ-039:** **Build your own command on Analyzer.** An organization can create the files for its own Analyzer distribution, with its profiles and without copying engine code, and align the engine pins when it adopts a new engine version. Both steps use local files only: no model calls, no network, no build or publication, and nothing existing is overwritten. Building, testing, and releasing stay the organization's own steps.
+
 - **REQ-020:** **Show which providers have been tested.** Analyzer distinguishes available model connections from provider configurations that have passed real assessment tests. Being able to connect to a provider is not proof that its results are reliable.
 
 - **REQ-021:** **Check results before publishing them.** Required inputs, analysis, and output must pass validation before an assessment is marked complete. Analyzer publishes only the selected report files and checks that those files have not changed when listing the results.

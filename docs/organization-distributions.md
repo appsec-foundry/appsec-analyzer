@@ -58,7 +58,17 @@ Run the commands in the following sections in one shell. Replace the two `/work`
 
 ## 1. Create the organization repository
 
-Copy the example into a new directory outside the engine checkout:
+To start under your organization's name, let the installed Analyzer create the files in a new or empty directory outside the engine checkout. The name is 2 to 30 lowercase letters and digits. The command writes only into that directory and makes no network request:
+
+```sh
+appsec-analyzer distribution init northstar /work/northstar-appsec
+cd /work/northstar-appsec
+git init -b main
+```
+
+The profiles, context, abuse cases and requirements it creates are sample content; replace them before a release. The later steps keep the fictional Nordlicht names, so replace `nordlicht` with your name when you follow them.
+
+To keep the fictional names for a first installation, copy the example instead:
 
 ```sh
 cp -R /work/appsec-analyzer/examples/organization-distribution /work/nordlicht-appsec
@@ -66,7 +76,7 @@ cd /work/nordlicht-appsec
 git init -b main
 ```
 
-You can keep the fictional names for the first installation. When adopting it for your organization, change these names together:
+`distribution init` already applies the following renames. Change them by hand only for a copy of the example:
 
 | Name | Where to change it |
 | --- | --- |
@@ -271,11 +281,13 @@ The job verifies and installs the locked wheelhouse, validates the organization 
 
 For a configuration-only update, keep the engine pin and change the organization version in `setup.cfg`, `requirements.lock`, `org-profile.yaml` and any report-version attributes. Rebuild the org wheel and the approved wheelhouse. Test against the selected engine before distributing it.
 
-For an engine update, select a reviewed upstream release or commit and change these three pins together:
+For an engine update, select a reviewed upstream release or commit, install that engine, and run `appsec-analyzer distribution update-engine /work/nordlicht-appsec`. It sets these pins together to the installed engine and changes nothing if one of them is missing:
 
 1. The `appsec-analyzer` dependency in `setup.cfg`.
 2. The engine entry in `requirements.lock`.
-3. `engine_version` and, when needed, `interface_version` in `organization.yaml`.
+3. `engine_version` and `interface_version` in `organization.yaml`.
+
+It does not rebuild anything, and it cannot tell apart two engine commits that share a version.
 
 Review the org profile's compatibility range as well. Build the new engine and organization wheels, validate the installed package, and run your reference projects before approval. Offline checks do not replace live provider qualification when model behavior or the provider changes. Keep the previous approved release for rollback.
 
