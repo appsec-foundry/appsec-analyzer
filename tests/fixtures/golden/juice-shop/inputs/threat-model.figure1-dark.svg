@@ -731,7 +731,7 @@ df-016 authentication: the handler checks a cookie credential and rejects the re
 <rect x="89.0" y="250.0" width="13.0" height="13.0" rx="2" fill="#1c242b" stroke="#323a43" stroke-width="0.8"/>
 <text x="95.5" y="260.0" font-family="Helvetica, Arial, sans-serif" font-size="8.5" fill="#a0adc0" text-anchor="middle" font-weight="bold">E</text>
 <text x="107.0" y="260.0" font-family="Helvetica, Arial, sans-serif" font-size="7.5" fill="#89909d" text-anchor="start" font-weight="normal">STRIDE</text>
-<text x="14.0" y="279.0" font-family="Helvetica, Arial, sans-serif" font-size="8.5" fill="#d2d8df" text-anchor="start" font-weight="normal">STRIDE-per-element: filled = threats found in that class</text>
+<text x="14.0" y="279.0" font-family="Helvetica, Arial, sans-serif" font-size="8.5" fill="#d2d8df" text-anchor="start" font-weight="normal">STRIDE category: filled = findings in that category</text>
 <rect x="14.0" y="289.0" width="6.0" height="6.0" rx="1" fill="#c05656" stroke="none" stroke-width="1"/>
 <text x="23.0" y="296.0" font-family="Helvetica, Arial, sans-serif" font-size="9" fill="#d2d8df" text-anchor="start" font-weight="normal">Unsafe Query Construction (SQLi)</text>
 <text x="14.0" y="308.0" font-family="Helvetica, Arial, sans-serif" font-size="8.5" fill="#89909d" text-anchor="start" font-weight="normal">All Critical · High fills to 5 · +N = omitted High categories</text>

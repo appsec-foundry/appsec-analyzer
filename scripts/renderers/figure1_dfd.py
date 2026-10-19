@@ -3,7 +3,7 @@
 
 Draws external entities, processes, data stores, labelled data flows, trust
 zones and evidenced authentication tabs, evidenced capability and service-role
-labels, a STRIDE-per-element strip, severity counts and evidenced weaknesses or
+labels, a per-component STRIDE strip, severity counts and evidenced weaknesses or
 causes on every node, and the numbered attack scenarios of the Security Posture
 section as badges on the components they touch. Each attacker enters over a
 labelled bus that fans out into every exposed process its scenarios reach; a
@@ -3369,7 +3369,7 @@ def _legend_blocks(
     y += note(lx + 40, y + 3, "⊕ internet-exposed entry point", 9)
     y += 20
     _stride_strip(c, lx + 10, y - 9, {"S": 1, "T": 1, "I": 1})
-    y += note(lx + 10, y + 20, "STRIDE-per-element: filled = threats found in that class", 8.5)
+    y += note(lx + 10, y + 20, "STRIDE category: filled = findings in that category", 8.5)
     # The category example sits closer to its own caption than to the STRIDE
     # caption above or the severity key below, so neither caption reads as
     # belonging to the neighbouring sample.

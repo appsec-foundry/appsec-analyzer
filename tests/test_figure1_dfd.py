@@ -2513,7 +2513,7 @@ def test_category_example_sits_with_its_own_caption_and_severity_key_aligns(pref
     def baseline(prefix_text):
         return float(next(t for s, t in texts.items() if s and s.startswith(prefix_text)).get("y"))
 
-    stride_caption = baseline("STRIDE-per-element")
+    stride_caption = baseline("STRIDE category")
     example = texts["Unsafe Query Construction (SQLi)"]
     example_y, example_top = float(example.get("y")), float(example.get("y")) - float(example.get("font-size"))
     caption = texts["All Critical · High fills to 5 · +N = omitted High categories"]

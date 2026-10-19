@@ -54,8 +54,6 @@ def _write_stride(output_dir: Path, component_id: str, threats: list[dict]) -> N
 def _stride_threat_schema() -> dict:
     """`threats[]` item properties from the stride schema — the contract the
     pre-gate repairs in merge_threats have to agree with exactly."""
-    import yaml
-
     schema = yaml.safe_load((SCRIPT_PATH.parents[2] / "schemas" / "stride.schema.yaml").read_text(encoding="utf-8"))
     return schema["$defs"]["normal"]["properties"]["threats"]["items"]["properties"]
 
@@ -3774,3 +3772,33 @@ def test_attribution_runs_again_once_actors_are_resolved(mt, tmp_path, monkeypat
     path.write_text(json.dumps(merged), encoding="utf-8")
     assert mt.main(["reconcile-attribution", "--output-dir", str(tmp_path)]) == 0
     assert "actor_attribution_corrections" not in json.loads(path.read_text(encoding="utf-8"))
+
+
+def _catalog_rules():
+    data = Path(__file__).resolve().parents[1] / "data"
+    rules = {}
+    for name in ("source-auth-checks.yaml", "crypto-checks.yaml"):
+        for check in yaml.safe_load((data / name).read_text(encoding="utf-8"))["checks"]:
+            cwe = check["cwe"]
+            rules[check["id"]] = cwe[0] if isinstance(cwe, list) else cwe
+    return rules
+
+
+def test_every_shipped_source_rule_has_an_explicit_stride_category(mt):
+    unresolved = sorted(
+        rule_id
+        for rule_id, cwe in _catalog_rules().items()
+        if rule_id not in mt._AUTHZ_TO_STRIDE and cwe not in mt._CWE_TO_STRIDE
+    )
+    assert unresolved == []
+
+
+def test_the_same_weakness_gets_the_same_stride_category_in_every_language(mt):
+    def stride(rule_id, cwe):
+        finding = {"check_id": rule_id, "cwe": [cwe], "file": "a.x", "line": 1, "title": "t", "scenario": "s"}
+        return mt._source_auth_finding_to_threat(finding)["stride"]
+
+    jwt = {stride(r, c) for r, c in [("AUTHZ-006", "CWE-347"), ("AUTHZ-201", "CWE-347"), ("AUTHZ-GO-001", "CWE-345")]}
+    sqli = {stride(r, "CWE-89") for r in ("INJ-001", "INJ-JAVA-001", "INJ-PY-001", "INJ-GO-001", "MOBILE-AND-001")}
+    assert jwt == {"Spoofing"}
+    assert sqli == {"Tampering"}

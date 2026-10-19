@@ -854,6 +854,26 @@ _AUTHZ_TO_STRIDE: dict[str, str] = {
     "AUTHZ-LLM-001": "Elevation of Privilege",  # Model-selected object/tool without authz
 }
 
+# Rules without an entry above (language variants, mobile and crypto rules)
+# take the category of their weakness class, so one weakness gets the same
+# STRIDE category in every language.
+_CWE_TO_STRIDE: dict[str, str] = {
+    "CWE-89": "Tampering",  # SQL injection
+    "CWE-78": "Elevation of Privilege",  # Command injection
+    "CWE-918": "Information Disclosure",  # SSRF
+    "CWE-22": "Tampering",  # Path traversal
+    "CWE-611": "Information Disclosure",  # XXE
+    "CWE-915": "Elevation of Privilege",  # Mass assignment
+    "CWE-345": "Spoofing",  # JWT accepted without verification or claim checks
+    "CWE-347": "Spoofing",  # JWT signature or algorithm checks missing
+    "CWE-922": "Information Disclosure",  # Secret in plaintext client storage
+    "CWE-749": "Elevation of Privilege",  # Exposed WebView bridge
+    "CWE-328": "Information Disclosure",  # Broken hash primitive
+    "CWE-330": "Spoofing",  # Predictable secret or token
+    "CWE-327": "Information Disclosure",  # Broken or hand-rolled cipher
+    "CWE-916": "Information Disclosure",  # Weak password hash cost
+}
+
 
 def _source_auth_finding_to_threat(f: dict, components: list | None = None) -> dict:
     """Convert one `.source-auth-findings.json` finding into the merged-threats
@@ -866,7 +886,7 @@ def _source_auth_finding_to_threat(f: dict, components: list | None = None) -> d
     cwes = f.get("cwe") or []
     cwe = cwes[0] if cwes else ""
     check_id = f.get("check_id") or ""
-    stride = _AUTHZ_TO_STRIDE.get(check_id, "Tampering")
+    stride = _AUTHZ_TO_STRIDE.get(check_id) or _CWE_TO_STRIDE.get(cwe) or "Tampering"
     if check_id == "INJ-LLM-003" and cwe == "CWE-89":
         stride = "Tampering"
     severity = f.get("severity") or "Medium"
