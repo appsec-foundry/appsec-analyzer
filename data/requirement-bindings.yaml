@@ -376,6 +376,15 @@ requirements:
       - data/test-cases.yaml
       - schemas/test-cases.schema.yaml
       - scripts/model/case_outcomes.py
+      - scripts/model/case_candidates.py
+      - scripts/model/case_postchecks.py
+      - scripts/contexts/case_analysis.py
+      - scripts/runtime/assessment_jobs.py
+      - appsec_analyzer/model_roles.py
+      - data/test-case-investigation-policy.md
+      - data/open-review-policy.md
+      - schemas/test-case-investigation.schema.json
+      - schemas/open-review.schema.json
       - scripts/analyzers/config_iac_scanner.py
       - scripts/orchestrator/orchestration_controller.py
       - scripts/renderers/compose_threat_model.py
@@ -425,6 +434,74 @@ requirements:
       - tests/test_profiles.py::test_non_boolean_test_cases_is_rejected_before_host_or_checkout
       - tests/test_profiles.py::test_public_test_cases_reaches_controller_from_profile
       - tests/test_profiles.py::test_test_cases_change_requires_new_run_and_older_snapshot_means_false
+      - tests/test_case_candidates.py::test_facts_record_route_authentication_and_handler_evidence
+      - tests/test_case_candidates.py::test_facts_are_plain_data_without_absolute_paths
+      - tests/test_case_candidates.py::test_routes_belong_to_the_component_that_owns_their_handler
+      - tests/test_case_candidates.py::test_signals_apply_per_component
+      - tests/test_case_candidates.py::test_a_signal_without_an_evaluator_applies
+      - tests/test_case_candidates.py::test_a_signal_mentioned_only_in_comments_or_test_files_does_not_apply
+      - tests/test_case_candidates.py::test_object_routes_and_scanner_hits_form_one_candidate_per_location
+      - tests/test_case_candidates.py::test_candidate_ids_are_stable_and_distinct_per_case_and_component
+      - tests/test_case_candidates.py::test_route_facts_select_the_candidates_of_each_case
+      - tests/test_case_candidates.py::test_the_cap_keeps_scanner_hits_and_counts_the_rest
+      - tests/test_case_candidates.py::test_rule_candidates_stay_in_their_component_and_repository
+      - tests/test_case_candidates.py::test_component_scoped_calls_need_a_known_component
+      - tests/test_case_postchecks.py::test_a_route_is_registered_at_its_registration_or_handler_chain
+      - tests/test_case_postchecks.py::test_an_unknown_or_malformed_route_is_not_verifiable
+      - tests/test_case_postchecks.py::test_an_anchor_of_another_route_is_a_mismatch
+      - tests/test_case_postchecks.py::test_a_foreign_traversing_or_malformed_anchor_is_not_verifiable
+      - tests/test_case_postchecks.py::test_an_absolute_path_to_a_repository_file_is_not_an_anchor
+      - tests/test_case_postchecks.py::test_reasons_are_fixed_and_never_repeat_model_text
+      - tests/test_case_postchecks.py::test_unknown_checks_guards_and_claims_are_not_verifiable
+      - tests/test_case_postchecks.py::test_every_catalog_post_check_has_a_fixed_verdict
+      - tests/test_case_postchecks.py::test_a_verified_guard_confirms_authentication
+      - tests/test_case_postchecks.py::test_a_route_without_a_credential_check_is_unauthenticated
+      - tests/test_case_postchecks.py::test_a_guard_that_only_decodes_its_token_is_not_authentication
+      - tests/test_case_postchecks.py::test_an_unresolvable_guard_leaves_authentication_unknown
+      - tests/test_case_postchecks.py::test_a_guard_known_only_by_its_name_neither_confirms_nor_contradicts
+      - tests/test_case_postchecks.py::test_a_role_guard_known_only_by_its_name_confirms_nothing
+      - tests/test_case_postchecks.py::test_a_scanner_hit_confirms_missing_authorization_and_contradicts_a_control
+      - tests/test_case_postchecks.py::test_unknown_authorization_is_not_absent
+      - tests/test_case_postchecks.py::test_an_ownership_comparison_confirms_the_control
+      - tests/test_case_postchecks.py::test_an_ownership_check_written_only_in_a_comment_never_confirms
+      - tests/test_case_postchecks.py::test_a_handler_without_object_access_leaves_ownership_open
+      - tests/test_case_postchecks.py::test_a_python_ownership_check_in_a_comment_never_confirms
+      - tests/test_case_postchecks.py::test_variants_share_a_handler_module_or_resource_within_the_component
+      - tests/test_case_postchecks.py::test_variant_search_never_leaves_the_component
+      - tests/test_case_postchecks.py::test_variant_search_reports_no_findings
+      - tests/test_case_postchecks.py::test_variant_search_needs_the_catalog_check_and_valid_reviewed_routes
+      - tests/test_case_analysis.py::test_pilot_roles_are_toolless_with_shipped_policies_and_contracts
+      - tests/test_case_analysis.py::test_investigation_prompt_has_evidence_rules_and_only_catalog_text
+      - tests/test_case_analysis.py::test_candidates_cannot_enter_the_instructions
+      - tests/test_case_analysis.py::test_open_review_prompt_targets_uncovered_business_logic
+      - tests/test_case_analysis.py::test_findings_are_the_stride_item_closed_with_the_extension
+      - tests/test_case_analysis.py::test_only_known_contracts_load_and_extensions_cannot_redefine_stride_fields
+      - tests/test_case_analysis.py::test_a_valid_investigation_is_accepted_unchanged
+      - tests/test_case_analysis.py::test_the_reply_must_answer_exactly_its_job
+      - tests/test_case_analysis.py::test_the_contract_ties_each_status_to_its_fields
+      - tests/test_case_analysis.py::test_a_comment_cannot_be_cited_as_a_control
+      - tests/test_case_analysis.py::test_a_documentation_control_is_accepted_for_the_outcome_to_downgrade
+      - tests/test_case_analysis.py::test_a_model_route_must_exist_at_its_anchor_and_the_rejection_repeats_no_model_text
+      - tests/test_case_analysis.py::test_a_model_candidate_stays_in_the_component
+      - tests/test_case_analysis.py::test_every_further_read_is_listed_and_only_those
+      - tests/test_case_analysis.py::test_more_than_fifteen_further_files_are_rejected
+      - tests/test_case_analysis.py::test_findings_keep_the_stride_evidence_rules
+      - tests/test_case_analysis.py::test_identity_and_aspect_belong_to_the_job
+      - tests/test_case_analysis.py::test_the_normalizer_sets_controller_fields_and_fixes_precheck_candidates
+      - tests/test_case_analysis.py::test_an_open_review_keeps_findings_outside_every_test_case
+      - tests/test_case_analysis.py::test_an_open_review_lists_its_further_reads
+      - tests/test_case_analysis.py::test_the_schema_files_reference_the_stride_contract_by_id
+      - tests/test_assessment_budget_holds.py::test_other_optional_groups_see_the_available_budget_minus_the_hold
+      - tests/test_assessment_budget_holds.py::test_required_work_and_calls_outside_a_job_ignore_holds
+      - tests/test_assessment_budget_holds.py::test_a_hold_applies_without_a_completion_reserve
+      - tests/test_assessment_budget_holds.py::test_release_restores_the_budget_of_other_groups
+      - tests/test_assessment_budget_holds.py::test_a_hold_keeps_the_report_reserve_for_the_held_group
+      - tests/test_assessment_budget_holds.py::test_other_groups_get_a_budget_gap_while_the_held_group_runs
+      - tests/test_assessment_budget_holds.py::test_no_budget_prompt_while_a_hold_is_active
+      - tests/test_assessment_budget_holds.py::test_an_oversized_hold_gives_the_held_group_a_gap_instead_of_stopping_the_run
+      - tests/test_assessment_budget_holds.py::test_a_subscription_run_holds_calls
+      - tests/test_assessment_budget_holds.py::test_an_invalid_hold_is_refused
+      - tests/test_assessment_budget_holds.py::test_a_held_job_writes_only_the_receipt_contract
   REQ-005:
     applies_to:
       - scripts/orchestrator/orchestration_controller.py

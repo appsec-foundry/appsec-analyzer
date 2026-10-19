@@ -94,7 +94,12 @@ from appsec_analyzer.assessment.console import (
     _count_noun,
     _elapsed,
 )
-from appsec_analyzer.model_roles import SEMANTIC_ROLE_MODEL_KEYS, SEMANTIC_ROLE_REGISTRY
+from appsec_analyzer.model_roles import (
+    PROFILE_ROLE_ALIASES,
+    SEMANTIC_ROLE_MODEL_KEYS,
+    SEMANTIC_ROLE_REGISTRY,
+    profile_role,
+)
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -867,7 +872,7 @@ def _assessment_session(
         key = SEMANTIC_ROLE_MODEL_KEYS.get(role) if role in SEMANTIC_ROLE_REGISTRY else RENDERER_MODEL_KEYS.get(role)
         if key is None or not cfg.get(key):
             raise ControllerError(f"assessment job {role} requires a registered semantic role and resolved model")
-        settings = (run_profile or {}).get("models", {}).get(role)
+        settings = (run_profile or {}).get("models", {}).get(profile_role(role))
         return host_factory(role, settings["model"] if settings else cfg[key], ceiling)
 
     with _stop_on_terminate(state), state.hold():
@@ -2740,6 +2745,9 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
 
     by_model: dict[str, list[str]] = {}
     for role, key in sorted({**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}.items()):
+        if role in PROFILE_ROLE_ALIASES:
+            # An alias runs on its profile role's model, which the lineup already names.
+            continue
         selected = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {}).get("model", cfg.get(key))
         settings = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {})
         if settings.get("adapter") in ("lite", "bedrock"):
@@ -2959,7 +2967,9 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
         runtime = preflight(repositories=repositories)
 
         def codex_factory(role, model, ceiling):
-            return CodexCliTransport(work_root, model, run_profile["models"][role]["reasoning_effort"], runtime)
+            return CodexCliTransport(
+                work_root, model, run_profile["models"][profile_role(role)]["reasoning_effort"], runtime
+            )
 
         return codex_factory
     executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
@@ -2987,7 +2997,10 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
             model=model,
             max_budget_usd=ceiling,
             executable=executable,
-            effort=(run_profile or {}).get("models", {}).get(role, {}).get("reasoning_effort", ASSESSMENT_EFFORT),
+            effort=(run_profile or {})
+            .get("models", {})
+            .get(profile_role(role), {})
+            .get("reasoning_effort", ASSESSMENT_EFFORT),
             events_path=events_path,
             max_thinking_tokens=ASSESSMENT_MAX_THINKING_TOKENS if events_dir else None,
             # Each exchange prompt is unique and read again only within minutes (MD-11).
@@ -3727,7 +3740,7 @@ def assess_repositories(
             if ns.model and ns.model != api_profile.model:
                 raise CallError("the requested model differs from the selected API profile")
             factory = lambda role, model, ceiling: ResponsesTransport(
-                role_api_profile(run_profile["models"][role]) if run_profile else api_profile, ceiling
+                role_api_profile(run_profile["models"][profile_role(role)]) if run_profile else api_profile, ceiling
             )
         else:
             factory = host_factory or _assessment_cli_host_factory(

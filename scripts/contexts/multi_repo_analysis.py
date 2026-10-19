@@ -27,6 +27,9 @@ CONTRACTS = (
     "multi-repo-stride.schema.json",
     "multi-repo-controls.schema.json",
     "multi-repo-evidence-review.schema.json",
+    # REQ-040 pilot replies; contexts/case_analysis.contract closes their findings over the STRIDE item.
+    "test-case-investigation.schema.json",
+    "open-review.schema.json",
     "stride.schema.yaml",
     "threat-model.output.schema.yaml",
     "fragments/components.schema.json",

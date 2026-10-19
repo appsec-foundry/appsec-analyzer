@@ -197,6 +197,8 @@ class _AssessmentConsole:
         "trust_boundary_analyst": "trust boundaries",
         "control_analyst": "controls",
         "stride_analyzer": "STRIDE",
+        "test_case_investigator": "test case investigation",
+        "open_reviewer": "open review",
         "evidence_verifier": "evidence review",
         "threat_merger": "merge review",
         "actor_discoverer": "actor discovery",

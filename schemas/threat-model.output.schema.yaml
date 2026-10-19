@@ -2067,7 +2067,9 @@ properties:
     description: >-
       Outcomes of the security test case catalog (REQ-040). Present only for runs that enable test cases.
       Rule-driven outcomes come from recorded scanner results; a rule without a result is unknown and
-      never counts as satisfied.
+      never counts as satisfied. A model-investigated test case has one result per component, with its
+      candidate counts, the deterministic post-checks of the model's claims, and the model's proposed
+      outcome only when it differs from the derived one.
     additionalProperties: false
     required: [catalog_version, results]
     properties:
@@ -2080,6 +2082,9 @@ properties:
           type: object
           additionalProperties: false
           required: [test_case_id, aspect, scope, outcome, reason, evidence_basis, candidates, rules, finding_ids]
+          allOf:
+            - if: { properties: { scope: { const: component } } }
+              then: { required: [component_id] }
           properties:
             test_case_id:
               type: string
@@ -2089,8 +2094,15 @@ properties:
               minLength: 1
             scope:
               enum: [repository, component]
+            component_id:
+              type: string
+              minLength: 1
+              maxLength: 128
             outcome:
               enum: [finding, control, partial, no_finding, undecidable, not_applicable, disabled]
+            proposed_outcome:
+              description: The model's proposed outcome, recorded only when it differs from the derived outcome.
+              enum: [finding, control, partial, no_finding, undecidable]
             reason:
               type: string
               minLength: 1
@@ -2103,6 +2115,44 @@ properties:
               properties:
                 applicable: { type: integer, minimum: 0 }
                 evidenced: { type: integer, minimum: 0 }
+                weaknesses: { type: integer, minimum: 0 }
+                rejected: { type: integer, minimum: 0 }
+                undecidable: { type: integer, minimum: 0 }
+                model_added: { type: integer, minimum: 0 }
+                unexamined: { type: integer, minimum: 0 }
+            post_checks:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [candidate_id, check, claim, result, reason]
+                properties:
+                  candidate_id:
+                    type: string
+                    pattern: ^(?:pc-[0-9a-f]{16}|m-[1-9][0-9]{0,2})$
+                  check:
+                    enum: [route-registered, handler-chain-lacks-guard]
+                  guard:
+                    enum: [authentication, authorization, ownership]
+                  claim:
+                    enum: [weakness, control]
+                  result:
+                    enum: [confirmed, contradicted, not_verifiable]
+                  reason:
+                    type: string
+                    minLength: 1
+            unreviewed_variants:
+              type: object
+              additionalProperties: false
+              required: [count, route_ids]
+              properties:
+                count: { type: integer, minimum: 0 }
+                route_ids:
+                  type: array
+                  maxItems: 40
+                  items:
+                    type: string
+                    pattern: ^R-[0-9]{3,5}$
             rules:
               type: array
               items:

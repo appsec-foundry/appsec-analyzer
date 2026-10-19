@@ -618,7 +618,37 @@ def test_role_catalog_matches_the_controller():
     from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
     from orchestrator.orchestration_controller import SEMANTIC_ROLE_MODEL_KEYS
 
-    assert set(profiles.ROLES) == set(SEMANTIC_ROLE_MODEL_KEYS) | set(RENDERER_MODEL_KEYS)
+    from appsec_analyzer.model_roles import PROFILE_ROLE_ALIASES, profile_role
+
+    assert set(profiles.ROLES) | set(PROFILE_ROLE_ALIASES) == set(SEMANTIC_ROLE_MODEL_KEYS) | set(RENDERER_MODEL_KEYS)
+    # Aliases stay out of the profiles, so adding one leaves every profile's identity unchanged.
+    assert not set(PROFILE_ROLE_ALIASES) & set(profiles.ROLES)
+    assert set(PROFILE_ROLE_ALIASES.values()) <= set(profiles.ROLES)
+    assert profile_role("test_case_investigator") == profile_role("open_reviewer") == "stride_analyzer"
+    assert profile_role("threat_merger") == "threat_merger"
+    for role, target in PROFILE_ROLE_ALIASES.items():
+        assert SEMANTIC_ROLE_MODEL_KEYS[role] == SEMANTIC_ROLE_MODEL_KEYS[target]
+
+
+def test_alias_roles_use_their_profile_roles_settings_and_stay_out_of_the_lineup(home, tmp_path):
+    sample(
+        home,
+        model={
+            "schema_version": 1,
+            "base": "claude",
+            "roles": {"stride_analyzer": {"model": "sonnet", "reasoning_effort": "high"}},
+        },
+    )
+    selected = profiles.resolve_scan("release")
+    assert "test_case_investigator" not in selected["models"]
+    cli._engine_imports()
+    from orchestrator import orchestration_controller as controller
+
+    factory = controller._assessment_cli_host_factory(tmp_path, run_profile=selected)
+    for role in ("test_case_investigator", "open_reviewer"):
+        assert factory(role, "sonnet", 2).effort == "high"
+    lineup, _ = controller._assessment_model_lines({"stride_model": "big"})
+    assert "stride_analyzer" in lineup and "test_case_investigator" not in lineup and "open_reviewer" not in lineup
 
 
 def test_custom_models_cannot_bypass_organization_opus_rule(home):

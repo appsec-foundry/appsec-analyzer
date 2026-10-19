@@ -76,6 +76,19 @@ SEMANTIC_ROLE_REGISTRY: dict[str, dict[str, Any]] = {
         "tools": (),
         "output_contracts": ("schemas/stride.schema.yaml",),
     },
+    # REQ-040 pilot: the test cases of one aspect for one component, and the open review of one component.
+    "test_case_investigator": {
+        "agent": "appsec-test-case-investigator",
+        "instruction": PLUGIN_ROOT / "data" / "test-case-investigation-policy.md",
+        "tools": (),
+        "output_contracts": ("schemas/test-case-investigation.schema.json",),
+    },
+    "open_reviewer": {
+        "agent": "appsec-open-reviewer",
+        "instruction": PLUGIN_ROOT / "data" / "open-review-policy.md",
+        "tools": (),
+        "output_contracts": ("schemas/open-review.schema.json",),
+    },
     "threat_merger": {
         "agent": "appsec-threat-merger",
         "instruction": PLUGIN_ROOT / "agents" / "appsec-threat-merger.md",
@@ -110,9 +123,20 @@ SEMANTIC_ROLE_MODEL_KEYS = {
     "post_stride_synthesizer": "triage_model",
     "recon_scanner": "recon_scanner_model",
     "stride_analyzer": "stride_model",
+    "test_case_investigator": "stride_model",
+    "open_reviewer": "stride_model",
     "threat_merger": "merger_model",
     "triage_validator": "triage_model",
     "trust_boundary_analyst": "orchestrator_model",
 }
 
 RENDERER_MODEL_KEYS = {"ms_renderer": "renderer_model", "secarch_renderer": "renderer_model"}
+
+# Roles that run with another role's model settings. They are not profile roles:
+# adding them to the scan profiles would change every profile's identity.
+PROFILE_ROLE_ALIASES = {"test_case_investigator": "stride_analyzer", "open_reviewer": "stride_analyzer"}
+
+
+def profile_role(role: str) -> str:
+    """The role whose settings in a model profile apply to ``role``."""
+    return PROFILE_ROLE_ALIASES.get(role, role)

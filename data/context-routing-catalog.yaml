@@ -71,6 +71,17 @@ agents:
     purpose: Analyze one selected component from bounded evidence, taxonomy, and fixed lenses.
     scope: one_component
     stage: STRIDE analysis
+  - id: test_case_investigator
+    name: Test case investigator
+    purpose: Answer the security test cases of one aspect for one component from its starting candidates and bounded
+      source reads.
+    scope: one_component
+    stage: Test case investigation
+  - id: open_reviewer
+    name: Open reviewer
+    purpose: Look for evidence-supported weaknesses of one component that no security test case covers.
+    scope: one_component
+    stage: Test case investigation
   - id: threat_merger
     name: Threat merge reviewer
     purpose: Review bounded candidate groups without reading the complete architecture or source tree.
@@ -370,6 +381,24 @@ contexts:
     category: threat_analysis
     description: Bounded proposed remediation and verification records paired with canonical threat IDs.
     scope: whole_run
+  - id: test_cases.catalog
+    name: Security test case catalog
+    category: threat_analysis
+    description: Plugin-owned test cases with their objective, guidance, evidence rules, STRIDE tags, CWE, and
+      controls.
+    scope: whole_run
+  - id: test_cases.candidates
+    name: Component test case candidates
+    category: security_controls_and_evidence
+    description: Deterministic starting locations of one component for the test cases of one aspect, with the
+      number of locations left out.
+    scope: one_component
+  - id: test_cases.results
+    name: Component test case results
+    category: verification_and_risk
+    description: Derived outcomes and candidate counts of the test cases investigated for one component, without
+      model-written reasons.
+    scope: one_component
   - id: verification.evidence_sample
     name: Evidence verification sample
     category: verification_and_risk
@@ -733,6 +762,42 @@ assignments:
     importance: supporting
     applies_to: current_component
     reason: Controller-selected settings explain the bounded analysis effort.
+  - id: test-case-catalog-for-investigation
+    context: test_cases.catalog
+    agents:
+      - test_case_investigator
+    delivery: required
+    importance: essential
+    applies_to: whole_run
+    reason: The investigator answers test cases that only the plugin-owned catalog defines, and their text reaches it
+      as instructions, never from repository content.
+  - id: test-case-candidates-for-investigation
+    context: test_cases.candidates
+    agents:
+      - test_case_investigator
+    delivery: required
+    importance: essential
+    applies_to: current_component
+    reason: Each investigation receives only its component's starting candidates, as untrusted data in its context
+      and never in its instructions.
+  - id: test-case-results-for-open-review
+    context: test_cases.results
+    agents:
+      - open_reviewer
+    delivery: required
+    importance: essential
+    applies_to: current_component
+    reason: The open review needs the component's test case results to look only for weaknesses that no test case
+      covers.
+  - id: component-business-impact-for-open-review
+    context: business.component_context
+    agents:
+      - open_reviewer
+    delivery: optional
+    importance: supporting
+    applies_to: current_component
+    reason: Business rules and declared harm guide the open review when the component's business-impact projection
+      has applicable facts.
   - id: bounded-merge-review
     context: threats.merge_review
     agents:
@@ -868,6 +933,8 @@ assignments:
     agents:
       - trust_boundary_analyst
       - stride_analyzer
+      - test_case_investigator
+      - open_reviewer
       - post_stride_synthesizer
     delivery: forbidden
     importance: essential
@@ -877,6 +944,8 @@ assignments:
     context: business.project_context
     agents:
       - stride_analyzer
+      - test_case_investigator
+      - open_reviewer
       - threat_merger
       - triage_validator
     delivery: forbidden
@@ -887,6 +956,8 @@ assignments:
     context: architecture.complete_model
     agents:
       - stride_analyzer
+      - test_case_investigator
+      - open_reviewer
       - threat_merger
       - triage_validator
     delivery: forbidden

@@ -11,15 +11,22 @@ results of a run:
 
 A test case is ``control`` only when every applicable rule is satisfied, with
 a recorded result for each. A missing scanner result is never read as
-satisfied. Outcomes of ``seeded`` and ``model`` test cases need a model
-investigation and are not produced here.
+satisfied.
+
+Outcomes of ``seeded`` and ``model`` test cases need a model investigation
+(REQ-040 pilot). ``assess_candidates`` applies the deterministic rules to the
+answered candidates of one test case and runs its post-checks;
+``component_outcome`` derives the outcome of one test case for one component
+from them, and ``investigation_results`` does both for an accepted
+investigation reply. The model's proposed outcome is recorded only when it
+differs, and no model-written text reaches a result.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, Iterable, Mapping
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -206,3 +213,277 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return document if isinstance(document, dict) else None
+
+
+# --- model investigations (REQ-040 pilot) -----------------------------------
+
+DOCUMENTATION_REASON = "documentation is not control evidence"
+# Fixed text per undecidable reason of an investigation reply; the model's own words never reach a result.
+UNDECIDABLE_REASONS = {
+    "external-control": "the control would lie outside the examined sources",
+    "missing-source": "the examined sources cannot settle the question",
+    "conflicting-evidence": "the examined sources contradict each other",
+}
+REPLACEMENT_REASONS = {
+    "budget": "the model budget ended before this investigation",
+    "failure": "the model investigation returned no acceptable result",
+}
+_DOCUMENTATION_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
+
+
+def is_documentation(path: str) -> bool:
+    """Whether a repository-relative path is documentation, which is never control evidence."""
+    parts = PurePosixPath(path).parts
+    return PurePosixPath(path).suffix.lower() in _DOCUMENTATION_SUFFIXES or "docs" in (p.lower() for p in parts[:-1])
+
+
+def assess_candidates(
+    case: Mapping[str, Any],
+    answer: Mapping[str, Any],
+    precheck: Iterable[Mapping[str, Any]],
+    facts: Mapping[str, Any] | None = None,
+    *,
+    repository_id: str | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """``(candidates, post_checks)``: the answered candidates of one test case after the deterministic rules.
+
+    ``answer`` is the test case's entry of an accepted investigation reply,
+    ``precheck`` the controller's pre-check candidates of it, and ``facts``
+    the route facts of ``repository_id``, the component's repository. A
+    control supported only by documentation becomes undecidable. A weakness
+    or control claim at a route runs the test case's post-checks, except the
+    variant search: a contradiction makes the candidate undecidable with the
+    check's reason, and the claim counts as confirmed only when every check
+    confirms it. A route of a model candidate in another repository is not
+    checked, so its claim stays model-evidenced.
+    """
+    from model.case_postchecks import CONFIRMED, CONTRADICTED, run_check
+
+    fixed = {row["candidate_id"]: row for row in precheck}
+    checks = [entry for entry in case["post"] if entry.get("check") != "variant-search"]
+    records, rows = [], []
+    for candidate in answer["candidates"]:
+        record = {
+            "candidate_id": candidate["candidate_id"],
+            "origin": candidate["origin"],
+            "claim": candidate["status"],
+            "status": candidate["status"],
+            "reason": None,
+            "confirmed": False,
+            "contradicted": False,
+            "route_id": None,
+            "rule_ids": [],
+            "finding_ids": list(candidate.get("finding_ids") or []),
+        }
+        records.append(record)
+        if candidate["origin"] == "pre-check":
+            own = fixed.get(candidate["candidate_id"], {})
+            anchor, record["route_id"] = own.get("anchor"), own.get("route_id")
+            record["rule_ids"] = list(own.get("rule_ids") or [])
+        else:
+            anchor = candidate["anchor"]
+            if repository_id is None or anchor.get("repository_id") == repository_id:
+                record["route_id"] = candidate.get("route_id")
+        if candidate["status"] == "undecidable":
+            record["reason"] = UNDECIDABLE_REASONS[candidate["undecidable_reason"]]
+            continue
+        if candidate["status"] == "control" and all(is_documentation(row["file"]) for row in candidate["evidence"]):
+            record.update(status="undecidable", reason=DOCUMENTATION_REASON)
+            continue
+        if candidate["status"] not in ("weakness", "control") or not (record["route_id"] and anchor and checks):
+            continue
+        if facts is None:
+            continue
+        params = {"route_id": record["route_id"], "anchor": {"file": anchor["file"], "line": anchor["line"]}}
+        results = []
+        for entry in checks:
+            result = run_check(entry, candidate["status"], params, facts)
+            results.append(result)
+            rows.append(
+                {
+                    "candidate_id": candidate["candidate_id"],
+                    "check": entry["check"],
+                    **({"guard": entry["guard"]} if entry.get("guard") else {}),
+                    "claim": candidate["status"],
+                    "result": result["result"],
+                    "reason": result["reason"],
+                }
+            )
+        contradiction = next((result for result in results if result["result"] == CONTRADICTED), None)
+        if contradiction:
+            record.update(status="undecidable", reason=contradiction["reason"], contradicted=True)
+        else:
+            record["confirmed"] = all(result["result"] == CONFIRMED for result in results)
+    return records, rows
+
+
+def component_outcome(
+    case: Mapping[str, Any],
+    component_id: str,
+    candidates: Iterable[Mapping[str, Any]],
+    *,
+    unexamined: int = 0,
+    proposed_outcome: str | None = None,
+    post_checks: Iterable[Mapping[str, str]] = (),
+    unreviewed_variants: Mapping[str, Any] | None = None,
+    finding_ids: Iterable[str] = (),
+    statuses: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """The result of one test case for one component, derived from its assessed candidates.
+
+    ``candidates`` are records of ``assess_candidates``; ``unexamined``
+    counts candidates that did not fit the investigation. With C the
+    candidates that were not rejected:
+
+    1. a weakness that no post-check contradicts makes a ``finding``;
+    2. otherwise a control at every candidate of a non-empty C, with none
+       unexamined, makes a ``control``;
+    3. otherwise at least one control makes a ``partial``;
+    4. otherwise an undecidable or unexamined candidate makes the test case
+       ``undecidable``;
+    5. otherwise it is ``no_finding``, also when every candidate was rejected.
+
+    A control or partial result is ``deterministic`` only when every control
+    claim is post-check confirmed and the candidate set did not come from
+    the model alone; a finding only when every weakness claim is confirmed.
+    """
+    candidates = list(candidates)
+    if type(unexamined) is not int or unexamined < 0:
+        raise ValueError("unexamined must be a non-negative integer")
+    examined = [entry for entry in candidates if entry["status"] != "rejected"]
+    weaknesses = [entry for entry in examined if entry["status"] == "weakness"]
+    controls = [entry for entry in examined if entry["status"] == "control"]
+    undecided = [entry for entry in examined if entry["status"] == "undecidable"]
+    total = len(examined) + unexamined
+    left_out = f"; {unexamined} not examined" if unexamined else ""
+    basis = "model"
+    if weaknesses:
+        outcome = "finding"
+        reason = f"weakness at {len(weaknesses)} of {total} candidate locations" + (
+            f"; control evidenced at {len(controls)}" if controls else ""
+        )
+        basis = "deterministic" if all(entry["confirmed"] for entry in weaknesses) else "model"
+    elif controls and len(controls) == len(examined) and not unexamined:
+        outcome, reason = "control", f"control evidenced at all {total} candidate locations"
+    elif controls:
+        outcome, reason = "partial", f"control evidenced at {len(controls)} of {total} candidate locations{left_out}"
+    elif undecided:
+        outcome = "undecidable"
+        reason = f"{len(undecided)} of {total} candidate locations undecidable: {undecided[0]['reason']}{left_out}"
+    elif unexamined:
+        outcome, reason = "undecidable", f"{unexamined} of {total} candidate locations did not fit the investigation"
+    elif candidates:
+        outcome = "no_finding"
+        reason = (
+            f"no weakness or control at {len(examined)} examined candidate locations"
+            if examined
+            else "every candidate location was rejected with evidence"
+        )
+    else:
+        outcome, reason = "no_finding", "the investigation found no candidate location in the component"
+    if outcome in ("control", "partial"):
+        from_precheck = any(entry["origin"] == "pre-check" for entry in examined)
+        basis = "deterministic" if from_precheck and all(entry["confirmed"] for entry in controls) else "model"
+    rules = case["starting_points"]["rules"] if statuses is not None else []
+    row = {
+        "test_case_id": case["id"],
+        "aspect": case["aspect"],
+        "scope": "component",
+        "component_id": component_id,
+        "outcome": outcome,
+        "reason": reason,
+        "evidence_basis": basis,
+        "candidates": {
+            "applicable": total,
+            "evidenced": len(controls),
+            "weaknesses": len(weaknesses),
+            "rejected": len(candidates) - len(examined),
+            "undecidable": len(undecided),
+            "model_added": sum(entry["origin"] == "model" for entry in candidates),
+            "unexamined": unexamined,
+        },
+        "rules": [{"rule_id": rule, "status": (statuses or {}).get(rule, UNKNOWN)} for rule in rules],
+        "finding_ids": list(finding_ids),
+        "post_checks": [dict(check) for check in post_checks],
+    }
+    if proposed_outcome is not None and proposed_outcome != outcome:
+        row["proposed_outcome"] = proposed_outcome
+    if unreviewed_variants is not None:
+        row["unreviewed_variants"] = {
+            "count": unreviewed_variants["count"],
+            "route_ids": list(unreviewed_variants["route_ids"]),
+        }
+    return row
+
+
+def investigation_results(
+    reply: Mapping[str, Any],
+    component_id: str,
+    *,
+    precheck: Mapping[str, Iterable[Mapping[str, Any]]],
+    overflow: Mapping[str, int] | None = None,
+    facts: Mapping[str, Any] | None = None,
+    repository_id: str | None = None,
+    statuses: Mapping[str, str] | None = None,
+    catalog: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """``{results, dropped_finding_ids}`` of an accepted investigation reply for one component.
+
+    ``precheck`` and ``overflow`` map each test case ID to the controller's
+    pre-check candidates and the number left out of the packet. A finding is
+    dropped from the merge input when every weakness candidate it reports was
+    contradicted by a post-check. ``finding_ids`` of a result are the reply's
+    local IDs of the findings kept for it.
+    """
+    from model.case_postchecks import variant_search
+
+    cases = {case["id"]: case for case in (catalog or load_catalog())["test_cases"]}
+    overflow = overflow or {}
+    assessed = {}
+    for answer in reply["test_cases"]:
+        case = cases[answer["test_case_id"]]
+        precheck_rows = list(precheck.get(case["id"], ()))
+        assessed[case["id"]] = (case, answer) + assess_candidates(
+            case, answer, precheck_rows, facts, repository_id=repository_id
+        )
+    records = {record["candidate_id"]: record for _, _, rows, _ in assessed.values() for record in rows}
+    dropped = [
+        finding["local_id"]
+        for finding in reply["findings"]
+        if all(records.get(candidate, {}).get("contradicted") for candidate in finding["candidate_ids"])
+    ]
+    results = []
+    for case_id, (case, answer, candidates, checks) in assessed.items():
+        variants = None
+        if facts is not None and any(entry.get("check") == "variant-search" for entry in case["post"]):
+            reviewed = [record["route_id"] for record in candidates if record["route_id"]]
+            variants = variant_search(case, component_id, facts, reviewed)["unreviewed_variants"]
+        results.append(
+            component_outcome(
+                case,
+                component_id,
+                candidates,
+                unexamined=overflow.get(case_id, 0),
+                proposed_outcome=answer["proposed_outcome"],
+                post_checks=checks,
+                unreviewed_variants=variants,
+                finding_ids=[
+                    finding["local_id"]
+                    for finding in reply["findings"]
+                    if case_id in finding["test_case_ids"] and finding["local_id"] not in dropped
+                ],
+                statuses=statuses,
+            )
+        )
+    return {"results": results, "dropped_finding_ids": dropped}
+
+
+def replacement_result(
+    case: Mapping[str, Any], component_id: str, cause: str, *, unexamined: int = 0
+) -> dict[str, Any]:
+    """The undecidable result of a test case whose investigation the budget or a model failure replaced."""
+    if cause not in REPLACEMENT_REASONS:
+        raise ValueError("unknown replacement cause")
+    row = component_outcome(case, component_id, [], unexamined=unexamined)
+    row.update(outcome="undecidable", reason=REPLACEMENT_REASONS[cause], evidence_basis="model")
+    return row

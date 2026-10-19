@@ -189,3 +189,176 @@ def test_appendix_is_absent_without_results(tmp_path):
     from tests.test_compose_threat_model_cov import _mk_ctx
 
     assert compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data={}), None, {}) == ""
+
+
+# --- model investigations (REQ-040 pilot) ------------------------------------------
+
+
+def _cand(status, origin="pre-check", confirmed=False, reason=None):
+    return {"status": status, "origin": origin, "confirmed": confirmed, "reason": reason}
+
+
+def _outcome(catalog, candidates, **kwargs):
+    return tcr.component_outcome(_case(catalog, "TC-AUTHZ-01"), "api", candidates, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("candidates", "unexamined", "outcome", "basis", "reason"),
+    [
+        ([_cand("weakness", confirmed=True), _cand("control")], 0, "finding", "deterministic", "weakness at 1 of 2"),
+        ([_cand("weakness"), _cand("control", confirmed=True)], 0, "finding", "model", "control evidenced at 1"),
+        ([_cand("control", confirmed=True)] * 2, 0, "control", "deterministic", "control evidenced at all 2"),
+        ([_cand("control", confirmed=True), _cand("neither")], 0, "partial", "deterministic", "1 of 2"),
+        # Overflow never yields a control, and an unexamined set alone is undecidable.
+        ([_cand("control", confirmed=True)] * 2, 3, "partial", "deterministic", "2 of 5 candidate locations; 3 not"),
+        ([], 2, "undecidable", "model", "2 of 2 candidate locations did not fit"),
+        # A control over a candidate set the model alone defined is model-evidenced.
+        ([_cand("control", origin="model", confirmed=True)], 0, "control", "model", "all 1"),
+        ([_cand("control"), _cand("control", confirmed=True)], 0, "control", "model", "all 2"),
+        (
+            [_cand("undecidable", reason=tcr.DOCUMENTATION_REASON), _cand("neither")],
+            0,
+            "undecidable",
+            "model",
+            "1 of 2",
+        ),
+        ([_cand("rejected"), _cand("rejected")], 0, "no_finding", "model", "every candidate location was rejected"),
+        ([_cand("neither"), _cand("rejected")], 0, "no_finding", "model", "no weakness or control at 1 examined"),
+        ([], 0, "no_finding", "model", "no candidate location"),
+    ],
+)
+def test_component_outcome_table(catalog, candidates, unexamined, outcome, basis, reason):
+    row = _outcome(catalog, candidates, unexamined=unexamined)
+    assert (row["outcome"], row["evidence_basis"]) == (outcome, basis)
+    assert reason in row["reason"]
+    assert row["candidates"]["applicable"] == sum(c["status"] != "rejected" for c in candidates) + unexamined
+    assert row["candidates"]["unexamined"] == unexamined
+    assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]})) == []
+
+
+def test_the_proposed_outcome_is_kept_only_when_it_differs(catalog):
+    assert "proposed_outcome" not in _outcome(catalog, [_cand("neither")], proposed_outcome="no_finding")
+    assert _outcome(catalog, [_cand("neither")], proposed_outcome="control")["proposed_outcome"] == "control"
+
+
+# A route whose handler reads an object by identifier without comparing its owner.
+_FACTS = {
+    "files": ["server.js"],
+    "routes": {
+        rid: {
+            "route_id": rid,
+            "method": "GET",
+            "path": f"/api/{name}/:id",
+            "handler_file": "server.js",
+            "handler_line": line,
+            "handler_module": None,
+            "chain": [],
+            "handler_read": True,
+            "object_access": True,
+            "ownership_predicate": rid == "R-003",
+        }
+        for rid, name, line in (("R-001", "orders", 4), ("R-002", "orders", 9), ("R-003", "invoices", 12))
+    },
+    "components": {"api": {"files": ["server.js"], "route_ids": ["R-001", "R-002", "R-003"]}},
+}
+PC1, PC3 = "pc-" + "1" * 16, "pc-" + "3" * 16
+_PRECHECK = [
+    {"candidate_id": PC1, "origin": "pre-check", "anchor": {"file": "server.js", "line": 4}, "route_id": "R-001"},
+    {"candidate_id": PC3, "origin": "pre-check", "anchor": {"file": "server.js", "line": 12}, "route_id": "R-003"},
+]
+_EVIDENCE = {"repository_id": "repo-" + "1" * 16, "file": "server.js", "line": 5, "sha256": "a" * 64}
+
+
+def _answer(first, third, finding_ids=()):
+    return {
+        "test_case_id": "TC-AUTHZ-01",
+        "proposed_outcome": "control",
+        "reason": "model text that never reaches a result",
+        "candidates": [
+            {
+                "candidate_id": PC1,
+                "origin": "pre-check",
+                "evidence": [_EVIDENCE],
+                "finding_ids": list(finding_ids),
+                **first,
+            },
+            {"candidate_id": PC3, "origin": "pre-check", "evidence": [_EVIDENCE], "finding_ids": [], **third},
+        ],
+    }
+
+
+def test_a_contradicted_control_becomes_undecidable_and_a_confirmed_one_deterministic(catalog):
+    case = _case(catalog, "TC-AUTHZ-01")
+    control = {"status": "control", "control_kind": "code"}
+    records, checks = tcr.assess_candidates(case, _answer(control, control), _PRECHECK, _FACTS)
+    first, third = records
+    assert (first["status"], first["contradicted"], first["reason"]) == ("undecidable", True, tcr_owner_missing())
+    assert (third["status"], third["confirmed"]) == ("control", True)
+    assert {(row["candidate_id"], row["check"], row["result"]) for row in checks} == {
+        (PC1, "route-registered", "confirmed"),
+        (PC1, "handler-chain-lacks-guard", "contradicted"),
+        (PC3, "route-registered", "confirmed"),
+        (PC3, "handler-chain-lacks-guard", "confirmed"),
+    }
+    row = tcr.component_outcome(case, "api", records, post_checks=checks)
+    assert (row["outcome"], row["evidence_basis"]) == ("partial", "deterministic")
+    assert "model text" not in json.dumps(row)
+
+
+def tcr_owner_missing():
+    from model.case_postchecks import OWNER_MISSING
+
+    return OWNER_MISSING
+
+
+def test_a_documentation_control_is_undecidable_and_runs_no_check(catalog):
+    case = _case(catalog, "TC-AUTHZ-01")
+    doc = {"status": "control", "control_kind": "code", "evidence": [{**_EVIDENCE, "file": "docs/authz.md"}]}
+    records, checks = tcr.assess_candidates(case, _answer(doc, {"status": "neither"}), _PRECHECK, _FACTS)
+    assert (records[0]["status"], records[0]["reason"]) == ("undecidable", tcr.DOCUMENTATION_REASON)
+    assert checks == []
+    assert tcr.is_documentation("README.rst") and tcr.is_documentation("docs/guide/auth.js")
+    assert not tcr.is_documentation("src/docs.js")
+
+
+def test_investigation_results_drop_contradicted_findings_and_list_unreviewed_variants(catalog):
+    reply = {
+        "test_cases": [_answer({"status": "weakness"}, {"status": "weakness"}, ["api-001"])],
+        "findings": [
+            {"local_id": "api-001", "test_case_ids": ["TC-AUTHZ-01"], "candidate_ids": [PC1]},
+            {"local_id": "api-002", "test_case_ids": ["TC-AUTHZ-01"], "candidate_ids": [PC3]},
+        ],
+    }
+    reply["test_cases"][0]["candidates"][1]["finding_ids"] = ["api-002"]
+    result = tcr.investigation_results(
+        reply, "api", precheck={"TC-AUTHZ-01": _PRECHECK}, overflow={"TC-AUTHZ-01": 1}, facts=_FACTS
+    )
+    row = result["results"][0]
+    # R-003 compares the owner, so its weakness claim is contradicted and its finding leaves the merge input.
+    assert result["dropped_finding_ids"] == ["api-002"]
+    assert (row["outcome"], row["finding_ids"], row["proposed_outcome"]) == ("finding", ["api-001"], "control")
+    assert row["candidates"]["unexamined"] == 1 and row["candidates"]["undecidable"] == 1
+    assert row["unreviewed_variants"] == {"count": 1, "route_ids": ["R-002"]}
+    assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]})) == []
+
+
+def test_a_replaced_investigation_is_undecidable_with_a_fixed_reason(catalog):
+    row = tcr.replacement_result(_case(catalog, "TC-AUTHZ-01"), "api", "budget", unexamined=4)
+    assert (row["outcome"], row["reason"]) == ("undecidable", tcr.REPLACEMENT_REASONS["budget"])
+    with pytest.raises(ValueError):
+        tcr.replacement_result(_case(catalog, "TC-AUTHZ-01"), "api", "anything")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda row: row.pop("component_id"),
+        lambda row: row["post_checks"].append({"candidate_id": "x", "check": "route-registered"}),
+        lambda row: row.update(proposed_outcome="secure"),
+        lambda row: row["candidates"].update(unexamined=-1),
+    ],
+)
+def test_the_output_schema_rejects_malformed_component_results(catalog, change):
+    row = _outcome(catalog, [_cand("control", confirmed=True)])
+    change(row)
+    assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]}))
