@@ -37,6 +37,8 @@ class AssessmentOptions:
     preflight_checks: tuple[tuple[str, str, str], ...] = ()
     # The selections as given, for display: a Git URL instead of its temporary checkout.
     repo_sources: tuple[str, ...] = ()
+    # Name of the environment variable that holds a read-only platform token, never the token itself.
+    platform_token_env: str | None = None
 
     def __post_init__(self):
         from appsec_analyzer.execution_limits import validate_max_parallel

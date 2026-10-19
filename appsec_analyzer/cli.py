@@ -180,6 +180,30 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     )
     profile.add_argument("repo", nargs="?", default=".", metavar="REPO", help="Local directory (default: current)")
     profile.add_argument("--json", action="store_true", help="Print the profile as machine-readable JSON")
+    platform = commands.add_parser(
+        "platform-settings",
+        help="Check security settings of a GitHub or GitLab repository without model calls",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Check security settings of a repository on github.com or gitlab.com, such as branch protection,\n"
+            "secret scanning, and workflow permissions. Sends read requests to the platform API only;\n"
+            "no model calls, no source code, and no writes to the repository or the platform.\n"
+            "Each setting is reported as set, not set, or not checkable, with the reason."
+        ),
+        epilog=(
+            "Without --token-env only public data is checked, so most results are usually not checkable.\n"
+            "The token is read from the named environment variable, sent only to the platform host,\n"
+            "and should be read-only. Results describe the settings at check time only.\n"
+            "Examples:\n"
+            "  appsec-analyzer platform-settings https://github.com/your-org/your-project\n"
+            "  GITHUB_READ_TOKEN=... appsec-analyzer platform-settings URL --token-env GITHUB_READ_TOKEN --json"
+        ),
+    )
+    platform.add_argument("url", metavar="URL", help="HTTPS or SSH URL of a github.com or gitlab.com repository")
+    platform.add_argument("--token-env", metavar="NAME", help="Environment variable holding a read-only platform token")
+    platform_formats = platform.add_mutually_exclusive_group()
+    platform_formats.add_argument("--json", action="store_true", help="Print the result as JSON")
+    platform_formats.add_argument("--yaml", action="store_true", help="Print the result as YAML")
     cases = commands.add_parser(
         "abuse-cases",
         help="List the defined abuse cases, or show one with its recorded result, without model calls",
@@ -346,6 +370,14 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         required=not default_repo,
         metavar="PATH",
         help="Repository to assess (default: current directory)" if default_repo else "Repository to assess",
+    )
+    parser.add_argument(
+        "--platform-token-env",
+        metavar="NAME",
+        help=(
+            "Environment variable holding a read-only GitHub or GitLab token for the Platform Security Settings "
+            "phase; without it only public data is checked"
+        ),
     )
     parser.add_argument(
         "--host",
@@ -644,6 +676,39 @@ def _run_score(ns: argparse.Namespace) -> int:
     return {"scored": 0, "undetermined": 2, "incomplete": 1}[result["verdict"]]
 
 
+def _platform_settings(ns: argparse.Namespace) -> int:
+    from appsec_analyzer.platform_settings.render import render_text
+    from appsec_analyzer.platform_settings.service import PlatformSettingsError, check_platform_settings
+    from appsec_analyzer.platform_settings.source import SourceError, parse_repository
+
+    token = None
+    if ns.token_env:
+        token = os.environ.get(ns.token_env, "").strip()
+        if not token:
+            raise ValueError(f"--token-env {ns.token_env} names an unset or empty environment variable")
+    try:
+        repo = parse_repository(ns.url)
+    except SourceError as exc:
+        raise ValueError(str(exc)) from None
+    access = "with your read-only token" if token else "anonymously (public data only)"
+    print(
+        f"Sending read requests to {repo.host} {access}. No model is used and no source code is sent.",
+        file=sys.stderr,
+    )
+    try:
+        result = check_platform_settings(ns.url, token)
+    except PlatformSettingsError as exc:
+        print(f"appsec-analyzer: error: {exc}", file=sys.stderr)
+        return 1
+    if ns.json:
+        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=True))
+    elif ns.yaml:
+        print(yaml.safe_dump(result, sort_keys=False, allow_unicode=False), end="")
+    else:
+        print(render_text(result))
+    return 0
+
+
 def _scan_local(ns: argparse.Namespace) -> int:
     _engine_imports()
     from jsonschema import Draft202012Validator
@@ -937,6 +1002,8 @@ def _assess(ns: argparse.Namespace) -> int:
         from appsec_analyzer.assessment_entry import progress_path
 
         ns.progress_file = progress_path(ns.output)
+    if getattr(ns, "platform_token_env", None) and not os.environ.get(ns.platform_token_env, "").strip():
+        raise ValueError(f"--platform-token-env {ns.platform_token_env} names an unset or empty environment variable")
     repositories = ns.repo or [str(Path.cwd())]
     args = ["--repo", repositories[0]]
     for repo in repositories[1:]:
@@ -1350,6 +1417,8 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                 [*selection, "--repo-root", str(Path(ns.repo).resolve()), *profile]
                 + (["--no-org-profile"] if ns.no_org_profile else [])
             )
+        if ns.command == "platform-settings":
+            return _platform_settings(ns)
         if ns.command == "repo-profile":
             _engine_imports()
             from analyzers.repo_profile import main as repo_profile

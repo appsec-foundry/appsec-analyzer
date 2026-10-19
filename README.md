@@ -60,6 +60,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 | [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. | No |
 | [`abuse-cases`](#abuse-cases-list-the-defined-cases) | List the defined abuse cases, or show one with the result a saved assessment records. | No |
 | [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. | No |
+| [`platform-settings`](#platform-settings-github-and-gitlab-security-settings) | Security settings of a GitHub or GitLab repository, such as branch protection. | No |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
 ### `scan`: full security assessment
@@ -182,6 +183,20 @@ appsec-analyzer abuse-cases AC-B-001 --repo /path/to/project
 # Profile the current directory, or print JSON for scripts
 appsec-analyzer repo-profile /path/to/project --json
 ```
+
+### `platform-settings`: GitHub and GitLab security settings
+
+`platform-settings` checks security settings of a repository on github.com or gitlab.com, such as required reviews, blocked force pushes, secret scanning, and workflow permissions. It sends read requests to the platform API only, makes no model calls, and sends no source code. Each of seven checks is reported as `set`, `not set`, or `not checkable`, with the reason. Without a read-only token only public data is visible, so many results are `not checkable`. See [Platform security settings](docs/platform-security-settings.md).
+
+```sh
+# Public data only
+appsec-analyzer platform-settings https://github.com/your-org/your-project
+
+# With a read-only token held in an environment variable
+appsec-analyzer platform-settings https://github.com/your-org/your-project --token-env GITHUB_READ_TOKEN --json
+```
+
+`scan` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context; the report does not show it yet.
 
 ### `export`: other report formats
 

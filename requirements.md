@@ -14,6 +14,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-036:** **Get a quick security indication.** A repository can receive a deterministic security score without model calls. The result explains its coverage and limits, retains visible findings when it cannot score, and identifies when scores can be compared across commits of the same repository.
 
+- **REQ-038:** **Check platform security settings.** Analyzer checks security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, without model calls. A separate command runs only this check. A scan runs it before the threat analysis and uses the results. Each setting is reported as set, not set, or not checkable, with the reason. A setting Analyzer cannot read never counts as set, and the analysis treats it as unknown. Without a read-only token supplied by the user, only public data is checked. For a local repository, the scan shows the check as skipped.
+
 - **REQ-002:** **Choose what to assess.** An assessment can cover one repository or several that belong to the same system, supplied as local Git repositories or supported Git URLs. The user chooses the depth and result directory. If Analyzer cannot honor a restriction to specific components or directories, it rejects the request instead of analyzing a different scope.
 
 - **REQ-003:** **Know what was examined.** The report names the source versions and context used, along with anything excluded or left unchecked. Its conclusions apply to that examined source, not to later changes.

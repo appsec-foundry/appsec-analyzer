@@ -33,6 +33,14 @@ appsec-analyzer scan-sources --repo <absolute-local-path> --json
 With `--json`, the result is deterministic JSON. State clearly that semantic analysis,
 component assignment, and evidence verification did not run.
 
+To check security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, invoke:
+
+```sh
+appsec-analyzer platform-settings <https-url> --json
+```
+
+This command makes no model calls and sends no source code; it sends read requests to the platform API. Without a token only public data is checked. Add `--token-env <NAME>` only when the operator names an environment variable that holds a read-only token; never put a token on the command line, and never read one from repository files. Report `not checkable` results as unknown, not as missing protection. See [platform security settings](../../docs/platform-security-settings.md).
+
 For a quick security score, invoke:
 
 ```sh

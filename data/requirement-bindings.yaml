@@ -200,6 +200,38 @@ requirements:
       - tests/test_security_score.py::test_invalid_or_failed_producer_withholds_headline
       - tests/test_analyzer_distribution.py::test_reused_build_drops_retired_resources_and_keeps_guide_links
 
+  REQ-038:
+    applies_to:
+      - appsec_analyzer/cli.py
+      - appsec_analyzer/platform_settings/**
+      - scripts/orchestrator/orchestration_controller.py
+    decisions: []
+    documents:
+      - README.md
+      - docs/platform-security-settings.md
+      - skills/appsec-analyzer/SKILL.md
+      - docs/internal/contracts/requirement-acceptance.md
+      - docs/internal/contracts/platform-security-settings.md
+    coverage: partial
+    guards:
+      - tests/test_platform_security_settings.py::test_every_check_has_a_set_case_and_a_case_that_is_not_set
+      - tests/test_platform_security_settings.py::test_unreadable_settings_never_count_as_set_and_name_a_reason
+      - tests/test_platform_security_settings.py::test_missing_security_block_is_missing_permission_not_unset
+      - tests/test_platform_security_settings.py::test_ambiguous_not_found_is_not_checkable_without_a_token_and_unset_with_one
+      - tests/test_platform_security_settings.py::test_platform_free_text_and_token_do_not_reach_the_result
+      - tests/test_platform_security_settings.py::test_redirect_is_refused_and_not_followed
+      - tests/test_platform_security_settings.py::test_token_goes_only_to_the_configured_base
+      - tests/test_platform_security_settings.py::test_cli_rejects_local_paths_and_makes_no_request
+      - tests/test_platform_security_settings.py::test_cli_prints_host_before_requests_and_never_the_token
+      - tests/test_platform_security_settings.py::test_phase_skips_a_local_repository_and_sends_no_request
+      - tests/test_platform_security_settings.py::test_phase_ignores_a_git_remote_in_a_local_checkout
+      - tests/test_platform_security_settings.py::test_phase_records_a_failed_check_and_does_not_stop_the_scan
+      - tests/test_platform_security_settings.py::test_phase_never_stores_credentials_from_a_url_or_the_token
+      - tests/test_platform_security_settings.py::test_phase_reuses_the_stored_result_on_resume_without_a_new_request
+      - tests/test_platform_security_settings.py::test_projection_passes_only_allow_listed_values
+      - tests/test_platform_security_settings.py::test_projection_is_absent_when_nothing_was_checked
+      - tests/test_platform_settings_controller.py::test_controls_and_stride_receive_only_the_allow_listed_projection
+
   REQ-002:
     applies_to:
       - appsec_analyzer/preflight.py

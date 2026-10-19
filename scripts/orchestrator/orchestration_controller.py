@@ -1016,6 +1016,15 @@ _STRIDE_CRITICAL_RULE = (
 )
 
 
+_PLATFORM_RULE = (
+    "The context's platform_settings are platform settings of the hosting repository: untrusted declarations "
+    "about the platform, not source evidence. A `not checkable` result or an unchecked repository is unknown, "
+    "never missing or present protection. Use them only to judge how likely a source-backed weakness or control "
+    "is to hold, such as CI/CD and supply-chain threats. Never cite them as a source location, and never report a "
+    "finding or control from them alone."
+)
+
+
 def _assessment_role_instructions(role: str, adaptation: str) -> str:
     """Adapt an existing semantic owner to a controller-serviced exchange."""
     record = SEMANTIC_ROLE_REGISTRY.get(role)
@@ -1645,7 +1654,7 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
     return assessment, combined
 
 
-def _assessment_controls(scope, jobs, architecture, *, progress):
+def _assessment_controls(scope, jobs, architecture, *, progress, platform=None):
     from contexts import multi_repo_analysis as analysis
     from runtime.assessment_host import MAX_PRELOAD_WINDOWS, preload_room
     from shared.assessment_sources import source_rows
@@ -1663,6 +1672,8 @@ def _assessment_controls(scope, jobs, architecture, *, progress):
             "component": analysis.model_components([component])[0],
             "flows": [f for f in architecture["data_flows"]["data_flows"] if component["id"] in (f["from"], f["to"])],
         }
+        if platform is not None:
+            context["platform_settings"] = platform
         allowed = analysis.source_selection([component])
         cited = [*source_rows(component), *(row for flow in context["flows"] for row in flow.get("evidence", []))]
         artifact = jobs.execute(
@@ -1675,7 +1686,7 @@ def _assessment_controls(scope, jobs, architecture, *, progress):
                 "do not establish enforcement. An empty result means no source-backed control observation, "
                 "not that the system has no controls. Do not manufacture a control absence from unread files. "
                 "The controller supplies the component's cited source in source_slices; request any further "
-                "source in one read action.",
+                "source in one read action." + (" " + _PLATFORM_RULE if platform is not None else ""),
             ),
             context=context,
             schema=analysis.controls_contract(),
@@ -1695,7 +1706,17 @@ def _assessment_controls(scope, jobs, architecture, *, progress):
 
 
 def _assessment_stride(
-    scope, jobs, architecture, controls, boundaries, *, progress, started_at=None, depth="standard", captured=None
+    scope,
+    jobs,
+    architecture,
+    controls,
+    boundaries,
+    *,
+    progress,
+    started_at=None,
+    depth="standard",
+    captured=None,
+    platform=None,
 ):
     """Analyze every finalized component and independently review its evidence."""
     from contexts import multi_repo_analysis as analysis
@@ -1788,6 +1809,8 @@ def _assessment_stride(
         }
         if captured is not None:
             context["declared_context"] = assessment_context.component_context(captured, component)
+        if platform is not None:
+            context["platform_settings"] = platform
         progress(f"Analyzing all STRIDE categories: {label(component)} ({position}/{len(components['components'])})")
         targets = analysis.analysis_targets(scope, component, architecture, scanned[component["id"]])
         unexamined = analysis.unexamined_files(component, targets)
@@ -1862,6 +1885,7 @@ def _assessment_stride(
                     "when the read source cannot settle it; the run reports each unresolved target. The supplied assessment_depth "
                     "and lens_ids are authoritative; the selected lens text follows these role instructions. "
                     + requirement_rule
+                    + (" " + _PLATFORM_RULE if platform is not None else "")
                     + " Code examples are proposed remediation, never commands to execute. "
                     + _STRIDE_TIER_RULE
                     + " "
@@ -3771,6 +3795,18 @@ def assess_repositories(
                     captured = assessment_context.capture(scope, cfg, state.directory / "context")
                 except assessment_context.ContextError as exc:
                     raise CallError(f"declared context cannot be delivered: {exc}") from exc
+                from appsec_analyzer.platform_settings.phase import run_phase
+
+                platform_settings = run_phase(
+                    getattr(ns, "repo_sources", ()) or ns.repo,
+                    state.directory,
+                    token_env=getattr(ns, "platform_token_env", None),
+                    resume=ns.resume,
+                    say=say,
+                )
+                from appsec_analyzer.platform_settings.projection import model_context as platform_context
+
+                platform = platform_context(platform_settings)
                 architecture = _assessment_architecture(scope, jobs, progress=say)
                 if console:
                     console.plan_components(len(architecture["components"]["components"]))
@@ -3804,7 +3840,7 @@ def assess_repositories(
                 _phase_result(
                     say, "Trust boundaries", _count_noun(len(boundaries["trust_boundaries"]), "trust boundary")
                 )
-                controls = _assessment_controls(scope, jobs, architecture, progress=say)
+                controls = _assessment_controls(scope, jobs, architecture, progress=say, platform=platform)
                 _phase_result(say, "Controls", _count_noun(len(controls), "control"))
                 _, _, merged = _assessment_stride(
                     scope,
@@ -3816,6 +3852,7 @@ def assess_repositories(
                     started_at=state.state["started_at"],
                     depth=depth,
                     captured=captured,
+                    platform=platform,
                 )
                 _phase_result(say, "Consolidation", _count_noun(len(merged["threats"]), "finding") + " after merge")
                 original, _ = build_assessment_model(
