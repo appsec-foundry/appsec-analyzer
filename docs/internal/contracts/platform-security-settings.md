@@ -43,6 +43,17 @@ These points are not answered by the platform documentation. They do not block i
 3. GitLab: confirm that a CI/CD job token cannot approve merge requests. If it cannot, PLATSEC-006 is `not checkable` on GitLab with the reason feature not offered by the platform.
 4. GitLab fork pipelines: confirm the role and subscription tier needed to read `ci_allow_fork_pipelines_to_run_in_parent_project` through the projects API.
 
+## Deferred work
+
+These items are not implemented. Start with the first two, which need no design decision.
+
+1. **Live check.** No request to a real platform has been made; all tests use test data and a local server. Run `platform-settings` and `scan` against a repository you own, with a read-only token, on GitHub and on GitLab. Compare each result with the settings page. Then close the open points above and record the minimum token permissions in the user guide.
+2. **End-to-end run.** Run `make e2e-controller` once. The scan report gained a section for every scan, including a skipped line for local repositories, and this run has not been executed since.
+3. **Structured platform evidence in role outputs (step 3b).** Today the Controls and STRIDE roles receive the settings only as prompt context, so how a result influences a finding cannot be checked. Add a field such as `platform_check_ids` to the control and finding schemas, and validators that enforce the rules of REQ-038: only IDs that were checked may be cited, a finding or control never rests on platform evidence alone, and a `not checkable` or unchecked result never raises a severity. This changes role schemas and needs a version decision under REQ-019. Do it only if a live run shows that the prompt context is ignored or misused.
+4. **Repository to component mapping.** In a combined scan every role receives every checked repository, because checkout paths and URLs do not map to repositories reliably. A reliable mapping is a prerequisite for item 3 in multi-repository scans.
+5. **Console phase list.** The phase appears only as progress lines. Add it to the phase list of the assessment console.
+6. **Context routing catalog.** `data/context-routing-catalog.yaml` does not list the new input. It describes the Advisor engine's roles, which the assessment controller does not use. Add the input only if the controller starts using the catalog.
+
 ## Sources
 
 - [GitHub REST API endpoints for rules](https://docs.github.com/en/rest/repos/rules)

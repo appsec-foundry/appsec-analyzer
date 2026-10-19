@@ -35,3 +35,5 @@ The user approved the requirement wording in the conversation that drafted it. T
 - **Low value without a token:** Anonymous checks leave most results `not checkable`. The report must make that visible, and the analysis treats those results as unknown.
 
 REQ-006, REQ-008, and REQ-009 are unchanged. The REQ-038 acceptance rules define how platform-setting evidence relates to them.
+
+Structured platform-setting evidence in role outputs (step 3b) is deferred on purpose. The deferred items and their order are listed under Deferred work in the [check catalog](../../../docs/internal/contracts/platform-security-settings.md#deferred-work).
