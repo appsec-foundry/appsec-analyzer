@@ -1,6 +1,6 @@
 # Aspect test cases for full assessments
 
-Status: draft proposal, not implemented. Nothing in this document describes current behavior unless it says so. The decisions of 2026-10-19 are recorded under [Decisions](#decisions). REQ-040 was approved on the same day and added to `requirements.md`; implementation needs a separate explicit request.
+Status: draft proposal, not implemented. Nothing in this document describes current behavior unless it says so. The decisions of 2026-10-19 are recorded under [Decisions](#decisions). REQ-040 was approved on the same day and added to `requirements.md`. The implementation has started on a separate branch; see the [implementation status](aspect-test-cases-implementation-status-2026-10-19.md).
 
 ## Problem
 
