@@ -8,9 +8,19 @@ Read [requirements.md](requirements.md) before changing observable behavior. It 
 
 Keep `REQ-NNN` requirement IDs stable when moving or reordering entries. The [acceptance contract](docs/internal/contracts/requirement-acceptance.md) contains normative detail rules; preserve them when editing short user outcomes. Consolidated or removed IDs belong in `retired_ids` and must not be reused. Update bindings with the change. Keep implementation details in contracts and bindings.
 
-Record every edit to requirements.md or the acceptance contract, including editorial edits, in `specs/changes/<change>/proposal.md`. New or modified proposals need the four YAML fields described in [CONTRIBUTING.md](CONTRIBUTING.md#requirements-and-compatibility): reason, affected IDs, compatibility, and verification. Unchanged historical proposals retain their original format. An explicit user request to change requirements already authorizes that work; the proposal records it.
+Record every edit to requirements.md or the acceptance contract, including editorial edits, in `specs/changes/<change>/proposal.md`. New or modified proposals need the four YAML fields described in [CONTRIBUTING.md](CONTRIBUTING.md#requirements-and-compatibility): reason, affected IDs, compatibility, and verification. Unchanged historical proposals retain their original format. An explicit user request to change requirements already authorizes that work; the proposal records it. A new feature additionally needs an approved draft, as described in [Start new features with a requirement](#start-new-features-with-a-requirement).
 
 Keep the [README](README.md), affected current guides, CLI help, and installed entry skill consistent. Follow [documentation style](docs/internal/documentation-style.md): plain language, one source line per prose paragraph, and clear prerequisites and limits. Historical documents, proposals, and extraction records are context, not current command references. Do not present planned behavior as a supported feature.
+
+## Start new features with a requirement
+
+Agree on a requirement with the user before writing code for a new or extended feature. A bug fix that restores behavior an existing requirement already describes skips this.
+
+1. Propose the requirement in the conversation as it would appear in requirements.md: a short label and one user outcome in plain language, without implementation details. Add the main acceptance rules as short points.
+2. Below it, name the risks and side effects that apply, such as model cost, data sent to models or other hosts, credential use, or changes to existing commands and saved results. Name a simpler or safer variant if one exists.
+3. Wait until the user explicitly approves the wording. A request for the feature alone is not approval.
+4. Add the approved requirement to requirements.md with its acceptance section, binding, and proposal, as described above. Record the raised risks and the user's decisions in the proposal.
+5. Implement the feature only if the user asked for that. If the approved requirement cannot be met as written, propose a revision instead of deviating silently.
 
 ## Architecture and change boundaries
 
