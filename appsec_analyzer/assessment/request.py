@@ -23,6 +23,7 @@ class AssessmentOptions:
     max_duration: int | None = None
     max_parallel: int | None = None
     test_cases: bool = False
+    test_case_aspects: tuple[str, ...] = ()
     pause_after: int | None = None
     model: str | None = None
     project: str | None = None
@@ -70,6 +71,7 @@ _FLAGS_WITH_VALUE = frozenset(
         "--max-calls",
         "--max-duration",
         "--max-parallel",
+        "--test-case-aspects",
         "--pause-after",
         "--model",
         "--project",

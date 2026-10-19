@@ -93,7 +93,11 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
-`test_cases` is `true` or `false` and defaults to `false`. When it is `true`, the assessment links scanner findings to the named security test cases of the [test case catalog](security-assessment.md#security-test-cases) and records an outcome for each test case that scanner results can decide. This makes no additional model calls. A value that is not a boolean is rejected before the host check or any retrieval.
+`test_cases` is `true`, `false`, or an object, and defaults to `false`. When it is `true`, the assessment links scanner findings to the named security test cases of the [test case catalog](security-assessment.md#security-test-cases) and records an outcome for each test case that scanner results can decide. This makes no additional model calls.
+
+The object form has two optional fields. `aspects` lists the aspects to evaluate, a non-empty subset of `IAM`, `SessionMgmt`, `AuthZ`, `InputVal`, and `DataProt`; it defaults to all five. `disable` lists test cases to leave out, each as `id` (a catalog ID such as `TC-CI-01`, listed once) and a `reason` of 1 to 300 printable characters. A disabled test case reports the outcome `disabled` with the reason, and the scanner findings linked to it stay in the report. Any other value, an unknown aspect, an ID that is not in the catalog, or a missing or overlong reason is rejected before the host check or any retrieval.
+
+An organization profile can name test cases in `test_cases.required`. A scan profile that disables one of them is refused before the run state is created and before any model call, with a message naming the ID. Only the operator's profile files can disable a test case; a profile inside an assessed repository is rejected.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
 
@@ -223,6 +227,6 @@ The private assessment state stores the resolved profile, including each role's 
 
 Runs created before profile snapshots were introduced cannot resume through the new profile path. Start a new assessment when Analyzer reports this incompatibility. Existing `--profile claude`, `--profile codex`, and compatible legacy `--host` commands remain supported for new runs.
 
-`test_cases` is part of the saved configuration as well. Changing it requires a new run, and snapshots without it count as `false`.
+`test_cases` is part of the saved configuration as well. Changing it, including its aspects or disabled test cases, requires a new run, and snapshots without it count as `false`.
 
 `max_parallel` is part of the saved configuration. Changing it requires a new run. Snapshots created before this setting was recorded require a new run through the profile path; existing reports remain readable.

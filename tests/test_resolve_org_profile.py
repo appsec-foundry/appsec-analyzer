@@ -583,3 +583,58 @@ def test_analyst_block_carries_the_exploration_switch(tmp_path, block, allowed):
     from runtime.resolve_org_profile import analyst_packages
 
     assert analyst_packages({"analyst": {"default_packages": [], **block}}, tmp_path)["allow_exploration"] is allowed
+
+
+# ---------------------------------------------------------------------------
+# test_cases.required — test cases no scan profile may disable
+# ---------------------------------------------------------------------------
+
+
+def _profile_with_test_cases(tmp_path: Path, block: dict) -> Path:
+    import yaml
+
+    target_dir = tmp_path / "org-profile"
+    shutil.copytree(FIXTURE_DIR, target_dir)
+    path = target_dir / "org-profile.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["test_cases"] = block
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_required_test_cases_reach_the_effective_profile_sorted(isolated_root, tmp_path):
+    path = _profile_with_test_cases(tmp_path, {"required": ["TC-INFRA-01", "TC-CI-01"]})
+    effective, errors = rop.resolve(str(path), None, False, None, isolated_root, env={})
+    assert errors == []
+    assert effective["test_cases_required"] == ["TC-CI-01", "TC-INFRA-01"]
+
+
+def test_required_test_cases_default_to_none(isolated_root):
+    effective, errors = rop.resolve(str(FIXTURE_PATH), None, False, None, isolated_root, env={})
+    assert errors == [] and effective["test_cases_required"] == []
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"required": ["TC-CI-01", "TC-CI-01"]},
+        {"required": ["tc-ci-01"]},
+        {"required": ["TC-CI-01; rm -rf"]},
+        {"required": "TC-CI-01"},
+        {"disable": ["TC-CI-01"]},
+    ],
+)
+def test_malformed_required_test_cases_are_rejected(isolated_root, tmp_path, block):
+    path = _profile_with_test_cases(tmp_path, block)
+    _, errors = rop.resolve(str(path), None, False, None, isolated_root, env={})
+    assert errors
+
+
+def test_a_required_test_case_missing_from_the_catalog_is_rejected(tmp_path):
+    from validators.validate_org_profile import validate
+
+    path = _profile_with_test_cases(tmp_path, {"required": ["TC-CI-99"]})
+    import yaml
+
+    errors = validate(yaml.safe_load(path.read_text(encoding="utf-8")), path.parent, "0.4.0-beta")
+    assert any("unknown test case TC-CI-99" in error for error in errors)

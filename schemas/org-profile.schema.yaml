@@ -83,6 +83,24 @@ properties:
           any other host is rejected on top of the always-on SSRF guard
           (loopback / RFC1918 / cloud-metadata are blocked regardless).
 
+  test_cases:
+    type: object
+    additionalProperties: false
+    description: |
+      Org-wide security test case policy. Applies across every preset.
+    properties:
+      required:
+        type: array
+        maxItems: 200
+        uniqueItems: true
+        description: |
+          Test case IDs from the Analyzer's catalog that no scan profile may
+          disable. A scan profile that disables one of them is refused
+          before the run starts.
+        items:
+          type: string
+          pattern: "^TC-[A-Z]+-[0-9]{2}$"
+
   branding:
     type: object
     additionalProperties: false

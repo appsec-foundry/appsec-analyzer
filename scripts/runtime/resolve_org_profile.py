@@ -378,6 +378,7 @@ def resolve(
         "skill_toggles": {},
         "security_coach": None,
         "llm_policy": None,
+        "test_cases_required": [],
         "analyst": None,
     }
     if not profile_path:
@@ -462,6 +463,7 @@ def resolve(
         "skill_toggles": normalize_skill_toggles(profile),
         "security_coach": coach,
         "llm_policy": profile.get("llm_policy"),
+        "test_cases_required": sorted((profile.get("test_cases") or {}).get("required") or []),
         "analyst": analyst_packages(profile, profile_path.parent),
     }
     return base, []

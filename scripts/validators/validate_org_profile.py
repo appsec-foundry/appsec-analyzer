@@ -19,6 +19,7 @@ and then enforces semantic rules that JSON Schema alone cannot express:
     id, and use matcher only for PreToolUse / PostToolUse
   * skill_toggles keys must name a skill this build ships (derived from
     skills/*/SKILL.md, plus whatever the package policy removed)
+  * test_cases.required must name test cases of the shipped catalog
   * compatibility.core range must accept the current plugin version
 
 Exit codes
@@ -166,6 +167,17 @@ def _check_abuse_cases(profile: dict, profile_dir: Path) -> list[str]:
         return [f"abuse_cases: cannot load resolver: {exc}"]
     _, errors = rac.resolve_abuse_cases(profile, profile_dir, PLUGIN_ROOT)
     return [f"abuse_cases: {e}" for e in errors]
+
+
+def _check_test_cases(profile: dict) -> list[str]:
+    """Every required test case must exist in the shipped catalog."""
+    required = (profile.get("test_cases") or {}).get("required") or []
+    if not required:
+        return []
+    from model import case_outcomes
+
+    known = {case["id"] for case in case_outcomes.load_catalog()["test_cases"]}
+    return [f"test_cases.required: unknown test case {ident}" for ident in required if ident not in known]
 
 
 def _check_default_preset(profile: dict) -> list[str]:
@@ -506,6 +518,7 @@ def validate(profile: Any, profile_dir: Path, plugin_version: str | None = None)
     errors += _check_skill_toggles(profile)
     errors += _check_compatibility(profile, plugin_version or _read_plugin_version())
     errors += _check_abuse_cases(profile, profile_dir)
+    errors += _check_test_cases(profile)
     return errors
 
 

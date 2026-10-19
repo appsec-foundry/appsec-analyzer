@@ -803,7 +803,14 @@ def _assessment_session(
     if org_profile.get("active") and org_profile.get("path"):
         cfg["org_profile_path"] = org_profile["path"]
     cfg["max_parallel"] = budget.max_parallel
-    cfg["test_cases"] = test_cases
+    # False, or {"aspects": [...], "disable": [{"id", "reason"}]}; a bare True is the scanner-only form.
+    cfg["test_cases"] = test_cases = {"aspects": [], "disable": []} if test_cases is True else test_cases
+    try:
+        from appsec_analyzer.profiles import ProfileError, refuse_required_test_case_disable
+
+        refuse_required_test_case_disable(test_cases, cfg.get("org_profile_test_cases_required"))
+    except ProfileError as exc:
+        raise CallError(str(exc)) from exc
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
 
@@ -2372,6 +2379,13 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
     parser.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
     parser.add_argument("--test-cases", action="store_true", help="Set by the scan profile; not a public option.")
+    parser.add_argument(
+        "--test-case-aspects",
+        type=lambda text: tuple(text.split(",")),
+        default=(),
+        metavar="A,B",
+        help="Set by the scan profile; not a public option.",
+    )
     # appsec-analyzer runs one phase per invocation and continues with --resume.
     parser.add_argument(
         "--pause-after",
@@ -3347,7 +3361,11 @@ def _assessment_render(
             # REQ-040: links scanner findings to test cases and records the rules test case outcomes.
             from model import case_outcomes
 
-            model["test_case_results"] = case_outcomes.build_block(workspace, model.get("threats") or [])
+            model["test_case_results"] = case_outcomes.build_block(
+                workspace,
+                model.get("threats") or [],
+                {row["id"]: row["reason"] for row in cfg["test_cases"]["disable"]},
+            )
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -3599,6 +3617,18 @@ def assess_repositories(
             ns.max_calls = run_profile["settings"]["max_calls"]
     # Opened first, so every refusal after this still ends the file with its `end` record.
     _AssessmentProgress.open(ns.progress_file)
+    from appsec_analyzer.profiles import ProfileError, session_test_cases
+
+    try:
+        # False, or the aspects and disabled test cases this run evaluates.
+        ns.test_case_config = session_test_cases(
+            (run_profile or {}).get("settings", {}).get("test_cases"),
+            enabled=ns.test_cases,
+            aspects=ns.test_case_aspects,
+        )
+    except ProfileError as exc:
+        raise CallError(str(exc)) from exc
+    ns.test_cases = bool(ns.test_case_config)
     unsupported = sorted({arg.split("=", 1)[0] for arg in rest} & set(_ASSESSMENT_UNSUPPORTED))
     if unsupported:
         raise CallError(f"{', '.join(unsupported)} is not supported; the controller runs full assessments only")
@@ -3740,7 +3770,7 @@ def assess_repositories(
                 rebuild=ns.rebuild,
                 api_profile=api_profile,
                 run_profile=run_profile,
-                test_cases=ns.test_cases,
+                test_cases=ns.test_case_config,
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)

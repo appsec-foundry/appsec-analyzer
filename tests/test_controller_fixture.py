@@ -176,6 +176,32 @@ def test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
     assert all(t["rule_ids"] for t in linked)
 
 
+def test_a_profile_disabled_test_case_reports_disabled_and_keeps_its_findings(tmp_path, monkeypatch):
+    import functools
+
+    from appsec_analyzer import profiles
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    profile = profiles.resolve_scan("claude")
+    reason = "managed by the platform team"
+    profile["settings"]["test_cases"] = {"aspects": ["IAM"], "disable": [{"id": "TC-CI-01", "reason": reason}]}
+    from orchestrator import orchestration_controller as controller
+
+    monkeypatch.setattr(
+        controller, "assess_repositories", functools.partial(controller.assess_repositories, run_profile=profile)
+    )
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    rows = {row["test_case_id"]: row for row in model["test_case_results"]["results"]}
+    assert rows["TC-CI-01"]["outcome"] == "disabled" and rows["TC-CI-01"]["reason"] == reason
+    assert rows["TC-INFRA-01"]["outcome"] != "disabled"
+    # A disabled test case keeps its scanner findings visible and linked.
+    linked = [t["id"] for t in model["threats"] if "TC-CI-01" in t.get("test_case_ids", [])]
+    assert rows["TC-CI-01"]["finding_ids"] == linked
+
+
 def test_test_cases_stay_out_of_the_model_and_report_by_default(tmp_path, monkeypatch):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())

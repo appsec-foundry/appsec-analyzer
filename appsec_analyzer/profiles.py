@@ -43,6 +43,8 @@ ROLES = (
     "ms_renderer",
     "secarch_renderer",
 )
+# Aspects with a model investigation in the pilot; the object form of test_cases selects among them.
+TEST_CASE_ASPECTS = ("IAM", "SessionMgmt", "AuthZ", "InputVal", "DataProt")
 NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 MAX_BYTES = 65_536
 
@@ -136,6 +138,58 @@ def validate(document: dict, kind: str) -> None:
         # Do not print the instance: a mistyped field may hold a credential.
         location = ".".join(str(p) for p in error.schema_path if p != "properties")
         raise ProfileError(f"invalid {kind} profile ({location})")
+
+
+def normalize_test_cases(value):
+    """The test_cases setting as false, true, or {"aspects": [...], "disable": [{"id", "reason"}]}.
+
+    The object form is sorted and unique so equal settings share one identity. Every disabled ID
+    must exist in the shipped test case catalog; the schema has already bounded the other fields."""
+    if type(value) is bool:
+        return value
+    if not isinstance(value, dict):
+        raise ProfileError("test_cases must be true, false, or an object")
+    aspects = value.get("aspects", list(TEST_CASE_ASPECTS))
+    if any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects):
+        raise ProfileError("test_cases.aspects must be unique pilot aspects")
+    disable = value.get("disable", [])
+    ids = [row["id"] for row in disable]
+    if len(set(ids)) != len(ids):
+        raise ProfileError("test_cases.disable names a test case twice")
+    known = {
+        case["id"] for case in yaml.safe_load((resource_root() / "data/test-cases.yaml").read_text())["test_cases"]
+    }
+    if unknown := sorted(set(ids) - known):
+        raise ProfileError(f"test_cases.disable names unknown test case {unknown[0]}")
+    return {
+        "aspects": [item for item in TEST_CASE_ASPECTS if item in aspects],
+        "disable": [{"id": row["id"], "reason": row["reason"]} for row in sorted(disable, key=lambda row: row["id"])],
+    }
+
+
+def session_test_cases(setting, *, enabled: bool = False, aspects=()):
+    """What one run evaluates: False, or {"aspects": [...], "disable": [...]}.
+
+    ``aspects`` is empty for the boolean form (every scanner-based test case, no model investigation).
+    The internal ``--test-cases`` and ``--test-case-aspects`` flags can only switch the feature on or
+    narrow the aspects; only the profile setting can disable a test case."""
+    setting = normalize_test_cases(setting if setting is not None else False)
+    base = setting if isinstance(setting, dict) else {"aspects": [], "disable": []}
+    if not (setting or enabled or aspects):
+        return False
+    if aspects:
+        if any(item not in TEST_CASE_ASPECTS for item in aspects):
+            raise ProfileError("test case aspects must be pilot aspects")
+        base = {**base, "aspects": [item for item in TEST_CASE_ASPECTS if item in aspects]}
+    return base
+
+
+def refuse_required_test_case_disable(test_cases, required) -> None:
+    """Refuse a run that disables a test case the organization profile requires."""
+    if not isinstance(test_cases, dict):
+        return
+    if conflict := sorted({row["id"] for row in test_cases["disable"]} & set(required or ())):
+        raise ProfileError(f"test case {conflict[0]} is required by the organization profile and cannot be disabled")
 
 
 def catalog() -> dict:
@@ -313,8 +367,7 @@ def resolve_scan(
         if value is not None:
             _assign(settings, provenance, {key: value}, "CLI")
     settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
-    if type(settings["test_cases"]) is not bool:
-        raise ProfileError("test_cases must be true or false")
+    settings["test_cases"] = normalize_test_cases(settings["test_cases"])
     try:
         validate_max_parallel(settings["max_parallel"])
     except ValueError as exc:

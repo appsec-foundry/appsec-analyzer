@@ -1987,6 +1987,7 @@ def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, 
                 "org_profile_context_documents": [],
                 "org_profile_security_coach": None,
                 "org_profile_llm_policy": None,
+                "org_profile_test_cases_required": [],
             }
         effective, errors = rop.resolve(
             ns.org_profile,
@@ -2009,6 +2010,7 @@ def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, 
         "org_profile_context_documents": effective.get("llm_context_documents") or [],
         "org_profile_security_coach": effective.get("security_coach"),
         "org_profile_llm_policy": effective.get("llm_policy"),
+        "org_profile_test_cases_required": effective.get("test_cases_required") or [],
     }
     if not effective["org_profile"].get("active"):
         return org_block

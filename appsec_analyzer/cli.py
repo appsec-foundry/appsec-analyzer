@@ -957,7 +957,9 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
     ns.assessment_depth = profile["settings"]["assessment_depth"]
     ns.hard_budget = profile["settings"]["budget"]
     ns.max_parallel = profile["settings"]["max_parallel"]
-    ns.test_cases = profile["settings"]["test_cases"]
+    test_cases = profile["settings"]["test_cases"]
+    ns.test_cases = bool(test_cases)
+    ns.test_case_aspects = tuple(test_cases["aspects"]) if isinstance(test_cases, dict) else ()
     ns.abuse_case_file = profile["settings"]["abuse_case_files"]
     for output in OUTPUTS[2:]:
         setattr(ns, output.replace("-", "_"), output in selected)
@@ -1088,6 +1090,8 @@ def _assess(ns: argparse.Namespace) -> int:
         args.append("--requirements")
         if ns.requirements:
             args.append(ns.requirements)
+    if aspects := getattr(ns, "test_case_aspects", ()):
+        args += ["--test-case-aspects", ",".join(aspects)]
     for path in ns.abuse_case_file:
         args.append(f"--abuse-case-file={path}")
     if ns.slug is not None:
