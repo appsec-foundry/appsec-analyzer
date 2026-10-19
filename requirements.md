@@ -22,6 +22,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-004:** **Find relevant security risks.** The analysis looks for weaknesses in how each component is built and in the design it relies on. The report shows which kinds of threats were considered and where the analysis is incomplete.
 
+- **REQ-040:** **Trace findings to named checks.** The assessment checks security aspects through named test cases and also looks for weaknesses outside them, such as insecure business logic. The live progress shows test case progress. The completion summary and the report show for each test case whether it found a weakness, confirmed a protecting control at every relevant location or only at some, found neither, could not decide, did not apply, or was disabled. Each finding links the test cases and scanner rules behind it, or is marked as found outside the test catalog. Teams can disable individual test cases with a recorded reason; a disabled test case never counts as a confirmed control and never hides a finding.
+
 - **REQ-005:** **Understand the architecture.** The report explains what needs protecting, who uses the system, and how its components and external services exchange data. It shows where those exchanges cross access or trust boundaries.
 
 - **REQ-006:** **Understand security controls.** For each relevant control, the report explains whether the evidence supports it, shows a problem, or leaves its effectiveness uncertain. Missing and inapplicable controls are identified separately. A claim in documentation or an absence of findings does not prove that a control works.

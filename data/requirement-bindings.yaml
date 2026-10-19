@@ -366,6 +366,22 @@ requirements:
       - tests/test_validate_fragment.py::test_verdict_rejects_inconsistent_colour_and_refs
       - tests/test_validate_fragment.py::test_verdict_accepts_residual_risk_without_release_approval
 
+  REQ-040:
+    applies_to:
+      - data/source-auth-checks.yaml
+      - data/config-iac-checks.yaml
+      - data/crypto-checks.yaml
+      - data/architecture-coverage-rules.yaml
+      - data/architectural-controls.yaml
+      - scripts/model/merge_threats.py
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - docs/internal/contracts/requirement-acceptance.md
+      - docs/internal/analysis/aspect-test-cases-proposal-2026-10-19.md
+    coverage: advisory
+    guards: []
+
   REQ-005:
     applies_to:
       - scripts/orchestrator/orchestration_controller.py
