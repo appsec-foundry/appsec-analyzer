@@ -116,14 +116,14 @@ def test_entry_skill_scanner_example_runs_without_a_model_host(tmp_path: Path) -
 
 def test_scan_bad_or_missing_options_show_text_errors() -> None:
     for args in (
-        ("scan", "--budget"),
-        ("scan", "--hard-budget", "0"),
-        ("scan", "--hard-budget", "nan"),
-        ("scan", "--hard-budget", "20", "--assessment-depth", "invalid"),
-        ("scan", "--profile", "unknown-provider"),
-        ("scan", "--hard-budget", "20", "--pentest-target", "file:///etc/passwd"),
-        ("scan", "--hard-budget", "20", "--pentest-target", "http://localhost:3000\x01x"),
-        ("scan", "--hard-budget", "20", "--slug", "../escape"),
+        ("assess", "--budget"),
+        ("assess", "--hard-budget", "0"),
+        ("assess", "--hard-budget", "nan"),
+        ("assess", "--hard-budget", "20", "--assessment-depth", "invalid"),
+        ("assess", "--profile", "unknown-provider"),
+        ("assess", "--hard-budget", "20", "--pentest-target", "file:///etc/passwd"),
+        ("assess", "--hard-budget", "20", "--pentest-target", "http://localhost:3000\x01x"),
+        ("assess", "--hard-budget", "20", "--slug", "../escape"),
     ):
         result = _run(*args)
         assert result.returncode != 0
@@ -273,7 +273,7 @@ def test_audit_discloses_transmission_before_first_model_operation(tmp_path, mon
     )
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize(
     "budget_args, expected",
     [([], 20.0), (["--budget", "20"], 20.0), (["--budget", "7.5"], 7.5), (["--hard-budget", "3"], 3.0)],
@@ -317,7 +317,7 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
     assert ("default for the scan profile" in rows["Budget"]) is (not budget_args)
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 def test_non_interactive_reaches_the_controller_and_is_documented(tmp_path, monkeypatch, command):
     from appsec_analyzer import cli, hosts
 
@@ -371,7 +371,7 @@ def test_public_budget_reaches_requirements_audit(tmp_path, monkeypatch, capsys,
     assert json.loads(captured.out)["kind"] == "requirements-audit"
 
 
-@pytest.mark.parametrize("command", ["scan", "audit-requirements"])
+@pytest.mark.parametrize("command", ["assess", "audit-requirements"])
 @pytest.mark.parametrize("flag", ["--budget", "--hard-budget"])
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "invalid"])
 def test_public_budget_rejects_invalid_values_before_host(tmp_path, monkeypatch, capsys, command, flag, value):
@@ -389,7 +389,7 @@ def test_public_budget_rejects_invalid_values_before_host(tmp_path, monkeypatch,
     assert "positive finite USD amount" in captured.err
 
 
-@pytest.mark.parametrize("command, default", [("scan", 20), ("audit-requirements", 5)])
+@pytest.mark.parametrize("command, default", [("assess", 20), ("audit-requirements", 5)])
 def test_public_budget_help_documents_default_and_alias(command, default):
     result = _run(command, "--help")
     assert result.returncode == 0

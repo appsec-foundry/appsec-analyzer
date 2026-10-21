@@ -565,7 +565,7 @@ def test_scan_rejects_an_unset_platform_token_variable(monkeypatch, capsys):
     monkeypatch.delenv("PLATSEC_TEST_TOKEN", raising=False)
     code = cli.main(
         [
-            "scan",
+            "assess",
             "--repo",
             GH,
             "--output",

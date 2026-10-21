@@ -85,7 +85,7 @@ def test_max_parallel_defaults_profile_cli_and_provenance(home):
     assert configured["definition_sha256"] != override["definition_sha256"]
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize("override, expected", [(None, 4), (1, 1), (16, 16)])
 def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     home, tmp_path, monkeypatch, command, override, expected
@@ -116,7 +116,7 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     assert seen["profile"]["settings"]["max_parallel"] == expected
 
 
-@pytest.mark.parametrize("command", ["scan", "profiles show", "profiles validate"])
+@pytest.mark.parametrize("command", ["assess", "profiles show", "profiles validate"])
 @pytest.mark.parametrize("value", ["0", "-1", "17", "2.5", "true", "many"])
 def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypatch, command, value):
     from appsec_analyzer import hosts
@@ -189,7 +189,7 @@ def test_invalid_scan_profiles_fail_before_host_or_checkout(home, monkeypatch, p
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("no host"))
     monkeypatch.setattr(remote_repositories, "checkout_arguments", lambda *a: pytest.fail("no checkout"))
-    assert cli.main(["scan", "--profile", "bad"]) == 2
+    assert cli.main(["assess", "--profile", "bad"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -220,7 +220,7 @@ def test_abuse_case_profile_selection_and_cli_replacement(home):
     assert profiles.resolve_scan("release", abuse_case_files=[])["settings"]["abuse_case_files"] == []
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize("override", [False, True])
 def test_abuse_case_files_reach_controller_from_profile_or_cli(home, tmp_path, monkeypatch, command, override):
     from appsec_analyzer import hosts
@@ -258,7 +258,7 @@ def test_invalid_cli_abuse_case_path_stops_before_host(home, monkeypatch, value)
     from appsec_analyzer import hosts
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("no host"))
-    assert cli.main(["scan", "--abuse-case-file", value]) == 2
+    assert cli.main(["assess", "--abuse-case-file", value]) == 2
 
 
 def test_error_never_echoes_unknown_field_value(home, capsys):
@@ -355,7 +355,7 @@ def test_public_cli_passes_effective_budget_exports_and_role_settings(home, tmp_
     assert (
         cli.main(
             [
-                "scan",
+                "assess",
                 "--repo",
                 str(tmp_path / "repo"),
                 "--profile",

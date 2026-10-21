@@ -165,7 +165,7 @@ def test_assess_rejects_missing_operator_profile_before_host_call(tmp_path: Path
             sys.executable,
             "-m",
             "appsec_analyzer.cli",
-            "scan",
+            "assess",
             "--repo",
             str(repo),
             "--host",
@@ -208,7 +208,7 @@ def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, mon
     )
     ns = cli._parser().parse_args(
         [
-            "scan",
+            "assess",
             "--repo",
             str(repo),
             "--host",
@@ -238,7 +238,7 @@ def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, mon
     assert not any("_" in argument for argument in observed if argument.startswith("--"))
 
 
-def test_scan_starts_full_assessment_with_headless_defaults(tmp_path: Path, monkeypatch) -> None:
+def test_assess_starts_full_assessment_with_headless_defaults(tmp_path: Path, monkeypatch) -> None:
     from appsec_analyzer import cli, hosts
 
     cli._engine_imports()
@@ -255,7 +255,7 @@ def test_scan_starts_full_assessment_with_headless_defaults(tmp_path: Path, monk
         orchestration_controller, "assess_main", lambda arguments, **kwargs: observed.extend(arguments) or 0
     )
     arguments = [
-        "scan",
+        "assess",
         "--repo",
         str(repo),
         "--output",
@@ -300,7 +300,7 @@ def test_scan_starts_full_assessment_with_headless_defaults(tmp_path: Path, monk
     assert observed[observed.index("--slug") + 1] == "juice-shop-thorough-v0.6.0b5"
 
 
-def test_scan_kept_runtime_files_require_private_output(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_assess_kept_runtime_files_require_private_output(tmp_path: Path, monkeypatch, capsys) -> None:
     from appsec_analyzer import cli, hosts
 
     output = tmp_path / "public"
@@ -309,14 +309,14 @@ def test_scan_kept_runtime_files_require_private_output(tmp_path: Path, monkeypa
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not be called"))
     assert (
         cli.main(
-            ["scan", "--repo", str(tmp_path), "--output", str(output), "--hard-budget", "30", "--keep-runtime-files"]
+            ["assess", "--repo", str(tmp_path), "--output", str(output), "--hard-budget", "30", "--keep-runtime-files"]
         )
         == 2
     )
     assert "requires an existing private --output directory" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize(
     "depth, effort, output_cap",
     [
@@ -370,7 +370,7 @@ def test_openai_codex_profile_reaches_full_controller_without_claude_preflight(
     assert observed["arguments"][observed["arguments"].index("--assessment-depth") + 1] == depth
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
 def test_claude_profile_preserves_controller_model_resolution(tmp_path, monkeypatch, command, depth, git_root):
     from appsec_analyzer import cli, hosts
@@ -412,7 +412,7 @@ def test_codex_profile_selects_the_model_configured_for_each_depth(tmp_path, mon
     for depth in ("quick", "standard", "thorough"):
         monkeypatch.setitem(CODEX_PROFILES, depth, replace(CODEX_PROFILES[depth], model=f"test-{depth}"))
     for depth in ("quick", "standard", "thorough"):
-        assert cli.main(["scan", "--repo", str(tmp_path), "--profile", "codex", "--assessment-depth", depth]) == 0
+        assert cli.main(["assess", "--repo", str(tmp_path), "--profile", "codex", "--assessment-depth", depth]) == 0
     assert observed == ["test-quick", "test-standard", "test-thorough"]
 
 
@@ -434,7 +434,7 @@ def test_codex_profile_selects_the_model_configured_for_each_depth(tmp_path, mon
         (["--profile", "codex", "--merger-model", "opus"], "cannot be used"),
     ],
 )
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 def test_codex_profile_invalid_combinations_fail_before_host(tmp_path, monkeypatch, capsys, command, extra, message):
     from appsec_analyzer import cli, hosts
 
@@ -458,26 +458,26 @@ def test_codex_profile_invalid_combinations_fail_before_host(tmp_path, monkeypat
         [],
     ],
 )
-def test_non_interactive_scan_requires_repo_and_explicit_provider(tmp_path, monkeypatch, capsys, arguments):
+def test_non_interactive_assess_requires_repo_and_explicit_provider(tmp_path, monkeypatch, capsys, arguments):
     from appsec_analyzer import cli, hosts
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not be called"))
     arguments = [value.format(repo=tmp_path) for value in arguments]
-    assert cli.main(["scan", "--non-interactive", *arguments]) == 2
+    assert cli.main(["assess", "--non-interactive", *arguments]) == 2
     assert "requires --repo and an explicit --profile" in capsys.readouterr().err
 
 
-def test_assess_command_is_removed(capsys):
+def test_scan_command_is_removed(capsys):
     from appsec_analyzer import cli
 
     with pytest.raises(SystemExit) as error:
-        cli.main(["assess", "--repo", "."])
+        cli.main(["scan", "--repo", "."])
     assert error.value.code == 2
-    assert "invalid choice: 'assess'" in capsys.readouterr().err
+    assert "invalid choice: 'scan'" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 def test_model_profile_defaults_to_standard_depth(command):
     from appsec_analyzer import cli
 
@@ -610,12 +610,12 @@ def test_claude_host_defaults_and_explicit_limits(depth, budget, tmp_path, monke
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    ns = cli._parser().parse_args(["scan", "--repo", str(repo), "--interactive-launch", "--assessment-depth", depth])
+    ns = cli._parser().parse_args(["assess", "--repo", str(repo), "--interactive-launch", "--assessment-depth", depth])
     cli._prepare_profile(ns)
     assert ns.hard_budget == budget and ns.max_parallel == 3 and ns.width == 72 and ns.non_interactive
     ns = cli._parser().parse_args(
         [
-            "scan",
+            "assess",
             "--repo",
             str(repo),
             "--interactive-launch",
@@ -637,8 +637,8 @@ def test_claude_host_rejects_provider_switch_and_keeps_deprecated_budget(tmp_pat
     from appsec_analyzer import cli
 
     with pytest.raises(ValueError, match="requires the Claude"):
-        cli._prepare_profile(cli._parser().parse_args(["scan", "--interactive-launch", "--profile", "codex"]))
-    ns = cli._parser().parse_args(["scan", "--interactive-launch", "--soft-budget", "8"])
+        cli._prepare_profile(cli._parser().parse_args(["assess", "--interactive-launch", "--profile", "codex"]))
+    ns = cli._parser().parse_args(["assess", "--interactive-launch", "--soft-budget", "8"])
     cli._prepare_profile(ns)
     assert ns.hard_budget == 10
 
@@ -684,7 +684,7 @@ def test_launch_defaults_preserve_compatibility_identity_without_display_setting
     from appsec_analyzer import cli
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "configuration"))
-    base = ["scan", "--assessment-depth", depth, *options]
+    base = ["assess", "--assessment-depth", depth, *options]
     legacy = cli._parser().parse_args([*base, "--interactive-launch"])
     canonical = cli._parser().parse_args([*base, "--launch-defaults", "advisor"])
     for ns in (legacy, canonical):
@@ -698,8 +698,8 @@ def test_launch_defaults_reject_provider_switch_without_changing_standalone_defa
     from appsec_analyzer import cli
 
     with pytest.raises(ValueError, match="requires the Claude"):
-        cli._prepare_profile(cli._parser().parse_args(["scan", "--launch-defaults=advisor", "--profile", "codex"]))
-    ns = cli._parser().parse_args(["scan", "--assessment-depth", "thorough"])
+        cli._prepare_profile(cli._parser().parse_args(["assess", "--launch-defaults=advisor", "--profile", "codex"]))
+    ns = cli._parser().parse_args(["assess", "--assessment-depth", "thorough"])
     cli._prepare_profile(ns)
     assert ns.hard_budget == 20 and ns.max_parallel == 2
     assert ns.width is None and not ns.non_interactive
@@ -721,7 +721,7 @@ def test_launch_defaults_own_progress_path(tmp_path, monkeypatch, git_root, expl
     assert (
         cli.main(
             [
-                "scan",
+                "assess",
                 "--repo",
                 str(tmp_path),
                 "--output",

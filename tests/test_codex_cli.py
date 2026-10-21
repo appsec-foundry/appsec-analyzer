@@ -337,7 +337,7 @@ def test_request_capacity_includes_instructions_schema_and_utf8(transport, monke
 
 
 @pytest.mark.parametrize("budget,expected", [(None, 0), (20, 2)])
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize("parallel", [None, 1])
 def test_public_subscription_selection(tmp_path, monkeypatch, budget, expected, command, parallel):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
@@ -579,7 +579,7 @@ def test_preflight_timeout_is_an_actionable_public_error(tmp_path, monkeypatch, 
         raise HostTimeout("fixture")
 
     monkeypatch.setattr(codex_cli, "_run", run)
-    assert cli.main(["scan", "--repo", str(tmp_path), "--profile", "codex-cli"]) == 2
+    assert cli.main(["assess", "--repo", str(tmp_path), "--profile", "codex-cli"]) == 2
     assert "preflight failed" in capsys.readouterr().err
 
 

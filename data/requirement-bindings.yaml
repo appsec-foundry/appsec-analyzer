@@ -1273,7 +1273,7 @@ requirements:
       - tests/test_public_assessment_operations.py::test_claude_profile_preserves_controller_model_resolution
       - tests/test_public_assessment_operations.py::test_codex_profile_selects_the_model_configured_for_each_depth
       - tests/test_public_assessment_operations.py::test_codex_profile_invalid_combinations_fail_before_host
-      - tests/test_public_assessment_operations.py::test_non_interactive_scan_requires_repo_and_explicit_provider
+      - tests/test_public_assessment_operations.py::test_non_interactive_assess_requires_repo_and_explicit_provider
 
   REQ-019:
     applies_to:
@@ -2009,4 +2009,4 @@ requirements:
       - tests/test_assessment_location.py::test_a_level_open_to_others_is_refused
       - tests/test_agent_logger_cov.py::TestOutputDir::test_a_session_without_an_assessment_writes_nothing
       - tests/test_public_scan_cli.py::test_scan_refuses_output_inside_checkout
-      - tests/test_public_assessment_operations.py::test_scan_kept_runtime_files_require_private_output
+      - tests/test_public_assessment_operations.py::test_assess_kept_runtime_files_require_private_output

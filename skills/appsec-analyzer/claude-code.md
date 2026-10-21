@@ -27,7 +27,7 @@ An existing completed result never grants rebuild consent. Pass `--rebuild` only
 Start this fixed invocation as a background Bash command with literal arguments and the host's existing permitted model-network access:
 
 ```sh
-appsec-analyzer scan --repo <repo> --output <output> --host claude-cli --non-interactive <remaining-options>
+appsec-analyzer assess --repo <repo> --output <output> --host claude-cli --non-interactive <remaining-options>
 ```
 
 The outer invocation authorizes only the requested assessment's model use. With no budget override the effective depth selects a hard ceiling of USD 10/20/40 for quick/standard/thorough. State that ceiling before launch; use public organization-config inspection when a preset selects the depth. Explicit budgets win. The binding selects `--launch-defaults advisor` for budgets and concurrency, Claude CLI for execution, and `--non-interactive` to prevent budget questions. It defaults display width to 72 unless explicitly selected. The engine owns progress-feed creation; supply no private filename. Retained `--interactive-launch` calls translate once at the compatibility boundary. Model role overrides, mandatory organization restrictions, outputs, deadlines, source restrictions and failure statuses remain engine-owned.

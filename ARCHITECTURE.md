@@ -12,7 +12,7 @@ The main execution paths are:
 flowchart TD
     CLI[appsec-analyzer CLI] --> Score[score: application workflow]
     CLI --> Analyst[analyze-threats: terminal adapter and preparation]
-    CLI --> Request[scan: AssessmentRequest]
+    CLI --> Request[assess: AssessmentRequest]
     CLI --> Scanners[scan-sources: deterministic scanners]
     CLI --> Export[export: validated saved artifacts and deterministic converters]
     CLI --> Review[review: saved assessment and interactive assistant handoff]
@@ -22,7 +22,7 @@ flowchart TD
     AssessmentController --> Console[Assessment console]
 ```
 
-This diagram shows workflow ownership rather than every Python import. `scan-sources` and `score` run without model calls. `scan` use the same model-backed assessment pipeline; focused analysis uses its own analyst lifecycle.
+This diagram shows workflow ownership rather than every Python import. `scan-sources` and `score` run without model calls. `assess` uses the same model-backed assessment pipeline; focused analysis uses its own analyst lifecycle.
 
 ## Workflow ownership
 

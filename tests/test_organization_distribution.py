@@ -42,7 +42,7 @@ def test_bundled_defaults_apply_before_assessment_without_environment_or_cwd_loo
     monkeypatch.setenv("APPSEC_ADVISOR_ORG_PROFILE", "/not-the-bundled-profile.yaml")
     seen = []
     monkeypatch.setattr(cli, "_assess", lambda ns: seen.append(ns) or 0)
-    assert organization.main("nordlicht_appsec", ["scan", "--repo", str(tmp_path / "application")]) == 0
+    assert organization.main("nordlicht_appsec", ["assess", "--repo", str(tmp_path / "application")]) == 0
     assert seen[0].org_profile == str(bundle / "org-profile.yaml")
     assert seen[0].run_profile["settings"]["budget"] == 20
     assert seen[0].run_profile["settings"]["outputs"] == ["markdown", "yaml", "sarif"]
@@ -53,7 +53,7 @@ def test_bundled_defaults_apply_before_assessment_without_environment_or_cwd_loo
 def test_explicit_operator_choices_override_distribution_defaults(bundle, monkeypatch, override):
     seen = []
     monkeypatch.setattr(cli, "_assess", lambda ns: seen.append(ns) or 0)
-    assert organization.main("nordlicht_appsec", ["scan", "--profile=claude", "--budget=5", override]) == 0
+    assert organization.main("nordlicht_appsec", ["assess", "--profile=claude", "--budget=5", override]) == 0
     assert seen[0].run_profile["settings"]["budget"] == 5
     assert seen[0].org_profile == (None if override == "--no-org-profile" else "/operator/profile.yaml")
     assert seen[0].no_org_profile == (override == "--no-org-profile")
@@ -71,7 +71,7 @@ def test_show_and_validate_do_not_start_assessment(bundle, monkeypatch, capsys):
 def test_incompatible_or_unknown_manifest_fields_fail_before_dispatch(bundle, monkeypatch, capsys, field, value):
     change(bundle / "organization.yaml", **{field: value})
     monkeypatch.setattr(cli, "main", lambda *a, **kw: pytest.fail("Invalid package cannot reach the CLI"))
-    assert organization.main("nordlicht_appsec", ["scan"]) == 2
+    assert organization.main("nordlicht_appsec", ["assess"]) == 2
     assert "error:" in capsys.readouterr().err
 
 
@@ -123,7 +123,7 @@ def test_invalid_context_and_advisor_only_integration_are_rejected(bundle):
 
 def test_distribution_cannot_be_selected_from_assessed_sources(bundle, monkeypatch):
     monkeypatch.setattr(cli, "_assess", lambda ns: pytest.fail("Source-owned defaults cannot reach a host"))
-    assert organization.main("nordlicht_appsec", ["scan", "--repo", str(bundle)]) == 2
+    assert organization.main("nordlicht_appsec", ["assess", "--repo", str(bundle)]) == 2
 
 
 @pytest.fixture(scope="module")
@@ -218,7 +218,7 @@ def test_installed_profiles_reach_actual_runtime_resolution(installed):
                     "from appsec_analyzer import cli, resource_root",
                     "from appsec_analyzer.organization import load",
                     "bundle = load('nordlicht_appsec')",
-                    "ns = cli._parser(organization=bundle).parse_args(['scan','--repo',"
+                    "ns = cli._parser(organization=bundle).parse_args(['assess','--repo',"
                     + repr(str(root / "project"))
                     + "])",
                     "bundle.apply(ns)",
@@ -304,7 +304,7 @@ def test_installed_command_fails_closed_when_its_org_profile_is_missing(installe
     backup = path.with_suffix(".backup")
     path.rename(backup)
     try:
-        result = run_installed(installed, "scan", "--repo", "/does-not-exist")
+        result = run_installed(installed, "assess", "--repo", "/does-not-exist")
         assert result.returncode == 2
         assert "profile is missing" in result.stderr
         assert "Model budget" not in result.stderr
@@ -387,7 +387,7 @@ def test_composition_config_preserves_defaults_and_mandatory_policy(tmp_path, ca
     assert result["defaults"]["assessment_depth"] == expected
     assert result["policy"] == document["profile"]["policy"]
     assert result["score_uses_assessment_depth"] is False
-    assert result["supported_commands"] == ["score", "scan"]
+    assert result["supported_commands"] == ["score", "assess"]
 
 
 @pytest.mark.parametrize(
@@ -502,9 +502,9 @@ def test_composition_missing_source_retains_operational_exit_with_ancestor_git_m
 @pytest.mark.parametrize(
     "command,flags,depth",
     [
-        ("scan", [], "standard"),
-        ("scan", ["--assessment-depth=quick"], "quick"),
-        ("scan", ["--profile=claude", "--assessment-depth=thorough"], "thorough"),
+        ("assess", [], "standard"),
+        ("assess", ["--assessment-depth=quick"], "quick"),
+        ("assess", ["--profile=claude", "--assessment-depth=thorough"], "thorough"),
     ],
 )
 def test_composed_assessment_reaches_existing_resolver_without_model_access(
@@ -584,7 +584,7 @@ def test_composed_assessment_inspection_resolves_preset_and_clamps_models(
                 "--preset",
                 "release",
                 "--",
-                "scan",
+                "assess",
                 "--repo",
                 "/neutral/service",
                 "--model=opus",
@@ -603,20 +603,20 @@ def test_composed_assessment_inspection_resolves_preset_and_clamps_models(
 @pytest.mark.parametrize(
     "arguments",
     [
-        ["scan", "--repo", "https://outside.example.net/project.git"],
+        ["assess", "--repo", "https://outside.example.net/project.git"],
         [
-            "scan",
+            "assess",
             "--profile=codex",
             "--repo",
             "/neutral/source",
             "--repo",
             "git@git.example.org.attacker.net:team/service.git",
         ],
-        ["scan", "--repo", "/neutral/source", "--requirements=https://outside.example.net/catalog.yaml"],
-        ["scan", "--repo", "/neutral/source", "--context=https://outside.example.net/context.md"],
-        ["scan", "--repo", "/neutral/source", "--no-org-profile"],
-        ["scan", "--repo", "/neutral/source", "--org-profile=/unchecked.yaml"],
-        ["scan", "--repo", "/neutral/source", "--preset=unchecked"],
+        ["assess", "--repo", "/neutral/source", "--requirements=https://outside.example.net/catalog.yaml"],
+        ["assess", "--repo", "/neutral/source", "--context=https://outside.example.net/context.md"],
+        ["assess", "--repo", "/neutral/source", "--no-org-profile"],
+        ["assess", "--repo", "/neutral/source", "--org-profile=/unchecked.yaml"],
+        ["assess", "--repo", "/neutral/source", "--preset=unchecked"],
     ],
 )
 def test_composed_assessment_rejects_policy_bypasses_before_preparation(tmp_path, monkeypatch, arguments):
@@ -646,7 +646,7 @@ def test_composed_assessment_checks_original_profile_against_every_source(tmp_pa
                 "--profile-source",
                 str(origin),
                 "--",
-                "scan",
+                "assess",
                 "--repo",
                 "/other/source",
                 *flags,
@@ -690,7 +690,7 @@ def test_composed_assessment_controller_consumes_policy_and_resumes_with_relocat
     for index in (0, 1):
         relocated = tmp_path / ("config-" + str(index) + ".yaml")
         relocated.write_text(json.dumps(document))
-        ns = cli._parser().parse_args(["scan", "--repo", str(root)])
+        ns = cli._parser().parse_args(["assess", "--repo", str(root)])
         organization._configured_assessment(ns, organization.load_config(relocated), "daily", None)
         with controller._assessment_session(
             scope,
@@ -709,7 +709,7 @@ def test_composed_assessment_controller_consumes_policy_and_resumes_with_relocat
     from runtime.assessment_host import ExchangeError
 
     document["profile"]["policy"]["url_allowlist"] = ["changed.example.org"]
-    ns = cli._parser().parse_args(["scan", "--repo", str(root)])
+    ns = cli._parser().parse_args(["assess", "--repo", str(root)])
     organization._configured_assessment(ns, document, "daily", None)
     with (
         pytest.raises(ExchangeError, match="settings|configuration"),
@@ -746,7 +746,7 @@ def test_composed_assessment_provider_policy_precedes_credentials(tmp_path, monk
             "--config",
             str(path),
             "--",
-            "scan",
+            "assess",
             "--profile=lite",
             "--repo",
             "/neutral/source",

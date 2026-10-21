@@ -122,17 +122,17 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             nargs="+",
             choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
         )
-    scan = commands.add_parser(
-        "scan",
+    assess = commands.add_parser(
+        "assess",
         help="Run the full headless security assessment with live progress",
         description="Assess the selected repository with live progress and publish security reports.",
         epilog=(
             "Bundled organization and scan profiles are selected automatically; explicit options override defaults."
             if organization
-            else "Example: appsec-analyzer scan (USD 20 budget); override with --budget USD"
+            else "Example: appsec-analyzer assess (USD 20 budget); override with --budget USD"
         ),
     )
-    _add_assessment_arguments(scan, default_repo=True, organization=organization)
+    _add_assessment_arguments(assess, default_repo=True, organization=organization)
     preflight = commands.add_parser(
         "preflight",
         help="Check Git read access and provider setup without starting an assessment",
@@ -559,7 +559,7 @@ def _capabilities() -> dict:
     return {
         "interface_version": INTERFACE_VERSION,
         "engine_version": ENGINE_VERSION,
-        "scan": {"available": True, "model_calls": True},
+        "assess": {"available": True, "model_calls": True},
         "assessment_entry": {"available": True, "schema_version": 1, "model_calls": False},
         "query": {"available": True, "model_calls": False},
         **{name: {"available": True} for name in ("status", "progress", "stop", "results")},
@@ -872,7 +872,7 @@ def _scan_summary(result: dict, *, output: str | None) -> str:
     lines.extend(
         [
             "\nFull assessment was not run.",
-            "For the full assessment: appsec-analyzer scan --repo PATH --budget USD",
+            "For the full assessment: appsec-analyzer assess --repo PATH --budget USD",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -1325,9 +1325,9 @@ def _authnz(ns: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None, *, organization=None) -> int:
     ns = _parser(organization=organization).parse_args(argv)
     if ns.command == "preflight":
-        # Share scan defaults and profile resolution without accepting assessment-only options.
+        # Share assessment defaults and profile resolution without accepting assessment-only options.
         supplied = {key: value for key, value in vars(ns).items() if value is not None}
-        ns = _parser(organization=organization).parse_args(["scan"])
+        ns = _parser(organization=organization).parse_args(["assess"])
         vars(ns).update(supplied)
     try:
         if ns.command == "assessment-entry":
@@ -1396,7 +1396,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     document["valid"] = True
                 print(json.dumps(document, indent=2, sort_keys=True))
                 return 0
-            if ns.command in ("scan", "preflight"):
+            if ns.command in ("assess", "preflight"):
                 organization.apply(ns)
         if ns.command == "profiles":
             from appsec_analyzer.profiles import DEPTHS, list_profiles, resolve_scan
@@ -1432,9 +1432,9 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                     }
             print(json.dumps(document, indent=2, sort_keys=True))
             return 0
-        if ns.command == "scan" and ns.non_interactive and not (ns.repo and (ns.profile or ns.host)):
-            raise ValueError("scan --non-interactive requires --repo and an explicit --profile (or legacy --host)")
-        if ns.command in ("scan", "preflight"):
+        if ns.command == "assess" and ns.non_interactive and not (ns.repo and (ns.profile or ns.host)):
+            raise ValueError("assess --non-interactive requires --repo and an explicit --profile (or legacy --host)")
+        if ns.command in ("assess", "preflight"):
             _prepare_profile(ns)
         if ns.command == "audit-requirements":
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
@@ -1468,7 +1468,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             from analyzers.repo_profile import main as repo_profile
 
             return repo_profile(["--repo", ns.repo, *(["--json"] if ns.json else [])])
-        if ns.command in ("scan", "preflight"):
+        if ns.command in ("assess", "preflight"):
             return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)

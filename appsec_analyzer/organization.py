@@ -107,7 +107,7 @@ def main(package: str, argv: list[str] | None = None) -> int:
 CONFIG_CAPABILITY = {
     "available": True,
     "schema_version": 1,
-    "commands": ["score", "scan"],
+    "commands": ["score", "assess"],
     "profile_source_validation": True,
     "profile_fields": ["policy.disable_opus", "policy.url_allowlist", "presets.*.base_mode"],
 }
@@ -260,7 +260,7 @@ def config_command(namespace) -> int:
     from runtime.remote_repositories import parse_remote
 
     selections = list(repositories)
-    if parsed is not None and parsed.command in ("scan",):
+    if parsed is not None and parsed.command in ("assess",):
         selections.extend(value for value in (parsed.context, parsed.requirements) if value)
     allowlist = profile.get("policy", {}).get("url_allowlist", [])
     from urllib.parse import urlsplit
@@ -277,7 +277,7 @@ def config_command(namespace) -> int:
             and not any(host == allowed.lower() or host.endswith("." + allowed.lower()) for allowed in allowlist)
         ):
             raise ProfileError("Git or context destination is outside the organization allowlist")
-    if parsed is not None and parsed.command in ("scan",):
+    if parsed is not None and parsed.command in ("assess",):
         _configured_assessment(parsed, document, preset, namespace.config_depth)
     if namespace.config_action != "run":
         print(
@@ -293,7 +293,7 @@ def config_command(namespace) -> int:
                     "score_uses_assessment_depth": False,
                     **(
                         {"workflow": parsed.command, "assessment_profile": parsed.run_profile}
-                        if parsed is not None and parsed.command in ("scan",)
+                        if parsed is not None and parsed.command in ("assess",)
                         else {}
                     ),
                 },
@@ -301,7 +301,7 @@ def config_command(namespace) -> int:
             )
         )
         return 0
-    if parsed.command in ("scan",):
+    if parsed.command in ("assess",):
         from appsec_analyzer.cli import _assess
 
         return _assess(parsed)

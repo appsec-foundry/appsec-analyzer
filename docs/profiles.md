@@ -7,15 +7,15 @@ A scan profile saves the settings you reuse: model selection, analysis depth, bu
 ## Start with the defaults
 
 ```sh
-appsec-analyzer scan --profile claude
-appsec-analyzer scan --profile codex
+appsec-analyzer assess --profile claude
+appsec-analyzer assess --profile codex
 ```
 
 `claude` and `codex` use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
 
 The built-in `codex` and `codex-cli` model profiles use Luna for `recon_scanner` with low reasoning effort at every depth. All other roles use Sol with low effort at quick depth, medium at standard, and high at thorough. The model aliases resolve through the installed [model catalog](../data/model-catalog.yaml). This split has offline routing coverage; assessment quality with Luna has not passed live qualification. Operator model defaults and role overrides still take precedence.
 
-Profiles apply to `scan`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
+Profiles apply to `assess`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
 
 Additional built-ins are `lite` for LiteLLM Responses and `bedrock` for native Bedrock Converse. They require a separate operator-owned connection file and external credentials. The model prefix `lite claude` selects a configured gateway model; `bedrock claude` selects a configured Bedrock model. See [provider setup and limits](providers.md). Both remain unqualified for live assessment quality.
 
@@ -36,7 +36,7 @@ Prerequisites: Linux or macOS, Codex CLI **0.163.0** installed on your `PATH` ou
 2. Run an assessment, replacing `/path/to/project` with your Git repository:
 
    ```sh
-   appsec-analyzer scan --repo /path/to/project --profile codex-cli \
+   appsec-analyzer assess --repo /path/to/project --profile codex-cli \
      --max-calls 1000 --max-duration 14400
    ```
 
@@ -102,10 +102,10 @@ Report attributes are text values, with up to 32 keys and 256 characters per val
 Select the profile and override individual settings when needed:
 
 ```sh
-appsec-analyzer scan --profile release
-appsec-analyzer scan --profile release --budget 30
-appsec-analyzer scan --profile release --max-parallel 4
-appsec-analyzer scan --profile release --assessment-depth quick --outputs markdown sarif
+appsec-analyzer assess --profile release
+appsec-analyzer assess --profile release --budget 30
+appsec-analyzer assess --profile release --max-parallel 4
+appsec-analyzer assess --profile release --assessment-depth quick --outputs markdown sarif
 ```
 
 Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
@@ -208,7 +208,7 @@ team-settings/
 Select its scan file explicitly:
 
 ```sh
-appsec-analyzer scan --profile /private/team-settings/profiles/release.yaml
+appsec-analyzer assess --profile /private/team-settings/profiles/release.yaml
 ```
 
 For an explicit scan path, model names resolve from the sibling `model-profiles` directory or the built-ins. Analyzer does not silently substitute a same-named model file from the user's configuration directory. The built-in names `claude`, `codex`, and `codex-cli` are reserved in both directories.

@@ -8,7 +8,7 @@
 # Three ways to use this file:
 #
 #   1. Save it anywhere in the repository and select it explicitly, for example:
-#      `appsec-analyzer scan --abuse-case-file review/my-case.yaml`.
+#      `appsec-analyzer assess --abuse-case-file review/my-case.yaml`.
 #      Paths are repository-relative; files outside the repository are rejected.
 #      Explicit selection enables verification even at quick depth.
 #   2. Save `abuse_case_files: [review/my-case.yaml]` in a scan profile for
