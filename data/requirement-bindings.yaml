@@ -1039,6 +1039,7 @@ requirements:
       - scripts/runtime/multi_repo_discovery.py
       - scripts/runtime/assessment_jobs.py
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - appsec_analyzer/codex_schema.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
@@ -1194,8 +1195,11 @@ requirements:
       - schemas/organization-distribution.schema.yaml
       - examples/organization-distribution/**
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - data/model-profiles/codex-cli.yaml
+      - data/model-profiles/copilot-cli.yaml
       - data/scan-profiles/codex-cli.yaml
+      - data/scan-profiles/copilot-cli.yaml
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
       - appsec_analyzer/execution_limits.py
@@ -1217,6 +1221,8 @@ requirements:
       - appsec_analyzer/cli.py
       - appsec_analyzer/codex_profiles.py
       - docs/internal/contracts/requirement-acceptance.md
+      - README.md
+      - skills/appsec-analyzer/SKILL.md
     decisions:
       - EX-1
       - EX-2
@@ -1316,6 +1322,7 @@ requirements:
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
       - data/model-catalog.yaml
@@ -1334,6 +1341,7 @@ requirements:
     guards:
       - tests/test_provider_backends.py::test_capabilities_show_provider_availability_without_live_qualification
       - tests/test_public_scan_cli.py::test_capabilities_distinguish_adapters_from_live_qualification
+      - tests/test_copilot_cli.py::test_profile_is_explicit_subscription_and_unqualified
 
   REQ-021:
     applies_to:
@@ -1366,6 +1374,7 @@ requirements:
       - skills/export-security-assessment/**
       - scripts/contexts/build_architect_context.py
       - appsec_analyzer/cli.py
+      - appsec_analyzer/copilot_cli.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -1387,6 +1396,7 @@ requirements:
       - tests/test_schema_integrity.py::test_external_entity_access_is_consistent_and_role_only
       - tests/test_compose_threat_model.py::test_cli_exit_1_on_missing_fragment
       - tests/test_public_assessment_operations.py::test_results_verify_recorded_digest_and_reject_symlink
+      - tests/test_copilot_cli.py::test_malformed_ambiguous_or_schema_invalid_response_fails_closed
 
   REQ-022:
     applies_to:
@@ -1432,8 +1442,11 @@ requirements:
       - scripts/runtime/assessment_host.py
       - scripts/contexts/multi_repo_analysis.py
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - appsec_analyzer/codex_schema.py
       - data/scan-profiles/codex-cli.yaml
+      - data/model-profiles/copilot-cli.yaml
+      - data/scan-profiles/copilot-cli.yaml
       - schemas/assessment-job-receipt.schema.json
       - appsec_analyzer/execution_limits.py
       - scripts/runtime/interactive_budget.py
@@ -1460,6 +1473,7 @@ requirements:
     documents:
       - docs/providers.md
       - specs/changes/codex-cli-subscription/proposal.md
+      - specs/changes/copilot-cli-assessments/proposal.md
       - docs/profiles.md
       - specs/changes/scan-model-profiles/proposal.md
       - docs/security-assessment.md
@@ -1477,6 +1491,7 @@ requirements:
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
+      - tests/test_copilot_cli.py::test_bounded_process_execution
       - tests/test_assessment_state.py::test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchanged_jobs
       - tests/test_startup_preflight.py::test_live_probe_requires_explicit_budget
       - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
@@ -1775,6 +1790,7 @@ requirements:
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - appsec_analyzer/codex_schema.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
@@ -1820,6 +1836,10 @@ requirements:
       - tests/test_provider_backends.py::test_invalid_credentials_stop_before_checkout
       - tests/test_codex_cli_wire.py::test_real_codex_has_no_tools_and_ignores_project_and_user_configuration
       - tests/test_codex_cli.py::test_invalid_or_tool_output_is_rejected
+      - tests/test_copilot_cli.py::test_structured_reply_is_validated_and_cli_is_toolless
+      - tests/test_copilot_cli.py::test_remote_schema_reference_is_rejected_before_start
+      - tests/test_copilot_cli.py::test_remote_dynamic_schema_references_are_rejected_before_start
+      - tests/test_copilot_cli.py::test_oversized_request_is_rejected_before_start
       - tests/test_profiles.py::test_symlinks_large_files_and_source_owned_profiles_are_rejected
       - tests/test_profiles.py::test_ambiguous_or_executable_yaml_is_rejected
       - tests/test_remote_repositories.py::test_clone_does_not_execute_operator_filters_or_hooks
@@ -1892,6 +1912,7 @@ requirements:
       - appsec_analyzer/providers.py
       - schemas/provider-connections.schema.yaml
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - README.md
       - SECURITY.md
       - appsec_analyzer/api_hosts.py
@@ -1909,6 +1930,10 @@ requirements:
       - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
       - tests/test_provider_backends.py::test_startup_discloses_provider_destination
       - tests/test_codex_cli.py::test_structured_reply_and_isolated_configuration
+      - tests/test_copilot_cli.py::test_structured_reply_is_validated_and_cli_is_toolless
+      - tests/test_copilot_cli.py::test_preflight_requires_reviewed_executable_outside_source
+      - tests/test_copilot_cli.py::test_public_preflight_does_not_claim_copilot_login_or_model_access
+      - tests/test_copilot_cli.py::test_model_preflight_requires_exactly_one_authorized_copilot_exchange
       - tests/test_api_hosts.py::test_wire_decoder_preserves_absent_and_null_and_requests_no_tools
 
   REQ-034:
@@ -1916,6 +1941,7 @@ requirements:
       - appsec_analyzer/threat_analysis.py
       - appsec_analyzer/analyze_threats/**
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - scripts/runtime/assessment_host.py
       - data/stride-analysis-policy.md
       - scripts/orchestrator/orchestration_controller.py
@@ -1948,6 +1974,8 @@ requirements:
       - tests/test_assessment_host.py::test_repeated_unlisted_proposals_exhaust_exchange_limit_without_retrieval
       - tests/test_assessment_host.py::test_fatal_proposal_still_stops_after_preloaded_read_round_is_spent
       - tests/test_codex_cli.py::test_preflight_rejects_api_login_and_unreviewed_versions
+      - tests/test_copilot_cli.py::test_preflight_requires_reviewed_executable_outside_source
+      - tests/test_copilot_cli.py::test_failure_text_is_not_exposed
       - tests/test_active_stride_policy.py::test_active_stride_prompt_has_evidence_rules_and_no_removed_tool_procedure
       - tests/test_assessment_host.py::test_unauthorized_proposals_fail_before_another_model_call
       - tests/test_analyst_host.py::test_only_an_exploring_session_gets_read_only_file_tools
@@ -1972,6 +2000,7 @@ requirements:
       - appsec_analyzer/score/**
       - appsec_analyzer/scanners/**
       - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
       - scripts/orchestrator/orchestration_controller.py
@@ -2010,3 +2039,41 @@ requirements:
       - tests/test_agent_logger_cov.py::TestOutputDir::test_a_session_without_an_assessment_writes_nothing
       - tests/test_public_scan_cli.py::test_scan_refuses_output_inside_checkout
       - tests/test_public_assessment_operations.py::test_assess_kept_runtime_files_require_private_output
+      - tests/test_copilot_cli.py::test_bounded_process_execution
+      - tests/test_copilot_cli.py::test_public_assess_selects_copilot_subscription_without_usd
+
+  REQ-041:
+    applies_to:
+      - appsec_analyzer/copilot_cli.py
+      - appsec_analyzer/profiles.py
+      - appsec_analyzer/preflight.py
+      - appsec_analyzer/cli.py
+      - scripts/orchestrator/orchestration_controller.py
+      - scripts/runtime/assessment_jobs.py
+      - scripts/runtime/assessment_state.py
+      - scripts/runtime/assessment_diagnostics.py
+      - data/model-profiles/copilot-cli.yaml
+      - data/scan-profiles/copilot-cli.yaml
+      - schemas/model-profile.schema.yaml
+      - schemas/scan-profile.schema.yaml
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - README.md
+      - docs/profiles.md
+      - docs/providers.md
+      - docs/configuration.md
+      - skills/appsec-analyzer/SKILL.md
+      - specs/changes/copilot-cli-assessments/proposal.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_copilot_cli.py::test_profile_is_explicit_subscription_and_unqualified
+      - tests/test_copilot_cli.py::test_structured_reply_is_validated_and_cli_is_toolless
+      - tests/test_copilot_cli.py::test_malformed_ambiguous_or_schema_invalid_response_fails_closed
+      - tests/test_copilot_cli.py::test_remote_schema_reference_is_rejected_before_start
+      - tests/test_copilot_cli.py::test_failure_text_is_not_exposed
+      - tests/test_copilot_cli.py::test_preflight_requires_reviewed_executable_outside_source
+      - tests/test_copilot_cli.py::test_bounded_process_execution
+      - tests/test_copilot_cli.py::test_public_assess_selects_copilot_subscription_without_usd
+      - tests/test_copilot_cli.py::test_public_assess_rejects_usd_budget_for_copilot_before_preflight

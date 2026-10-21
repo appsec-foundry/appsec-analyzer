@@ -28,6 +28,7 @@ _PROFILE_HOSTS = {
     "claude": "claude-cli",
     "codex": "openai",
     "codex-cli": "codex-cli",
+    "copilot-cli": "copilot-cli",
     "lite": "lite",
     "bedrock": "bedrock",
 }
@@ -140,7 +141,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     )
     preflight.add_argument("--repo", action="append", metavar="PATH_OR_URL")
     preflight.add_argument("--profile", metavar="NAME_OR_FILE")
-    preflight.add_argument("--host", choices=("claude-cli", "codex-cli", "openai", "lite", "bedrock"))
+    preflight.add_argument("--host", choices=("claude-cli", "codex-cli", "copilot-cli", "openai", "lite", "bedrock"))
     preflight.add_argument("--model", metavar="MODEL")
     preflight.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), action=_Explicit)
     preflight.add_argument(
@@ -149,10 +150,10 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         type=_positive_budget,
         action=_Explicit,
         metavar="USD",
-        help="Explicit separate spending limit required with --test-model (except codex-cli)",
+        help="Explicit separate spending limit required with --test-model (except CLI subscription profiles)",
     )
     preflight.add_argument(
-        "--max-calls", type=int, help="Explicit plan-use limit required with --test-model for codex-cli"
+        "--max-calls", type=int, help="Explicit plan-use limit required with --test-model for CLI subscriptions"
     )
     preflight.add_argument(
         "--test-model",
@@ -407,7 +408,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     )
     parser.add_argument(
         "--host",
-        choices=("claude-cli", "openai", "gateway", "codex-cli", "lite", "bedrock"),
+        choices=("claude-cli", "openai", "gateway", "codex-cli", "copilot-cli", "lite", "bedrock"),
         help="Legacy provider selection; --profile selects the host automatically",
     )
     parser.add_argument(
@@ -416,7 +417,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         help=(
             "Override the bundled scan profile with NAME_OR_FILE"
             if organization
-            else "Scan profile name or external YAML file (default: claude; built-ins: claude, codex, codex-cli, lite, bedrock; also 'lite MODEL')"
+            else "Scan profile name or external YAML file (default: claude; built-ins: claude, codex, codex-cli, copilot-cli, lite, bedrock; also 'lite MODEL')"
         ),
     )
     parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
@@ -429,7 +430,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         action=_Explicit,
         default=20.0,
         metavar="USD",
-        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with codex-cli)",
+        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with CLI subscription profiles)",
     )
     parser.add_argument(
         "--assessment-depth", choices=("quick", "standard", "thorough"), default="standard", action=_Explicit
@@ -522,7 +523,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         "--max-calls",
         type=int,
         metavar="N",
-        help="Maximum Codex CLI model exchanges including retries (default: 1000; subscription only)",
+        help="Maximum CLI model exchanges including retries (default: 1000; subscription profiles only)",
     )
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
     parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
@@ -620,6 +621,12 @@ def _capabilities() -> dict:
                     "billing": "chatgpt-subscription",
                     "qualified": False,
                     "profiles": ["codex-cli"],
+                },
+                "copilot-cli": {
+                    "adapter": "cli",
+                    "billing": "github-copilot-subscription",
+                    "qualified": False,
+                    "profiles": ["copilot-cli"],
                 },
             }
         },
@@ -926,6 +933,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
             "openai": "codex",
             "claude-cli": "claude",
             "codex-cli": "codex-cli",
+            "copilot-cli": "copilot-cli",
             "lite": "lite",
             "bedrock": "bedrock",
         }.get(host)
@@ -986,12 +994,12 @@ def _assess(ns: argparse.Namespace) -> int:
             raise ValueError("Claude reasoning and role-model overrides cannot be used with the OpenAI profile")
         if ns.model:
             ns.model = api_profile.model
-    elif host == "codex-cli":
+    elif host in ("codex-cli", "copilot-cli"):
         if ns.reasoning_model or any(getattr(ns, f"{role}_model") for role in ("stride", "triage", "merger")):
-            raise ValueError("use a model profile for codex-cli role overrides")
+            raise ValueError("use a model profile for CLI subscription role overrides")
         selected = ns.run_profile["models"]["stride_analyzer"]
         if ns.model and ns.model not in (selected["model"], selected["requested_model"]):
-            raise ValueError("--model differs from the selected Codex CLI profile")
+            raise ValueError("--model differs from the selected CLI subscription profile")
         ns.model = selected["model"]
     elif host in ("lite", "bedrock"):
         from appsec_analyzer.api_hosts import ApiTransportError, credential
@@ -1040,6 +1048,11 @@ def _assess(ns: argparse.Namespace) -> int:
 
         runtime = preflight(repositories=ns.repo or [str(Path.cwd())])
         ns.run_profile["cli_version"] = runtime["version"]
+    elif host == "copilot-cli":
+        from appsec_analyzer.copilot_cli import preflight
+
+        runtime = preflight(repositories=ns.repo or [str(Path.cwd())])
+        ns.run_profile["cli_version"] = runtime["version"]
     if ns.launch_defaults and ns.output and ns.progress_file is None:
         from appsec_analyzer.assessment_entry import progress_path
 
@@ -1050,7 +1063,7 @@ def _assess(ns: argparse.Namespace) -> int:
     args = ["--repo", repositories[0]]
     for repo in repositories[1:]:
         args += ["--repo", repo]
-    if host == "codex-cli":
+    if host in ("codex-cli", "copilot-cli"):
         args += ["--max-calls", str(ns.run_profile["settings"]["max_calls"])]
     else:
         args += ["--hard-budget", str(ns.hard_budget)]
@@ -1118,9 +1131,14 @@ def _assess(ns: argparse.Namespace) -> int:
     from appsec_analyzer.preflight import run as run_preflight
 
     if ns.command == "preflight" and getattr(ns, "test_model", False):
-        if host == "codex-cli":
+        if host == "copilot-cli":
+            if ns.max_calls != 1:
+                raise ValueError("preflight --test-model with copilot-cli requires --max-calls 1")
+        elif host == "codex-cli":
             if ns.max_calls is None:
-                raise ValueError("preflight --test-model with codex-cli requires explicit --max-calls (one exchange)")
+                raise ValueError(
+                    "preflight --test-model with a CLI subscription requires explicit --max-calls (one exchange)"
+                )
         elif "hard_budget" not in getattr(ns, "explicit", ()) or ns.hard_budget < 0.01:
             raise ValueError("preflight --test-model requires an explicit --budget of at least USD 0.01")
     result = run_preflight(ns, api_profile=api_profile, runtime=runtime)

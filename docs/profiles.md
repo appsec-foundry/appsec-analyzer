@@ -69,6 +69,25 @@ outputs: [markdown, yaml]
 
 Custom model profiles can use `base: codex-cli` and the existing model/role/depth settings. The built-in model and reasoning defaults match `codex`; model names must be in Analyzer's installed catalog and available to your ChatGPT account. `max_output_tokens` is not supported by this adapter. The separate requirements audit and focused analyst do not gain Codex CLI support.
 
+## Use GitHub Copilot CLI
+
+Select `copilot-cli` for full assessments through the GitHub Copilot CLI. This experimental provider uses a fixed model identifier from the Analyzer model profile and remains unqualified for live assessment quality. Focused analysis and requirements audits do not gain Copilot support.
+
+Prerequisites: Linux or macOS, GitHub Copilot CLI **1.0.101** on your `PATH` outside the analyzed repositories, and a working Copilot CLI login. Analyzer checks the CLI version but does not read credentials or claim to verify login or model access during ordinary preflight. Sign in using the [official Copilot CLI setup](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
+
+```sh
+copilot login
+appsec-analyzer preflight --repo /path/to/project --profile copilot-cli
+appsec-analyzer assess --repo /path/to/project --profile copilot-cli \
+  --max-calls 1000 --max-duration 14400
+```
+
+The profile defaults to 1,000 Analyzer CLI exchanges, four hours, one component at a time, and the explicit model `gpt-5.4`. Override model and reasoning settings in an operator-owned model profile; `auto` is rejected so the chosen model remains visible and organization model restrictions can be enforced. Copilot availability for a selected account is checked only when a model call is explicitly made.
+
+Each exchange uses `--max-ai-credits 30`, Copilot CLI's minimum supported session limit. It is a soft per-session limit: a response already in progress can exceed it, and it does not cap cumulative or account-wide usage across exchanges. Analyzer also counts dispatched exchanges, including retries and corrections, and enforces the assessment deadline. Neither limit guarantees completion within the account's allowance. USD budget fields and output-token caps are unavailable; reports show monetary cost as null.
+
+Analyzer sends selected source excerpts, analysis context, and intermediate answers to GitHub Copilot through the signed-in CLI. It launches the CLI from a fresh private temporary directory, supplies no tools, disables custom instructions, built-in MCPs, and remote sharing, and validates the complete JSON response against the requested schema. Analyzer does not copy credentials. Copilot CLI may retain local session data according to its own behavior; neither the temporary work directory nor the CLI's soft credit limit establishes provider retention or an exact spend ceiling.
+
 ## Create a scan profile
 
 Save this as `~/.config/appsec-analyzer/profiles/release.yaml`:

@@ -13,6 +13,7 @@ properties:
     - claude
     - codex
     - codex-cli
+    - copilot-cli
     - lite
     - bedrock
   adapter:
@@ -20,6 +21,7 @@ properties:
     - openai
     - claude-cli
     - codex-cli
+    - copilot-cli
     - lite
     - bedrock
   defaults: &id001
@@ -32,6 +34,7 @@ properties:
       reasoning_effort:
         enum:
         - none
+        - minimal
         - low
         - medium
         - high

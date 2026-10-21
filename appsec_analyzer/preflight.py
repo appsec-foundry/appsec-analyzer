@@ -131,11 +131,19 @@ def run(ns, *, api_profile=None, runtime=None):
         result["provider_check"] = "local_configuration"
         if host == "codex-cli":
             _say(ns, "Codex CLI", f"{field(runtime['version'])} · ChatGPT login configured", status="ok")
+            result["limitations"].append(
+                "Local CLI login or credential configuration checked; server authentication, model access and quota remain unverified."
+            )
+        elif host == "copilot-cli":
+            _say(ns, "Copilot CLI", f"{field(runtime['version'])} · login/model access not tested", status="ok")
+            result["limitations"].append(
+                "CLI version checked only; authentication, model access, quota, and live assessment quality remain unverified."
+            )
         else:
             _say(ns, "Local CLI", "login or credential configuration checked", status="ok")
-        result["limitations"].append(
-            "Local CLI login or credential configuration checked; server authentication, model access and quota remain unverified."
-        )
+            result["limitations"].append(
+                "Local CLI login or credential configuration checked; server authentication, model access and quota remain unverified."
+            )
     if test_model:
         try:
             _test_model(ns, api_profile=api_profile, runtime=runtime)
@@ -183,6 +191,8 @@ def _test_model(ns, *, api_profile, runtime):
     )
     if host == "codex-cli":
         _say(ns, "", "one exchange consumes ChatGPT plan allowance", always=True)
+    elif host == "copilot-cli":
+        _say(ns, "", "one CLI session uses a minimum 30-credit soft limit; a response may exceed it", always=True)
     else:
         _say(ns, "", f"separate generation-test budget: USD {ns.hard_budget:g}", always=True)
     with tempfile.TemporaryDirectory(prefix="appsec-model-check-") as work:
@@ -199,6 +209,10 @@ def _test_model(ns, *, api_profile, runtime):
             from appsec_analyzer.codex_cli import CodexCliTransport
 
             transport = CodexCliTransport(Path(work), settings["model"], settings["reasoning_effort"], runtime)
+        elif host == "copilot-cli":
+            from appsec_analyzer.copilot_cli import CopilotCliTransport
+
+            transport = CopilotCliTransport(Path(work), settings["model"], settings["reasoning_effort"], runtime)
         else:
             transport = ClaudeCliTransport(
                 Path(work) / "work",
@@ -232,6 +246,7 @@ def _test_model(ns, *, api_profile, runtime):
                 "unexpected_host_item",
                 "incomplete_response",
                 "invalid_request",
+                "response_too_large",
             }
             reason = exc.reason if exc.reason in allowed else "host_failure"
             raise ValueError(

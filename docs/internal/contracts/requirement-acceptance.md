@@ -184,7 +184,7 @@ Invalid names, unsafe targets and incomplete repositories exit with 2 and a mess
 
 ## REQ-020: Show which providers have been tested
 
-Distinguish available adapters from providers and profiles whose live assessment quality has been qualified.
+Distinguish available adapters from providers and profiles whose live assessment quality has been qualified. Mark the Copilot CLI adapter available but unqualified until an explicitly authorized live assessment establishes its quality; offline transport and controller tests do not establish model quality, provider retention, or account-level spending.
 
 Expose LiteLLM Responses and Bedrock Converse as available but unqualified adapters. Offline transport, controller and distribution tests cannot establish model quality, upstream retention or cost accuracy. Retain the legacy generic gateway route's unavailable public status.
 
@@ -207,6 +207,8 @@ Standalone `preflight --test-model` explicitly selects one synthetic primary STR
 An interactive full assessment may ask for a higher total USD limit before a monetary budget gap prevents further work. Settle running calls and prevent new admission while waiting. Only an explicitly entered higher finite amount authorizes the increase; blank input, EOF, invalid input, cancellation, and elapsed time never authorize it. Persist authorization for the same run before spending, and retain it on a compatible resume with the original configuration. Keep call and time limits, per-call reservations, source authority, and publication gates unchanged. Declining preserves normal optional-work fallbacks or required-work interruption. Bound invalid attempts and the number of increases.
 
 For the explicitly selected `codex-cli` ChatGPT subscription profile, replace monetary admission with finite exchange and elapsed-time limits using the existing required-completion reserves. Default to 1,000 exchanges including failed attempts, corrections, and retries, four hours, and one component at a time; allow operator overrides within the engine bounds. Reject USD budget options and configured output-token caps. Force ChatGPT login without API-key fallback; stop on quota exhaustion and preserve validated work. Report unavailable monetary cost as null, never as zero or an API-price estimate. Subscription lifecycle states and receipts use schema version 2; monetary states and receipts retain version 1 and their existing strict accounting. Do not reuse a receipt across accounting modes. Resume keeps the original deadline, call limit, source authority, and model settings. A new compatible run may reuse accepted jobs with their calls retained. The call limit does not promise a bound on tokens, credits, or the account's shared plan allowance.
+
+For the explicitly selected `copilot-cli` GitHub Copilot subscription profile, use the same finite Analyzer exchange and elapsed-time limits and required-completion reserves. Default to 1,000 exchanges, four hours, and one component at a time; allow bounded operator overrides. Reject USD budget options and output-token caps. Every CLI session receives the minimum supported `--max-ai-credits 30` soft limit; a response already in progress may exceed it, and it does not cap aggregate account usage across exchanges. Report unavailable monetary cost as null. Use subscription lifecycle states and receipts with schema version 2 and preserve the existing version 1 monetary artifacts. Resume keeps the original deadline, call limit, model settings, and source authority. Do not claim that these limits cap account-wide credits or guarantee assessment completion.
 
 Use the effective `max_parallel` setting for both component worker admission and the required-analysis time reserve. Keep each run's limit independent of other assessments in the same process. Changing parallelism cannot raise spending, call, retry, or execution-time limits or bypass cancellation and result validation.
 
@@ -256,6 +258,8 @@ Offer advisory requirements results and explicitly selected CI gates based on ve
 
 Repository content must not activate its own instructions or hooks, select executable tools, or redirect analysis outside admitted sources. Enforce source and path boundaries outside the model; reject escaping links and invalid scope.
 
+For Copilot CLI assessments, invoke the CLI from a fresh private temporary working directory, disable custom instructions and built-in MCPs, and explicitly provide an empty available-tools set. Do not trust repository or user agent instructions to configure the CLI, and do not allow shell, file, network, MCP, or delegated-agent tools. Fail closed if the reviewed CLI cannot honor the tool restriction.
+
 ## REQ-032: Keep secrets out of results
 
 Block publication of generated artifacts containing unmasked secrets. Avoid copying credentials or sensitive source details into reports and diagnostics; keep retained intermediate data private.
@@ -266,9 +270,25 @@ Preflight progress identifies the selected API destination and model before send
 
 Before a model-backed operation, explain which source excerpts, context, and answers leave the machine and which selected host receives them. Distinguish model transmission from explicitly selected Git retrieval. Do not equate a request to disable provider storage with a verified retention guarantee.
 
+For Copilot CLI, identify GitHub Copilot as the selected host before assessment work begins. Explain that selected source excerpts, analysis context, and intermediate answers are sent through the signed-in Copilot CLI; local CLI session data may be retained according to Copilot CLI behavior, and Analyzer cannot verify provider retention. Do not claim a USD cost or hard credit ceiling.
+
 ## REQ-034: Do only what was authorized
 
 Constrain model requests to the authorized task, resources, and permissions. Source exploration must be explicitly enabled, interactive, organization-permitted, and confined to a redacted read-only snapshot without execution or network tools. Analysis grants no permission to remediate code, commit, publish, or accept risk. Sharing diagnostics or publishing an external issue requires approval of the concrete content.
+
+The Copilot CLI adapter is limited to one bounded prompt per Analyzer exchange. It does not enable source exploration, tools, custom agents, MCP servers, session sharing, or remote-control features. Treat the CLI response as untrusted data and require strict JSON parsing and validation against the requested canonical schema before passing it to the existing controller.
+
+## REQ-041: Use GitHub Copilot CLI for assessments
+
+Expose an explicit experimental `copilot-cli` provider profile for full `assess` assessments only. Do not silently select it as a default or extend it to focused analysis and requirements audits.
+
+Require the reviewed Copilot CLI version on `PATH` and resolve an explicit model through the operator model profile. A normal preflight checks the executable/version without a model call and does not claim that authentication or model access was tested. An explicitly authorized `preflight --test-model` uses only a synthetic prompt, requires an explicit one-exchange limit, and reports the minimum 30 AI-credit soft limit and remaining qualification gaps.
+
+Invoke the CLI non-interactively in a fresh private temporary directory outside every analyzed repository. Disable custom instructions, built-in MCP servers, remote control/export, automatic updates, and user questions. Supply an empty `--available-tools` allow-list and never grant tool permissions. Do not read or copy credentials; let Copilot CLI use its own external login. Do not load or trust instructions, tools, agents, plugins, or MCP configuration from repository content.
+
+Bound each process by timeout, cancellation, request size, and response size. Do not automatically retry model work within the CLI. Request exactly one JSON object; reject duplicate keys, non-finite values, extra prose, malformed or incomplete output, and any response that fails the supplied canonical JSON schema. Only a validated response may reach the existing controller; unknown CLI/model errors stop the exchange without exposing provider text or source data in diagnostics.
+
+Use finite Analyzer call and elapsed-time limits, including retries and corrections, and retain required-completion reserves. Apply the CLI's minimum `--max-ai-credits 30` soft session limit per exchange; disclose that it is soft and that aggregate credits may exceed it across exchanges. Reject USD budgets and output-token caps, record monetary cost as null, and use subscription state/receipt schema version 2. Mark the adapter unqualified for live assessment quality, do not report a CLI login as proof of model access, and do not claim provider retention guarantees. Cover the tool-denial, prompt-injection, malformed-output, limit, cancellation, credential-boundary, and version-rejection cases offline.
 
 ## REQ-035: Protect local results
 

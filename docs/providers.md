@@ -1,8 +1,10 @@
-# LiteLLM and Amazon Bedrock
+# Provider connections
 
 `assess` now checks provider setup before cloning. Use `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json` for a separate check with no generation. LiteLLM checks its authenticated model list; Bedrock checks credential format and TLS only, leaving server authentication and model access unverified. `preflight --test-model --budget USD` explicitly authorizes one separate primary-model generation test with a synthetic prompt. See [preflight checks and limitations](security-assessment.md#preflight-checks).
 
 Full assessments can use a LiteLLM gateway or the Amazon Bedrock Converse API. Both adapters have offline transport and controller tests; neither has passed live assessment qualification. The requirements audit and focused analyst keep their existing provider options.
+
+GitHub Copilot CLI is a separate experimental full-assessment adapter with its own login, model settings, call/time limits, and soft per-session AI-credit limit. It does not use `providers.yaml` or gain support for the focused analyst or requirements audit. See [Copilot CLI setup and limits](profiles.md#use-github-copilot-cli).
 
 ## Configure the connection
 

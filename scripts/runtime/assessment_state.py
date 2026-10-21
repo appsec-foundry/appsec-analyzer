@@ -759,7 +759,7 @@ class AssessmentState:
             "Required analysis or report work remains. Any normal output files are not an accepted result of this attempt.",
             "",
             (
-                f"ChatGPT subscription: {self.budget.calls} model calls; monetary cost is unavailable."
+                f"{self.budget.subscription_label}: {self.budget.calls} model calls; monetary cost is unavailable."
                 if self.budget.subscription
                 else f"Accounted cost: USD {self.budget.spent_usd:.2f}; limit: USD {self.budget.max_usd:.2f}."
             ),

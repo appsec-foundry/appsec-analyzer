@@ -1,0 +1,7 @@
+schema_version: 1
+description: Experimental assessment using GitHub Copilot CLI
+model_profile: copilot-cli
+assessment_depth: standard
+max_calls: 1000
+max_parallel: 1
+outputs: [markdown, yaml]

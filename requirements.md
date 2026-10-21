@@ -64,6 +64,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-020:** **Show which providers have been tested.** Analyzer distinguishes available model connections from provider configurations that have passed real assessment tests. Being able to connect to a provider is not proof that its results are reliable.
 
+- **REQ-041:** **Use GitHub Copilot CLI for assessments.** Users can select GitHub Copilot CLI as an experimental provider for full security assessments, with its model output validated before Analyzer uses it and its data-transfer and usage limits made clear.
+
 - **REQ-021:** **Check results before publishing them.** Required inputs, analysis, and output must pass validation before an assessment is marked complete. Analyzer publishes only the selected report files and checks that those files have not changed when listing the results.
 
 - **REQ-022:** **Run unattended.** Assessments can run without waiting for answers from a person. Automation can tell a completed run from an interruption, an operational error, or a failed policy gate. Advisory results do not become blocking failures unless a gate was explicitly selected.

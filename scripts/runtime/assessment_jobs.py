@@ -56,6 +56,7 @@ class AssessmentBudget(DiscoveryBudget):
     """Aggregate the full assessment rather than the discovery phase alone."""
 
     max_parallel: int = field(default=DEFAULT_MAX_PARALLEL, kw_only=True)
+    subscription_label: str = field(default="ChatGPT subscription", kw_only=True)
 
     def __post_init__(self):
         try:
@@ -64,6 +65,8 @@ class AssessmentBudget(DiscoveryBudget):
             raise ExchangeError(str(exc)) from None
         if (
             type(self.subscription) is not bool
+            or type(self.subscription_label) is not str
+            or not self.subscription_label
             or (
                 self.subscription
                 and (self.max_usd is not None or self.call_usd is not None or self.spent_usd is not None)

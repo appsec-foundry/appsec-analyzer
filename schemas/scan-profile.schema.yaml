@@ -20,7 +20,7 @@ properties:
     type: number
     exclusiveMinimum: 0
   max_calls:
-    description: Maximum model exchanges for a codex-cli subscription assessment, including retries.
+    description: Maximum model exchanges for a CLI subscription assessment, including retries.
     type: integer
     minimum: 1
     maximum: 47256
