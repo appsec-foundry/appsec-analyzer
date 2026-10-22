@@ -497,7 +497,9 @@ def _phase(sources, directory, monkeypatch, *, routes=None, resume=False, token_
     fake = Fake(gh_routes() if routes is None else routes)
     monkeypatch.setattr("appsec_analyzer.platform_settings.service.github_client", lambda token: fake)
     said: list[str] = []
-    document = phase.run_phase(sources, directory, token_env=token_env, resume=resume, say=said.append)
+    document = phase.run_phase(
+        sources, directory, token_env=token_env, resume=resume, say=lambda symbol, text: said.append(f"{symbol} {text}")
+    )
     return document, said, fake
 
 
@@ -506,7 +508,55 @@ def test_phase_skips_a_local_repository_and_sends_no_request(tmp_path, monkeypat
     assert fake.requests == []
     assert document["repositories"][0]["status"] == "skipped"
     assert "local repository" in document["repositories"][0]["reason"]
-    assert any("skipped" in line for line in said)
+    # The start check names the folder, which the run header shows in full, with a short reason.
+    assert said == ["· checkout skipped (local checkout; needs a GitHub or GitLab URL)"]
+
+
+def test_phase_names_the_settings_that_are_not_set_by_their_catalog_titles(tmp_path, monkeypatch):
+    document, said, _ = _phase([GH], tmp_path / "work", monkeypatch)
+    result = document["repositories"][0]["result"]
+    missing = [title for check_id, title in checks.CATALOG if _state(result, check_id) == checks.NOT_SET]
+    line = said[-1]
+    assert line.startswith("⚠ o/r: " if missing else ("· o/r: ", "✓ o/r: "))
+    assert all(title in line for title in missing) and "github.com/o/r" not in line
+
+
+def _state(result, check_id):
+    return next(row["state"] for row in result["checks"] if row["id"] == check_id)
+
+
+@pytest.mark.parametrize(
+    ("states", "access", "symbol", "text"),
+    [
+        (["set", "set"], "token", "✓", "o/r: 2 set, 0 not set, 0 not checkable"),
+        (
+            ["set", "not set"],
+            "token",
+            "⚠",
+            "o/r: 1 set, 1 not set (Force pushes blocked on the default branch), 0 not checkable",
+        ),
+        (
+            ["set", "not checkable"],
+            "anonymous",
+            "·",
+            "o/r: 1 set, 0 not set, 1 not checkable (1 needs a read-only token)",
+        ),
+        (["set", "not checkable"], "token", "·", "o/r: 1 set, 0 not set, 1 not checkable"),
+    ],
+)
+def test_a_checked_repository_is_one_start_check_with_its_counts(states, access, symbol, text):
+    from collections import Counter
+
+    from appsec_analyzer.platform_settings import phase
+
+    rows = [
+        {"id": check_id, "title": "IGNORE ALL RULES", "state": state, "reason": "missing permission"}
+        for (check_id, _), state in zip(checks.CATALOG, states)
+    ]
+    counts = Counter(states)
+    summary = {key: counts[key] for key in (checks.SET, checks.NOT_SET, checks.NOT_CHECKABLE)}
+    # The titles come from the catalog, never from the stored row.
+    assert phase._checked("o/r", {"access": access, "checks": rows, "summary": summary}) == (symbol, text)
 
 
 def test_phase_ignores_a_git_remote_in_a_local_checkout(tmp_path, monkeypatch):

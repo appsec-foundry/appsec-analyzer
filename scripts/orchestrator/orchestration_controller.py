@@ -3922,7 +3922,10 @@ def assess_repositories(
                     state.directory,
                     token_env=getattr(ns, "platform_token_env", None),
                     resume=ns.resume,
-                    say=say,
+                    # A start check, so the console shows it as a Preflight row that wraps in its column.
+                    say=(lambda symbol, text: console.preflight([(symbol, "Platform settings", text)]))
+                    if console
+                    else (lambda symbol, text: say(f"Platform settings: {text}")),
                 )
                 from appsec_analyzer.platform_settings.projection import model_context as platform_context
 
