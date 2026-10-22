@@ -4,7 +4,7 @@ Status: working document for REQ-040, written 2026-10-19. It records what the im
 
 ## Where the work is
 
-The implementation lives on the local branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc. It has not been pushed or merged. Create a worktree to continue: `git worktree add <path> feat/aspect-test-cases`. Commit documentation and requirement changes on `main`, and the implementation on this one branch.
+The implementation lives on the branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc. It is pushed up to 22c65a4c; 5e3f39bb is local only, and nothing is merged. Create a worktree to continue: `git worktree add <path> feat/aspect-test-cases`. Commit documentation and requirement changes on `main`, and the implementation on this one branch.
 
 | Commit | Content |
 | --- | --- |
@@ -17,22 +17,58 @@ The implementation lives on the local branch `feat/aspect-test-cases`, derived f
 | 376cd28b | `case_candidates.py` (starting candidates, applicability) and `case_postchecks.py` (fixed post-checks). |
 | 91dd81ca | `AssessmentBudget.hold` and `release` in `assessment_jobs.py`. |
 | 22c65a4c | Roles `test_case_investigator` and `open_reviewer`, their policies and reply schemas, `case_analysis.py` validators, `component_outcome` in `case_outcomes.py`. |
+| 5e3f39bb | First visible run: controller phase for AuthZ (`assessment_test_cases.py`), component rows in `test_case_results`, `test_case_findings` in the model and the report section Test Case Findings (Pilot), per-component appendix rows, guides. |
 
 ## What works today
 
 - With `test_cases: true` in a scan profile, a run links scanner findings to test cases, records an outcome for each of the nine rules test cases, and shows them in the YAML, the report appendix, the completion summary, and SARIF. This makes no additional model calls.
+- With `test_cases: {aspects: [AuthZ]}`, the run also investigates the AuthZ test cases per component with the model, records one row per test case and component, and lists the investigation's findings apart from the threats. This is tested offline with a fake host only.
 - Without the setting, output is unchanged.
-- The model-backed building blocks exist and are tested offline, but nothing calls them yet.
 
 ## First visible run
 
-The next step is a run whose result can be inspected, not the complete pilot. It needs three pieces on the same branch:
+Built in 5e3f39bb and tested offline. No live run has been made.
 
-1. **Controller phase for one aspect, for example AuthZ.** New module `scripts/orchestrator/assessment_test_cases.py` with `run_pilot(...)`, called inside `_assessment_stride` after the STRIDE work is accepted and before `merge_assessment`. For each component it builds candidates with `case_candidates`, dispatches one `test_case_investigator` job, validates with `case_analysis.validate_investigation`, runs the post-checks, and turns the reply into rows with `case_outcomes.investigation_results`. A failed or unaffordable job becomes `replacement_result`. Producers are missing for the context artifacts `.dispatch-context/{component_id}/test-case-candidates.json` and `test-case-results.json`.
-2. **Component rows in `test_case_results`.** `case_outcomes.build_block` reads the rows from a sidecar such as `.test-case-pilot.json`. The schema and the report appendix already accept the additive fields, but the appendix keys rows by test case ID only and needs a per-component view.
-3. **Pilot findings visible.** List them separately in the YAML and the report, without merging them with the STRIDE findings.
+1. **Controller phase.** `scripts/orchestrator/assessment_test_cases.py` with `run_pilot(...)` runs inside `_assessment_stride` after the result line of the threat analysis and before `merge_assessment`, only when the profile's `test_cases` is an object with aspects. It investigates only `AuthZ` (`INVESTIGATED_ASPECTS`); other selected pilot aspects give a run warning. Per repository it reads `case_candidates.route_facts` once, from the scanner snapshot, the architecture's route inventory, and the scanner findings. Per component and aspect it records `disabled` and `not_applicable` rows without a model and sends one optional `test_case_investigator` job for the applicable test cases through `_assessment_components_concurrently`. The job reuses the STRIDE job's context envelope without `lens_ids` and adds `aspect` and `test_case_candidates`. Its preload follows the STRIDE pattern: the lines the context cites, then the candidates' anchors and resolved handler chains, then the direct helpers. `case_analysis.validate_investigation` and `investigation_normalizer` check and normalize the reply, and `case_outcomes.investigation_results` turns it into rows. A job replaced after a model failure or for budget gives `replacement_result` rows; the existing gap handling adds a warning for a failure and the budget-skip note for a budget skip. The STRIDE requests are only recorded for the pilot, and a test checks that they stay byte-identical.
+2. **Sidecar and rows.** `_assessment_workspace` writes `.test-case-pilot.json` and `.dispatch-context/{component_id}/test-case-candidates.json` into the render workspace. `case_outcomes.build_block` appends the pilot rows after the unchanged rules rows. The appendix shows one row per component for model-investigated test cases, and the labels now read "Partial, not a control" and "No finding, no control".
+3. **Pilot findings.** Each kept finding gets a run-wide `TCF-NNN` ID and appears in `test_case_findings`, declared in the v1 output schema and referenced from v2, never in `threats`. The rows' `finding_ids` name these IDs. The report section Test Case Findings (Pilot) appears only when the list is not empty and states that the findings are not yet merged with the findings register.
 
-Build and test these offline with a fake host. The run on Juice Shop causes real model cost and needs explicit authorization of its spending first. Compare the pilot and STRIDE results by hand for the first look.
+Decisions and limits of this step:
+
+- Only `AuthZ` is investigated, as agreed for the first run.
+- The object form of `test_cases` defaults `aspects` to all five pilot aspects (profile normalizer of 17f98015). Since 5e3f39bb, a profile that sets only `disable` therefore runs the AuthZ investigation and pays for it. Decide whether the object form should default to no aspects.
+- A component that spans several repositories gets `undecidable` rows without a job, because candidate and route IDs are per repository.
+- A reply that requests a source outside the admitted scope or breaks the exchange contract still stops the run, as for every optional job. Model failures, timeouts, settled host failures, and budget skips become `undecidable`.
+- The evidence verifier does not review pilot findings. Each rests on the investigator's validated citations and its candidate's post-checks; the evidence basis is recorded per row, not per finding.
+- The guides `docs/security-assessment.md` and `docs/profiles.md` on the branch describe the pilot and its cost. `context-routing.md` and `orchestration-actions.md` do not mention the phase yet.
+
+### Running it on Juice Shop
+
+The run causes model cost and needs explicit authorization of its spending first. Install Analyzer from the branch; the branch still names the command `scan`, because the rename to `assess` on `main` is not merged into it.
+
+Scan profile `~/.config/appsec-analyzer/profiles/authz-pilot.yaml`:
+
+```yaml
+schema_version: 1
+description: REQ-040 AuthZ pilot
+model_profile: claude
+assessment_depth: standard
+budget: 25
+max_parallel: 2
+outputs: [markdown, yaml]
+test_cases:
+  aspects: [AuthZ]
+```
+
+```sh
+appsec-analyzer scan --repo /home/mrohr/juice-shop --profile authz-pilot --output /home/mrohr/appsec-reports/juice-authz-pilot
+```
+
+The output directory must exist and lie outside the checkout.
+
+An offline count with the components of the 2026-10-18 run gives four investigator jobs: Juice Shop Express Server with 32 TC-AUTHZ-01 and 12 TC-AUTHZ-02 candidates and none over the cap, Authentication & Session Surface with one candidate, and the Web3 surface and the Angular frontend without candidates. In the standard runs of 2026-10-16 and 2026-10-18, which cost USD 14.08 and 15.71 in total, a STRIDE job cost USD 0.26 to 0.31 on average with about 1.1 calls. If an investigator job costs one to two STRIDE jobs, the pilot adds about USD 1 to 3, and the run costs about USD 16 to 19. A budget of USD 25 leaves the pilot's optional jobs room; with less, they are skipped as undecidable before they could take the report reserve.
+
+For the first look, compare the component rows and `test_case_findings` by hand with the STRIDE threats of the same report that carry CWE-639, CWE-285, CWE-862, or CWE-915.
 
 ## After the first run: decide with real results
 
@@ -45,7 +81,7 @@ Build and test these offline with a fake host. The run on Juice Shop causes real
 | Comparison file `security-assessment.test-case-comparison.json` with a schema | The comparison format is settled and the exit criteria are measured. |
 | Fixtures `tests/fixtures/test-cases/TC-.../` and the recorded-response evaluation | The catalog grows beyond the pilot aspects or moves into the default run. One or two AuthZ fixtures are enough for the first run. |
 | Console phase "Security checks", stage-stats entries, per-component report rows | The pilot becomes product behavior. |
-| `context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds; guides for the pilot setting | The phase exists. |
+| `context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds; the guides already describe the setting | Before the branch is merged; the phase exists since 5e3f39bb. |
 | Replacing the STRIDE step, the REQ-004 change, score integration, `TC-APP` test cases, control posture feeding | A positive pilot decision. |
 
 ## Decisions taken during the implementation
@@ -85,7 +121,8 @@ Stricter than the plan on purpose:
 
 ## Verification state
 
-- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. After the later commits it was started once more; check the result before relying on it.
+- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
+- At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
 
