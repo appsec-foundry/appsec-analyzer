@@ -29,6 +29,11 @@
     },
     "started_at": {"type": "integer", "minimum": 1},
     "expires_at": {"type": "integer", "minimum": 1},
+    "worked_seconds": {
+      "description": "Seconds the run worked across its attempts, without the pauses between them; the console continues it on resume. The time limit counts from started_at.",
+      "type": "integer",
+      "minimum": 0
+    },
     "status": {"enum": ["running", "interrupted", "failed", "complete"]},
     "budget_authorizations": {
       "description": "Explicit terminal approvals for this run. The identity retains the initial configured limit; compatible resume restores the last approved maximum.",

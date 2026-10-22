@@ -259,10 +259,12 @@ def test_a_finished_streaming_call_records_its_streamed_summary_and_result(tmp_p
     proc = _streaming_host(3)
     events = tmp_path / "events.jsonl"
     try:
-        result, error = host._communicate_events(proc, b"prompt", time.monotonic() + 30, lambda: False, events)
+        result, error, resets_at = host._communicate_events(
+            proc, b"prompt", time.monotonic() + 30, lambda: False, events
+        )
     finally:
         host._stop_group(proc)
-    assert json.loads(result)["type"] == "result" and error is None
+    assert json.loads(result)["type"] == "result" and error is None and resets_at is None
     assert '"output_chars": 3' in events.read_text()
 
 
@@ -394,6 +396,29 @@ def test_a_refused_call_names_the_api_error_not_the_success_subtype(tmp_path, er
     assert caught.value.reason == error and caught.value.usd == 0.0
     assert error in message and "success" not in message and "HOST-TEXT" not in message
     assert (hint in message) if hint else "(" not in message
+
+
+def _window(status: str, resets_at: float) -> str:
+    """The host's report on the subscription's usage window, sent before the refusal."""
+    info = {"status": status, "resetsAt": resets_at, "rateLimitType": "five_hour", "overageStatus": "rejected"}
+    event = {"type": "rate_limit_event", "rate_limit_info": info}
+    return f"print(json.dumps({event!r}), flush=True)\n"
+
+
+def test_a_rejected_usage_window_reports_its_reset_as_the_cooldown(tmp_path):
+    resets_at = int(time.time()) + 2700
+    with pytest.raises(host.TransportError) as caught:
+        _streaming(tmp_path, _window("rejected", resets_at) + _refused("rate_limit"), tmp_path / "e.jsonl").invoke(
+            "s", "p", {}, 30, lambda: False
+        )
+    assert caught.value.reason == "rate_limit" and 2600 <= caught.value.retry_after_s <= 2700
+    assert time.strftime("%H:%M", time.localtime(resets_at)) in str(caught.value)
+    # An allowed window leaves the short backoff to the caller.
+    with pytest.raises(host.TransportError) as caught:
+        _streaming(tmp_path, _window("allowed", resets_at) + _refused("rate_limit"), tmp_path / "f.jsonl").invoke(
+            "s", "p", {}, 30, lambda: False
+        )
+    assert caught.value.reason == "rate_limit" and caught.value.retry_after_s is None
 
 
 @pytest.mark.parametrize(

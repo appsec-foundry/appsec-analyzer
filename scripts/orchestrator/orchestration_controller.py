@@ -3813,6 +3813,9 @@ def assess_repositories(
                     )
                     console.preflight(getattr(ns, "preflight_checks", ()))
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
+                    if state.worked_before:
+                        # A resumed run's ELAPSED goes on from where its last attempt stopped.
+                        console.continue_from(state.worked_before)
                     noticed = []
 
                     def report_plugin_change():
@@ -3848,7 +3851,10 @@ def assess_repositories(
                     state.directory,
                     token_env=getattr(ns, "platform_token_env", None),
                     resume=ns.resume,
-                    say=say,
+                    # A start check, so the console shows it as a Preflight row that wraps in its column.
+                    say=(lambda symbol, text: console.preflight([(symbol, "Platform settings", text)]))
+                    if console
+                    else (lambda symbol, text: say(f"Platform settings: {text}")),
                 )
                 from appsec_analyzer.platform_settings.projection import model_context as platform_context
 
@@ -4551,7 +4557,8 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         if isinstance(exc, TransportError) and exc.reason == "rate_limit":
             print("⏸ assessment paused: provider rate limit; accepted steps are kept", file=sys.stderr)
             if exc.retry_after_s:
-                print(f"  Provider requested a cooldown of {exc.retry_after_s:.0f} s.", file=sys.stderr)
+                until = time.strftime("%H:%M", time.localtime(time.time() + exc.retry_after_s))
+                print(f"  Provider requested a cooldown of {exc.retry_after_s:.0f} s, until {until}.", file=sys.stderr)
             print(
                 "  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
                 file=sys.stderr,
