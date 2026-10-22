@@ -421,6 +421,20 @@ def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
     assert sum(line.startswith("TIME") for line in lines) == 1
 
 
+def test_a_long_platform_settings_check_wraps_under_its_detail_column(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 100)
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    detail = "sending read requests to github.com anonymously (public data only); no source code is sent"
+    console.preflight([("·", "Platform settings", detail)])
+    first, *rest = lines[1].split("\n")
+    column = first.index("Platform settings")
+    assert first.split(None, 3)[1:3] == ["Preflight", "·"]
+    # The detail continues under its own column instead of at the screen edge.
+    assert rest and len(first) < 100 and all(len(line) < 100 and not line[:column].strip() for line in rest)
+    assert " ".join(part.strip() for part in [first[column:], *rest]) == f"Platform settings: {detail}"
+
+
 def test_default_console_writes_every_line_in_one_column_grid():
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
