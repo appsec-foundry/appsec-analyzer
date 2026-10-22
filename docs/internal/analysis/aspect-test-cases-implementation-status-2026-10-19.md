@@ -4,7 +4,7 @@ Status: working document for REQ-040, written 2026-10-19. It records what the im
 
 ## Where the work is
 
-The implementation lives on the branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc. It is pushed up to 22c65a4c; 5e3f39bb is local only, and nothing is merged. Create a worktree to continue: `git worktree add <path> feat/aspect-test-cases`. Commit documentation and requirement changes on `main`, and the implementation on this one branch.
+The implementation lives on the branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc. It is pushed up to 22c65a4c; later commits are local only, and nothing is merged. Create a worktree to continue: `git worktree add <path> feat/aspect-test-cases`. Commit documentation and requirement changes on `main`, and the implementation on this one branch.
 
 | Commit | Content |
 | --- | --- |
@@ -18,6 +18,7 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | 91dd81ca | `AssessmentBudget.hold` and `release` in `assessment_jobs.py`. |
 | 22c65a4c | Roles `test_case_investigator` and `open_reviewer`, their policies and reply schemas, `case_analysis.py` validators, `component_outcome` in `case_outcomes.py`. |
 | 5e3f39bb | First visible run: controller phase for AuthZ (`assessment_test_cases.py`), component rows in `test_case_results`, `test_case_findings` in the model and the report section Test Case Findings (Pilot), per-component appendix rows, guides. |
+| 90d27a7d | The object form of `test_cases` selects no aspect unless `aspects` names one, so only a named aspect starts the model pilot. |
 
 ## What works today
 
@@ -36,7 +37,7 @@ Built in 5e3f39bb and tested offline. No live run has been made.
 Decisions and limits of this step:
 
 - Only `AuthZ` is investigated, as agreed for the first run.
-- The object form of `test_cases` defaults `aspects` to all five pilot aspects (profile normalizer of 17f98015). Since 5e3f39bb, a profile that sets only `disable` therefore runs the AuthZ investigation and pays for it. Decide whether the object form should default to no aspects.
+- Decided by the product owner on 2026-10-22: the object form of `test_cases` selects no aspect unless `aspects` names one (90d27a7d). Before, it defaulted to all five pilot aspects, so a profile that set only `disable` would have run the AuthZ investigation and paid for it.
 - A component that spans several repositories gets `undecidable` rows without a job, because candidate and route IDs are per repository.
 - A reply that requests a source outside the admitted scope or breaks the exchange contract still stops the run, as for every optional job. Model failures, timeouts, settled host failures, and budget skips become `undecidable`.
 - The evidence verifier does not review pilot findings. Each rests on the investigator's validated citations and its candidate's post-checks; the evidence basis is recorded per row, not per finding.
@@ -121,7 +122,7 @@ Stricter than the plan on purpose:
 
 ## Verification state
 
-- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
+- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb and again at 90d27a7d, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
