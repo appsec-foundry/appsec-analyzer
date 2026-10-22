@@ -244,4 +244,6 @@ Stricter than the plan on purpose:
 
 ## Open questions from the proposal that still need an owner
 
-The second comparison repository, the pilot time box, the name "test case", the mapping of outcomes to the control effectiveness scale, the reserved budget share per depth, and the score integration. See the proposal's open questions.
+The second comparison repository, the pilot time box, the mapping of outcomes to the control effectiveness scale, the reserved budget share per depth, and the score integration. See the proposal's open questions.
+
+The name "test case" has a provisional answer. On 2026-10-22 the product owner chose, for now, "STRIDE-based" and "verification-based" for the two analysis methods, and "verification catalog" with "verification items" for the catalog and its entries, with IDs such as `VI-AUTHZ-01`. "Test case", "security check", and "control objective" were rejected: the first collides with software tests, the second with scanner checks, and the third describes implementation rather than verification. Results must keep saying "verified by model review only" where no post-check confirms a control. The REQ-040 wording and the rename wait until the pilot is continued, at the latest until the branch is merged.
