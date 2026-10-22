@@ -405,12 +405,12 @@ class ClaudeCliTransport:
         stderr_reader = threading.Thread(target=drain_stderr, daemon=True)
         stderr_reader.start()
         # communicate() must not compete with the dedicated stderr reader.
-        api_error = None
+        api_error = resets_at = None
         try:
             if self.events_path is None:
                 stdout, _ = _communicate(proc, prompt.encode("utf-8"), deadline, should_stop)
             else:
-                stdout, api_error = _communicate_events(
+                stdout, api_error, resets_at = _communicate_events(
                     proc,
                     prompt.encode("utf-8"),
                     deadline,
@@ -438,10 +438,16 @@ class ClaudeCliTransport:
             # result reads `subtype: success`, and other results carry model text.
             reason = _failure_reason(outcome, api_error)
             hint = _FAILURE_HINTS.get(reason)
+            retry_after = None
+            if reason == "rate_limit" and resets_at is not None:
+                # A rejected usage window waits for its reset, not for a short backoff.
+                retry_after = max(0.0, resets_at - time.time())
+                hint = f"the Claude usage limit is reached until {time.strftime('%H:%M', time.localtime(resets_at))}"
             raise TransportError(
                 f"host call failed: {reason}" + (f" ({hint})" if hint else ""),
                 reason=reason,
                 usd=_reported_usd(outcome),
+                retry_after_s=retry_after,
                 exit_code=proc.returncode,
             )
         usd = outcome.get("total_cost_usd")
@@ -491,11 +497,13 @@ def _communicate_events(
     events_path: Path,
     on_event: Callable[[dict], None] | None = None,
     max_thinking_tokens: int | None = None,
-) -> tuple[bytes, str | None]:
+) -> tuple[bytes, str | None, float | None]:
     """Record each event line with its elapsed seconds as it arrives.
 
-    Returns the result event and the host's error code for a call the API
-    refused, which only the synthesized assistant message carries.
+    Returns the result event, the host's error code for a call the API
+    refused, which only the synthesized assistant message carries, and the
+    epoch second at which a rejected usage window resets, which only the
+    host's ``rate_limit_event`` carries.
 
     Partial output chunks are only counted: one summary line every few seconds
     records how much thinking and output text has streamed, without the text.
@@ -506,6 +514,7 @@ def _communicate_events(
     started = time.monotonic()
     result: list[bytes] = []
     api_error: list[str] = []
+    resets_at: list[float] = []
 
     streamed = {"thinking_chars": 0, "output_chars": 0}
     thinking = [0]
@@ -540,6 +549,8 @@ def _communicate_events(
                     result[:] = [line]
                 if event.get("type") == "assistant" and event.get("error") in API_ERROR_CODES:
                     api_error[:] = [event["error"]]
+                if event.get("type") == "rate_limit_event" and (reset := _rejected_reset(event)) is not None:
+                    resets_at[:] = [reset]
                 if on_event is not None:
                     try:
                         on_event(event)
@@ -573,7 +584,16 @@ def _communicate_events(
             # host and the pump before the event file closes.
             _stop_group(proc)
             reader.join(timeout=TERMINATE_GRACE_SECONDS)
-    return (result[0] if result else b""), (api_error[0] if api_error else None)
+    return (result[0] if result else b""), (api_error[0] if api_error else None), (resets_at[0] if resets_at else None)
+
+
+def _rejected_reset(event: dict) -> float | None:
+    """The epoch second at which a usage window the host reports as rejected resets, or None."""
+    info = event.get("rate_limit_info")
+    if not isinstance(info, dict) or info.get("status") != "rejected":
+        return None
+    reset = info.get("resetsAt")
+    return float(reset) if type(reset) in (int, float) and math.isfinite(reset) else None
 
 
 def _stop_group(proc: subprocess.Popen) -> None:
