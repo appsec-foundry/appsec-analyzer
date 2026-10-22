@@ -345,11 +345,11 @@ def test_test_cases_stay_out_of_the_model_and_report_by_default(tmp_path, monkey
 _PILOT = ("--no-pdf", "--test-case-aspects", "AuthZ")
 
 
-def _assess_again(tmp_path, host, output, extra):
+def _assess_again(tmp_path, host, output, extra, progress=lambda text: None):
     """Assess the `shop` checkout an earlier `_assess` seeded, with the same options as `_assess`."""
     argv = ["--repo", str(tmp_path / "shop"), "--output", str(output), "--hard-budget", "5"]
     argv += ["--trust-mode", "trusted", "--model", "haiku", *extra]
-    return controller.assess_repositories(argv, host_factory=host.factory, progress=lambda text: None)
+    return controller.assess_repositories(argv, host_factory=host.factory, progress=progress)
 
 
 def _component_rows(model, case_id=None):
@@ -421,7 +421,7 @@ def test_a_failed_investigation_records_undecidable_with_a_warning_and_the_run_c
     assert investigated and all(row["outcome"] == "undecidable" for row in investigated)
     assert {row["reason"] for row in investigated} == {"the model investigation returned no acceptable result"}
     assert "test_case_findings" not in model
-    assert any("test case investigation job" in text for text in outcome["warnings"])
+    assert any("verification job" in text for text in outcome["warnings"])
 
 
 def test_a_control_cited_from_a_comment_never_becomes_a_control(tmp_path, monkeypatch):
@@ -482,7 +482,8 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
 
     # One candidate per job forces every location into its own job.
     monkeypatch.setattr(case_candidates, "MAX_CANDIDATES", 1)
-    outcome = _assess_again(tmp_path, host, tmp_path / "pilot", _PILOT)
+    said = []
+    outcome = _assess_again(tmp_path, host, tmp_path / "pilot", _PILOT, progress=said.append)
     assert outcome["status"] == "complete"
     assert sorted(host.stride_prompts) == stride
     model = yaml.safe_load((tmp_path / "pilot" / "security-assessment.yaml").read_text())
@@ -491,6 +492,13 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     calls = _calls(host)
     count = len(calls)
     assert count > 1 and host.investigations == [(service, "AuthZ")] * count
+    # The progress counts the step's jobs and names a component's part only when it has several.
+    name = next(row["name"] for row in model["components"] if row["id"] == service)
+    assert {text for text in said if text.startswith("Verifying AuthZ ")} == {
+        f"Verifying AuthZ {number}/{count}: {name} (part {number} of {count})" for number in range(1, count + 1)
+    }
+    summary = f"AuthZ verification: {len(_component_rows(model))} results, {len(model['test_case_findings'])} findings"
+    assert summary in said
 
     # Each pre-check candidate is answered in exactly one job; together the jobs answer all of them.
     answered = [cid for _, share in calls.values() for ids in share.values() for cid in ids]
@@ -528,7 +536,7 @@ def test_a_failed_job_makes_only_its_candidates_undecidable(tmp_path, monkeypatc
     host = PilotHost(fail_job=2)
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
     assert outcome["status"] == "complete"
-    assert any("test case investigation job" in text for text in outcome["warnings"])
+    assert any("verification job" in text for text in outcome["warnings"])
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     rows = {row["test_case_id"]: row for row in _component_rows(model) if row["component_id"] == _service(model)}

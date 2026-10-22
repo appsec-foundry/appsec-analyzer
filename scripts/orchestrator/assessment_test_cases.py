@@ -113,9 +113,9 @@ def run_pilot(
         component, aspect = entry["component"], entry["aspect"]
         rid = component["repository_ids"][0]
         share, count = entry["jobs"][number - 1], len(entry["jobs"])
-        part = f" {number}/{count}" if count > 1 else ""
+        part = f" (part {number} of {count})" if count > 1 else ""
         envelope = envelopes[component["id"]]
-        progress(f"Investigating test cases: {label(component)} ({aspect}{part}, {position}/{len(work)})")
+        progress(f"Verifying {aspect} {position}/{len(work)}: {label(component)}{part}")
         context = {
             **envelope["context"],
             "aspect": aspect,
@@ -221,7 +221,8 @@ def run_pilot(
             candidates.setdefault(component["id"], []).extend(
                 {**row, "aspect": entry["aspect"]} for row in _context_candidates(entry["precheck"], rid, facts[rid])
             )
-    progress(f"Test case pilot: {len(results)} results, {len(findings)} findings")
+    subject = f"{', '.join(aspects)} verification" if aspects else "Verification"
+    progress(f"{subject}: {len(results)} results, {len(findings)} findings")
     return {"schema_version": 1, "aspects": aspects, "results": results, "findings": findings, "candidates": candidates}
 
 
