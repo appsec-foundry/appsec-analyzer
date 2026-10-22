@@ -4628,7 +4628,8 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         if isinstance(exc, TransportError) and exc.reason == "rate_limit":
             print("⏸ assessment paused: provider rate limit; accepted steps are kept", file=sys.stderr)
             if exc.retry_after_s:
-                print(f"  Provider requested a cooldown of {exc.retry_after_s:.0f} s.", file=sys.stderr)
+                until = time.strftime("%H:%M", time.localtime(time.time() + exc.retry_after_s))
+                print(f"  Provider requested a cooldown of {exc.retry_after_s:.0f} s, until {until}.", file=sys.stderr)
             print(
                 "  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
                 file=sys.stderr,
