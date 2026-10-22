@@ -19,6 +19,7 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | 22c65a4c | Roles `test_case_investigator` and `open_reviewer`, their policies and reply schemas, `case_analysis.py` validators, `component_outcome` in `case_outcomes.py`. |
 | 5e3f39bb | First visible run: controller phase for AuthZ (`assessment_test_cases.py`), component rows in `test_case_results`, `test_case_findings` in the model and the report section Test Case Findings (Pilot), per-component appendix rows, guides. |
 | 90d27a7d | The object form of `test_cases` selects no aspect unless `aspects` names one, so only a named aspect starts the model pilot. |
+| 80064794 | Changes after the first Juice Shop run: guard definitions in the preload, all state-changing routes for TC-AUTHZ-02 and -03, undecidable without an examined location, model-only controls named, catalog version 2. |
 
 ## What works today
 
@@ -71,12 +72,51 @@ An offline count with the components of the 2026-10-18 run gives four investigat
 
 For the first look, compare the component rows and `test_case_findings` by hand with the STRIDE threats of the same report that carry CWE-639, CWE-285, CWE-862, or CWE-915.
 
+### Result of the first run (2026-10-22)
+
+The product owner ran the profile above at 90d27a7d on Juice Shop at 33518f5a0, standard depth, with `--ignore-legacy`, into `/home/mrohr/appsec-reports/juice-authz-pilot`. The run completed with 114 model calls for USD 14.84 and no run issues. The published model passed `validate_threat_model_output`, the four pilot findings appeared only in `test_case_findings`, and the report showed the section Test Case Findings (Pilot) and the per-component appendix rows.
+
+Cost: the four investigator jobs took 8 calls and USD 1.58, between USD 0.11 and 0.65 per job and USD 0.40 on average. The STRIDE step took 27 jobs and USD 7.29, the evidence verifier 19 jobs and USD 2.45. Three of the four jobs needed one correction: two discovery escapes left unlisted, and a finding anchored in another component's file.
+
+Outcomes: 45 component rows, of them 3 finding, 5 no finding, 1 undecidable, 36 not applicable, and no control. Every control claim a post-check could test was contradicted: two by the ownership check, one by an AUTHZ-301/302 scanner hit. Fourteen further control claims of TC-AUTHZ-01 lay outside routes, had no post-check, and the reason still read "control evidenced at 14". Seven of eight weakness claims at routes were confirmed by a post-check, so TC-AUTHZ-02 was deterministic. TC-AUTHZ-01 on the Express server reached the cap of 40 and left 9 candidates unexamined.
+
+Comparison with the STRIDE step and the scanners of the same run:
+
+| | Weakness |
+| --- | --- |
+| Both | Basket IDOR (TCF-001), unauthenticated metrics endpoint (TCF-002), application configuration without a role check (TCF-003) |
+| Pilot only | Address update IDOR (TCF-004): `PUT /api/Addresss/:id` runs only `appendUserId()` and falls through to the generic finale REST handler, which updates any address by ID. Confirmed by reading the code. |
+| STRIDE only | Product update without authorization (T-037), user list for any authenticated user (T-073), forged review author (T-040), client-side-only role checks (T-083) |
+| Neither | Admin registration through mass assignment of `role` in `POST /api/Users` |
+
+Causes found in the replies and the inventory:
+
+- The preload carried no middleware definitions, so six `denyAll()` routes stayed undecidable with "implementation was not served".
+- TC-AUTHZ-02 took only routes the inventory marks as suspects, and TC-AUTHZ-03 only scanner hits, which were none. `POST /api/Users` was rejected under TC-AUTHZ-02 as public registration, and no test case examined its body.
+- `PUT /api/Products/:id` has no registration in `server.ts`; line 370 is commented out, and the finale REST generator creates the route from the data model. The route inventory does not list generated routes, so no test case received it as a candidate, and the model added none.
+- TC-AUTHZ-03 without candidates recorded no finding, although nothing was examined and the model proposed undecidable.
+- TC-AUTHZ-05 on the frontend stays undecidable, because the missing server check lies in another component.
+
+Assessment: the mechanics hold and the control rule works as intended. The pilot found one true weakness that the STRIDE step missed, but missed four that it found. The causes are specific and fixable, not a failure of the approach.
+
+### Changes after the first run
+
+Decided by the product owner on 2026-10-22 and built in 80064794:
+
+- The preload carries the definitions of the middlewares and guards the candidates' routes run, before the candidates, as for STRIDE.
+- TC-AUTHZ-02 also starts from every state-changing route and TC-AUTHZ-03 from every route that accepts a body, whatever their guards (`route_inventory.state_changing`, `route_inventory.accepts_body`). The guidance of TC-AUTHZ-01 to -03 names routes that frameworks generate from data models. Catalog version 2.
+- A test case without any examined location records undecidable instead of no finding.
+- A reason names the controls that only model review supports. The appendix lists the components a test case does not apply to in one row.
+
+An offline count with the components of this run gives the same four jobs. The Express server then has 31, 40, and 40 candidates, with 15 and 9 over the cap for TC-AUTHZ-02 and -03; `POST /api/Users` is a TC-AUTHZ-03 candidate. Generated routes still reach a job only when the model adds them, and the cap still leaves candidates unexamined, so batching and an inventory of generated REST routes are the next measures.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
 | --- | --- |
 | Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | The first run shows what the investigator alone misses. |
-| Batching for candidates beyond the cap of 40 per call | The run shows that the cap blocks `control` on large repositories. |
+| Batching for candidates beyond the cap of 40 per call | Shown by the first run: the Express server left 9 candidates unexamined, and after the changes 15 and 9 more for TC-AUTHZ-02 and -03. |
+| Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by the first run: the product update route reached no test case. |
 | Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
 | Removal rule: a confirmed post-check removes a scanner finding unless the evidence verifier marked it verified, otherwise the finding records `test_case_disagreement` | The merge exists. |
 | Comparison file `security-assessment.test-case-comparison.json` with a schema | The comparison format is settled and the exit criteria are measured. |
@@ -122,7 +162,7 @@ Stricter than the plan on purpose:
 
 ## Verification state
 
-- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb and again at 90d27a7d, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
+- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
