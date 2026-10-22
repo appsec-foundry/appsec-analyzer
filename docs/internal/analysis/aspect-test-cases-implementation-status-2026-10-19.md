@@ -21,6 +21,7 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | 90d27a7d | The object form of `test_cases` selects no aspect unless `aspects` names one, so only a named aspect starts the model pilot. |
 | 80064794 | Changes after the first Juice Shop run: guard definitions in the preload, all state-changing routes for TC-AUTHZ-02 and -03, undecidable without an examined location, model-only controls named, catalog version 2. |
 | 998b0b13 | Batching: a component and aspect with more than 40 candidates gets several investigator jobs, shared by location, and their replies are combined into one row per test case and component. |
+| ec424ef9 | The pilot's console progress follows the provisional name: "Verifying AuthZ 1/7: component (part 1 of 4)", the result line "AuthZ verification: …", and the role label "verification" in status, correction, and warning lines. |
 
 ## What works today
 
