@@ -241,11 +241,14 @@ requirements:
   REQ-042:
     applies_to:
       - appsec_analyzer/cli.py
+      - appsec_analyzer/organization.py
+      - schemas/org-profile.schema.yaml
       - scripts/validators/secret_scan.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
       - docs/internal/contracts/requirement-acceptance.md
+      - docs/org-profiles.md
       - specs/changes/secret-scan/proposal.md
     coverage: advisory
     guards: []
