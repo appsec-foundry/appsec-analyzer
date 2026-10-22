@@ -389,6 +389,75 @@ def test_a_model_candidate_stays_in_the_component(job):
         )
 
 
+def test_only_the_first_job_adds_model_candidates_and_never_where_another_job_answers(job):
+    with pytest.raises(Rejection, match="candidate m-1: only the first job of this component adds model candidates"):
+        validate(job, reply(job), adds_candidates=False)
+    other = "pc-" + "c" * 16
+    at_route = {"candidate_id": other, "origin": "pre-check", "anchor": job["at"]("server.js", 9), "route_id": "R-002"}
+    at_line = {"candidate_id": other, "origin": "pre-check", "anchor": job["at"]("server.js", 9)}
+    for row in (at_route, at_line):
+        with pytest.raises(Rejection, match="candidate m-1 is a location that another job of this component answers"):
+            validate(job, reply(job), answered_elsewhere={"TC-AUTHZ-01": [row]})
+    # The same location answered elsewhere for another test case, or another location, is no duplicate.
+    validate(job, reply(job), answered_elsewhere={"TC-AUTHZ-02": [at_route]})
+    validate(job, reply(job), answered_elsewhere={"TC-AUTHZ-01": [{**at_line, "anchor": job["at"]("server.js", 4)}]})
+
+
+def test_combined_jobs_keep_their_answers_and_get_unique_finding_ids(job):
+    first = reply(job)
+    second = reply(job)
+    other = "pc-" + "b" * 16
+    second["test_cases"] = [
+        dict(
+            test_case_id="TC-AUTHZ-01",
+            proposed_outcome="no_finding",
+            reason="Second job.",
+            candidates=[
+                dict(
+                    candidate_id=other,
+                    origin="pre-check",
+                    status="weakness",
+                    evidence=[job["at"]("server.js", 9)],
+                    finding_ids=["api-001"],
+                )
+            ],
+        )
+    ]
+    second["findings"] = [finding(job["at"], candidate_ids=[other])]
+    combined = ca.combine_investigations([first, second])
+    assert [case["test_case_id"] for case in combined["test_cases"]] == ["TC-AUTHZ-01", "TC-AUTHZ-02"]
+    owner = combined["test_cases"][0]
+    assert [row["candidate_id"] for row in owner["candidates"]] == [PC, "m-1", other]
+    # Both jobs call their finding api-001; each keeps its own link under a distinct ID.
+    ids = [row["local_id"] for row in combined["findings"]]
+    assert len(set(ids)) == 2 and all(value.startswith("part-") for value in ids)
+    assert [row["finding_ids"] for row in owner["candidates"]] == [[], [ids[0]], [ids[1]]]
+    assert [row["candidate_ids"] for row in combined["findings"]] == [["m-1"], [other]]
+    assert owner["proposed_outcome"] == "finding"
+    # The replies stay unchanged, and a single reply passes through.
+    assert first["findings"][0]["local_id"] == second["findings"][0]["local_id"] == "api-001"
+    assert ca.combine_investigations([first]) is first
+
+
+@pytest.mark.parametrize(
+    ("proposals", "combined"),
+    [
+        (["control", "control"], "control"),
+        (["control", "no_finding"], "partial"),
+        (["no_finding", "undecidable"], "undecidable"),
+        (["no_finding", "no_finding"], "no_finding"),
+        (["partial", "finding"], "finding"),
+    ],
+)
+def test_combined_proposals_follow_the_outcome_rules(job, proposals, combined):
+    parts = []
+    for proposal in proposals:
+        part = reply(job, findings=[])
+        part["test_cases"] = [{**part["test_cases"][1], "proposed_outcome": proposal}]
+        parts.append(part)
+    assert ca.combine_investigations(parts)["test_cases"][0]["proposed_outcome"] == combined
+
+
 def test_every_further_read_is_listed_and_only_those(job):
     ranges = [job["read"]("server.js"), job["read"]("lib/f1.js")]
     with pytest.raises(Rejection, match="lib/f1.js was read beyond the starting files"):

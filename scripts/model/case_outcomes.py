@@ -450,26 +450,36 @@ def investigation_results(
     repository_id: str | None = None,
     statuses: Mapping[str, str] | None = None,
     catalog: dict[str, Any] | None = None,
+    replaced: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """``{results, dropped_finding_ids}`` of an accepted investigation reply for one component.
 
     ``precheck`` and ``overflow`` map each test case ID to the controller's
-    pre-check candidates and the number left out of the packet. A finding is
-    dropped from the merge input when every weakness candidate it reports was
-    contradicted by a post-check. ``finding_ids`` of a result are the reply's
-    local IDs of the findings kept for it.
+    pre-check candidates and the number left out of the packet. When several
+    jobs shared the candidates, ``reply`` combines the accepted ones, and
+    ``replaced`` maps each pre-check candidate of a job the budget or a model
+    failure replaced to that cause: such a candidate is undecidable with the
+    cause's fixed reason. A finding is dropped from the merge input when
+    every weakness candidate it reports was contradicted by a post-check.
+    ``finding_ids`` of a result are the reply's local IDs of the findings
+    kept for it.
     """
     from model.case_postchecks import variant_search
 
     cases = {case["id"]: case for case in (catalog or load_catalog())["test_cases"]}
     overflow = overflow or {}
+    replaced = replaced or {}
     assessed = {}
     for answer in reply["test_cases"]:
         case = cases[answer["test_case_id"]]
         precheck_rows = list(precheck.get(case["id"], ()))
-        assessed[case["id"]] = (case, answer) + assess_candidates(
-            case, answer, precheck_rows, facts, repository_id=repository_id
-        )
+        records, checks = assess_candidates(case, answer, precheck_rows, facts, repository_id=repository_id)
+        records += [
+            _replaced_record(row, replaced[row["candidate_id"]])
+            for row in precheck_rows
+            if row["candidate_id"] in replaced
+        ]
+        assessed[case["id"]] = (case, answer, records, checks)
     records = {record["candidate_id"]: record for _, _, rows, _ in assessed.values() for record in rows}
     dropped = [
         finding["local_id"]
@@ -500,6 +510,22 @@ def investigation_results(
             )
         )
     return {"results": results, "dropped_finding_ids": dropped}
+
+
+def _replaced_record(row: Mapping[str, Any], cause: str) -> dict[str, Any]:
+    """The record of a pre-check candidate whose job was replaced, in the shape of ``assess_candidates``."""
+    return {
+        "candidate_id": row["candidate_id"],
+        "origin": "pre-check",
+        "claim": None,
+        "status": "undecidable",
+        "reason": REPLACEMENT_REASONS[cause],
+        "confirmed": False,
+        "contradicted": False,
+        "route_id": row.get("route_id"),
+        "rule_ids": list(row.get("rule_ids") or []),
+        "finding_ids": [],
+    }
 
 
 def replacement_result(

@@ -19,7 +19,11 @@ candidate locations a model investigation starts from: the component's routes
 that the test case's route facts select, and the scanner findings of its
 starting rules. One candidate stands for one location, so a scanner hit at a
 route registration joins that route's candidate instead of counting twice.
-Candidates beyond the cap are only counted.
+Candidates beyond an optional cap are only counted.
+
+``batches`` splits the candidates of one component and aspect into model jobs
+of at most ``MAX_CANDIDATES``. The candidates of one location stay in one job,
+so its code is read once for every test case that names it.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ from analyzers.route_inventory import _PATH_PARAM_RE, _is_excluded
 from shared._path_guard import is_safe_to_read
 from shared._source_lex import without_comments
 
-#: Candidates one model call receives; the rest are counted as overflow.
+#: Candidates one model call receives; a component and aspect with more get several calls.
 MAX_CANDIDATES = 40
 #: Larger files are generated or bundled code, not reviewed source.
 _MAX_FILE_BYTES = 1_000_000
@@ -338,7 +342,7 @@ def starting_candidates(
     component_id: str,
     facts: Mapping[str, Any],
     scanner_findings: Iterable[Mapping[str, Any]] | Mapping[str, list] | None,
-    cap: int = MAX_CANDIDATES,
+    cap: int | None = None,
 ) -> dict[str, Any]:
     """``{candidates, overflow}``: the pre-check locations of one component for one test case.
 
@@ -346,9 +350,9 @@ def starting_candidates(
     with ``route_id`` for a route registration and ``rule_ids`` for the
     starting rules a scanner reported there. Scanner hits come first, then
     routes the inventory flags, then the other routes; ``overflow`` counts the
-    candidates beyond ``cap``.
+    candidates beyond ``cap``, without a cap none.
     """
-    if type(cap) is not int or cap < 0:
+    if cap is not None and (type(cap) is not int or cap < 0):
         raise ValueError("cap must be a non-negative integer")
     component = _component(facts, component_id)
     owned = set(component["files"])
@@ -393,7 +397,38 @@ def starting_candidates(
         if entry["rule_ids"]:
             candidate["rule_ids"] = sorted(entry["rule_ids"])
         candidates.append(candidate)
-    return {"candidates": candidates, "overflow": max(0, len(ordered) - cap)}
+    return {"candidates": candidates, "overflow": len(ordered) - len(candidates)}
+
+
+def batches(precheck: Mapping[str, list[dict]], limit: int | None = None) -> list[dict[str, list[dict]]]:
+    """The model jobs of one component and aspect: per job, each test case's share of ``precheck``.
+
+    ``precheck`` maps each test case ID to its starting candidates. All
+    candidates of one location go to the same job, in the order the test
+    cases first name the locations, and a job takes whole locations up to
+    ``limit`` candidates, ``MAX_CANDIDATES`` by default; a location alone may
+    exceed it. The first job lists every test case, also one without a
+    candidate there, because only the first job adds model candidates. Later
+    jobs list the test cases they hold candidates of.
+    """
+    limit = MAX_CANDIDATES if limit is None else limit
+    if type(limit) is not int or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    locations: dict[tuple[str, int], list[tuple[str, dict]]] = {}
+    for case_id, rows in precheck.items():
+        for row in rows:
+            locations.setdefault((row["anchor"]["file"], row["anchor"]["line"]), []).append((case_id, row))
+    jobs: list[dict[str, list[dict]]] = [{case_id: [] for case_id in precheck}]
+    size = 0
+    for location in locations.values():
+        if size and size + len(location) > limit:
+            jobs.append({})
+            size = 0
+        for case_id, row in location:
+            jobs[-1].setdefault(case_id, []).append(row)
+        size += len(location)
+    # Test cases keep their catalog order in every job.
+    return [{case_id: job[case_id] for case_id in precheck if case_id in job} for job in jobs]
 
 
 def _route_entry(route_id: str, facts: Mapping[str, Any]) -> dict:

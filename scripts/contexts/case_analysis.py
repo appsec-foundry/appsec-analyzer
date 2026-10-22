@@ -1,11 +1,13 @@
 """contexts/case_analysis.py: contracts and reviews of test case investigations (REQ-040 pilot).
 
 The pilot asks one model call per component and aspect to answer the enabled
-test cases of that aspect (``test_case_investigator``) and one call per
+test cases of that aspect (``test_case_investigator``), or several calls that
+share its candidates (``model/case_candidates.batches``), and one call per
 component to look for weaknesses that no test case covers
 (``open_reviewer``). This module owns their reply contracts, the catalog
 text of their instructions, the fields the controller derives in a reply,
-and the reviews that accept or reject a reply. It does not sequence jobs,
+the reviews that accept or reject a reply, and the combination of a shared
+investigation's accepted replies. It does not sequence jobs,
 choose models, run post-checks or derive outcomes; ``model/case_outcomes.py``
 turns an accepted reply into results.
 
@@ -20,6 +22,7 @@ context; only plugin-owned catalog text enters its instructions.
 from __future__ import annotations
 
 import copy
+import hashlib
 import posixpath
 from functools import lru_cache
 from typing import Any, Iterable, Mapping
@@ -189,6 +192,63 @@ def _locate_titles(artifact) -> None:
             finding["title"] = base
 
 
+# --- shared investigations ------------------------------------------------------
+
+
+def combine_investigations(parts: list[dict]) -> dict:
+    """One investigation of a component and aspect from the accepted replies of the jobs sharing its candidates.
+
+    Each pre-check candidate is answered in exactly one job, and only the
+    first job adds model candidates, so candidate IDs stay unique. Finding
+    IDs repeat across jobs: each is rewritten with its job's position, with
+    the candidates that name it, as the STRIDE step combines its jobs. A test
+    case's proposed outcome combines its jobs' proposals by the outcome rules.
+    The result is input for ``case_outcomes.investigation_results``, not a
+    reply, and may exceed the reply contract.
+    """
+    if len(parts) == 1:
+        return parts[0]
+    combined = {**copy.deepcopy(parts[0]), "test_cases": [], "findings": [], "discovery_escapes": []}
+    cases, proposals = {}, {}
+    for index, part in enumerate(parts, 1):
+        part = copy.deepcopy(part)
+        # Hash the local identity instead of truncating arbitrary IDs.
+        renamed = {
+            row["local_id"]: f"part-{index}-" + hashlib.sha256(row["local_id"].encode()).hexdigest()[:16]
+            for row in part["findings"]
+        }
+        for finding in part["findings"]:
+            finding["local_id"] = renamed[finding["local_id"]]
+        combined["findings"] += part["findings"]
+        combined["discovery_escapes"] += part["discovery_escapes"]
+        for case in part["test_cases"]:
+            for row in case["candidates"]:
+                row["finding_ids"] = [renamed[local_id] for local_id in row["finding_ids"]]
+            case_id = case["test_case_id"]
+            proposals.setdefault(case_id, []).append(case["proposed_outcome"])
+            if case_id in cases:
+                cases[case_id]["candidates"] += case["candidates"]
+            else:
+                cases[case_id] = case
+                combined["test_cases"].append(case)
+    for case_id, case in cases.items():
+        case["proposed_outcome"] = _combined_proposal(proposals[case_id])
+    return combined
+
+
+def _combined_proposal(outcomes: list[str]) -> str:
+    """The proposals of several jobs for one test case, in the order of ``component_outcome``'s rules."""
+    if "finding" in outcomes:
+        return "finding"
+    if set(outcomes) == {"control"}:
+        return "control"
+    if {"control", "partial"} & set(outcomes):
+        return "partial"
+    if "undecidable" in outcomes:
+        return "undecidable"
+    return "no_finding"
+
+
 # --- reviews ------------------------------------------------------------------
 
 
@@ -207,6 +267,8 @@ def validate_investigation(
     facts: Mapping[str, Mapping] | None = None,
     boundaries=(),
     allowed_requirement_ids=frozenset(),
+    adds_candidates: bool = True,
+    answered_elsewhere: Mapping[str, Iterable[Mapping]] | None = None,
 ):
     """Accept an investigation only when it answers exactly its job and cites what it read.
 
@@ -215,8 +277,11 @@ def validate_investigation(
     reply must answer. ``allowed_sources`` are the files the job may cite,
     ``starting_sources`` the files served as starting points and preload,
     and ``facts`` the route facts per repository ID that a model candidate's
-    route is checked against. Rejections name controller-known values or
-    pattern-checked IDs, never model text.
+    route is checked against. When the candidates are shared among several
+    jobs, only the job with ``adds_candidates`` may add model candidates,
+    and never at a route or qualified anchor of the same test case that
+    ``answered_elsewhere`` lists for the other jobs. Rejections name
+    controller-known values or pattern-checked IDs, never model text.
 
     A control cited only from documentation is not rejected here; the outcome
     records it as undecidable.
@@ -240,7 +305,7 @@ def validate_investigation(
     identifiers = [row["local_id"] for row in artifact["findings"]]
     if len(identifiers) != len(set(identifiers)):
         raise ExchangeError("Test case finding identities are not unique")
-    errors = _candidate_errors(artifact, expected, component, facts or {})
+    errors = _candidate_errors(artifact, expected, component, facts or {}, adds_candidates, answered_elsewhere or {})
     errors += _link_errors(artifact)
     if errors:
         raise Rejection("The investigation's candidates and findings are inconsistent", errors)
@@ -296,12 +361,19 @@ def _validate_identity(scope, component, flows, artifact, label: str) -> None:
         raise ExchangeError(f"{label} refers to a stale component inventory")
 
 
-def _candidate_errors(artifact, expected, component, facts) -> list[str]:
-    """Pre-check answers match the controller's set; model candidates stay in the component and its routes."""
+def _candidate_errors(artifact, expected, component, facts, adds_candidates, elsewhere) -> list[str]:
+    """Pre-check answers match the controller's set; model candidates stay in the component and its routes.
+
+    A model candidate also belongs to the job that adds them, and not to a
+    location another job of the component answers for the same test case.
+    """
     own = analysis.source_selection([component])
     errors, seen = [], set()
     for case in artifact["test_cases"]:
         case_id = case["test_case_id"]
+        answered = list(elsewhere.get(case_id, ()))
+        routes = {row["route_id"] for row in answered if "route_id" in row}
+        anchors = {(row["anchor"]["repository_id"], row["anchor"]["file"], row["anchor"]["line"]) for row in answered}
         pre = set()
         for row in case["candidates"]:
             candidate = row["candidate_id"]
@@ -312,9 +384,19 @@ def _candidate_errors(artifact, expected, component, facts) -> list[str]:
                 pre.add(candidate)
                 continue
             anchor = row["anchor"]
-            if (anchor["repository_id"], anchor["file"]) not in own:
+            if not adds_candidates:
+                errors.append(
+                    f"{case_id}: candidate {candidate}: only the first job of this component adds model "
+                    "candidates; remove it"
+                )
+            elif (anchor["repository_id"], anchor["file"]) not in own:
                 errors.append(
                     f"{case_id}: candidate {candidate} lies outside the component's own files; move or remove it"
+                )
+            elif row.get("route_id") in routes or (anchor["repository_id"], anchor["file"], anchor["line"]) in anchors:
+                errors.append(
+                    f"{case_id}: candidate {candidate} is a location that another job of this component answers; "
+                    "remove it"
                 )
             elif "route_id" in row:
                 problem = _route_problem(row["route_id"], anchor, facts)

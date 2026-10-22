@@ -307,6 +307,42 @@ def test_the_cap_keeps_scanner_hits_and_counts_the_rest(catalog, shop):
             cc.starting_candidates(case, "api", facts, findings, cap=cap)
 
 
+def _at(name, line):
+    return {"candidate_id": f"pc-{name}", "origin": "pre-check", "anchor": {"file": "server.js", "line": line}}
+
+
+def test_batches_keep_each_location_in_one_job_and_give_the_first_job_every_test_case():
+    precheck = {
+        "TC-AUTHZ-01": [_at("a1", 1), _at("a2", 2)],
+        "TC-AUTHZ-02": [_at("b1", 1), _at("b3", 3)],
+        "TC-AUTHZ-03": [_at("c2", 2), _at("c4", 4)],
+        "TC-AUTHZ-05": [],
+    }
+    # Lines 1 and 2 hold two candidates each and fill the first job; lines 3 and 4 follow.
+    assert cc.batches(precheck, limit=4) == [
+        {
+            "TC-AUTHZ-01": [_at("a1", 1), _at("a2", 2)],
+            "TC-AUTHZ-02": [_at("b1", 1)],
+            "TC-AUTHZ-03": [_at("c2", 2)],
+            "TC-AUTHZ-05": [],
+        },
+        {"TC-AUTHZ-02": [_at("b3", 3)], "TC-AUTHZ-03": [_at("c4", 4)]},
+    ]
+    # A location is never split, even when it alone exceeds the limit.
+    tight = cc.batches(precheck, limit=1)
+    assert len(tight) == 4 and tight[0] == {
+        "TC-AUTHZ-01": [_at("a1", 1)],
+        "TC-AUTHZ-02": [_at("b1", 1)],
+        "TC-AUTHZ-03": [],
+        "TC-AUTHZ-05": [],
+    }
+    # Within the limit, one job answers everything, as before batching.
+    assert cc.batches(precheck) == [precheck]
+    for limit in (0, -1, 2.5, True):
+        with pytest.raises(ValueError):
+            cc.batches(precheck, limit=limit)
+
+
 def test_rule_candidates_stay_in_their_component_and_repository(catalog, shop):
     facts, _, _ = shop
     threats = [

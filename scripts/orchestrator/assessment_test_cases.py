@@ -6,9 +6,12 @@ component and investigated aspect, the enabled test cases that apply get
 their starting candidates from the deterministic facts of the component's
 repository (``model/case_candidates.py``), and one optional
 ``test_case_investigator`` job answers them inside the STRIDE job's context
-envelope. ``model/case_outcomes.py`` turns an accepted reply into one result
-per test case and component. A failed or unaffordable job becomes an
-undecidable result, so the run continues.
+envelope. More candidates than one job takes are shared among several jobs,
+each location in one of them, and their accepted replies are combined
+(``contexts/case_analysis.combine_investigations``).
+``model/case_outcomes.py`` turns the reply into one result per test case and
+component. A failed or unaffordable job makes its candidates undecidable, so
+the run continues.
 
 The phase changes no STRIDE request and merges nothing into the threats: its
 findings stay a separate list until the pilot decides how to merge them.
@@ -35,7 +38,9 @@ _ADAPTATION = (
     "test_case_candidates lists each test case's pre-check candidates; the controller serves each "
     "candidate's anchor and resolved handler lines, and the lines the supplied controls, flows and "
     "boundaries cite, in source_slices. readable_sources maps each repository_id to its permitted paths: "
-    "read only exact pairs from it, in one read action."
+    "read only exact pairs from it, in one read action. When the context has candidate_jobs, other jobs answer the "
+    "rest of the component's candidates: add model candidates only when adds_candidates is true, and never at a "
+    "location that answered_elsewhere lists for the same test case."
 )
 
 
@@ -79,7 +84,7 @@ def run_pilot(
     for component in components:
         rid = component["repository_ids"][0] if len(component["repository_ids"]) == 1 else None
         for aspect in aspects:
-            entry = {"component": component, "aspect": aspect, "fixed": {}, "precheck": {}, "overflow": {}}
+            entry = {"component": component, "aspect": aspect, "fixed": {}, "precheck": {}}
             entry["cases"] = [
                 case for case in catalog["test_cases"] if case["aspect"] == aspect and case["mode"] != "rules"
             ]
@@ -98,29 +103,41 @@ def run_pilot(
                     case, component["id"], facts[rid], findings_by_repository[rid]
                 )
                 entry["precheck"][case["id"]] = found["candidates"]
-                entry["overflow"][case["id"]] = found["overflow"]
             if entry["precheck"]:
-                entry["candidates"] = _context_candidates(entry, rid, facts[rid])
+                entry["jobs"] = case_candidates.batches(entry["precheck"])
             entries.append(entry)
-    work = [entry for entry in entries if entry["precheck"]]
+    work = [(entry, number) for entry in entries if entry["precheck"] for number in range(1, len(entry["jobs"]) + 1)]
 
-    def investigate(position, entry, view):
+    def investigate(position, item, view):
+        entry, number = item
         component, aspect = entry["component"], entry["aspect"]
         rid = component["repository_ids"][0]
+        share, count = entry["jobs"][number - 1], len(entry["jobs"])
+        part = f" {number}/{count}" if count > 1 else ""
         envelope = envelopes[component["id"]]
-        progress(f"Investigating test cases: {label(component)} ({aspect}, {position}/{len(work)})")
-        context = {**envelope["context"], "aspect": aspect, "test_case_candidates": entry["candidates"]}
+        progress(f"Investigating test cases: {label(component)} ({aspect}{part}, {position}/{len(work)})")
+        context = {
+            **envelope["context"],
+            "aspect": aspect,
+            "test_case_candidates": _context_candidates(share, rid, facts[rid]),
+        }
+        # Only the first of several jobs adds model candidates, and never where another job answers.
+        elsewhere = _answered_elsewhere(entry["jobs"], number, rid) if count > 1 and number == 1 else {}
+        if count > 1:
+            context["candidate_jobs"] = {"job": number, "of": count, "adds_candidates": number == 1}
+            if number == 1:
+                context["candidate_jobs"]["answered_elsewhere"] = _locations(elsewhere, facts[rid])
         role_instructions = instructions(
-            "test_case_investigator", _ADAPTATION + "\n\n" + case_analysis.catalog_instructions(entry["precheck"])
+            "test_case_investigator", _ADAPTATION + "\n\n" + case_analysis.catalog_instructions(share)
         )
         schema = case_analysis.contract(case_analysis.INVESTIGATION)
         limit = view.context_limit(role_instructions, schema)
-        preload = _preload(scope, context, entry, rid, facts[rid], envelope, architecture, components, limit)
+        preload = _preload(scope, context, share, rid, facts[rid], envelope, architecture, components, limit)
         starting = {(key[0], key[1]) for key in preload} | {
-            (rid, row["anchor"]["file"]) for rows in entry["precheck"].values() for row in rows
+            (rid, row["anchor"]["file"]) for rows in share.values() for row in rows
         }
         identity = {key: context[key] for key in ("source_scope_sha256", "component_inventory_fingerprint")}
-        selector = f"test-cases:{component['id']}:{aspect}"
+        selector = f"test-cases:{component['id']}:{aspect}" + (f":{number}/{count}" if count > 1 else "")
         artifact = view.execute(
             role="test_case_investigator",
             selector=selector,
@@ -128,7 +145,7 @@ def run_pilot(
             context=context,
             schema=schema,
             allowed_sources=envelope["job_allowed"],
-            normalize=case_analysis.investigation_normalizer(scope, component, aspect, identity, entry["precheck"]),
+            normalize=case_analysis.investigation_normalizer(scope, component, aspect, identity, share),
             preload=preload,
             validate=lambda artifact, ranges: case_analysis.validate_investigation(
                 scope,
@@ -138,14 +155,16 @@ def run_pilot(
                 artifact,
                 ranges,
                 aspect=aspect,
-                candidates=entry["precheck"],
+                candidates=share,
                 allowed_sources=envelope["job_allowed"],
                 starting_sources=starting,
                 facts={rid: facts[rid]},
                 boundaries=envelope["adjacent"],
                 allowed_requirement_ids=requirement_ids,
+                adds_candidates=number == 1,
+                answered_elsewhere=elsewhere,
             ),
-            # The test cases of a replaced job record undecidable (OR-39).
+            # The candidates of a replaced job record undecidable (OR-39).
             on_failure=lambda reason: {"replaced": True},
         )
         if artifact.get("replaced"):
@@ -153,23 +172,32 @@ def run_pilot(
             return {"cause": "budget" if gap.get("budget") else "failure"}
         return {"reply": artifact}
 
-    answers = dict(zip(map(id, work), concurrently(jobs, work, investigate) if work else [], strict=True))
+    answered = {}
+    for (entry, number), answer in zip(work, concurrently(jobs, work, investigate) if work else [], strict=True):
+        answered.setdefault(id(entry), []).append((entry["jobs"][number - 1], answer))
     results, findings, candidates = [], [], {}
     for entry in entries:
         component = entry["component"]
-        answer = answers.get(id(entry), {})
+        parts = answered.get(id(entry), [])
+        replies = [answer["reply"] for _, answer in parts if "reply" in answer]
         derived = {}
-        if "reply" in answer:
+        if replies:
             rid = component["repository_ids"][0]
-            reply = answer["reply"]
+            reply = case_analysis.combine_investigations(replies)
             outcome = case_outcomes.investigation_results(
                 reply,
                 component["id"],
                 precheck=entry["precheck"],
-                overflow=entry["overflow"],
                 facts=facts[rid],
                 repository_id=rid,
                 catalog=catalog,
+                replaced={
+                    row["candidate_id"]: answer["cause"]
+                    for share, answer in parts
+                    if "cause" in answer
+                    for rows in share.values()
+                    for row in rows
+                },
             )
             # Reply-local IDs repeat across jobs, so each kept finding gets a run-wide TCF- ID.
             local = {}
@@ -180,15 +208,18 @@ def run_pilot(
             for row in outcome["results"]:
                 row["finding_ids"] = [local[value] for value in row["finding_ids"]]
                 derived[row["test_case_id"]] = row
-        elif "cause" in answer:
-            for case_id, rows in entry["precheck"].items():
-                derived[case_id] = case_outcomes.replacement_result(
-                    cases[case_id], component["id"], answer["cause"], unexamined=len(rows) + entry["overflow"][case_id]
-                )
+        # A test case that no accepted job answered takes the cause of its first replaced job.
+        for share, answer in parts:
+            for case_id in share:
+                if "cause" in answer and case_id not in derived:
+                    derived[case_id] = case_outcomes.replacement_result(
+                        cases[case_id], component["id"], answer["cause"], unexamined=len(entry["precheck"][case_id])
+                    )
         results += [entry["fixed"].get(case["id"]) or derived[case["id"]] for case in entry["cases"]]
         if entry["precheck"]:
+            rid = component["repository_ids"][0]
             candidates.setdefault(component["id"], []).extend(
-                {**row, "aspect": entry["aspect"]} for row in entry["candidates"]
+                {**row, "aspect": entry["aspect"]} for row in _context_candidates(entry["precheck"], rid, facts[rid])
             )
     progress(f"Test case pilot: {len(results)} results, {len(findings)} findings")
     return {"schema_version": 1, "aspects": aspects, "results": results, "findings": findings, "candidates": candidates}
@@ -242,22 +273,53 @@ def _fixed(case, component_id: str, outcome: str, reason: str) -> dict:
     return row
 
 
-def _context_candidates(entry, rid: str, facts) -> list[dict]:
-    """The job's candidates as context data: qualified anchors, and each route's method and path."""
+def _context_candidates(precheck, rid: str, facts) -> list[dict]:
+    """Candidates per test case as context data: qualified anchors, and each route's method and path."""
     listed = []
-    for case_id, rows in entry["precheck"].items():
+    for case_id, rows in precheck.items():
         candidates = []
         for row in rows:
             candidate = {**row, "anchor": {"repository_id": rid, **row["anchor"]}}
             if "route_id" in row:
-                route = facts["routes"][row["route_id"]]
-                candidate["route"] = {"method": route["method"], "path": route["path"]}
+                candidate["route"] = _route(facts, row["route_id"])
             candidates.append(candidate)
-        listed.append({"test_case_id": case_id, "candidates": candidates, "unexamined": entry["overflow"][case_id]})
+        listed.append({"test_case_id": case_id, "candidates": candidates})
     return listed
 
 
-def _preload(scope, context, entry, rid, facts, envelope, architecture, components, limit) -> list[tuple]:
+def _answered_elsewhere(shares, number: int, rid: str) -> dict[str, list[dict]]:
+    """Per test case, the pre-check candidates that the other jobs answer, with qualified anchors."""
+    found: dict[str, list[dict]] = {}
+    for other, share in enumerate(shares, 1):
+        if other == number:
+            continue
+        for case_id, rows in share.items():
+            found.setdefault(case_id, []).extend(
+                {**row, "anchor": {"repository_id": rid, **row["anchor"]}} for row in rows
+            )
+    return found
+
+
+def _locations(elsewhere, facts) -> list[dict]:
+    """The locations of ``_answered_elsewhere`` as context data, without candidate IDs to answer."""
+    return [
+        {
+            "test_case_id": case_id,
+            "locations": [
+                {"anchor": row["anchor"], **({"route": _route(facts, row["route_id"])} if "route_id" in row else {})}
+                for row in rows
+            ],
+        }
+        for case_id, rows in elsewhere.items()
+    ]
+
+
+def _route(facts, route_id: str) -> dict:
+    route = facts["routes"][route_id]
+    return {"method": route["method"], "path": route["path"]}
+
+
+def _preload(scope, context, precheck, rid, facts, envelope, architecture, components, limit) -> list[tuple]:
     """Preload as the STRIDE job does: the context's cited lines, guards, candidate windows, then helpers.
 
     The definitions of the middlewares the candidates' routes run come before
@@ -279,7 +341,7 @@ def _preload(scope, context, entry, rid, facts, envelope, architecture, componen
     inventory = {row.get("route_id"): row for row in architecture["route_inventories"][rid].get("routes", [])}
     wares = architecture.get("route_middleware", {}).get(rid, {})
     anchors, lines, guards, targets = [], [], [], []
-    for row in (row for rows in entry["precheck"].values() for row in rows):
+    for row in (row for rows in precheck.values() for row in rows):
         anchor = {"repository_id": rid, **row["anchor"]}
         anchors.append(anchor)
         route = facts["routes"].get(row.get("route_id")) or {}

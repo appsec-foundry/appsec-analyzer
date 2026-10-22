@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://appsec-advisor/schemas/test-case-investigation.schema.json",
   "title": "Test case investigation of one component and one aspect",
-  "description": "REQ-040 pilot. One reply answers every enabled, applicable test case of one aspect for one component. Load it through contexts/case_analysis.contract: each findings item is the STRIDE threat item of multi-repo-stride.schema.json, which the loader closes with the extension fields given here, so the two cannot drift. The controller sets the identity fields and fixes the anchor and route of each pre-check candidate.",
+  "description": "REQ-040 pilot. One reply answers every enabled, applicable test case of one aspect for one component, or the share of their candidates that one of several jobs holds. Load it through contexts/case_analysis.contract: each findings item is the STRIDE threat item of multi-repo-stride.schema.json, which the loader closes with the extension fields given here, so the two cannot drift. The controller sets the identity fields and fixes the anchor and route of each pre-check candidate.",
   "type": "object",
   "additionalProperties": false,
   "required": [

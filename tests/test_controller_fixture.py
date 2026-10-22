@@ -18,6 +18,7 @@ import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from model import case_candidates, case_outcomes
 from orchestrator import orchestration_controller as controller
 from runtime.analyst_host import HostReply, TransportError
 from runtime.assessment_host import MARKER
@@ -121,17 +122,21 @@ class WebApplicationHost(FullHost):
 class PilotHost(WebApplicationHost):
     """WebApplicationHost that also answers the REQ-040 test case investigator.
 
-    The first candidate of TC-AUTHZ-01 is a weakness with one finding; every
-    other candidate is neither. With ``fail`` every investigator call fails
-    with its cost settled; with ``comment_line`` the first candidate claims a
-    control cited at that line. ``interrupt`` rejects the security
-    architecture render, so a later run can resume.
+    The first candidate of each job, the first of TC-AUTHZ-01 when one job
+    answers all, is a weakness with the finding ``authz-1``; every other
+    candidate is neither. With ``fail`` every investigator call fails with
+    its cost settled, with ``fail_job`` only the calls of that job of several;
+    with ``comment_line`` the first candidate claims a control cited at that
+    line. ``interrupt`` rejects the security architecture render, so a later
+    run can resume.
     """
 
-    def __init__(self, fail=False, comment_line=None):
+    def __init__(self, fail=False, comment_line=None, fail_job=None):
         super().__init__()
-        self.fail, self.comment_line, self.interrupt = fail, comment_line, False
+        self.fail, self.comment_line, self.interrupt, self.fail_job = fail, comment_line, False, fail_job
         self.investigations = []
+        # Per investigation call: its candidate_jobs context and its candidate IDs per test case.
+        self.jobs = []
         # The (path, first line, last line) of each investigation's first packet.
         self.served = []
         self.stride_prompts = []
@@ -147,6 +152,14 @@ class PilotHost(WebApplicationHost):
             raise TransportError("host call failed: no_result", reason="no_result", usd=0.0)
         packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
         context = packet["context"]
+        if "test_case_candidates" in context:
+            share = {
+                row["test_case_id"]: [c["candidate_id"] for c in row["candidates"]]
+                for row in context["test_case_candidates"]
+            }
+            self.jobs.append((context.get("candidate_jobs"), share))
+            if self.fail_job is not None and (context.get("candidate_jobs") or {}).get("job") == self.fail_job:
+                raise TransportError("host call failed: no_result", reason="no_result", usd=0.0)
         if "anchor_corrections" in context:
             # Keep the rejected citation, as a model insisting on it would.
             payload = {
@@ -161,10 +174,10 @@ class PilotHost(WebApplicationHost):
 
     def investigate(self, context, slices):
         hashes = {(row["repository_id"], row["path"]): row["sha256"] for row in slices}
-        cases, findings = [], []
+        cases, findings, first = [], [], True
         for case in context["test_case_candidates"]:
             answers = []
-            for index, candidate in enumerate(case["candidates"]):
+            for candidate in case["candidates"]:
                 answer = dict(
                     candidate_id=candidate["candidate_id"],
                     origin="pre-check",
@@ -172,7 +185,8 @@ class PilotHost(WebApplicationHost):
                     evidence=[],
                     finding_ids=[],
                 )
-                if case["test_case_id"] == "TC-AUTHZ-01" and index == 0:
+                if first:
+                    first = False
                     anchor = candidate["anchor"]
                     cited = dict(
                         repository_id=anchor["repository_id"],
@@ -184,7 +198,7 @@ class PilotHost(WebApplicationHost):
                         answer.update(status="control", control_kind="code", evidence=[cited])
                     else:
                         answer.update(status="weakness", evidence=[cited], finding_ids=["authz-1"])
-                        findings.append(_owner_finding(cited, candidate["candidate_id"]))
+                        findings.append(_owner_finding(cited, candidate["candidate_id"], case["test_case_id"]))
                 answers.append(answer)
             cases.append(
                 dict(
@@ -206,7 +220,7 @@ class PilotHost(WebApplicationHost):
         )
 
 
-def _owner_finding(cited, candidate_id):
+def _owner_finding(cited, candidate_id, case_id="TC-AUTHZ-01"):
     return dict(
         local_id="authz-1",
         title="Order access lacks an owner check",
@@ -224,7 +238,7 @@ def _owner_finding(cited, candidate_id):
             steps=["Load the order through the caller's account.", "Return 404 when the owner differs."],
             verification="Request another user's order and assert a 404 response.",
         ),
-        test_case_ids=["TC-AUTHZ-01"],
+        test_case_ids=[case_id],
         candidate_ids=[candidate_id],
     )
 
@@ -426,19 +440,109 @@ def test_a_control_cited_from_a_comment_never_becomes_a_control(tmp_path, monkey
     assert [row["outcome"] for row in owner] == ["undecidable"]
 
 
-def test_resume_replays_accepted_investigations_without_new_model_calls(tmp_path, monkeypatch):
+@pytest.mark.parametrize("batched", [False, True])
+def test_resume_replays_accepted_investigations_without_new_model_calls(tmp_path, monkeypatch, batched):
     from runtime.assessment_host import ExchangeError
 
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    if batched:
+        monkeypatch.setattr(case_candidates, "MAX_CANDIDATES", 1)
     host = PilotHost()
     host.interrupt = True
     with pytest.raises(ExchangeError):
         _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
     assert "test_case_investigator" in host.roles
+    assert (len(host.jobs) > 1) is batched
     host.roles.clear()
     host.interrupt = False
     outcome = _assess_again(tmp_path, host, tmp_path / "out", (*_PILOT, "--resume"))
     assert outcome["status"] == "complete"
     assert "test_case_investigator" not in host.roles and "stride_analyzer" not in host.roles
     model = yaml.safe_load((tmp_path / "out" / "security-assessment.yaml").read_text())
-    assert [row["id"] for row in model["test_case_findings"]] == ["TCF-001"]
+    ids = [row["id"] for row in model["test_case_findings"]]
+    assert ids == [f"TCF-{number:03d}" for number in range(1, len(ids) + 1)] and (len(ids) > 1) is batched
+
+
+def _service(model):
+    return next(row["id"] for row in model["components"] if "server.js" in row["paths"])
+
+
+def _calls(host):
+    """The candidate IDs per test case of each investigation job, by job number, once per job."""
+    return {(jobs or {}).get("job", 1): (jobs, share) for jobs, share in host.jobs}
+
+
+def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_case(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    outcome, _, plain = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=host)
+    assert outcome["status"] == "complete"
+    stride = sorted(host.stride_prompts)
+    host.stride_prompts.clear()
+
+    # One candidate per job forces every location into its own job.
+    monkeypatch.setattr(case_candidates, "MAX_CANDIDATES", 1)
+    outcome = _assess_again(tmp_path, host, tmp_path / "pilot", _PILOT)
+    assert outcome["status"] == "complete"
+    assert sorted(host.stride_prompts) == stride
+    model = yaml.safe_load((tmp_path / "pilot" / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    service = _service(model)
+    calls = _calls(host)
+    count = len(calls)
+    assert count > 1 and host.investigations == [(service, "AuthZ")] * count
+
+    # Each pre-check candidate is answered in exactly one job; together the jobs answer all of them.
+    answered = [cid for _, share in calls.values() for ids in share.values() for cid in ids]
+    (artifact,) = (tmp_path / "pilot").rglob(f".dispatch-context/{service}/test-case-candidates.json")
+    listed = [
+        row["candidate_id"] for case in json.loads(artifact.read_text())["test_cases"] for row in case["candidates"]
+    ]
+    assert sorted(answered) == sorted(listed) and len(set(answered)) == len(answered)
+    # Only the first job answers every test case, adds model candidates, and learns where the others answer.
+    jobs = [calls[number][0] for number in range(1, count + 1)]
+    assert [(row["job"], row["of"], row["adds_candidates"]) for row in jobs] == [
+        (number, count, number == 1) for number in range(1, count + 1)
+    ]
+    assert "answered_elsewhere" in jobs[0] and not any("answered_elsewhere" in row for row in jobs[1:])
+    assert set(calls[1][1]) >= {case for _, share in calls.values() for case in share}
+
+    # One row per test case and component, counting the candidates of every job and none as unexamined.
+    rows = {row["test_case_id"]: row for row in _component_rows(model) if row["component_id"] == service}
+    for case_id, row in rows.items():
+        total = sum(len(share.get(case_id, [])) for _, share in calls.values())
+        assert row["candidates"]["unexamined"] == 0 and row["candidates"]["applicable"] == total
+    assert len(_component_rows(model)) == len(
+        {(row["component_id"], row["test_case_id"]) for row in _component_rows(model)}
+    )
+
+    # Every job reports its finding as authz-1; the pilot findings keep distinct IDs and links.
+    ids = [row["id"] for row in model["test_case_findings"]]
+    assert len(ids) > 1 and ids == [f"TCF-{number:03d}" for number in range(1, len(ids) + 1)]
+    assert sorted(value for row in _component_rows(model) for value in row["finding_ids"]) == sorted(ids)
+
+
+def test_a_failed_job_makes_only_its_candidates_undecidable(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    monkeypatch.setattr(case_candidates, "MAX_CANDIDATES", 1)
+    host = PilotHost(fail_job=2)
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
+    assert outcome["status"] == "complete"
+    assert any("test case investigation job" in text for text in outcome["warnings"])
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    rows = {row["test_case_id"]: row for row in _component_rows(model) if row["component_id"] == _service(model)}
+    failed = {case_id: ids for case_id, ids in _calls(host)[2][1].items() if ids}
+    assert failed
+    reason = case_outcomes.REPLACEMENT_REASONS["failure"]
+    for case_id, ids in failed.items():
+        row = rows[case_id]
+        # The failed job's candidates count as undecidable, not unexamined, and never as a control.
+        assert row["candidates"]["undecidable"] >= len(ids) and row["candidates"]["unexamined"] == 0
+        assert row["outcome"] in ("finding", "partial", "undecidable")
+        # The test case keeps the answers of its other jobs instead of becoming one replaced result.
+        assert row["reason"] != reason
+        if row["outcome"] == "undecidable":
+            assert row["reason"].endswith(f"candidate locations undecidable: {reason}")
+    # The first job's finding survives the failure of the second.
+    assert model["test_case_findings"][0]["test_case_ids"] == ["TC-AUTHZ-01"]

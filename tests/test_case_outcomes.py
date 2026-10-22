@@ -466,6 +466,34 @@ def test_investigation_results_drop_contradicted_findings_and_list_unreviewed_va
     assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]})) == []
 
 
+def test_candidates_of_a_replaced_job_are_undecidable_and_the_answered_ones_keep_their_outcome(catalog):
+    # The job holding PC3 failed; the other job answered PC1.
+    answer = _answer({"status": "weakness"}, {"status": "neither"}, ["api-001"])
+    answer["candidates"] = answer["candidates"][:1]
+    reply = {
+        "test_cases": [answer],
+        "findings": [{"local_id": "api-001", "test_case_ids": ["TC-AUTHZ-01"], "candidate_ids": [PC1]}],
+    }
+    precheck = {"TC-AUTHZ-01": _PRECHECK}
+    (row,) = tcr.investigation_results(reply, "api", precheck=precheck, facts=_FACTS, replaced={PC3: "failure"})[
+        "results"
+    ]
+    assert (row["outcome"], row["finding_ids"]) == ("finding", ["api-001"])
+    assert {key: row["candidates"][key] for key in ("applicable", "undecidable", "unexamined")} == {
+        "applicable": 2,
+        "undecidable": 1,
+        "unexamined": 0,
+    }
+    # Without a weakness, the replaced candidate leaves the test case undecidable for its job's cause.
+    answer["candidates"][0].update(status="neither", finding_ids=[])
+    (row,) = tcr.investigation_results(
+        {"test_cases": [answer], "findings": []}, "api", precheck=precheck, facts=_FACTS, replaced={PC3: "budget"}
+    )["results"]
+    assert row["outcome"] == "undecidable"
+    assert row["reason"] == f"1 of 2 candidate locations undecidable: {tcr.REPLACEMENT_REASONS['budget']}"
+    assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]})) == []
+
+
 def test_a_replaced_investigation_is_undecidable_with_a_fixed_reason(catalog):
     row = tcr.replacement_result(_case(catalog, "TC-AUTHZ-01"), "api", "budget", unexamined=4)
     assert (row["outcome"], row["reason"]) == ("undecidable", tcr.REPLACEMENT_REASONS["budget"])
