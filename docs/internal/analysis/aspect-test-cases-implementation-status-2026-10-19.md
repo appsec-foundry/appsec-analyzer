@@ -128,7 +128,7 @@ Data behind the choice: the Express server's 135 candidates lie on 65 locations,
 
 ### Second run on Juice Shop
 
-Prepared on 2026-10-22 for 998b0b13; not run yet. The product owner starts it with `bash /tmp/authz-pilot/run.sh`, which runs the branch worktree with the profile above on Juice Shop at 33518f5a0 into `/home/mrohr/appsec-reports/juice-authz-pilot-2`. A new run replaces a completed run in its directory and reuses none of its jobs, so the second run uses its own directory and the first run's results stay in `juice-authz-pilot` for comparison.
+Prepared on 2026-10-22 for 998b0b13 and run the same evening; the result follows below. The product owner starts it with `bash /tmp/authz-pilot/run.sh`, which runs the branch worktree with the profile above on Juice Shop at 33518f5a0 into `/home/mrohr/appsec-reports/juice-authz-pilot-2`. A new run replaces a completed run in its directory and reuses none of its jobs, so the second run uses its own directory and the first run's results stay in `juice-authz-pilot` for comparison.
 
 An offline count with the first run's components gives seven investigator jobs: four for the Juice Shop Express Server with 40, 39, 40, and 16 candidates, one for Authentication & Session Surface with 17, one for Web3 / Wallet / NFT Surface with 6, and one for the Angular frontend, where only TC-AUTHZ-05 applies, without candidates. `POST /api/Users` is a TC-AUTHZ-02 and TC-AUTHZ-03 candidate in the third Express job. `PUT /api/Products/:id` is still no candidate.
 
@@ -145,13 +145,54 @@ Measures against the first run:
 | Cost per job | Calls, USD, and corrections per investigator job, from the receipts in `.assessment-work/jobs` and the result events in `.assessment-work/host-events`, against the first run's USD 0.11 to 0.65. |
 | First run's pilot findings | Basket IDOR, metrics endpoint, configuration without role check, and address update IDOR are found again. |
 
+### Result of the second run (2026-10-22)
+
+The product owner ran the profile at 998b0b13 on Juice Shop at 33518f5a0 into `/home/mrohr/appsec-reports/juice-authz-pilot-2`. At 20:25 the Claude subscription's five-hour usage window was exhausted during the fourth Express job; the host waited 15 and 60 seconds before the run stopped, and `--resume` after the reset at 21:10 replayed every accepted job without a model call. The run completed with 124 calls. The receipts add up to USD 16.36 against USD 14.84 in the first run; the run's own counter showed USD 20.56, because calls cancelled at the limit are charged their reservation. Fixes for the stop at the usage limit, the platform settings console line, and the elapsed time on resume are on the branch `fix/console-and-usage-limit` (3e4f6c9c, c45e1135, 1f42a5cd), derived from `main` at bfabee2e and not merged.
+
+| Question | Result |
+| --- | --- |
+| Admin registration through `role` in `POST /api/Users` | Found: TC-AUTHZ-03 records a weakness there, TCF-009 "User registration accepts a client-supplied role (verify.ts:53)". The STRIDE step found it this time as well (T-036). |
+| `denyAll()` routes | None undecidable: 19 candidates answered as control and 4 rejected, against 6 undecidable in the first run. |
+| Generated product route `PUT /api/Products/:id` | Missed again; only the STRIDE step reports it (T-034). The model added no candidate except one on the frontend. |
+| Unexamined candidates | None, against 9 in the first run. |
+| Cost per job | Seven jobs, 13 calls, and USD 3.05, against four jobs, 8 calls, and USD 1.58. The Express jobs cost USD 0.34 to 0.59 each. The frontend and Authentication & Session jobs again needed one correction each, for the same reasons as in the first run. |
+| First run's pilot findings | Three of four again: basket, metrics endpoint, and address update. The configuration without role check is missing. |
+
+On the Express server all three seeded test cases record a finding: TC-AUTHZ-01 at 8 of 35 candidate locations, TC-AUTHZ-02 at 5 of 33, and TC-AUTHZ-03 at 4 of 24. Their controls, at 20, 10, and 7 locations, rest on model review only. The pilot reports 12 findings.
+
+Comparison with the documented Juice Shop challenges that concern authorization (`data/static/challenges.yml`), both from this run:
+
+| Challenge | Pilot | STRIDE step |
+| --- | --- | --- |
+| Admin Registration | TCF-009 | T-036 |
+| View Basket | TCF-002 | T-003, T-004 |
+| Exposed Metrics | TCF-008 | T-032, T-061 |
+| Access Log | TCF-007 | T-027, T-028 |
+| Forged Review | Partly: the author taken from the request body (TCF-006) | T-038, and editing any review as an instance of T-003 |
+| Forged Feedback | TCF-010 | Missed |
+| Manipulate Basket | TCF-003, `BasketId` from the client | Missed |
+| Product Tampering | Missed | T-034 |
+| GDPR Data Theft | Missed | T-063 |
+
+Each finds seven of these challenges, together nine. Outside the list, only the STRIDE step reports the user list for any authenticated user (T-078), and only the pilot reports recycle-item and order-tracking IDOR; the latter may be intended, since the tracking ID is meant to be shared. The STRIDE step counts the payment card routes (`routes/payment.ts`) as instances of the IDOR finding T-001; the pilot answered them as controls, and the code scopes the query by the `UserId` that `appendUserId` sets from the token.
+
+Causes of the pilot's misses:
+
+- Product Tampering: the route is generated from the data model and has no inventory entry.
+- Editing any review: `PATCH /rest/products/reviews` takes the object ID in the body, so TC-AUTHZ-01 did not select it, and TC-AUTHZ-03 answered it as a control because the update writes only `message`.
+- User list: `GET /rest/user/authentication-details` has no path parameter and changes no state, so no test case selected it.
+- GDPR Data Theft: business logic, which belongs to the open review.
+
+Assessment by the implementing session, not yet a decision: for authorization the pilot matches the STRIDE step in hits on the reference list, with different misses, and is more traceable, with a verdict per route and counted coverage, and in the payment case more precise. Exit criterion 1 is not met, but the causes are specific. Combined, the two find nine of the challenges. The cost is the main risk: authorization alone costs about 40% of the STRIDE step, which covers all aspects, so five pilot aspects investigated separately would add about USD 10 to 15 per run. Recommended next: keep the STRIDE step, add the inventory of generated routes, let TC-AUTHZ-01 start from routes that take an object ID in the body, build the open review, and measure with a third run, since the first two runs already differ noticeably.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
 | --- | --- |
-| Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | The first run shows what the investigator alone misses. |
+| Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | Shown by the second run: GDPR Data Theft and other business logic reach no test case. |
 | Shared jobs for the test cases of all investigated aspects of a component | A second aspect is investigated. Batching by location exists since 998b0b13. |
-| Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by the first run: the product update route reached no test case. |
+| Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by both runs: the product update route reached no test case. |
+| TC-AUTHZ-01 candidates for routes that take an object ID in the body, and a starting point for sensitive listings without a path parameter | Shown by the second run: editing any review and the user list reached no fitting test case. |
 | Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
 | Removal rule: a confirmed post-check removes a scanner finding unless the evidence verifier marked it verified, otherwise the finding records `test_case_disagreement` | The merge exists. |
 | Comparison file `security-assessment.test-case-comparison.json` with a schema | The comparison format is settled and the exit criteria are measured. |
