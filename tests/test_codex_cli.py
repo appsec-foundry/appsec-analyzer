@@ -536,8 +536,11 @@ def test_timeout_kills_descendants_after_parent_exit(tmp_path):
         codex_cli._run([sys.executable, "-c", parent], cwd=tmp_path, env=codex_cli.environment(), timeout_s=1)
     pid = int(pid_file.read_text())
     for _ in range(20):
-        status = Path(f"/proc/{pid}/stat")
-        if not status.exists() or status.read_text().split()[2] == "Z":
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().split()[2]
+        except (FileNotFoundError, ProcessLookupError):
+            break  # reaped between polls
+        if state == "Z":
             break
         time.sleep(0.05)
     else:
