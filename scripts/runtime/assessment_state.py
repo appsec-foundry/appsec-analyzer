@@ -170,6 +170,9 @@ class AssessmentState:
         self.cancelled = False
         self._held = False
         self._last_heartbeat = 0.0
+        # Working seconds of the earlier attempts a resume continues; pauses between them do not count.
+        self.worked_before = 0
+        self._attempt_started = time.monotonic()
 
     @contextmanager
     def hold(self):
@@ -179,6 +182,8 @@ class AssessmentState:
         _real_directory(self.output, create=True)
         with acquire_lock.serialization_guard(self.output):
             self._open()
+            self.worked_before = self.state.get("worked_seconds", 0)
+            self._attempt_started = time.monotonic()
             self._held = True
             now = int(time.time())
             acquire_lock._write_lock(
@@ -629,6 +634,7 @@ class AssessmentState:
             "spent_usd": self.budget.spent_usd,
             "unavailable": self.budget.failed,
         }
+        self.state["worked_seconds"] = self.worked_before + int(time.monotonic() - self._attempt_started)
         Draft202012Validator(json.loads(SCHEMA.read_text())).validate(self.state)
         atomic_write_json(self.path, self.state)
         self.path.chmod(0o600)

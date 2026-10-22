@@ -3813,6 +3813,9 @@ def assess_repositories(
                     )
                     console.preflight(getattr(ns, "preflight_checks", ()))
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
+                    if state.worked_before:
+                        # A resumed run's ELAPSED goes on from where its last attempt stopped.
+                        console.continue_from(state.worked_before)
                     noticed = []
 
                     def report_plugin_change():

@@ -586,6 +586,10 @@ class _AssessmentConsole:
         here, there = self.plan.index(self.phase), self.plan.index(key)
         return here > there or (here == there and self.fraction > 0)
 
+    def continue_from(self, seconds: int) -> None:
+        """Count ELAPSED on from the working time of the earlier attempts a resumed run continues."""
+        self.run_started = self.clock() - seconds
+
     def _run(self, now: float) -> str:
         """The run columns: finished share, elapsed time, and the remaining time at the measured speed."""
         share, elapsed, left = self._run_fields(now)
