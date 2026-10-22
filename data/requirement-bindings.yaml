@@ -238,6 +238,18 @@ requirements:
       - tests/test_platform_security_settings.py::test_report_block_validates_against_the_output_schema
       - tests/test_platform_security_settings.py::test_section_renders_checked_and_skipped_selections_and_is_absent_without_a_block
 
+  REQ-042:
+    applies_to:
+      - appsec_analyzer/cli.py
+      - scripts/validators/secret_scan.py
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - docs/internal/contracts/requirement-acceptance.md
+      - specs/changes/secret-scan/proposal.md
+    coverage: advisory
+    guards: []
+
   REQ-039:
     applies_to:
       - appsec_analyzer/distribution.py
