@@ -16511,15 +16511,18 @@ def _render_platform_security_settings(ctx: RenderContext, env: jinja2.Environme
     return "\n".join(lines).rstrip() + "\n"
 
 
+# Only `control` may read like a control; partial and no-finding labels say they are none.
 _TEST_CASE_OUTCOMES = {
     "finding": "Finding",
     "control": "Control evidenced",
-    "partial": "Partial control",
-    "no_finding": "No finding",
+    "partial": "Partial, not a control",
+    "no_finding": "No finding, no control",
     "undecidable": "Undecidable",
     "not_applicable": "Not applicable",
     "disabled": "Disabled",
 }
+_TEST_CASE_ID = re.compile(r"TC-[A-Z]+-[0-9]{2}")
+_TEST_CASE_FINDING_ID = re.compile(r"TCF-[0-9]{3,}")
 
 
 def _table_text(value: object) -> str:
@@ -16530,12 +16533,21 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
     """Every catalog test case with its outcome in this run (REQ-040).
 
     The catalog supplies titles, objectives, and evidence rules; the model supplies the outcomes. A test
-    case without a result in this run is listed as not examined, never as a control."""
+    case without a result in this run is listed as not examined, never as a control. A model-investigated
+    test case has one row per component."""
     block = ctx.yaml_data.get("test_case_results")
     results = block.get("results") if isinstance(block, dict) else None
     if not isinstance(results, list):
         return ""
-    by_id = {row["test_case_id"]: row for row in results if isinstance(row, dict) and "test_case_id" in row}
+    by_id: dict[str, list[dict]] = {}
+    for row in results:
+        if isinstance(row, dict) and "test_case_id" in row:
+            by_id.setdefault(row["test_case_id"], []).append(row)
+    names = component_names(ctx.yaml_data)
+
+    def component(row: dict) -> str:
+        return _safe_boundary_text(names.get(str(row.get("component_id")), row.get("component_id")), table=True)
+
     try:
         catalog = yaml.safe_load((PLUGIN_ROOT / "data" / "test-cases.yaml").read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
@@ -16556,17 +16568,26 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         "recorded scanner result never counts as satisfied. A finding that several test cases link counts once in "
         "the severity totals and once per test case here.",
         "",
-        "| Test case | Aspect | Outcome | Reason |",
-        "|---|---|---|---|",
     ]
+    if any(row.get("scope") == "component" for rows in by_id.values() for row in rows):
+        lines += [
+            "A model-investigated test case shows one row per component. It is a control only when the control is "
+            "evidenced at every candidate location; a partial, no finding or undecidable result is never a control. "
+            "Comments, documentation and controls outside the examined sources are not control evidence.",
+            "",
+        ]
+    lines += ["| Test case | Aspect | Outcome | Reason |", "|---|---|---|---|"]
     for case in cases:
-        row = by_id.get(case["id"])
-        outcome = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"]) if row else "Not examined"
-        reason = _table_text(row["reason"]) if row else "Needs a model investigation that this run did not make."
-        lines.append(f"| [{case['id']}](#{case['id'].lower()}) | {case['aspect']} | {outcome} | {reason} |")
+        for row in by_id.get(case["id"]) or [None]:
+            outcome = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"]) if row else "Not examined"
+            reason = _table_text(row["reason"]) if row else "Needs a model investigation that this run did not make."
+            subject = f"[{case['id']}](#{case['id'].lower()})"
+            if row and row.get("scope") == "component":
+                subject += f" · {component(row)}"
+            lines.append(f"| {subject} | {case['aspect']} | {outcome} | {reason} |")
     lines.append("")
     for case in cases:
-        row = by_id.get(case["id"])
+        rows = by_id.get(case["id"]) or []
         lines += [
             f'<a id="{case["id"].lower()}"></a>',
             f"### {case['id']}: {_table_text(case['title'])}",
@@ -16578,16 +16599,79 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             f"Evidence for a control: {_table_text(case['evidence']['control'])}.",
             "",
         ]
-        if row:
-            rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
+        for row in rows:
+            outcome = f"{_TEST_CASE_OUTCOMES.get(row['outcome'], row['outcome'])}. {_table_text(row['reason'])}."
             candidates = row.get("candidates") or {}
+            if row.get("scope") == "component":
+                lines += [f"Outcome for {component(row)}: {outcome} {_candidate_counts(candidates)}", ""]
+                if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
+                    lines += ["Evidenced by model review only; no post-check confirmed it.", ""]
+                linked = [str(v) for v in row.get("finding_ids") or [] if _TEST_CASE_FINDING_ID.fullmatch(str(v))]
+                if linked:
+                    lines += [f"Findings: {', '.join(linked)} (see [Test Case Findings](#test-case-findings)).", ""]
+                continue
+            rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
             lines += [
-                f"Outcome: {_TEST_CASE_OUTCOMES.get(row['outcome'], row['outcome'])}. {_table_text(row['reason'])}. "
+                f"Outcome: {outcome} "
                 f"Evidenced for {candidates.get('evidenced', 0)} of {candidates.get('applicable', 0)} applicable rules.",
                 "",
                 f"Rules: {rules}" if rules else "Rules: none",
                 "",
             ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _candidate_counts(candidates: dict) -> str:
+    """The candidate locations of a component result, in neutral counts."""
+    parts = [
+        f"{candidates.get(key, 0)} {label}"
+        for key, label in (
+            ("weaknesses", "weakness"),
+            ("evidenced", "control"),
+            ("undecidable", "undecidable"),
+            ("rejected", "rejected"),
+            ("unexamined", "not examined"),
+        )
+        if candidates.get(key)
+    ]
+    return f"Candidate locations: {candidates.get('applicable', 0)}" + (f" ({', '.join(parts)})." if parts else ".")
+
+
+def _render_test_case_findings(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
+    """Findings of the model-backed test case pilot, listed apart from the findings register (REQ-040)."""
+    rows = [row for row in ctx.yaml_data.get("test_case_findings") or [] if isinstance(row, dict)]
+    if not rows:
+        return ""
+    names = component_names(ctx.yaml_data)
+    lines = [
+        '<a id="test-case-findings"></a>',
+        "## Test Case Findings (Pilot)",
+        "",
+        "Model investigations of the security test cases reported these findings. They are not yet merged with "
+        "the findings register: they do not count in its totals, and the same weakness can appear in both. "
+        "The test case appendix shows each test case's outcome per component.",
+        "",
+        "| ID | Test cases | Component | Finding | Risk | Location |",
+        "|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        cases = ", ".join(
+            f"[{value}](#{value.lower()})"
+            for value in map(str, row.get("test_case_ids") or [])
+            if _TEST_CASE_ID.fullmatch(value)
+        )
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        location = (
+            f"{_safe_boundary_text(evidence.get('file'), table=True)}:{evidence.get('line')}"
+            if evidence.get("file")
+            else "—"
+        )
+        name = names.get(str(row.get("component_id")), row.get("component_id"))
+        lines.append(
+            f"| {_safe_boundary_text(row.get('id'), table=True)} | {cases or '—'} "
+            f"| {_safe_boundary_text(name, table=True)} | {_safe_boundary_text(row.get('title'), table=True)} "
+            f"| {_safe_boundary_text(row.get('risk'), table=True)} | {location} |"
+        )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -18352,6 +18436,7 @@ def _render_by_id(ctx: RenderContext, env: jinja2.Environment, section_id: str, 
         "abuse_cases": _render_abuse_cases,
         "mitigation_register": _render_mitigation_register,
         "requirements_compliance": _render_requirements_compliance,
+        "test_case_findings": _render_test_case_findings,
         "appendix_test_cases": _render_appendix_test_cases,
         "appendix_run_statistics": _render_appendix_run_statistics,
         "composition_notes": _render_composition_notes,
@@ -18715,6 +18800,7 @@ def render(
             "has_trust_boundaries": bool(yaml_data.get("trust_boundaries")),
             "has_platform_settings": bool((yaml_data.get("meta") or {}).get("platform_security_settings")),
             "has_test_case_results": bool((yaml_data.get("test_case_results") or {}).get("results")),
+            "has_test_case_findings": bool(yaml_data.get("test_case_findings")),
             # Quick-mode §7 gate. False suppresses §7 in both TOC and body
             # (resolver returned `""` — current depth is quick and no rich
             # prior content was found). True keeps §7 — either via the

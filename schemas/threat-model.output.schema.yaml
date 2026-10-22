@@ -2166,6 +2166,51 @@ properties:
               type: array
               items: { type: string, minLength: 1 }
 
+  test_case_findings:
+    type: array
+    description: >-
+      Findings of the model-backed test case pilot (REQ-040), present only when a pilot investigation
+      reported one. Each is the investigation's STRIDE finding item under a TCF- ID. They are not merged
+      with `threats` and do not count in its totals; a weakness listed here may also be a threat.
+      The component results in `test_case_results` name them in `finding_ids`.
+    items:
+      type: object
+      additionalProperties: true
+      required: [id, component_id, aspect, test_case_ids, title, stride, risk, cwe, evidence]
+      properties:
+        id:
+          type: string
+          pattern: ^TCF-[0-9]{3,}$
+        component_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        aspect:
+          type: string
+          minLength: 1
+        test_case_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            pattern: ^TC-[A-Z]+-[0-9]{2}$
+        title:
+          type: string
+          minLength: 1
+        stride:
+          $ref: "#/properties/threats/items/properties/stride"
+        risk:
+          $ref: "#/properties/threats/items/properties/risk"
+        cwe:
+          type: string
+          pattern: ^CWE-[0-9]+$
+        evidence:
+          type: object
+          required: [file, line]
+          properties:
+            file: { type: string, minLength: 1 }
+            line: { type: integer, minimum: 1 }
+
   threat_hypotheses:
     # DEPRECATED (P1, weakness-class evidence model): retired as a user-facing
     # category. The producer stops emitting this list (see P1.3

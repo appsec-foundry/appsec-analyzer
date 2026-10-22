@@ -108,6 +108,7 @@ document:
     - abuse_cases
     - mitigation_register
     - out_of_scope
+    - { id: test_case_findings, condition: "has_test_case_findings" }
     - { id: appendix_test_cases, condition: "has_test_case_results" }
     - appendix_run_statistics        # always — verbose flag only gates token/cost detail
     - { id: composition_notes, condition: "compose_warned" }  # M2.14 — only when prior compose warned
@@ -165,6 +166,7 @@ document:
         - abuse_cases
         - mitigation_register
         - out_of_scope
+        - { id: test_case_findings, condition: "has_test_case_findings" }
         - { id: appendix_test_cases, condition: "has_test_case_results" }
         - appendix_run_statistics
         - { id: composition_notes, condition: "compose_warned" }
@@ -1492,6 +1494,15 @@ sections:
     heading_numbered: true
     fragment_type: markdown
     fragment: "out-of-scope.md"
+
+  # REQ-040 pilot: findings of the model-backed test case investigations, not yet merged with the
+  # findings register. Conditional: rendered only when the model has `test_case_findings`.
+  test_case_findings:
+    heading: "## Test Case Findings (Pilot)"
+    heading_numbered: false
+    anchor: "test-case-findings"
+    fragment_type: computed
+    data_source: "threat-model.yaml#test_case_findings"
 
   # REQ-040: every catalog test case with its outcome in this run. Conditional: runs without
   # `test_case_results` render no such appendix.

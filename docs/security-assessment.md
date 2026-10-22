@@ -146,19 +146,22 @@ Accepted jobs remain in the output directory. After correcting the cause, repeat
 
 The catalog in [data/test-cases.yaml](../data/test-cases.yaml) names the security questions an assessment can answer, grouped by aspect, such as authorization or supply chain. Each test case lists the scanner rules that seed it, the evidence a finding or a protecting control needs, and the matching entries of the control catalog.
 
-Set `test_cases: true` in a scan profile to record the test cases in a run. This is the only setting; it makes no additional model calls and changes nothing about the analysis itself. In this version only the nine rule-based test cases receive an outcome, from the recorded results of their scanner rules. Test cases that need a model investigation are listed in the report as not examined.
+Set `test_cases: true` in a scan profile to record the test cases in a run without additional model calls. Only the nine rule-based test cases then receive an outcome, from the recorded results of their scanner rules, and test cases that need a model investigation are listed in the report as not examined. The object form of the setting, described in [profiles](profiles.md), selects pilot aspects for a model investigation and disables single test cases with a reason.
 
 A rule-based test case has one of these outcomes: finding, control, partial, undecidable, or not applicable. It reports a control only when every applicable rule is satisfied and the scanner recorded a result for each. A rule without a recorded result never counts as satisfied. A control here means that the examined files contain the expected configuration. It does not show that the control works in production.
+
+Selecting the aspect `AuthZ` starts the model pilot for authorization, which adds model cost to the run. After the STRIDE analysis, each component that an authorization test case applies to gets one more model job on the STRIDE model. The job receives the component's starting candidates from the route inventory and the scanner rules, answers each candidate, and may add its own. Fixed post-checks over the route inventory test its claims. Each test case then records one outcome per component: finding, control, partial, no finding, undecidable, not applicable, or disabled. A control requires evidence at every candidate location. Partial, no finding, and undecidable never count as a control, and comments, documentation, and controls outside the examined sources are not control evidence. A failed or unaffordable job records undecidable with a warning, and the run continues. The other pilot aspects are accepted but not investigated yet.
 
 With the setting on:
 
 - Findings from scanner rules carry `rule_ids` and `test_case_ids` in `security-assessment.yaml`, and their details link the test cases and rules.
 - `security-assessment.yaml` gains a `test_case_results` block.
-- The report gains the appendix Security Test Cases, which lists every catalog test case and its outcome.
+- The report gains the appendix Security Test Cases, which lists every catalog test case and its outcome, with one row per component for model-investigated test cases.
+- With `AuthZ` selected, `security-assessment.yaml` gains `test_case_findings` and the report the section Test Case Findings (Pilot). These findings are not merged with the findings register yet and do not count in its totals.
 - The completion summary shows a Test cases row with the outcome counts.
 - In SARIF, a linked finding uses the test case ID as `ruleId`. The finding ID moves to the result property `findingId`.
 
-Operators cannot yet disable single test cases, and repository content cannot select or disable any. The design and open questions are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md).
+Repository content cannot select or disable test cases. The design and open questions are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md).
 
 ## Known threats
 

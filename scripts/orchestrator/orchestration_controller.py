@@ -1731,8 +1731,15 @@ def _assessment_stride(
     depth="standard",
     captured=None,
     platform=None,
+    test_cases=None,
+    pilot=None,
 ):
-    """Analyze every finalized component and independently review its evidence."""
+    """Analyze every finalized component and independently review its evidence.
+
+    When ``test_cases`` selects pilot aspects, the REQ-040 test case pilot runs
+    after the STRIDE work and before the merge, and ``pilot`` receives its
+    sidecar document.
+    """
     from contexts import multi_repo_analysis as analysis
     from model import assessment_scanner_findings
     from model.merge_threats import merge_assessment
@@ -1796,6 +1803,9 @@ def _assessment_stride(
     def label(component):
         return component["name"] + (f" [{component['id'][-6:]}]" if names[component["name"]] > 1 else "")
 
+    # REQ-040 pilot: its jobs reuse each component's STRIDE context envelope.
+    envelopes = {} if pilot is not None and isinstance(test_cases, dict) and test_cases["aspects"] else None
+
     def analyze(position, component, jobs):
         """Analyze and review one component; `jobs` is its own view (MR-16)."""
         neighborhood = analysis.component_neighborhood(components, flows, component["id"])
@@ -1848,6 +1858,16 @@ def _assessment_stride(
         for rid, path in sorted(job_allowed):
             readable_sources.setdefault(rid, []).append(path)
         context["readable_sources"] = readable_sources
+        if envelopes is not None:
+            # Recorded, never changed: the STRIDE requests stay the same with and without the pilot.
+            envelopes[component["id"]] = {
+                "context": {key: value for key, value in context.items() if key != "lens_ids"},
+                "neighborhood": neighborhood,
+                "incident": incident,
+                "adjacent": adjacent,
+                "allowed": allowed,
+                "job_allowed": job_allowed,
+            }
 
         # Lines the context cites from earlier stages (controls, flows,
         # boundaries) arrive with the first job's first packet: a job that
@@ -2077,6 +2097,25 @@ def _assessment_stride(
     scope.verify_unchanged()
     found = sum(len(document["threats"]) for document in documents) + sum(len(rows) for rows in scanned.values())
     _phase_result(progress, "Threat analysis", _count_noun(found, "finding"))
+    if envelopes is not None:
+        from orchestrator import assessment_test_cases
+
+        pilot.update(
+            assessment_test_cases.run_pilot(
+                scope,
+                jobs,
+                architecture,
+                scanned,
+                test_cases,
+                envelopes,
+                requirement_ids=assessment_context.requirement_ids(captured) if captured else frozenset(),
+                instructions=_assessment_role_instructions,
+                concurrently=_assessment_components_concurrently,
+                label=label,
+                progress=progress,
+            )
+        )
+        scope.verify_unchanged()
     merged = merge_assessment(
         scope,
         components,
@@ -3122,11 +3161,13 @@ def _assessment_workspace(
     named: bool = True,
     started_at: int | None = None,
     invocation: str = "",
+    test_case_pilot: dict | None = None,
 ):
     """Write the legacy-shaped Stage-1 handoff of the qualified artifacts.
 
     ``named`` is false when the project name only repeats a sole repository's
     label; the model then keeps the name its manifest gives (RA-18).
+    ``test_case_pilot`` is the REQ-040 pilot's document, when the run made one.
     """
     from orchestrator import assessment_review
     from orchestrator import assessment_workspace as ws
@@ -3154,6 +3195,10 @@ def _assessment_workspace(
         {"schema_version": 1, "security_controls": ws._project(controls, names)},
     )
     ws.write_json(workspace / ".threats-merged.json", {**ws.project_document(merged, names), "version": 1})
+    if test_case_pilot:
+        from orchestrator import assessment_test_cases
+
+        assessment_test_cases.write_workspace(test_case_pilot, workspace, names)
     (workspace / ".recon-summary.md").write_text(ws.recon_summary(project, scope), encoding="utf-8")
     settings = {
         **{k: v for k, v in cfg.items() if k not in ("invocation_args",)},
@@ -3379,6 +3424,9 @@ def _assessment_render(
                 model.get("threats") or [],
                 {row["id"]: row["reason"] for row in cfg["test_cases"]["disable"]},
             )
+            # The pilot's findings stay apart from the threats until the pilot merges them.
+            if findings := case_outcomes.pilot_findings(workspace):
+                model["test_case_findings"] = findings
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -3914,6 +3962,7 @@ def assess_repositories(
                 )
                 controls = _assessment_controls(scope, jobs, architecture, progress=say, platform=platform)
                 _phase_result(say, "Controls", _count_noun(len(controls), "control"))
+                pilot = {}
                 _, _, merged = _assessment_stride(
                     scope,
                     jobs,
@@ -3925,6 +3974,8 @@ def assess_repositories(
                     depth=depth,
                     captured=captured,
                     platform=platform,
+                    test_cases=cfg["test_cases"],
+                    pilot=pilot,
                 )
                 _phase_result(say, "Consolidation", _count_noun(len(merged["threats"]), "finding") + " after merge")
                 original, _ = build_assessment_model(
@@ -3962,6 +4013,7 @@ def assess_repositories(
                         named=bool(ns.project) or len(labels) > 1,
                         started_at=state.state["started_at"],
                         invocation=_assessment_invocation(argv),
+                        test_case_pilot=pilot,
                     )
                     warnings.extend(
                         _assessment_render(

@@ -14,10 +14,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from runtime.analyst_host import HostReply
+from orchestrator import orchestration_controller as controller
+from runtime.analyst_host import HostReply, TransportError
 from runtime.assessment_host import MARKER
 from validators.validate_intermediate import validate_threat_model_output
 
@@ -116,6 +118,114 @@ class WebApplicationHost(FullHost):
         return HostReply(dict(action="complete", reads=[], artifact=artifact), 0.01)
 
 
+class PilotHost(WebApplicationHost):
+    """WebApplicationHost that also answers the REQ-040 test case investigator.
+
+    The first candidate of TC-AUTHZ-01 is a weakness with one finding; every
+    other candidate is neither. With ``fail`` every investigator call fails
+    with its cost settled; with ``comment_line`` the first candidate claims a
+    control cited at that line. ``interrupt`` rejects the security
+    architecture render, so a later run can resume.
+    """
+
+    def __init__(self, fail=False, comment_line=None):
+        super().__init__()
+        self.fail, self.comment_line, self.interrupt = fail, comment_line, False
+        self.investigations = []
+        self.stride_prompts = []
+
+    def invoke(self, role, system, prompt, schema, timeout_s, should_stop):
+        if role == "stride_analyzer":
+            self.stride_prompts.append((system, prompt))
+        if role == "secarch_renderer" and self.interrupt:
+            return HostReply(dict(action="complete", reads=[], artifact={"unexpected": True}), 0.01)
+        if role != "test_case_investigator":
+            return super().invoke(role, system, prompt, schema, timeout_s, should_stop)
+        if self.fail:
+            raise TransportError("host call failed: no_result", reason="no_result", usd=0.0)
+        packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+        context = packet["context"]
+        if "anchor_corrections" in context:
+            # Keep the rejected citation, as a model insisting on it would.
+            payload = {
+                "anchors": [dict(anchor_id=row["anchor_id"], line=row["line"]) for row in context["anchor_corrections"]]
+            }
+        else:
+            self.investigations.append((context["component"]["id"], context["aspect"]))
+            payload = dict(action="complete", reads=[], artifact=self.investigate(context, packet["source_slices"]))
+        _assert_schema_valid(role, schema, payload)
+        return HostReply(payload, 0.01)
+
+    def investigate(self, context, slices):
+        hashes = {(row["repository_id"], row["path"]): row["sha256"] for row in slices}
+        cases, findings = [], []
+        for case in context["test_case_candidates"]:
+            answers = []
+            for index, candidate in enumerate(case["candidates"]):
+                answer = dict(
+                    candidate_id=candidate["candidate_id"],
+                    origin="pre-check",
+                    status="neither",
+                    evidence=[],
+                    finding_ids=[],
+                )
+                if case["test_case_id"] == "TC-AUTHZ-01" and index == 0:
+                    anchor = candidate["anchor"]
+                    cited = dict(
+                        repository_id=anchor["repository_id"],
+                        file=anchor["file"],
+                        line=self.comment_line or anchor["line"],
+                        sha256=hashes[anchor["repository_id"], anchor["file"]],
+                    )
+                    if self.comment_line:
+                        answer.update(status="control", control_kind="code", evidence=[cited])
+                    else:
+                        answer.update(status="weakness", evidence=[cited], finding_ids=["authz-1"])
+                        findings.append(_owner_finding(cited, candidate["candidate_id"]))
+                answers.append(answer)
+            cases.append(
+                dict(
+                    test_case_id=case["test_case_id"],
+                    proposed_outcome="finding" if any(row["status"] == "weakness" for row in answers) else "no_finding",
+                    reason="The fixture host judges only the first owner check.",
+                    candidates=answers,
+                )
+            )
+        return dict(
+            schema_version=1,
+            source_scope_sha256=context["source_scope_sha256"],
+            component_inventory_fingerprint=context["component_inventory_fingerprint"],
+            component_id=context["component"]["id"],
+            aspect=context["aspect"],
+            test_cases=cases,
+            findings=findings,
+            discovery_escapes=[],
+        )
+
+
+def _owner_finding(cited, candidate_id):
+    return dict(
+        local_id="authz-1",
+        title="Order access lacks an owner check",
+        stride="Elevation of Privilege",
+        scenario="An authenticated user requests another customer's order by its identifier.",
+        likelihood="Medium",
+        impact="High",
+        risk="High",
+        evidence=cited,
+        evidence_tier="insecure-practice",
+        threat_category_id="TH-06",
+        cwe="CWE-639",
+        remediation=dict(
+            effort="Low",
+            steps=["Load the order through the caller's account.", "Return 404 when the owner differs."],
+            verification="Request another user's order and assert a 404 response.",
+        ),
+        test_case_ids=["TC-AUTHZ-01"],
+        candidate_ids=[candidate_id],
+    )
+
+
 def _assert_schema_valid(role, schema, payload):
     """A fake reply the real CLI could not produce fails here, naming the rule it broke."""
     import jsonschema
@@ -161,10 +271,12 @@ def test_web_application_run_publishes_a_valid_model(tmp_path, monkeypatch):
 
 def test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them(tmp_path, monkeypatch):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
-    outcome, _, out = _assess(
+    outcome, host, out = _assess(
         tmp_path, monkeypatch, ("shop",), ("--no-pdf", "--test-cases"), seed=_seed, host=WebApplicationHost()
     )
     assert outcome["status"] == "complete"
+    # The boolean form selects no aspect, so no test case is investigated by a model.
+    assert "test_case_investigator" not in host.roles
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     block = model["test_case_results"]
@@ -204,9 +316,123 @@ def test_a_profile_disabled_test_case_reports_disabled_and_keeps_its_findings(tm
 
 def test_test_cases_stay_out_of_the_model_and_report_by_default(tmp_path, monkeypatch):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
-    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
+    outcome, host, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
     assert outcome["status"] == "complete"
+    assert "test_case_investigator" not in host.roles
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
-    assert "test_case_results" not in model
+    assert "test_case_results" not in model and "test_case_findings" not in model
     assert not any("test_case_ids" in threat for threat in model["threats"])
     assert "Appendix: Security Test Cases" not in (out / "security-assessment.md").read_text()
+
+
+_PILOT = ("--no-pdf", "--test-case-aspects", "AuthZ")
+
+
+def _assess_again(tmp_path, host, output, extra):
+    """Assess the `shop` checkout an earlier `_assess` seeded, with the same options as `_assess`."""
+    argv = ["--repo", str(tmp_path / "shop"), "--output", str(output), "--hard-budget", "5"]
+    argv += ["--trust-mode", "trusted", "--model", "haiku", *extra]
+    return controller.assess_repositories(argv, host_factory=host.factory, progress=lambda text: None)
+
+
+def _component_rows(model, case_id=None):
+    rows = [row for row in model["test_case_results"]["results"] if row["scope"] == "component"]
+    return [row for row in rows if case_id in (None, row["test_case_id"])]
+
+
+def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_its_findings_apart(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    outcome, _, plain = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=host)
+    assert outcome["status"] == "complete" and not host.investigations
+    stride = sorted(host.stride_prompts)
+    host.stride_prompts.clear()
+
+    outcome = _assess_again(tmp_path, host, tmp_path / "pilot", _PILOT)
+    assert outcome["status"] == "complete"
+    # The pilot runs after STRIDE on its own jobs: the STRIDE requests do not change.
+    assert sorted(host.stride_prompts) == stride
+    model = yaml.safe_load((tmp_path / "pilot" / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    service = next(row for row in model["components"] if row.get("tier") != "client")
+    # The browser client registers no route, so no AuthZ test case applies to it.
+    assert host.investigations == [(service["id"], "AuthZ")]
+
+    authz = {"TC-AUTHZ-01", "TC-AUTHZ-02", "TC-AUTHZ-03", "TC-AUTHZ-04", "TC-AUTHZ-05"}
+    assert {(row["component_id"], row["test_case_id"]) for row in _component_rows(model)} == {
+        (component["id"], case_id) for component in model["components"] for case_id in authz
+    }
+    (owner,) = [row for row in _component_rows(model, "TC-AUTHZ-01") if row["component_id"] == service["id"]]
+    assert owner["outcome"] == "finding" and owner["finding_ids"] == ["TCF-001"]
+    assert owner["evidence_basis"] == "model" and owner["post_checks"]
+    assert all(row["outcome"] != "control" for row in _component_rows(model))
+
+    # Pilot findings stay a separate list: the threats are those of the run without the pilot.
+    (finding,) = model["test_case_findings"]
+    assert finding["id"] == "TCF-001" and finding["component_id"] == service["id"]
+    assert finding["test_case_ids"] == ["TC-AUTHZ-01"] and finding["evidence"]["file"] == "server.js"
+    without = yaml.safe_load((plain / "security-assessment.yaml").read_text())
+    assert sorted(t["title"] for t in model["threats"]) == sorted(t["title"] for t in without["threats"])
+    assert not any(t["id"].startswith("TCF-") or t["title"] == finding["title"] for t in model["threats"])
+
+    (sidecar,) = (tmp_path / "pilot").rglob(".test-case-pilot.json")
+    document = json.loads(sidecar.read_text())
+    assert document["aspects"] == ["AuthZ"] and document["results"] == _component_rows(model)
+    artifact = sidecar.parent / ".dispatch-context" / service["id"] / "test-case-candidates.json"
+    candidates = json.loads(artifact.read_text())["test_cases"]
+    assert {row["test_case_id"] for row in candidates} <= authz and all(row["aspect"] == "AuthZ" for row in candidates)
+
+    report = (tmp_path / "pilot" / "security-assessment.md").read_text()
+    assert f"| [TC-AUTHZ-01](#tc-authz-01) · {service['name']} | AuthZ | Finding |" in report
+    assert "## Test Case Findings (Pilot)" in report and "not yet merged with the findings register" in report
+    assert "| TCF-001 | [TC-AUTHZ-01](#tc-authz-01) |" in report
+
+
+def test_a_failed_investigation_records_undecidable_with_a_warning_and_the_run_completes(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost(fail=True)
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    investigated = [row for row in _component_rows(model) if row["outcome"] not in ("not_applicable", "disabled")]
+    assert investigated and all(row["outcome"] == "undecidable" for row in investigated)
+    assert {row["reason"] for row in investigated} == {"the model investigation returned no acceptable result"}
+    assert "test_case_findings" not in model
+    assert any("test case investigation job" in text for text in outcome["warnings"])
+
+
+def test_a_control_cited_from_a_comment_never_becomes_a_control(tmp_path, monkeypatch):
+    def seed(roots):
+        _seed(roots)
+        with (roots[0] / "server.js").open("a") as handle:
+            handle.write("// Every order route compares the order's owner with the caller.\n")
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost(comment_line=13)
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=seed, host=host)
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert all(row["outcome"] != "control" for row in _component_rows(model))
+    owner = [row for row in _component_rows(model, "TC-AUTHZ-01") if row["outcome"] != "not_applicable"]
+    assert [row["outcome"] for row in owner] == ["undecidable"]
+
+
+def test_resume_replays_accepted_investigations_without_new_model_calls(tmp_path, monkeypatch):
+    from runtime.assessment_host import ExchangeError
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    host.interrupt = True
+    with pytest.raises(ExchangeError):
+        _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
+    assert "test_case_investigator" in host.roles
+    host.roles.clear()
+    host.interrupt = False
+    outcome = _assess_again(tmp_path, host, tmp_path / "out", (*_PILOT, "--resume"))
+    assert outcome["status"] == "complete"
+    assert "test_case_investigator" not in host.roles and "stride_analyzer" not in host.roles
+    model = yaml.safe_load((tmp_path / "out" / "security-assessment.yaml").read_text())
+    assert [row["id"] for row in model["test_case_findings"]] == ["TCF-001"]

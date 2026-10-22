@@ -34,6 +34,9 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = ROOT / "data" / "test-cases.yaml"
 SCHEMA = ROOT / "schemas" / "test-cases.schema.yaml"
+# Workspace sidecar of the model-backed pilot: component results and findings
+# (orchestrator/assessment_test_cases.py).
+PILOT_SIDECAR = ".test-case-pilot.json"
 
 SATISFIED = "satisfied"
 VIOLATED = "violated"
@@ -193,7 +196,8 @@ def build_block(
     """Annotate ``threats`` and return the ``test_case_results`` block for threat-model.yaml.
 
     Reads the scanner sidecars of ``workspace``; a sidecar that is missing or unreadable leaves its
-    rules unknown, so the affected test cases report undecidable instead of control."""
+    rules unknown, so the affected test cases report undecidable instead of control. The component
+    results of the pilot sidecar follow the rules results unchanged."""
     catalog = load_catalog()
     annotate_threats(threats, catalog)
     statuses = rule_statuses(
@@ -201,10 +205,16 @@ def build_block(
         _read_json(workspace / ".config-scan-findings.json"),
         _read_json(workspace / ".architecture-coverage.json"),
     )
+    pilot = _read_json(workspace / PILOT_SIDECAR) or {}
     return {
         "catalog_version": catalog["catalog_version"],
-        "results": evaluate(catalog, statuses, threats, disabled),
+        "results": evaluate(catalog, statuses, threats, disabled) + list(pilot.get("results") or []),
     }
+
+
+def pilot_findings(workspace: Path) -> list[dict[str, Any]]:
+    """The findings of the pilot sidecar; they stay apart from the threats until the pilot merges them."""
+    return list((_read_json(workspace / PILOT_SIDECAR) or {}).get("findings") or [])
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

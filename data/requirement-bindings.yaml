@@ -387,7 +387,11 @@ requirements:
       - schemas/open-review.schema.json
       - scripts/analyzers/config_iac_scanner.py
       - scripts/orchestrator/orchestration_controller.py
+      - scripts/orchestrator/assessment_test_cases.py
       - scripts/renderers/compose_threat_model.py
+      - data/sections-contract.yaml
+      - schemas/threat-model.output.schema.yaml
+      - schemas/threat-model.output-v2.schema.yaml
       - scripts/renderers/summarize_threat_model.py
       - scripts/exporters/export_sarif.py
       - appsec_analyzer/profiles.py
@@ -422,8 +426,15 @@ requirements:
       - tests/test_case_outcomes.py::test_the_output_schema_rejects_malformed_results
       - tests/test_case_outcomes.py::test_appendix_lists_every_catalog_test_case_and_never_shows_an_unexamined_one_as_a_control
       - tests/test_case_outcomes.py::test_appendix_is_absent_without_results
+      - tests/test_case_outcomes.py::test_build_block_appends_the_pilot_rows_after_the_unchanged_rules_rows
+      - tests/test_case_outcomes.py::test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_finding_as_a_control
+      - tests/test_case_outcomes.py::test_test_case_findings_are_listed_apart_and_their_model_text_stays_text
       - tests/test_controller_fixture.py::test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
       - tests/test_controller_fixture.py::test_test_cases_stay_out_of_the_model_and_report_by_default
+      - tests/test_controller_fixture.py::test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_its_findings_apart
+      - tests/test_controller_fixture.py::test_a_failed_investigation_records_undecidable_with_a_warning_and_the_run_completes
+      - tests/test_controller_fixture.py::test_a_control_cited_from_a_comment_never_becomes_a_control
+      - tests/test_controller_fixture.py::test_resume_replays_accepted_investigations_without_new_model_calls
       - tests/test_config_iac_scanner.py::test_repository_checks_are_not_applicable_without_their_precondition
       - tests/test_export_sarif.py::test_linked_findings_share_the_rule_of_their_test_case
       - tests/test_export_sarif.py::test_unknown_test_case_ids_leave_the_finding_as_its_own_rule

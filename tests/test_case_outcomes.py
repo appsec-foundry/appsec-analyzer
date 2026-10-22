@@ -191,6 +191,82 @@ def test_appendix_is_absent_without_results(tmp_path):
     assert compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data={}), None, {}) == ""
 
 
+def _pilot(catalog, tmp_path):
+    """A pilot sidecar with a finding, a partial and a no-finding result of the `api` component."""
+    rows = [
+        tcr.component_outcome(_case(catalog, "TC-AUTHZ-01"), "api", [_cand("weakness")], finding_ids=["TCF-001"]),
+        tcr.component_outcome(_case(catalog, "TC-AUTHZ-02"), "api", [_cand("control"), _cand("neither")]),
+        tcr.component_outcome(_case(catalog, "TC-AUTHZ-03"), "api", [_cand("neither")]),
+    ]
+    finding = {
+        "id": "TCF-001",
+        "component_id": "api",
+        "aspect": "AuthZ",
+        "test_case_ids": ["TC-AUTHZ-01"],
+        "title": "Order [access](javascript:alert(1)) | lacks an owner check",
+        "stride": "Elevation of Privilege",
+        "risk": "High",
+        "cwe": "CWE-639",
+        "evidence": {"file": "server.js", "line": 8},
+    }
+    document = {"schema_version": 1, "aspects": ["AuthZ"], "results": rows, "findings": [finding]}
+    (tmp_path / tcr.PILOT_SIDECAR).write_text(json.dumps(document), encoding="utf-8")
+    return document
+
+
+def test_build_block_appends_the_pilot_rows_after_the_unchanged_rules_rows(catalog, tmp_path):
+    import yaml
+    from jsonschema import Draft202012Validator
+
+    rules = tcr.build_block(tmp_path, [])["results"]
+    document = _pilot(catalog, tmp_path)
+    block = tcr.build_block(tmp_path, [])
+    assert block["results"] == rules + document["results"]
+    assert list(_block_validator().iter_errors(block)) == []
+    assert tcr.pilot_findings(tmp_path) == document["findings"]
+    schema = yaml.safe_load((tcr.ROOT / "schemas" / "threat-model.output.schema.yaml").read_text(encoding="utf-8"))
+    findings = schema["properties"]["test_case_findings"]
+    assert list(Draft202012Validator(schema).descend(document["findings"], findings)) == []
+    malformed = [{**document["findings"][0], "id": "T-001", "test_case_ids": []}]
+    assert len(list(Draft202012Validator(schema).descend(malformed, findings))) == 2
+    (tmp_path / tcr.PILOT_SIDECAR).unlink()
+    assert tcr.pilot_findings(tmp_path) == []
+
+
+def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_finding_as_a_control(catalog, tmp_path):
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    _pilot(catalog, tmp_path)
+    model = {"test_case_results": tcr.build_block(tmp_path, []), "components": [{"id": "api", "name": "Order API"}]}
+    out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
+    assert "| [TC-AUTHZ-01](#tc-authz-01) · Order API | AuthZ | Finding |" in out
+    assert "| [TC-AUTHZ-02](#tc-authz-02) · Order API | AuthZ | Partial, not a control |" in out
+    assert "| [TC-AUTHZ-03](#tc-authz-03) · Order API | AuthZ | No finding, no control |" in out
+    assert "| [TC-AUTHZ-04](#tc-authz-04) | AuthZ | Not examined |" in out
+    assert "Control evidenced" not in out and "Partial control" not in out
+    assert "Outcome for Order API: Finding." in out and "Findings: TCF-001" in out
+    assert "Evidenced by model review only" in out
+
+
+def test_test_case_findings_are_listed_apart_and_their_model_text_stays_text(catalog, tmp_path):
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    findings = _pilot(catalog, tmp_path)["findings"]
+    model = {"test_case_findings": findings, "components": [{"id": "api", "name": "Order API"}]}
+    out = compose._render_test_case_findings(_mk_ctx(tmp_path, yaml_data=model), None, {})
+    assert out.startswith('<a id="test-case-findings"></a>\n## Test Case Findings (Pilot)')
+    assert "not yet merged with the findings register" in out
+    row = next(line for line in out.splitlines() if line.startswith("| TCF-001 |"))
+    assert "[TC-AUTHZ-01](#tc-authz-01)" in row and "Order API" in row and "server.js:8" in row
+    # Model-written text cannot add a link or a table column.
+    assert "Order \\[access\\](javascript:alert(1)) \\| lacks" in row and row.count(" | ") == 5
+    assert compose._render_test_case_findings(_mk_ctx(tmp_path, yaml_data={}), None, {}) == ""
+
+
 # --- model investigations (REQ-040 pilot) ------------------------------------------
 
 
