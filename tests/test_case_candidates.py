@@ -272,13 +272,23 @@ def test_route_facts_select_the_candidates_of_each_case(catalog, shop):
     # Authentication covers every route of the component.
     authn = cc.starting_candidates(_case(catalog, "TC-AUTHN-01"), "api", facts, findings)["candidates"]
     assert {row["route_id"] for row in authn} == set(facts["components"]["api"]["route_ids"])
-    # Privileged operations start from the inventory's missing-authorization suspects.
+    routes = facts["components"]["api"]["route_ids"]
+    # Privileged operations start from the missing-authorization suspects and every state-changing route,
+    # whatever its guards: a guard known by name proves no role check.
     authz = cc.starting_candidates(_case(catalog, "TC-AUTHZ-02"), "api", facts, findings)["candidates"]
+    changing = {"POST", "PUT", "PATCH", "DELETE", "ALL"}
     assert {row["route_id"] for row in authz} == {
-        rid for rid in facts["components"]["api"]["route_ids"] if facts["routes"][rid]["missing_authz_suspect"]
+        rid
+        for rid in routes
+        if facts["routes"][rid]["missing_authz_suspect"] or facts["routes"][rid]["method"].upper() in changing
+    }
+    # Privileged fields start from every route that accepts a request body.
+    fields = cc.starting_candidates(_case(catalog, "TC-AUTHZ-03"), "api", facts, findings)["candidates"]
+    assert fields and {row["route_id"] for row in fields} == {
+        rid for rid in routes if facts["routes"][rid]["method"].upper() in {"POST", "PUT", "PATCH", "ALL"}
     }
     # A case without route facts starts from its rules only.
-    assert cc.starting_candidates(_case(catalog, "TC-AUTHZ-03"), "api", facts, findings)["candidates"] == []
+    assert cc.starting_candidates(_case(catalog, "TC-AUTHN-03"), "api", facts, [])["candidates"] == []
     # The browser client has no route candidates.
     assert cc.starting_candidates(_case(catalog, "TC-AUTHN-01"), "web", facts, findings)["candidates"] == []
 
@@ -322,9 +332,14 @@ def test_rule_candidates_stay_in_their_component_and_repository(catalog, shop):
     # A hit at a route registration names the route even when no route fact selects it.
     role = route_id(facts, "POST", "/api/users/:id/role")
     row = facts["routes"][role]
-    hit = {"source_check_id": "AUTHZ-003", "evidence": {"file": row["handler_file"], "line": row["handler_line"]}}
+    hit = {"source_check_id": "AUTHZ-005", "evidence": {"file": row["handler_file"], "line": row["handler_line"]}}
+    tokens = cc.starting_candidates(_case(catalog, "TC-AUTHN-02"), "api", facts, [hit])["candidates"]
+    assert [(entry["route_id"], entry["rule_ids"]) for entry in tokens] == [(role, ["AUTHZ-005"])]
+    # Where a route fact selects the route too, the hit joins its candidate, which comes first.
+    hit = {**hit, "source_check_id": "AUTHZ-003"}
     mass_assignment = cc.starting_candidates(_case(catalog, "TC-AUTHZ-03"), "api", facts, [hit])["candidates"]
-    assert [(entry["route_id"], entry["rule_ids"]) for entry in mass_assignment] == [(role, ["AUTHZ-003"])]
+    assert (mass_assignment[0]["route_id"], mass_assignment[0]["rule_ids"]) == (role, ["AUTHZ-003"])
+    assert [entry["route_id"] for entry in mass_assignment].count(role) == 1
 
 
 def test_component_scoped_calls_need_a_known_component(catalog, shop, tmp_path):

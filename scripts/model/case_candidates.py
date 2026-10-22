@@ -236,11 +236,17 @@ APPLIES_REASONS = {
 NO_EVALUATOR_REASON = "no evaluator exists for an applicability signal, so the test case applies"
 NOT_APPLICABLE_REASON = "no applicability signal of the test case shows in the examined code"
 
-# Route facts a test case can name as starting points, with the routes each selects.
+# Methods that change state, and those that also carry a request body; ALL registers every method.
+_STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE", "ALL"})
+_BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "ALL"})
+# Route facts a test case can name as starting points, with the routes each selects. A route that
+# changes state is selected whatever its guards: a guard known only by name proves no role or field check.
 _ROUTE_FACTS = {
     "route_inventory.authn_signal": lambda row: True,
     "route_inventory.missing_auth_suspect": lambda row: row["missing_auth_suspect"],
     "route_inventory.missing_authz_suspect": lambda row: row["missing_authz_suspect"],
+    "route_inventory.state_changing": lambda row: row["method"].upper() in _STATE_CHANGING,
+    "route_inventory.accepts_body": lambda row: row["method"].upper() in _BODY_METHODS,
 }
 
 

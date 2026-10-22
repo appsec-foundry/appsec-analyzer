@@ -115,7 +115,7 @@ def run_pilot(
         )
         schema = case_analysis.contract(case_analysis.INVESTIGATION)
         limit = view.context_limit(role_instructions, schema)
-        preload = _preload(scope, context, entry, rid, facts[rid], envelope, components, limit)
+        preload = _preload(scope, context, entry, rid, facts[rid], envelope, architecture, components, limit)
         starting = {(key[0], key[1]) for key in preload} | {
             (rid, row["anchor"]["file"]) for rows in entry["precheck"].values() for row in rows
         }
@@ -257,11 +257,14 @@ def _context_candidates(entry, rid: str, facts) -> list[dict]:
     return listed
 
 
-def _preload(scope, context, entry, rid, facts, envelope, components, limit) -> list[tuple]:
-    """Preload as the STRIDE job does: the context's cited lines, then candidate windows, then helpers.
+def _preload(scope, context, entry, rid, facts, envelope, architecture, components, limit) -> list[tuple]:
+    """Preload as the STRIDE job does: the context's cited lines, guards, candidate windows, then helpers.
 
-    The candidates' anchors and resolved handler chains take the room the
-    context lines leave; the direct helpers their files import fill the rest.
+    The definitions of the middlewares the candidates' routes run come before
+    the candidates: one guard decides many routes, and a guard the job cannot
+    read leaves its routes undecidable. The candidates' anchors and resolved
+    handler chains take the room left; earlier guard registrations and the
+    direct helpers their files import fill the rest.
     """
     room = preload_room(context, max_context_bytes=limit)
     context_preload = analysis.evidence_preload(
@@ -273,24 +276,44 @@ def _preload(scope, context, entry, rid, facts, envelope, components, limit) -> 
         before=10,
         after=30,
     )
-    anchors, lines = [], []
+    inventory = {row.get("route_id"): row for row in architecture["route_inventories"][rid].get("routes", [])}
+    wares = architecture.get("route_middleware", {}).get(rid, {})
+    anchors, lines, guards, targets = [], [], [], []
     for row in (row for rows in entry["precheck"].values() for row in rows):
-        anchors.append({"repository_id": rid, **row["anchor"]})
+        anchor = {"repository_id": rid, **row["anchor"]}
+        anchors.append(anchor)
         route = facts["routes"].get(row.get("route_id")) or {}
         lines += [{"repository_id": rid, "file": path, "line": first} for path, first, _ in route.get("chain", [])]
-    primary = analysis.evidence_preload(
-        scope,
-        [*anchors, *lines],
-        envelope["job_allowed"],
-        room=room - analysis.served_bytes(scope, context_preload),
-        max_windows=MAX_PRELOAD_WINDOWS - len(context_preload),
-        before=10,
-        after=40,
-    )
+        guards += [
+            {"repository_id": rid, "file": path, "line": start} for path, start, _ in wares.get(row.get("route_id"), [])
+        ]
+        registered = (inventory.get(row.get("route_id")) or {}).get("guard_lines") or []
+        targets.append(
+            {"evidence": anchor, "guard_lines": [[rid, route.get("handler_file"), line] for line in registered]}
+        )
+    served = list(context_preload)
+    # Middleware definitions get a quarter of what is left, the candidates the rest.
+    for rows, share, before, after in (
+        (guards, 4, 0, analysis.MAX_MIDDLEWARE_LINES - 1),
+        ([*anchors, *lines], 1, 10, 40),
+    ):
+        served += [
+            key
+            for key in analysis.evidence_preload(
+                scope,
+                rows,
+                envelope["job_allowed"],
+                room=(room - analysis.served_bytes(scope, served)) // share,
+                max_windows=(MAX_PRELOAD_WINDOWS - len(served)) // share,
+                before=before,
+                after=after,
+            )
+            if key not in served
+        ]
     return analysis.supporting_preload(
         scope,
-        [{"evidence": anchor} for anchor in anchors],
-        [*primary, *(key for key in context_preload if key not in primary)],
+        targets,
+        served,
         envelope["job_allowed"],
         context=context,
         component_sources=analysis.source_selection(components),

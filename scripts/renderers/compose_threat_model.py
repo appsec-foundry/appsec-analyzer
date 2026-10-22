@@ -16576,15 +16576,30 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             "Comments, documentation and controls outside the examined sources are not control evidence.",
             "",
         ]
+
+    def inapplicable(rows: list[dict]) -> list[dict]:
+        """The not-applicable component rows of a test case, when several share one line."""
+        found = [row for row in rows if row.get("scope") == "component" and row.get("outcome") == "not_applicable"]
+        return found if len(found) > 1 else []
+
     lines += ["| Test case | Aspect | Outcome | Reason |", "|---|---|---|---|"]
     for case in cases:
-        for row in by_id.get(case["id"]) or [None]:
+        rows = by_id.get(case["id"]) or []
+        collapsed = inapplicable(rows)
+        shown = [row for row in rows if not any(row is other for other in collapsed)]
+        for row in shown if rows else [None]:
             outcome = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"]) if row else "Not examined"
             reason = _table_text(row["reason"]) if row else "Needs a model investigation that this run did not make."
             subject = f"[{case['id']}](#{case['id'].lower()})"
             if row and row.get("scope") == "component":
                 subject += f" · {component(row)}"
             lines.append(f"| {subject} | {case['aspect']} | {outcome} | {reason} |")
+        if collapsed:
+            listed = ", ".join(component(row) for row in collapsed)
+            lines.append(
+                f"| [{case['id']}](#{case['id'].lower()}) · {len(collapsed)} components | {case['aspect']} "
+                f"| {_TEST_CASE_OUTCOMES['not_applicable']} | {_table_text(collapsed[0]['reason'])}: {listed} |"
+            )
     lines.append("")
     for case in cases:
         rows = by_id.get(case["id"]) or []
@@ -16599,7 +16614,13 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             f"Evidence for a control: {_table_text(case['evidence']['control'])}.",
             "",
         ]
+        collapsed = inapplicable(rows)
+        if collapsed:
+            listed = ", ".join(component(row) for row in collapsed)
+            lines += [f"Not applicable for {len(collapsed)} components: {listed}.", ""]
         for row in rows:
+            if any(row is other for other in collapsed):
+                continue
             outcome = f"{_TEST_CASE_OUTCOMES.get(row['outcome'], row['outcome'])}. {_table_text(row['reason'])}."
             candidates = row.get("candidates") or {}
             if row.get("scope") == "component":

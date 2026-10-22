@@ -428,6 +428,8 @@ requirements:
       - tests/test_case_outcomes.py::test_appendix_is_absent_without_results
       - tests/test_case_outcomes.py::test_build_block_appends_the_pilot_rows_after_the_unchanged_rules_rows
       - tests/test_case_outcomes.py::test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_finding_as_a_control
+      - tests/test_case_outcomes.py::test_appendix_lists_components_a_test_case_does_not_apply_to_in_one_row
+      - tests/test_case_outcomes.py::test_a_reason_names_controls_that_only_model_review_supports
       - tests/test_case_outcomes.py::test_test_case_findings_are_listed_apart_and_their_model_text_stays_text
       - tests/test_controller_fixture.py::test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
       - tests/test_controller_fixture.py::test_test_cases_stay_out_of_the_model_and_report_by_default

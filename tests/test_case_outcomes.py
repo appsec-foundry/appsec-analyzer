@@ -250,6 +250,53 @@ def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_find
     assert "Evidenced by model review only" in out
 
 
+def test_appendix_lists_components_a_test_case_does_not_apply_to_in_one_row(catalog, tmp_path):
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    _pilot(catalog, tmp_path)
+    case = _case(catalog, "TC-AUTHZ-04")
+    rows = []
+    for component in ("api", "store", "ci"):
+        row = tcr.component_outcome(case, component, [])
+        row.update(
+            outcome="not_applicable", reason="no applicability signal of the test case shows in the examined code"
+        )
+        rows.append(row)
+    block = tcr.build_block(tmp_path, [])
+    block["results"] += rows
+    names = [{"id": "api", "name": "Order API"}, {"id": "store", "name": "Store"}, {"id": "ci", "name": "CI"}]
+    out = compose._render_appendix_test_cases(
+        _mk_ctx(tmp_path, yaml_data={"test_case_results": block, "components": names}), None, {}
+    )
+    assert "| [TC-AUTHZ-04](#tc-authz-04) · 3 components | AuthZ | Not applicable | " in out
+    assert out.count("[TC-AUTHZ-04](#tc-authz-04)") == 1 and "Order API, Store, CI |" in out
+    assert "Not applicable for 3 components: Order API, Store, CI." in out
+    # A single not-applicable component keeps its own row.
+    block["results"] = block["results"][:-2]
+    out = compose._render_appendix_test_cases(
+        _mk_ctx(tmp_path, yaml_data={"test_case_results": block, "components": names}), None, {}
+    )
+    assert "| [TC-AUTHZ-04](#tc-authz-04) · Order API | AuthZ | Not applicable |" in out
+
+
+@pytest.mark.parametrize(
+    ("confirmed", "reason"),
+    [
+        ((True, True), "control evidenced at all 2 candidate locations"),
+        ((False, False), "control evidenced by model review only at all 2 candidate locations"),
+        ((True, False), "control evidenced at all 2 candidate locations, by model review only at 1 of them"),
+    ],
+)
+def test_a_reason_names_controls_that_only_model_review_supports(catalog, confirmed, reason):
+    controls = [_cand("control", confirmed=value) for value in confirmed]
+    assert _outcome(catalog, controls)["reason"] == reason
+    finding = _outcome(catalog, [_cand("weakness"), *controls])["reason"]
+    assert finding.startswith("weakness at 1 of 3 candidate locations; control evidenced")
+    assert ("model review only" in finding) is (not all(confirmed))
+
+
 def test_test_case_findings_are_listed_apart_and_their_model_text_stays_text(catalog, tmp_path):
     from renderers import compose_threat_model as compose
 
@@ -300,7 +347,8 @@ def _outcome(catalog, candidates, **kwargs):
         ),
         ([_cand("rejected"), _cand("rejected")], 0, "no_finding", "model", "every candidate location was rejected"),
         ([_cand("neither"), _cand("rejected")], 0, "no_finding", "model", "no weakness or control at 1 examined"),
-        ([], 0, "no_finding", "model", "no candidate location"),
+        # Nothing was examined, so nothing was settled.
+        ([], 0, "undecidable", "model", "examined no candidate location"),
     ],
 )
 def test_component_outcome_table(catalog, candidates, unexamined, outcome, basis, reason):

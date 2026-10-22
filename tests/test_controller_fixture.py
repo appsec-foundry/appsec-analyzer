@@ -132,6 +132,8 @@ class PilotHost(WebApplicationHost):
         super().__init__()
         self.fail, self.comment_line, self.interrupt = fail, comment_line, False
         self.investigations = []
+        # The (path, first line, last line) of each investigation's first packet.
+        self.served = []
         self.stride_prompts = []
 
     def invoke(self, role, system, prompt, schema, timeout_s, should_stop):
@@ -152,6 +154,7 @@ class PilotHost(WebApplicationHost):
             }
         else:
             self.investigations.append((context["component"]["id"], context["aspect"]))
+            self.served.append({(row["path"], row["start_line"], row["end_line"]) for row in packet["source_slices"]})
             payload = dict(action="complete", reads=[], artifact=self.investigate(context, packet["source_slices"]))
         _assert_schema_valid(role, schema, payload)
         return HostReply(payload, 0.01)
@@ -356,9 +359,12 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
     assert sorted(host.stride_prompts) == stride
     model = yaml.safe_load((tmp_path / "pilot" / "security-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
-    service = next(row for row in model["components"] if row.get("tier") != "client")
+    # Component IDs follow the checkout path, so their order varies; the service owns server.js.
+    service = next(row for row in model["components"] if "server.js" in row["paths"])
     # The browser client registers no route, so no AuthZ test case applies to it.
     assert host.investigations == [(service["id"], "AuthZ")]
+    # The definition of the guard the order route runs arrives with the first packet, as for STRIDE.
+    assert any(path == "lib/auth.js" and start <= 2 <= end for path, start, end in host.served[0])
 
     authz = {"TC-AUTHZ-01", "TC-AUTHZ-02", "TC-AUTHZ-03", "TC-AUTHZ-04", "TC-AUTHZ-05"}
     assert {(row["component_id"], row["test_case_id"]) for row in _component_rows(model)} == {

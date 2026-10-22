@@ -238,6 +238,7 @@ REPLACEMENT_REASONS = {
     "budget": "the model budget ended before this investigation",
     "failure": "the model investigation returned no acceptable result",
 }
+NOTHING_EXAMINED_REASON = "the investigation examined no candidate location in the component"
 _DOCUMENTATION_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
 
 
@@ -350,12 +351,14 @@ def component_outcome(
        unexamined, makes a ``control``;
     3. otherwise at least one control makes a ``partial``;
     4. otherwise an undecidable or unexamined candidate makes the test case
-       ``undecidable``;
+       ``undecidable``, and so does a test case without any candidate, since
+       nothing was examined;
     5. otherwise it is ``no_finding``, also when every candidate was rejected.
 
     A control or partial result is ``deterministic`` only when every control
     claim is post-check confirmed and the candidate set did not come from
     the model alone; a finding only when every weakness claim is confirmed.
+    The reason says where a control rests on model review only.
     """
     candidates = list(candidates)
     if type(unexamined) is not int or unexamined < 0:
@@ -370,13 +373,14 @@ def component_outcome(
     if weaknesses:
         outcome = "finding"
         reason = f"weakness at {len(weaknesses)} of {total} candidate locations" + (
-            f"; control evidenced at {len(controls)}" if controls else ""
+            f"; {_controlled(controls, str(len(controls)))}" if controls else ""
         )
         basis = "deterministic" if all(entry["confirmed"] for entry in weaknesses) else "model"
     elif controls and len(controls) == len(examined) and not unexamined:
-        outcome, reason = "control", f"control evidenced at all {total} candidate locations"
+        outcome, reason = "control", _controlled(controls, f"all {total} candidate locations")
     elif controls:
-        outcome, reason = "partial", f"control evidenced at {len(controls)} of {total} candidate locations{left_out}"
+        outcome = "partial"
+        reason = _controlled(controls, f"{len(controls)} of {total} candidate locations") + left_out
     elif undecided:
         outcome = "undecidable"
         reason = f"{len(undecided)} of {total} candidate locations undecidable: {undecided[0]['reason']}{left_out}"
@@ -390,7 +394,7 @@ def component_outcome(
             else "every candidate location was rejected with evidence"
         )
     else:
-        outcome, reason = "no_finding", "the investigation found no candidate location in the component"
+        outcome, reason = "undecidable", NOTHING_EXAMINED_REASON
     if outcome in ("control", "partial"):
         from_precheck = any(entry["origin"] == "pre-check" for entry in examined)
         basis = "deterministic" if from_precheck and all(entry["confirmed"] for entry in controls) else "model"
@@ -424,6 +428,16 @@ def component_outcome(
             "route_ids": list(unreviewed_variants["route_ids"]),
         }
     return row
+
+
+def _controlled(controls: list[Mapping[str, Any]], where: str) -> str:
+    """Where a control is evidenced, naming the claims that only model review supports."""
+    unconfirmed = sum(not entry["confirmed"] for entry in controls)
+    if not unconfirmed:
+        return f"control evidenced at {where}"
+    if unconfirmed == len(controls):
+        return f"control evidenced by model review only at {where}"
+    return f"control evidenced at {where}, by model review only at {unconfirmed} of them"
 
 
 def investigation_results(

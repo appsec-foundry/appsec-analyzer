@@ -11,7 +11,7 @@
 #
 # unmapped_rules lists scanner rules that are deliberately not a starting point.
 version: 1
-catalog_version: '1'
+catalog_version: '2'
 aspects:
 - id: IAM
   title: Identity and authentication
@@ -255,7 +255,7 @@ test_cases:
     facts:
     - route_inventory.missing_authz_suspect
     - route_inventory.authn_signal
-  guidance: Start with the candidates. Also check other entry points of the component that reach the same data, such as WebSocket handlers, GraphQL resolvers, jobs, or exports. Consider compensating controls such as ORM scopes, policies, or row-level security that the repository enforces. Reject candidates that are public by design, with evidence.
+  guidance: Start with the candidates. Also check other entry points of the component that reach the same data, such as WebSocket handlers, GraphQL resolvers, jobs, or exports. Consider compensating controls such as ORM scopes, policies, or row-level security that the repository enforces. Reject candidates that are public by design, with evidence. Include routes a framework generates from data models, such as REST resource generators; the candidates do not list them.
   scope: component
   controls:
   - Object-Level Authorization
@@ -288,7 +288,8 @@ test_cases:
     - ARCH-AUTHZ-001
     facts:
     - route_inventory.missing_authz_suspect
-  guidance: Compare the operations a client interface offers only to administrators with the checks on the server. Check administrative routes registered outside the main router.
+    - route_inventory.state_changing
+  guidance: Compare the operations a client interface offers only to administrators with the checks on the server. Check administrative routes registered outside the main router. Include routes a framework generates from data models, such as REST resource generators; the candidates do not list them.
   scope: component
   controls:
   - Role-Based Access Control
@@ -323,9 +324,11 @@ test_cases:
     - AUTHZ-202
     - AUTHZ-PHP-002
     - AUTHZ-RB-002
+    facts:
+    - route_inventory.accepts_body
     abuse_cases:
     - AC-T-002
-  guidance: Check create and update handlers that pass a request body to a model or ORM, and the field allow-lists they use.
+  guidance: Check create and update handlers that pass a request body to a model or ORM, and the field allow-lists they use. Include routes a framework generates from data models, such as REST resource generators; the candidates do not list them.
   scope: component
   controls:
   - Mass-Assignment Prevention
