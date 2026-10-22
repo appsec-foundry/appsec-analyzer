@@ -20,6 +20,7 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | 5e3f39bb | First visible run: controller phase for AuthZ (`assessment_test_cases.py`), component rows in `test_case_results`, `test_case_findings` in the model and the report section Test Case Findings (Pilot), per-component appendix rows, guides. |
 | 90d27a7d | The object form of `test_cases` selects no aspect unless `aspects` names one, so only a named aspect starts the model pilot. |
 | 80064794 | Changes after the first Juice Shop run: guard definitions in the preload, all state-changing routes for TC-AUTHZ-02 and -03, undecidable without an examined location, model-only controls named, catalog version 2. |
+| 998b0b13 | Batching: a component and aspect with more than 40 candidates gets several investigator jobs, shared by location, and their replies are combined into one row per test case and component. |
 
 ## What works today
 
@@ -110,12 +111,46 @@ Decided by the product owner on 2026-10-22 and built in 80064794:
 
 An offline count with the components of this run gives the same four jobs. The Express server then has 31, 40, and 40 candidates, with 15 and 9 over the cap for TC-AUTHZ-02 and -03; `POST /api/Users` is a TC-AUTHZ-03 candidate. Generated routes still reach a job only when the model adds them, and the cap still leaves candidates unexamined, so batching and an inventory of generated REST routes are the next measures.
 
+### Batching
+
+Decided by the product owner on 2026-10-22 and built in 998b0b13:
+
+- A component and aspect whose candidates exceed 40 (`case_candidates.MAX_CANDIDATES`) gets several investigator jobs. All candidates of one location go to the same job, so a route is read once for every test case that names it. A job takes whole locations up to 40 candidates; no candidate counts as unexamined any more.
+- Only the first job adds model candidates. It answers every test case of the aspect and receives the locations of the other jobs as context data (`candidate_jobs.answered_elsewhere`); the controller rejects a model candidate in a later job or at such a location for correction. The first run supports this: the model added no candidate in the Express job (0 of 70 answers) and one in the whole run.
+- `case_analysis.combine_investigations` combines the accepted replies before `case_outcomes.investigation_results`: test cases keep one entry, finding IDs become `part-<n>-<hash>` as in the STRIDE step, and the proposed outcome combines the jobs' proposals. Each test case still records one row per component.
+- A failed or unaffordable job makes only its candidates undecidable, with the fixed replacement reason; the answers of the other jobs stand. A test case that no accepted job answered records the replacement result as before.
+- Selectors stay `test-cases:{component}:{aspect}` for one job and gain `:{n}/{m}` for several, as the STRIDE and evidence jobs do, so resumed runs replay accepted jobs. STRIDE requests are unchanged.
+- There is no limit on jobs per component beside the hard budget; jobs the budget does not reach make their candidates undecidable.
+- Pooling the test cases of all investigated aspects into shared jobs per component, proposed to read code only once across aspects, waits until a second aspect is investigated. It changes the reply contract's `aspect` field and the decision "one model call per component and aspect".
+- Prompt caching across jobs was considered and left out: in the first run the investigator calls wrote 518k input tokens to the cache and read 58k, and a shared prefix would need a packet format that the STRIDE step shares.
+
+Data behind the choice: the Express server's 135 candidates lie on 65 locations, 55 of them named by more than one test case. Split test case by test case, four jobs would need 7,560 lines of preload with 31 to 37 windows each, at the limit of 36. Split by location, the same four jobs need 5,128 lines with 16 to 25 windows. Two jobs of 40 locations would need 3,840 lines, but the first would carry 85 answers and 32 windows.
+
+### Second run on Juice Shop
+
+Prepared on 2026-10-22 for 998b0b13; not run yet. The product owner starts it with `bash /tmp/authz-pilot/run.sh`, which runs the branch worktree with the profile above on Juice Shop at 33518f5a0 into `/home/mrohr/appsec-reports/juice-authz-pilot-2`. A new run replaces a completed run in its directory and reuses none of its jobs, so the second run uses its own directory and the first run's results stay in `juice-authz-pilot` for comparison.
+
+An offline count with the first run's components gives seven investigator jobs: four for the Juice Shop Express Server with 40, 39, 40, and 16 candidates, one for Authentication & Session Surface with 17, one for Web3 / Wallet / NFT Surface with 6, and one for the Angular frontend, where only TC-AUTHZ-05 applies, without candidates. `POST /api/Users` is a TC-AUTHZ-02 and TC-AUTHZ-03 candidate in the third Express job. `PUT /api/Products/:id` is still no candidate.
+
+Expected cost: in the first run, a call with no or one candidate cost USD 0.11 to 0.18, and the Express call with 70 answers cost USD 0.43 after a read exchange of USD 0.23. With a correction or read exchange in about every other job, the seven jobs should cost USD 1.70 to 3.40 instead of USD 1.58, and the whole run about USD 14.50 to 17.50 instead of USD 14.84. The STRIDE requests are unchanged, so the rest of the run should cost as before. The budget of USD 25 leaves room.
+
+Measures against the first run:
+
+| Question | Expected result |
+| --- | --- |
+| Admin registration through `role` in `POST /api/Users` | TC-AUTHZ-03 on the Express server records a weakness there with a finding. |
+| The six `denyAll()` routes | None stays undecidable for unserved source; each is answered with the guard's definition cited. |
+| Generated product route `PUT /api/Products/:id` | Probably still missed: it reaches a job only if the first Express job adds it, and the first run added no candidate there. A miss confirms the inventory of generated routes as the next step. |
+| Unexamined candidates | No component row counts any. |
+| Cost per job | Calls, USD, and corrections per investigator job, from the receipts in `.assessment-work/jobs` and the result events in `.assessment-work/host-events`, against the first run's USD 0.11 to 0.65. |
+| First run's pilot findings | Basket IDOR, metrics endpoint, configuration without role check, and address update IDOR are found again. |
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
 | --- | --- |
 | Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | The first run shows what the investigator alone misses. |
-| Batching for candidates beyond the cap of 40 per call | Shown by the first run: the Express server left 9 candidates unexamined, and after the changes 15 and 9 more for TC-AUTHZ-02 and -03. |
+| Shared jobs for the test cases of all investigated aspects of a component | A second aspect is investigated. Batching by location exists since 998b0b13. |
 | Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by the first run: the product update route reached no test case. |
 | Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
 | Removal rule: a confirmed post-check removes a scanner finding unless the evidence verifier marked it verified, otherwise the finding records `test_case_disagreement` | The merge exists. |
@@ -129,7 +164,7 @@ An offline count with the components of this run gives the same four jobs. The E
 
 Decided by the product owner:
 
-- One model call per component and aspect. Pilot aspects IAM, SessionMgmt, AuthZ, InputVal, DataProt.
+- One model call per component and aspect, and on 2026-10-22 several calls sharing the candidates by location when they exceed 40. Pilot aspects IAM, SessionMgmt, AuthZ, InputVal, DataProt.
 - 20% of the pilot model budget is reserved for the open review.
 - At most 15 additional files and 12 turns per call. The host contract already limits a job to 6 exchanges, and a tool-less host can only read listed paths, so both limits hold without extra code.
 - A control needs every candidate location evidenced, otherwise the outcome is `partial`. `no_finding` is its own outcome and never a control. Comments, documentation, and controls outside the examined sources are not control evidence.
@@ -140,7 +175,6 @@ Defaults I adopted because no live run depends on them yet. Confirm or change th
 
 - The pilot budget is everything available when the pilot starts minus the report reserve.
 - A confirmed post-check removes a scanner finding only if the evidence verifier has not marked it verified.
-- Candidates that do not fit into one call count as `unexamined`.
 - The 6-exchange job limit stays.
 - An organization `test_cases.required` list only blocks disabling. It does not switch test cases on.
 - `AssessmentBudget` holds limit only optional jobs of other groups. Required work ignores them.
@@ -162,7 +196,7 @@ Stricter than the plan on purpose:
 
 ## Verification state
 
-- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
+- Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). At 998b0b13, `make check-analyzer BASE=356f0cfc` passed with 954 and 168 tests, and the tests of the changed modules passed with the pilot tests of `tests/test_controller_fixture.py`, including the new tests for shared jobs, a failed job, and a resumed run with shared jobs (156 tests). The three controller fixture tests that never start the pilot were not rerun. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
