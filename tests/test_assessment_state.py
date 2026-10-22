@@ -163,6 +163,24 @@ def test_budget_holds_are_never_persisted_and_start_empty_on_resume(scope):
         assert resumed.budget.holds == {} and resumed.budget.calls == 1
 
 
+def test_worked_time_continues_across_attempts_without_the_pause_between_them(scope, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    with lifecycle(scope).hold():
+        clock[0] += 30
+    assert stored(scope)["worked_seconds"] == 30
+    # The pause before the resume does not count.
+    clock[0] += 3600
+    resumed = lifecycle(scope, resume=True)
+    with resumed.hold():
+        assert resumed.worked_before == 30
+        clock[0] += 12
+    assert stored(scope)["worked_seconds"] == 42
+    fresh = lifecycle(scope)
+    with fresh.hold():
+        assert fresh.worked_before == 0
+
+
 def test_approved_budget_is_persisted_before_use_and_restored_on_resume(scope):
     state = lifecycle(scope)
     with state.hold():

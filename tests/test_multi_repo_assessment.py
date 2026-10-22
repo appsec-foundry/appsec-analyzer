@@ -421,6 +421,17 @@ def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
     assert sum(line.startswith("TIME") for line in lines) == 1
 
 
+def test_a_resumed_console_counts_elapsed_on_from_the_earlier_attempts():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.continue_from(1800)
+    console.step("Discovering every selected repository")
+    clock.tick(120)
+    console.step(console.RESULT + "Reconnaissance: 1 repository")
+    console.step("Reviewing trust crossing: signal-external-ingress-0123abcd (1/3)")
+    assert [row[3] for row in _rows(lines)[:2]] == ["30m", "32m"]
+
+
 def test_a_long_platform_settings_check_wraps_under_its_detail_column(monkeypatch):
     monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 100)
     lines, clock = [], _Clock()
