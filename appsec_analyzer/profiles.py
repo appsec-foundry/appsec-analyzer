@@ -143,13 +143,15 @@ def validate(document: dict, kind: str) -> None:
 def normalize_test_cases(value):
     """The test_cases setting as false, true, or {"aspects": [...], "disable": [{"id", "reason"}]}.
 
-    The object form is sorted and unique so equal settings share one identity. Every disabled ID
-    must exist in the shipped test case catalog; the schema has already bounded the other fields."""
+    The object form is sorted and unique so equal settings share one identity. Without `aspects` it
+    selects none, so only a profile that names an aspect pays for its model investigation. Every
+    disabled ID must exist in the shipped test case catalog; the schema has already bounded the other
+    fields."""
     if type(value) is bool:
         return value
     if not isinstance(value, dict):
         raise ProfileError("test_cases must be true, false, or an object")
-    aspects = value.get("aspects", list(TEST_CASE_ASPECTS))
+    aspects = value.get("aspects", [])
     if any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects):
         raise ProfileError("test_cases.aspects must be unique pilot aspects")
     disable = value.get("disable", [])

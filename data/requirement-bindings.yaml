@@ -445,6 +445,7 @@ requirements:
       - tests/test_profiles.py::test_non_boolean_test_cases_is_rejected_before_host_or_checkout
       - tests/test_profiles.py::test_public_test_cases_reaches_controller_from_profile
       - tests/test_profiles.py::test_test_cases_change_requires_new_run_and_older_snapshot_means_false
+      - tests/test_profiles.py::test_a_test_case_object_without_aspects_selects_no_model_investigation
       - tests/test_case_candidates.py::test_facts_record_route_authentication_and_handler_evidence
       - tests/test_case_candidates.py::test_facts_are_plain_data_without_absolute_paths
       - tests/test_case_candidates.py::test_routes_belong_to_the_component_that_owns_their_handler

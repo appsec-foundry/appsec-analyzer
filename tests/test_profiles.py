@@ -176,9 +176,12 @@ def test_test_case_object_is_normalized_and_keeps_its_own_identity(home):
     assert resolved["definition_sha256"] != profiles.resolve_scan("plain")["definition_sha256"]
 
 
-def test_test_case_object_defaults_to_every_pilot_aspect(home):
+def test_a_test_case_object_without_aspects_selects_no_model_investigation(home):
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"disable": [REASON]}})
-    assert profiles.resolve_scan("cases")["settings"]["test_cases"]["aspects"] == list(profiles.TEST_CASE_ASPECTS)
+    setting = profiles.resolve_scan("cases")["settings"]["test_cases"]
+    assert setting == {"aspects": [], "disable": [REASON]}
+    # Test cases stay on for the scanner-based outcomes; only a named aspect starts the model pilot.
+    assert profiles.session_test_cases(setting) == {"aspects": [], "disable": [REASON]}
 
 
 def test_session_test_cases_form():
