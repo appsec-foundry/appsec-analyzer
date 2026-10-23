@@ -124,7 +124,7 @@ test-incremental:  ## Fast focused subset: incremental-scan reconciliation + 2-r
 	@$(PYTHON) scripts/run_tests.py incremental -q
 
 .PHONY: test-controller
-test-controller:  ## One offline controller run over a small web-application fixture: route inventory, client-to-API flows, architecture gate, abuse matching, publication (no LLM, ~80 s)
+test-controller:  ## One offline controller run over a small web-application fixture: route inventory, client-to-API flows, architecture gate, abuse matching, publication (no LLM, ~15 min for the whole file; each test is a full run of 45-100 s, so select single tests with pytest -k)
 	@$(PYTHON) -m pytest tests/test_controller_fixture.py -q --tb=short
 
 .PHONY: e2e-controller
