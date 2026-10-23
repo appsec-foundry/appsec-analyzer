@@ -19,7 +19,7 @@ OpenAI checks each distinct configured role model with an authenticated [model m
 
 Native Bedrock checks credential format and a verified TLS connection to its regional runtime endpoint; server authentication and model access remain unverified. Claude CLI checks local login status or the presence of externally supplied API/OAuth credentials; Codex CLI checks its reviewed version, isolation features and local ChatGPT login. These checks do not prove server authentication, model availability or quota. The output preserves these limits instead of claiming successful model access.
 
-To test actual generation, explicitly authorize one primary STRIDE-model exchange with a separate spending limit:
+To test actual generation, explicitly authorize one exchange with the survey's model, the primary model, with a separate spending limit:
 
 ```sh
 appsec-analyzer preflight --repo /path/to/project --profile claude --test-model --budget 0.10
@@ -45,7 +45,7 @@ appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
   --profile claude --budget 30 --output /private/system-assessment
 ```
 
-The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model`, `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
+The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model` (the survey's model), `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
 
 Before model analysis, the startup header groups the effective settings into Run, Scope, and Workflow & results. Run shows the billing mode, a USD budget or subscription call limit, combined depth/time/parallelism settings, and a compact model summary. Models shared by several roles show a role count; single-role assignments keep their role name. Artifacts share one line and long values wrap to the available width. Use `--verbose` for the full role assignments, budget details, and start-check explanation. A skipped trust check remains explicit in both views.
 
@@ -66,7 +66,7 @@ Use `standard` as a starting point, including for business logic analysis. `thor
 
 For `claude` and `codex`, the spending limit defaults to USD 20 for `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 
-Control analysis and STRIDE analysis each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
+Control analysis and the survey each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
 
@@ -134,13 +134,13 @@ With Codex CLI 0.163.0 installed on Linux/macOS and signed in using `codex login
 
 ### Source-read failures
 
-STRIDE jobs receive the exact readable repository IDs and repository-relative paths. They are instructed to report missing evidence when a required file is absent from that list. A file mentioned in an import or earlier analysis does not grant permission to read it.
+Survey jobs receive the exact readable repository IDs and repository-relative paths. They are instructed to report missing evidence when a required file is absent from that list. A file mentioned in an import or earlier analysis does not grant permission to read it.
 
 A well-formed relative filename outside the task selection is refused without reading it. Analyzer asks the model to use permitted sources or report missing evidence as unresolved, within the existing call, time and read limits. Repeated invalid proposals can still exhaust the job; they never expand its source selection.
 
 `Model requested a source outside this task's selection` stops the run for unsafe paths, unknown repository IDs, or paths paired with the wrong repository. Diagnostics identify the category without echoing the model's path. Earlier versions also stopped immediately for an ordinary filename absent from the admitted inventory; their saved diagnostics cannot establish the exact requested file.
 
-Accepted jobs remain in the output directory. After correcting the cause, repeat the original command with the same output and `--resume` while its original limits and compatibility checks permit. If the deadline has expired, repeat the command without `--resume` or `--rebuild` to start a new attempt and reuse compatible accepted jobs. Changed STRIDE inputs require those jobs to run again. Resuming alone does not correct an unchanged model request.
+Accepted jobs remain in the output directory. After correcting the cause, repeat the original command with the same output and `--resume` while its original limits and compatibility checks permit. If the deadline has expired, repeat the command without `--resume` or `--rebuild` to start a new attempt and reuse compatible accepted jobs. Changed survey inputs require those jobs to run again. Resuming alone does not correct an unchanged model request.
 
 ## Survey and verification
 

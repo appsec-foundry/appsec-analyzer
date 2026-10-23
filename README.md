@@ -197,7 +197,7 @@ appsec-analyzer platform-settings https://github.com/your-org/your-project
 appsec-analyzer platform-settings https://github.com/your-org/your-project --token-env GITHUB_READ_TOKEN --json
 ```
 
-`assess` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context, and the report shows it in a Platform Security Settings section.
+`assess` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Control analysis and the survey use the result as context, and the report shows it in a Platform Security Settings section.
 
 ### `distribution`: start your organization's own command
 
@@ -331,7 +331,7 @@ Command-line options override the defaults from a scan profile.
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
 | `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. |
-| `--assessment-depth LEVEL` | `quick` (no business-logic checks), `standard` (default), or `thorough`. With Claude, `thorough` uses Opus for STRIDE and cost about 1.8× as much in one Juice Shop comparison, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). Beside the survey, `standard` also verifies authorization route by route and `thorough` four security aspects, which adds model calls; see [survey and verification](docs/security-assessment.md#survey-and-verification). A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does). |
+| `--assessment-depth LEVEL` | `quick` (no business-logic checks), `standard` (default), or `thorough`. With Claude, `thorough` uses Opus for the survey and cost about 1.8× as much in one Juice Shop comparison, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). Beside the survey, `standard` also verifies authorization route by route and `thorough` four security aspects, which adds model calls; see [survey and verification](docs/security-assessment.md#survey-and-verification). A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does). |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. |

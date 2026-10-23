@@ -26,7 +26,7 @@ By default, requests omit `max_output_tokens`. Analyzer imposes no cap below the
 
 Each request is capped at 240,000 bytes, below the catalog models' 272,000 input-token long-context price threshold. Source packets are sized to that cap after role instructions, the output contract and JSON escaping, so large components can need more model exchanges than on the Claude CLI. Before sending it, the adapter reserves the cost of bounded input plus the configured output limit or model maximum. For the default Sol model, the dated snapshot uses a conservative USD 2.50 per million input tokens, including a possible cache-write charge, and USD 10 per million output tokens. A large reservation can stop a call even when its eventual response would have been shorter. The total authorized USD budget still applies.
 
-An OpenAI `--model` value must match the selected STRIDE model or its requested alias. Claude role flags and `--reasoning-model` are rejected on this adapter; use a model profile for per-role OpenAI settings. Before a paid run, check the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [pricing table](https://developers.openai.com/api/docs/pricing).
+An OpenAI `--model` value must match the selected survey model or its requested alias. Claude role flags and `--reasoning-model` are rejected on this adapter; use a model profile for per-role OpenAI settings. Before a paid run, check the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [pricing table](https://developers.openai.com/api/docs/pricing).
 
 ## Codex CLI profile
 
@@ -42,7 +42,7 @@ Users can set models and reasoning effort in their own Claude model profiles. Th
 
 Start with `standard`. Both Sonnet and Opus can identify business logic problems, such as spending a wallet balance without a valid payment or changing another user's basket. `thorough` can find additional problems, but it changes both analysis limits and model selection; it does not guarantee that every finding is new, correct, or more thoroughly verified.
 
-In one comparison of the same Juice Shop source on 2026-10-17, a standard run using Sonnet for STRIDE cost USD 15.85 and a thorough run using Opus cost USD 28.01: about USD 12 more, or 77%. STRIDE is the component threat-analysis stage; its cost rose from USD 8.35 to USD 21.91. These were two runs of the inherited Advisor engine, not a price estimate or a controlled model benchmark for the current Analyzer release. Costs depend on the project, selected models, work limits, and retries.
+In one comparison of the same Juice Shop source on 2026-10-17, a standard run using Sonnet for the survey cost USD 15.85 and a thorough run using Opus cost USD 28.01: about USD 12 more, or 77%. The survey, then called the STRIDE analysis, is the component threat-analysis stage; its cost rose from USD 8.35 to USD 21.91. These were two runs of the inherited Advisor engine, not a price estimate or a controlled model benchmark for the current Analyzer release. Costs depend on the project, selected models, work limits, and retries.
 
 The thorough run identified additional cases involving negative basket quantities and expired discounts. Sonnet also found business logic problems, and some apparently new thorough findings were already present in the standard analysis but grouped together or rated below the report's severity threshold. More report entries do not necessarily mean more independent weaknesses.
 
