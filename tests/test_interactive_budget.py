@@ -2,6 +2,8 @@
 
 import io
 import os
+import select
+import termios
 import threading
 from types import SimpleNamespace
 
@@ -17,19 +19,43 @@ class Terminal(io.StringIO):
         return True
 
 
-@pytest.mark.parametrize("typed,approved", [(b"2.50\n", [2.5]), (b"\x04", [])])
-def test_prompt_reads_amount_or_eof_from_a_real_terminal(monkeypatch, typed, approved):
+@pytest.fixture
+def terminal(monkeypatch):
+    """Yield the keyboard side of a pseudo-terminal that serves as stdin."""
     master, slave = os.openpty()
+    try:
+        with os.fdopen(slave, "r") as stdin:
+            monkeypatch.setattr(interactive.sys, "stdin", stdin)
+            yield master
+    finally:
+        os.close(master)
+
+
+@pytest.mark.parametrize(
+    "earlier,typed,approved",
+    [
+        (b"", b"2.50\n", [2.5]),
+        (b"", b"\x04", []),
+        # Keys pressed while the run was progressing neither decline nor approve.
+        (b"\n", b"2.50\n", [2.5]),
+        (b"9.00\n", b"\x04", []),
+    ],
+)
+def test_prompt_reads_only_the_answer_typed_after_the_question(monkeypatch, terminal, earlier, typed, approved):
     amounts = []
     state = SimpleNamespace(budget=AssessmentBudget(1, 0.05, 10, 60), state={}, approve_budget_increase=amounts.append)
     prompt = interactive.BudgetPrompt(state, report=lambda text: None, pause=lambda value: None, role_labels={})
-    try:
-        with os.fdopen(slave, "r") as terminal:
-            monkeypatch.setattr(interactive.sys, "stdin", terminal)
-            os.write(master, typed)
-            prompt(lambda: False)
-    finally:
-        os.close(master)
+    if earlier:
+        os.write(terminal, earlier)
+        assert select.select([interactive.sys.stdin], [], [], 5)[0]
+    flush = termios.tcflush
+
+    def type_after_question(fd, queue):
+        flush(fd, queue)
+        os.write(terminal, typed)
+
+    monkeypatch.setattr(termios, "tcflush", type_after_question)
+    prompt(lambda: False)
     assert amounts == approved
 
 
@@ -81,7 +107,7 @@ def test_prompt_requires_a_higher_literal_usd_amount(monkeypatch, answer, approv
         assert len(messages) == count
 
 
-def test_cancellation_while_awaiting_input_never_approves(monkeypatch):
+def test_cancellation_while_awaiting_input_never_approves(terminal):
     budget = AssessmentBudget(1, 0.05, 10, 60)
     amounts, paused = [], []
     state = SimpleNamespace(budget=budget, state={}, approve_budget_increase=amounts.append)

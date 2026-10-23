@@ -38,6 +38,11 @@ class BudgetPrompt:
         self.declined = False
 
     def _readline(self, should_stop):
+        import termios
+
+        # Keys pressed while the run was progressing must neither approve nor
+        # decline: only input typed after the question counts as an answer.
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
         while True:
             if should_stop():
                 raise HostCancelled("Assessment cancelled while awaiting budget approval")
