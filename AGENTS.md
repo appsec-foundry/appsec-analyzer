@@ -16,9 +16,9 @@ Keep the [README](README.md), affected current guides, CLI help, and installed e
 
 Agree on a requirement with the user before writing code for a new or extended feature. A feature is a new user outcome or a change to what an outcome in requirements.md promises, such as a new command, analysis, or result, or changed model use, data sent to models or other hosts, or credential use.
 
-Changes that leave every user outcome and acceptance rule as they are need no new requirement. Examples are a bug fix that restores behavior an existing requirement already describes, another way to start the same commands, clearer help or messages, refactoring, tests, and documentation; follow the [change boundaries](#change-boundaries) for them. If it is unclear whether a change is a feature, ask the user before drafting a requirement.
+Changes that leave every user outcome as it is need no new requirement. Examples are a bug fix that restores behavior an existing requirement already describes, another way to start the same commands, clearer help or messages, technical acceptance rules that weaken no safeguard, refactoring, tests, and documentation; follow the [change boundaries](#change-boundaries) for them. If it is unclear whether a change is a feature, ask the user before drafting a requirement.
 
-1. Propose the requirement in the conversation as it would appear in requirements.md: a short label and one user outcome in plain language, without implementation details. Add the main acceptance rules as short points.
+1. Propose the requirement in the conversation as it would appear in requirements.md: a short label and one user outcome in plain language, without implementation details such as file, module, or library names. Add up to five acceptance points that users can check. For a changed requirement, show only the changed sentences.
 2. Below it, name the risks and side effects that apply, such as model cost, data sent to models or other hosts, credential use, or changes to existing commands and saved results. Name a simpler or safer variant if one exists.
 3. Wait until the user explicitly approves the wording. A request for the feature alone is not approval.
 4. Add the approved requirement to requirements.md with its acceptance section, binding, and proposal, as described above. Record the raised risks and the user's decisions in the proposal.
