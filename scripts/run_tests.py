@@ -491,6 +491,52 @@ GROUPS = {
         threat_fixture
         verify_full_run_oracle
     """),
+    "analyzer": _tests("""
+        active_stride_policy
+        analyst_documents
+        analyzer_distribution
+        assessment_budget_holds
+        assessment_diagnostics
+        assessment_scope
+        authnz_review_cli
+        depth_settings
+        distribution
+        interactive_budget
+        module_boundaries
+        organization_distribution
+        platform_security_settings
+        platform_settings_controller
+        profiles
+        public_abuse_cases_cli
+        public_assessment_operations
+        public_export_cli
+        public_repo_profile_cli
+        public_review_cli
+        public_scan_cli
+        public_score_cli
+        rate_limit_pause
+        requirements_audit_cli
+        review_sources
+        score_summary
+        startup_preflight
+        threat_analysis_cli
+        verification_budget
+    """),
+    "providers": _tests("""
+        api_hosts
+        codex_cli
+        codex_cli_wire
+        codex_schema
+        copilot_cli
+        provider_backends
+    """),
+    "test-cases": _tests("""
+        case_analysis
+        case_candidates
+        case_outcomes
+        case_postchecks
+        test_case_catalog
+    """),
 }
 
 MANUAL_TESTS = {
