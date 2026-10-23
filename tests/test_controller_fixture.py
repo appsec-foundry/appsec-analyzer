@@ -137,6 +137,8 @@ class PilotHost(WebApplicationHost):
         self.investigations = []
         # Per investigation call: its candidate_jobs context and its candidate IDs per test case.
         self.jobs = []
+        # Per investigation call: the candidates its context lists.
+        self.listed = []
         # The (path, first line, last line) of each investigation's first packet.
         self.served = []
         self.stride_prompts = []
@@ -158,6 +160,7 @@ class PilotHost(WebApplicationHost):
                 for row in context["test_case_candidates"]
             }
             self.jobs.append((context.get("candidate_jobs"), share))
+            self.listed.append(context["test_case_candidates"])
             if self.fail_job is not None and (context.get("candidate_jobs") or {}).get("job") == self.fail_job:
                 raise TransportError("host call failed: no_result", reason="no_result", usd=0.0)
         if "anchor_corrections" in context:
@@ -461,6 +464,37 @@ def test_resume_replays_accepted_investigations_without_new_model_calls(tmp_path
     model = yaml.safe_load((tmp_path / "out" / "security-assessment.yaml").read_text())
     ids = [row["id"] for row in model["test_case_findings"]]
     assert ids == [f"TCF-{number:03d}" for number in range(1, len(ids) + 1)] and (len(ids) > 1) is batched
+
+
+def test_generated_routes_reach_only_the_pilot_marked_and_with_their_generator_call(tmp_path, monkeypatch):
+    def seed(roots):
+        _seed(roots)
+        with (roots[0] / "server.js").open("a") as handle:
+            handle.write(
+                "const finale = require('finale-rest')\n"
+                "finale.initialize({ app })\n"
+                "finale.resource({ endpoints: ['/api/Products', '/api/Products/:id'] })\n"
+            )
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=seed, host=host)
+    assert outcome["status"] == "complete"
+    assert validate_threat_model_output(yaml.safe_load((out / "security-assessment.yaml").read_text()))[0]
+    (listed,) = host.listed
+    routes = {
+        case["test_case_id"]: {(row["route"]["method"], row["route"]["path"]): row for row in case["candidates"]}
+        for case in listed
+    }
+    update = routes["TC-AUTHZ-02"]["PUT", "/api/Products/:id"]
+    assert update["route"]["generated"] is True and update["anchor"]["line"] == 15
+    assert routes["TC-AUTHZ-03"]["POST", "/api/Products"]["route"]["generated"] is True
+    assert "generated" not in routes["TC-AUTHZ-01"]["GET", "/api/orders/:id"]["route"]
+    # The generator call is served with the first packet, as a candidate's anchor.
+    assert any(path == "server.js" and start <= 15 <= end for path, start, end in host.served[0])
+    # STRIDE, the report and the other commands keep the inventory without generated routes.
+    (inventory,) = out.rglob(".route-inventory.json")
+    assert not any(row["path"].startswith("/api/Products") for row in json.loads(inventory.read_text())["routes"])
 
 
 def _service(model):

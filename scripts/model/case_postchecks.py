@@ -5,7 +5,8 @@ post-check is a fixed function over the facts ``model/case_candidates.py``
 recorded from the scanner snapshot, and returns ``confirmed``,
 ``contradicted`` or ``not_verifiable`` with a fixed reason:
 
-* ``route-registered``: the route inventory knows the route at the anchor.
+* ``route-registered``: the route inventory knows the route at the anchor, or
+  a REST resource generator registers it there (``generated`` routes).
 * ``handler-chain-lacks-guard`` with guard ``authentication``: the route's
   authentication signal (``route_inventory.route_authenticated``) and its
   resolved handler chain. A chain that only decodes a token, or checks no
@@ -63,6 +64,7 @@ UNKNOWN_ROUTE = "the route is not in the route inventory"
 BAD_ANCHOR = "the anchor is not a repository-relative file and line inside the examined sources"
 MISMATCH = "the anchor is neither the route's registration nor in its resolved handler chain"
 REGISTERED = "the route inventory registers the route at the anchor"
+GENERATED = "a REST resource generator registers the route at the anchor"
 AUTHN_DECODE_ONLY = "the resolved handler chain only decodes a token without verifying its signature"
 AUTHN_ABSENT = "the resolved handler chain checks no credential"
 AUTHN_PRESENT = "the route inventory shows an authentication guard for the route"
@@ -72,6 +74,7 @@ AUTHZ_PRESENT = "a guard named for authorization is registered at the route, whi
 AUTHZ_SCANNER = "a deterministic scanner reports missing authorization at the route's registration"
 AUTHZ_UNKNOWN = "the route inventory shows no authorization guard, which does not prove its absence"
 OWNER_UNREAD = "the route's handler code could not be resolved"
+OWNER_GENERATED = "the route's handler is library code that a REST resource generator registers"
 OWNER_PREDICATE = "the handler code compares the object's owner with the caller and rejects a mismatch"
 OWNER_MISSING = "the handler code accesses an object by identifier without an ownership comparison"
 OWNER_NO_ACCESS = "the handler code shows no object access by identifier"
@@ -100,7 +103,7 @@ def run_check(
     if row is None:
         return _result(NOT_VERIFIABLE, problem)
     if name == "route-registered":
-        return _result(CONFIRMED, REGISTERED)
+        return _result(CONFIRMED, GENERATED if row.get("generated") else REGISTERED)
     return evaluate(row, claim == "weakness")
 
 
@@ -206,7 +209,7 @@ def _authorization(row: Mapping[str, Any], weakness: bool) -> dict[str, str]:
 
 def _ownership(row: Mapping[str, Any], weakness: bool) -> dict[str, str]:
     if not row["handler_read"]:
-        return _result(NOT_VERIFIABLE, OWNER_UNREAD)
+        return _result(NOT_VERIFIABLE, OWNER_GENERATED if row.get("generated") else OWNER_UNREAD)
     if row["ownership_predicate"]:
         return _result(CONTRADICTED if weakness else CONFIRMED, OWNER_PREDICATE)
     if row["object_access"]:

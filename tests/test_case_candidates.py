@@ -226,10 +226,12 @@ def test_object_routes_and_scanner_hits_form_one_candidate_per_location(catalog,
     result = cc.starting_candidates(case, "api", facts, findings)
     candidates = result["candidates"]
     assert result["overflow"] == 0
+    # Routes with an identifier in the path, and the login, whose body could carry one.
     expected = {
         route_id(facts, method, path)
         for method, path in (
             ("GET", "/api/orders/:id"),
+            ("POST", "/rest/login"),
             ("GET", "/api/wallet/:id"),
             ("GET", "/api/invoices/:id"),
             ("DELETE", "/api/invoices/:id"),
@@ -305,6 +307,44 @@ def test_the_cap_keeps_scanner_hits_and_counts_the_rest(catalog, shop):
     for cap in (-1, 2.5, True, "40"):
         with pytest.raises(ValueError):
             cc.starting_candidates(case, "api", facts, findings, cap=cap)
+
+
+def test_owner_checks_also_start_from_routes_that_take_a_body(catalog, tmp_path):
+    reviews = {
+        "app.js": "const express = require('express')\nconst app = express()\n"
+        "app.patch('/rest/reviews', (req, res) => res.json({ id: req.body.id }))\n"
+        "app.get('/rest/status', (req, res) => res.json({}))\n",
+    }
+    root = write_repo(tmp_path / "reviews", reviews)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"app": list(reviews)})
+    case = _case(catalog, "TC-AUTHZ-01")
+    # The update takes the review's identifier from the body, not from the path.
+    assert cc.applies(case, facts, "app") == (True, cc.APPLIES_REASONS["object_id_routes"])
+    candidates = cc.starting_candidates(case, "app", facts, [])["candidates"]
+    assert [facts["routes"][row["route_id"]]["path"] for row in candidates] == ["/rest/reviews"]
+    # A component that only reads without an identifier gives the owner check nothing to start from.
+    status = {"app.js": reviews["app.js"].replace("app.patch('/rest/reviews', ", "app.get('/rest/reviews', ")}
+    root = write_repo(tmp_path / "status", status)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"app": list(status)})
+    assert cc.applies(case, facts, "app") == (False, cc.NOT_APPLICABLE_REASON)
+
+
+def test_role_checks_also_start_from_authenticated_reads_without_an_identifier(catalog, tmp_path):
+    lists = {
+        "server.js": "const express = require('express')\nconst { authenticate } = require('./lib/auth')\n"
+        "const app = express()\n"
+        "app.get('/rest/users', authenticate, (req, res) => res.json([]))\n"
+        "app.get('/rest/products', (req, res) => res.json([]))\n",
+        "lib/auth.js": FILES["lib/auth.js"],
+    }
+    root = write_repo(tmp_path, lists)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(lists)})
+    users = facts["routes"][route_id(facts, "GET", "/rest/users")]
+    # No inventory flag selects the user list; only its authentication does.
+    assert not users["missing_authz_suspect"] and users["authn_signal"] == "middleware_present"
+    candidates = cc.starting_candidates(_case(catalog, "TC-AUTHZ-02"), "api", facts, [])["candidates"]
+    # The public catalog needs no role.
+    assert [row["route_id"] for row in candidates] == [users["route_id"]]
 
 
 def _at(name, line):
@@ -389,3 +429,132 @@ def test_component_scoped_calls_need_a_known_component(catalog, shop, tmp_path):
     assert unassigned["components"] is None
     with pytest.raises(ValueError):
         cc.starting_candidates(case, "api", unassigned, findings)
+
+
+# --- generated routes ---------------------------------------------------------
+
+# finale-rest generates CRUD routes per model in a loop, behind a mount guard,
+# a route chain, a registered delete, and a guard that is only a comment. One
+# element states no plain name, one call limits its actions and update method,
+# one builds its path from a value the file does not state, and an unrelated
+# ``resource`` call is no generator.
+GENERATED = {
+    "server.js": (
+        "const express = require('express')\n"
+        "const finale = require('finale-rest')\n"
+        "const { authenticate } = require('./lib/auth')\n"
+        "const app = express()\n"
+        "app.use('/api/Items/:id', authenticate)\n"
+        "app.route('/api/Users/:id')\n"
+        "  .get(authenticate)\n"
+        "  .put(authenticate)\n"
+        "// app.put('/api/Products/:id', authenticate)\n"
+        "app.delete('/api/Products/:id', authenticate, (req, res) => res.status(204).end())\n"
+        "const models = [\n"
+        "  { name: 'User', exclude: ['password'] },\n"
+        "  { name: 'Product' },\n"
+        "  { name: 'Item' },\n"
+        "  { name: 'bad name' },\n"
+        "]\n"
+        "for (const { name } of models) {\n"
+        "  finale.resource({ model: name, endpoints: [`/api/${name}s`, `/api/${name}s/:id`] })\n"
+        "}\n"
+        "finale.resource({ endpoints: ['/api/Logs', '/api/Logs/:id'], actions: ['list', 'update'], updateMethod: 'patch' })\n"
+        "finale.resource({ endpoints: [`/api/${kind}s`] })\n"
+        "app.listen(3000)\n"
+    ),
+    "lib/auth.js": FILES["lib/auth.js"],
+    "lib/store.js": "const store = { resource: () => {} }\nstore.resource({ endpoints: ['/api/Ghosts'] })\n",
+}
+
+
+@pytest.fixture(scope="module")
+def generated(tmp_path_factory):
+    root = write_repo(tmp_path_factory.mktemp("generated"), GENERATED)
+    inventory = build_inventory(root)
+    return cc.route_facts(root, inventory, [], components={"api": list(GENERATED)}), inventory
+
+
+def test_generator_calls_add_the_routes_the_inventory_misses(generated):
+    facts, inventory = generated
+    rows = {(row["method"], row["path"]): row for row in facts["routes"].values() if row["generated"]}
+    crud = [("GET", ""), ("POST", ""), ("GET", "/:id"), ("PUT", "/:id"), ("DELETE", "/:id")]
+    expected = {(method, f"/api/{name}s{suffix}") for name in ("User", "Product", "Item") for method, suffix in crud}
+    # The registered delete stays the inventory's route; the limited call adds only its list and patch.
+    expected = expected - {("DELETE", "/api/Products/:id")} | {("GET", "/api/Logs"), ("PATCH", "/api/Logs/:id")}
+    assert set(rows) == expected
+    last = max(int(row["route_id"][2:]) for row in inventory["routes"])
+    assert sorted(int(row["route_id"][2:]) for row in rows.values()) == list(range(last + 1, last + 1 + len(rows)))
+    for (method, path), row in rows.items():
+        assert (row["handler_file"], row["handler_line"]) == ("server.js", 20 if "Logs" in path else 18)
+        assert row["object_id"] is path.endswith("/:id")
+        assert not (row["handler_read"] or row["object_access"] or row["ownership_predicate"])
+        assert row["route_id"] in facts["components"]["api"]["route_ids"]
+    json.dumps(facts)
+
+
+def test_a_generated_route_carries_the_registrations_that_run_before_it(generated):
+    facts, _ = generated
+    rows = {(row["method"], row["path"]): row for row in facts["routes"].values()}
+    call = ["server.js", 18, 18]
+    assert rows["PUT", "/api/Users/:id"]["chain"] == [["server.js", 6, 8], call]
+    assert rows["GET", "/api/Items/:id"]["chain"] == [["server.js", 5, 5], call]
+    assert rows["GET", "/api/Items"]["chain"] == [call]
+    # A registration written only in a comment does not run.
+    assert rows["PUT", "/api/Products/:id"]["chain"] == [call]
+    # The inventory's own delete keeps its anchor and learns that the generator handles it next.
+    delete = rows["DELETE", "/api/Products/:id"]
+    assert not delete["generated"] and delete["handler_line"] == 10 and call in delete["chain"]
+
+
+def test_commented_generators_and_guards_stay_out_after_a_regex_literal(tmp_path):
+    # The quotes inside the regex literal end comment blanking for the rest of the file.
+    notes = {
+        "server.js": "const finale = require('finale-rest')\n"
+        'const href = /a href="([^"]+?)"/gi\n'
+        "// app.use('/api/Notes/:id', guard)\n"
+        "finale.resource({ endpoints: ['/api/Notes/:id'] })\n"
+        "// finale.resource({ endpoints: ['/api/Drafts'] })\n",
+    }
+    root = write_repo(tmp_path, notes)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(notes)})
+    rows = {(row["method"], row["path"]): row for row in facts["routes"].values()}
+    assert set(rows) == {("GET", "/api/Notes/:id"), ("PUT", "/api/Notes/:id"), ("DELETE", "/api/Notes/:id")}
+    assert all(row["chain"] == [["server.js", 4, 4]] for row in rows.values())
+
+
+def test_generator_detection_keeps_paths_plain_and_its_work_bounded(tmp_path, monkeypatch):
+    calls = {
+        "server.js": "const finale = require('finale-rest')\n"
+        "finale.resource({ endpoints: ['/api/Ones', '/api/a b', 'api/relative'] })\n"
+        "finale.resource({ endpoints: ['/api/Twos'] })\n"
+        "finale.resource({ endpoints: ['/api/Threes'] })\n"
+        "finale.resource({ endpoints: ['/api/Open'] \n",
+    }
+    root = write_repo(tmp_path, calls)
+    inventory = build_inventory(root)
+
+    def paths():
+        facts = cc.route_facts(root, inventory, [], components={"api": list(calls)})
+        return {row["path"] for row in facts["routes"].values() if row["generated"]}
+
+    # Only plain absolute paths count, and a call that never closes registers nothing.
+    assert paths() == {"/api/Ones", "/api/Twos", "/api/Threes"}
+    monkeypatch.setattr(cc, "_MAX_GENERATOR_CALLS", 2)
+    assert paths() == {"/api/Ones", "/api/Twos"}
+
+
+def test_each_generated_route_is_its_own_candidate_at_the_shared_call(catalog, generated):
+    facts, _ = generated
+    candidates = cc.starting_candidates(_case(catalog, "TC-AUTHZ-02"), "api", facts, [])["candidates"]
+    at_call = [row for row in candidates if row["anchor"] == {"file": "server.js", "line": 18}]
+    changing = {
+        row["route_id"]
+        for row in facts["routes"].values()
+        if row["generated"] and row["handler_line"] == 18 and row["method"] != "GET"
+    }
+    assert {row["route_id"] for row in at_call} == changing and len(at_call) == len(changing)
+    assert len({row["candidate_id"] for row in candidates}) == len(candidates)
+    # The routes of one call share their location, so batching keeps them in one job.
+    jobs = cc.batches({"TC-AUTHZ-02": candidates}, limit=2)
+    assert sum(any(row in job["TC-AUTHZ-02"] for row in at_call) for job in jobs) == 1

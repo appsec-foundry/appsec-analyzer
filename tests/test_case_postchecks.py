@@ -11,7 +11,7 @@ from model import case_candidates as cc
 from model import case_postchecks as pc
 from model.case_outcomes import load_catalog
 
-from tests.test_case_candidates import route_id, shop_facts, write_repo
+from tests.test_case_candidates import GENERATED, route_id, shop_facts, write_repo
 
 REGISTERED = {"check": "route-registered"}
 AUTHN = {"check": "handler-chain-lacks-guard", "guard": "authentication"}
@@ -63,6 +63,16 @@ def test_a_route_is_registered_at_its_registration_or_handler_chain(shop):
     # A line of the resolved handler in its module is part of the route as well.
     handler = {**params, "anchor": {"file": "lib/invoices.js", "line": 4}}
     assert pc.run_check(REGISTERED, "weakness", handler, shop)["result"] == "confirmed"
+
+
+def test_a_generated_route_is_registered_by_its_generator_and_proves_no_guard(tmp_path):
+    root = write_repo(tmp_path, GENERATED)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(GENERATED)})
+    params = _at(facts, "PUT", "/api/Products/:id")
+    assert _both(REGISTERED, params, facts) == ({"result": "confirmed", "reason": pc.GENERATED},) * 2
+    # The handler is library code: neither its owner check nor its guards can be judged.
+    assert _both(OWNER, params, facts) == ({"result": "not_verifiable", "reason": pc.OWNER_GENERATED},) * 2
+    assert _verdicts(AUTHN, params, facts) == _verdicts(AUTHZ, params, facts) == ("not_verifiable",) * 2
 
 
 @pytest.mark.parametrize(

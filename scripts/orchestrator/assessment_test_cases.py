@@ -38,7 +38,10 @@ _ADAPTATION = (
     "test_case_candidates lists each test case's pre-check candidates; the controller serves each "
     "candidate's anchor and resolved handler lines, and the lines the supplied controls, flows and "
     "boundaries cite, in source_slices. readable_sources maps each repository_id to its permitted paths: "
-    "read only exact pairs from it, in one read action. When the context has candidate_jobs, other jobs answer the "
+    "read only exact pairs from it, in one read action. A route marked generated is registered by a REST resource "
+    "generator at its anchor and handled by library code: judge it by the generator call, the data model it names, "
+    "and the registrations for the same path among its handler lines. When the context has candidate_jobs, other "
+    "jobs answer the "
     "rest of the component's candidates: add model candidates only when adds_candidates is true, and never at a "
     "location that answered_elsewhere lists for the same test case."
 )
@@ -317,7 +320,7 @@ def _locations(elsewhere, facts) -> list[dict]:
 
 def _route(facts, route_id: str) -> dict:
     route = facts["routes"][route_id]
-    return {"method": route["method"], "path": route["path"]}
+    return {"method": route["method"], "path": route["path"], **({"generated": True} if route["generated"] else {})}
 
 
 def _preload(scope, context, precheck, rid, facts, envelope, architecture, components, limit) -> list[tuple]:

@@ -7,7 +7,9 @@ of each handler body (``analyzers/authz_confirm.py``), the scanner rules
 anchored at each registration, and the files where each catalog
 ``applies_when`` signal shows in code. The result is plain JSON data, so the
 model investigation and the post-checks (``model/case_postchecks.py``) can run
-after the snapshot is gone.
+after the snapshot is gone. The facts also hold the routes that a REST resource
+generator (finale-rest, epilogue) registers from a data model, which the
+inventory does not list; only the pilot sees them.
 
 ``applies`` evaluates a test case's ``applies_when`` signals; a signal without
 an evaluator applies, so a missing evaluator never hides a test case. A signal
@@ -19,7 +21,8 @@ candidate locations a model investigation starts from: the component's routes
 that the test case's route facts select, and the scanner findings of its
 starting rules. One candidate stands for one location, so a scanner hit at a
 route registration joins that route's candidate instead of counting twice.
-Candidates beyond an optional cap are only counted.
+Only the generated routes of one generator call share a location, one
+candidate each. Candidates beyond an optional cap are only counted.
 
 ``batches`` splits the candidates of one component and aspect into model jobs
 of at most ``MAX_CANDIDATES``. The candidates of one location stay in one job,
@@ -28,6 +31,7 @@ so its code is read once for every test case that names it.
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
 import os
@@ -38,7 +42,7 @@ from typing import Any, Iterable, Mapping
 from analyzers import authz_confirm
 from analyzers.capability_signals import _TEST_PATH_RE
 from analyzers.handler_resolver import HandlerResolver
-from analyzers.route_inventory import _PATH_PARAM_RE, _is_excluded
+from analyzers.route_inventory import _PATH_PARAM_RE, _is_excluded, route_authenticated
 from shared._path_guard import is_safe_to_read
 from shared._source_lex import without_comments
 
@@ -221,7 +225,7 @@ _ROUTE_SIGNALS = ("routes", "object_id_routes")
 APPLIES_REASONS = {
     "always": "the test case applies to every component",
     "routes": "the component registers routes",
-    "object_id_routes": "the component registers routes with an object identifier",
+    "object_id_routes": "the component registers routes that take an object identifier in the path or a request body",
     "jwt_usage": "the code issues, verifies or decodes JSON Web Tokens",
     "password_handling": "the code handles passwords",
     "session_handling": "the code creates or stores sessions or session tokens",
@@ -251,6 +255,10 @@ _ROUTE_FACTS = {
     "route_inventory.missing_authz_suspect": lambda row: row["missing_authz_suspect"],
     "route_inventory.state_changing": lambda row: row["method"].upper() in _STATE_CHANGING,
     "route_inventory.accepts_body": lambda row: row["method"].upper() in _BODY_METHODS,
+    # A list of other users' records needs a role unless the server limits it to the caller.
+    "route_inventory.authenticated_read_without_id": lambda row: (
+        row["method"].upper() == "GET" and not row["object_id"] and route_authenticated(row)
+    ),
 }
 
 
@@ -310,7 +318,9 @@ def route_facts(
             "chain": [list(span) for span in chain],
             # Rules a scanner reports at the registration, such as authz_confirm's AUTHZ-301/302.
             "scanner_rules": sorted(rules_at.get((row["handler_file"], row["handler_line"]), ())),
+            "generated": False,
         }
+    routes.update(_generated_routes(root, files, routes, rows, rules_at))
     return {
         "files": files,
         "routes": routes,
@@ -363,11 +373,15 @@ def starting_candidates(
     for route_id in component["route_ids"]:
         row = facts["routes"][route_id]
         registered.setdefault((row["handler_file"], row["handler_line"]), route_id)
-    located: dict[tuple[str, int], dict] = {}
+    located: dict[tuple, dict] = {}
     for route_id in _selected_routes(case, facts, component):
         row = facts["routes"][route_id]
         anchor = (row["handler_file"], row["handler_line"])
-        located.setdefault(anchor, _route_entry(registered[anchor], facts))
+        if row["generated"]:
+            # The routes of one generator call share its anchor, but each is its own candidate.
+            located.setdefault((*anchor, route_id), _route_entry(route_id, facts))
+        else:
+            located.setdefault(anchor, _route_entry(registered[anchor], facts))
     for hit in _scanner_hits(scanner_findings):
         if hit["rule_id"] not in rules or hit["file"] not in admitted:
             continue
@@ -386,7 +400,7 @@ def starting_candidates(
         located[anchor]["rule_ids"].add(hit["rule_id"])
     ordered = sorted(located.items(), key=lambda item: (not item[1]["rule_ids"], not item[1]["flagged"], item[0]))
     candidates = []
-    for (file, line), entry in ordered[:cap]:
+    for (file, line, *_), entry in ordered[:cap]:
         candidate = {
             "candidate_id": _candidate_id(case["id"], component_id, entry["key"]),
             "origin": "pre-check",
@@ -556,6 +570,256 @@ def _component_routes(components: Mapping[str, Iterable[str]], routes: dict, adm
     return result
 
 
+# --- generated routes -------------------------------------------------------
+
+# A ``<name>.resource({..., endpoints: [...]})`` call of finale-rest, or of
+# epilogue, which it continues, registers list and create on an endpoint
+# without a path parameter, and read, update and delete on one with a
+# parameter. ``actions`` limits them and ``updateMethod`` replaces PUT.
+_GENERATOR_EXTS = frozenset({".js", ".mjs", ".cjs", ".ts"})
+_GENERATOR_IMPORT_RE = re.compile(
+    r"""\bimport\s+(?:\*\s+as\s+)?(\w+)\s+from\s*['"](?:finale-rest|epilogue)['"]"""
+    r"""|\b(?:const|let|var)\s+(\w+)\s*=\s*require\s*\(\s*['"](?:finale-rest|epilogue)['"]\s*\)"""
+)
+_GENERATOR_ACTIONS = {
+    False: (("list", "GET"), ("create", "POST")),
+    True: (("read", "GET"), ("update", None), ("delete", "DELETE")),
+}
+_ENDPOINTS_RE = re.compile(r"\bendpoints\s*:\s*\[([^\]]{0,500})\]")
+_ACTIONS_RE = re.compile(r"\bactions\s*:\s*\[([^\]]{0,200})\]")
+_UPDATE_METHOD_RE = re.compile(r"""\bupdateMethod\s*:\s*['"](put|patch|post)['"]""", re.IGNORECASE)
+_LITERAL_RE = re.compile(r"""'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`""")
+_PLACEHOLDER_RE = re.compile(r"\$\{\s*(\w+)\s*\}")
+_FOR_OF_RE = re.compile(r"\bfor\s*\(\s*(?:const|let|var)\s*\{([^{}]{1,300})\}\s*of\s+(\w+)\s*\)\s*\{")
+# Registrations of the same file that may run before the generated handler.
+_REGISTRATION_RE = re.compile(r"""\.\s*(use|all|route|get|post|put|patch|delete)\s*\(\s*(['"`])([^'"`\n]{1,200})\2""")
+_CONTINUATION_RE = re.compile(r"\s*\.")
+# Generated paths and the loop values they are built from are repository text: keep them plain.
+_SAFE_PATH_RE = re.compile(r"/[\w\-./:]{0,200}")
+_SAFE_VALUE_RE = re.compile(r"[\w\-]{1,64}")
+_ROUTE_NUMBER_RE = re.compile(r"R-([0-9]+)")
+# Bounds on the work repository text can cause, per repository and per call.
+_MAX_ROUTE_NUMBER = 99_999
+_MAX_GENERATED_ROUTES = 500
+_MAX_GENERATOR_CALLS = 200
+_MAX_CALL_CHARS = 4_000
+_MAX_LOOP_CHARS = 20_000
+_MAX_LOOPS = 8
+_MAX_ARRAY_CHARS = 20_000
+_MAX_CHAIN_SPANS = 8
+
+
+def _generated_routes(
+    root: Path, files: list[str], routes: dict[str, dict], rows: Any, rules_at: Mapping[tuple[str, int], set[str]]
+) -> dict[str, dict]:
+    """Rows for the routes that generator calls register and no inventory row lists, under new route IDs.
+
+    A generated row anchors at its generator call; its chain holds the call and
+    the registrations of the same file that run for its path, such as a guard
+    mounted before the generator. An inventory row of the same file, method and
+    path keeps its anchor and gains the call in its chain. A path built from
+    values the file does not state as string literals is left out, and the
+    IDs continue after the inventory's highest.
+    """
+    known = {(row["handler_file"], row["method"].upper(), row["path"]): row for row in routes.values()}
+    numbers = (_ROUTE_NUMBER_RE.fullmatch(str(row.get("route_id"))) for row in rows or [] if isinstance(row, Mapping))
+    number = max((int(match[1]) for match in numbers if match), default=0)
+    generated: dict[str, dict] = {}
+    calls = 0
+    for rel in files:
+        suffix = Path(rel).suffix.lower()
+        if suffix not in _GENERATOR_EXTS or _TEST_PATH_RE.search(rel):
+            continue
+        code = _code(root / rel, suffix)
+        names = {name for match in _GENERATOR_IMPORT_RE.finditer(code) for name in match.groups() if name}
+        if not names:
+            continue
+        newlines = [match.start() for match in re.finditer("\n", code)]
+        registrations = _registrations(code, newlines)
+        call_re = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\s*\.\s*resource\s*\(\s*\{")
+        for call in call_re.finditer(code):
+            calls += 1
+            if calls > _MAX_GENERATOR_CALLS:
+                return generated
+            close = _closing(code, call.end() - 1, _MAX_CALL_CHARS)
+            if close is None or _after_line_comment(code, newlines, call.start()):
+                continue
+            line = bisect.bisect_left(newlines, call.start()) + 1
+            span = [rel, line, bisect.bisect_left(newlines, close) + 1]
+            for method, path in _call_routes(code, call.start(), code[call.end() - 1 : close + 1]):
+                row = known.get((rel, method, path))
+                if row is not None:
+                    if span not in row["chain"]:
+                        row["chain"] = sorted([*row["chain"], span])
+                    continue
+                if len(generated) == _MAX_GENERATED_ROUTES or number >= _MAX_ROUTE_NUMBER:
+                    return generated
+                number += 1
+                route_id = f"R-{number:03d}"
+                covering = [
+                    [rel, first, last]
+                    for first, last, verb, registered in registrations
+                    if _runs_for(verb, registered, method, path)
+                ]
+                generated[route_id] = known[(rel, method, path)] = {
+                    "route_id": route_id,
+                    "method": method,
+                    "path": path,
+                    "framework": "rest-resource-generator",
+                    "handler_file": rel,
+                    "handler_line": line,
+                    "handler_module": None,
+                    "authn_signal": "unknown",
+                    "authn_handler_signal": None,
+                    "authz_signal": "unknown",
+                    "missing_auth_suspect": False,
+                    "missing_authz_suspect": False,
+                    "object_id": bool(_PATH_PARAM_RE.search(path)),
+                    # The handler is library code outside the examined sources.
+                    "handler_read": False,
+                    "object_access": False,
+                    "ownership_predicate": False,
+                    "chain": sorted([span, *covering[:_MAX_CHAIN_SPANS]]),
+                    "scanner_rules": sorted(rules_at.get((rel, line), ())),
+                    "generated": True,
+                }
+    return generated
+
+
+def _call_routes(code: str, start: int, options: str) -> list[tuple[str, str]]:
+    """``(method, path)`` of each route one generator call registers, from its options object literal."""
+    endpoints = _ENDPOINTS_RE.search(options)
+    if endpoints is None:
+        return []
+    actions = _ACTIONS_RE.search(options)
+    allowed = None if actions is None else {_literal(match) for match in _LITERAL_RE.finditer(actions[1])}
+    update = _UPDATE_METHOD_RE.search(options)
+    values = _loop_values(code, start)
+    found = []
+    for literal in _LITERAL_RE.finditer(endpoints[1]):
+        for path in _expand(_literal(literal), values):
+            for action, method in _GENERATOR_ACTIONS[bool(_PATH_PARAM_RE.search(path))]:
+                if allowed is None or action in allowed:
+                    found.append((method or (update[1].upper() if update else "PUT"), path))
+    return found
+
+
+def _literal(match: re.Match) -> str:
+    return next(group for group in match.groups() if group is not None)
+
+
+def _expand(template: str, values: list[dict[str, str]] | None) -> list[str]:
+    """The paths of one endpoint literal: the literal itself, or one per loop element stating each placeholder."""
+    names = _PLACEHOLDER_RE.findall(template)
+    if not names:
+        paths = [template]
+    elif values is None:
+        return []
+    else:
+        paths = [
+            _PLACEHOLDER_RE.sub(lambda match, element=element: element[match[1]], template)
+            for element in values
+            if all(name in element for name in names)
+        ]
+    return [path for path in paths if _SAFE_PATH_RE.fullmatch(path)]
+
+
+def _loop_values(code: str, position: int) -> list[dict[str, str]] | None:
+    """Per element of the innermost ``for (const {...} of list)`` loop around ``position``, its literal values.
+
+    ``list`` must be an array literal of object literals in the same file. An
+    element states a destructured name only with a plain string literal."""
+    loop = None
+    headers = list(_FOR_OF_RE.finditer(code, max(0, position - _MAX_LOOP_CHARS), position))
+    for match in headers[-_MAX_LOOPS:]:
+        close = _closing(code, match.end() - 1, _MAX_LOOP_CHARS)
+        if close is not None and close > position:
+            loop = match
+    if loop is None:
+        return None
+    aliases = {}
+    for part in loop[1].split(","):
+        prop, _, local = part.partition(":")
+        prop = prop.split("=")[0].strip()
+        local = local.split("=")[0].strip() or prop
+        if prop and local:
+            aliases[local] = prop
+    array = re.search(rf"\b(?:const|let|var)\s+{re.escape(loop[2])}\s*(?::[^=\n]{{0,200}})?=\s*\[", code)
+    close = None if array is None else _closing(code, array.end() - 1, _MAX_ARRAY_CHARS)
+    if close is None:
+        return None
+    elements, at = [], array.end()
+    while at < close:
+        end = _closing(code, at, close - at) if code[at] == "{" else None
+        if end is None:
+            at += 1
+            continue
+        element = code[at : end + 1]
+        values = {}
+        for local, prop in aliases.items():
+            value = re.search(rf"""\b{re.escape(prop)}\s*:\s*(?:'([^'\n]*)'|"([^"\n]*)")""", element)
+            if value and _SAFE_VALUE_RE.fullmatch(_literal(value)):
+                values[local] = _literal(value)
+        elements.append(values)
+        at = end + 1
+    return elements
+
+
+def _registrations(code: str, newlines: list[int]) -> list[tuple[int, int, str, str]]:
+    """``(first line, last line, verb, path)`` of each registration with a literal path; a route chain spans its calls."""
+    lines = code.split("\n")
+    found = []
+    for match in _REGISTRATION_RE.finditer(code):
+        if _after_line_comment(code, newlines, match.start()):
+            continue
+        first = bisect.bisect_left(newlines, match.start()) + 1
+        last = first
+        if match[1] == "route":
+            while last < len(lines) and last - first < _MAX_CHAIN_SPANS and _CONTINUATION_RE.match(lines[last]):
+                last += 1
+        found.append((first, last, match[1], match[3]))
+    return found
+
+
+def _after_line_comment(code: str, newlines: list[int], position: int) -> bool:
+    """Whether ``//`` precedes ``position`` on its line: comment blanking loses track after a regex literal."""
+    index = bisect.bisect_left(newlines, position)
+    return "//" in code[newlines[index - 1] + 1 if index else 0 : position]
+
+
+def _runs_for(verb: str, registered: str, method: str, path: str) -> bool:
+    """Whether a registration runs for a generated route: a mount on its path or a prefix, or its own method."""
+    if verb == "use":
+        return registered == path or (registered != "/" and path.startswith(registered.rstrip("/") + "/"))
+    if verb in ("all", "route"):
+        return registered == path
+    return verb.upper() == method and registered == path
+
+
+def _closing(code: str, start: int, limit: int) -> int | None:
+    """Offset of the bracket that closes the one at ``start``, skipping string literals; None beyond ``limit``.
+
+    A quoted string ends at its line, as in JavaScript, so a stray quote in a
+    regex literal cannot hide the rest of the call."""
+    opener = code[start]
+    closer = {"{": "}", "[": "]", "(": ")"}[opener]
+    depth, at, end = 0, start, min(len(code), start + limit)
+    while at < end:
+        char = code[at]
+        if char in "'\"`":
+            at += 1
+            while at < end and code[at] != char and (char == "`" or code[at] != "\n"):
+                at += 2 if code[at] == "\\" else 1
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return at
+        at += 1
+    return None
+
+
 # --- shared lookups ---------------------------------------------------------
 
 
@@ -575,7 +839,7 @@ def _signal_found(signal: Any, facts: Mapping[str, Any], component: dict | None)
         return True
     if signal in _ROUTE_SIGNALS:
         route_ids = facts["routes"] if component is None else component["route_ids"]
-        return any(signal == "routes" or facts["routes"][route_id]["object_id"] for route_id in route_ids)
+        return any(signal == "routes" or _object_route(facts["routes"][route_id]) for route_id in route_ids)
     if not isinstance(signal, str) or signal not in facts["signals"]:
         return None
     files = facts["signals"][signal]
@@ -593,9 +857,14 @@ def _selected_routes(case: Mapping[str, Any], facts: Mapping[str, Any], componen
     selected = []
     for route_id in component["route_ids"]:
         row = facts["routes"][route_id]
-        if any(select(row) for select in selectors) and (row["object_id"] or not object_only):
+        if any(select(row) for select in selectors) and (_object_route(row) or not object_only):
             selected.append(route_id)
     return selected
+
+
+def _object_route(row: Mapping[str, Any]) -> bool:
+    """Whether a route can name an object: an identifier in its path, or a request body that may carry one."""
+    return row["object_id"] or row["method"].upper() in _BODY_METHODS
 
 
 def _flagged(row: Mapping[str, Any]) -> bool:
