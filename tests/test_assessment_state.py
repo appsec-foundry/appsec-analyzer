@@ -304,7 +304,7 @@ def test_changed_settings_reject_resume_and_name_the_change(scope, field, value,
     with lifecycle(scope).hold():
         pass
     with pytest.raises(
-        ExchangeError, match=f"cannot resume: {named} .*new scan is required: run again without --resume"
+        ExchangeError, match=f"cannot resume: {named} since it started. Run the same command without --resume for a new"
     ) as caught:
         with lifecycle(scope, resume=True, **{field: value}).hold():
             pytest.fail("Changed request must not resume")
@@ -356,7 +356,11 @@ def test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchange
     assert stored(scope)["status"] == "interrupted" and len(dispatched) == 2
 
     before = {p.relative_to(scope.output): p.read_bytes() for p in scope.output.rglob("*") if p.is_file()}
-    with pytest.raises(ExchangeError, match="plugin version changed"):
+    with pytest.raises(
+        ExchangeError,
+        match=r"plugin version changed since it started\. Run the same command without --resume: a new run .* "
+        r"reuses every accepted step whose inputs are unchanged \(2 accepted so far\)",
+    ):
         with lifecycle(scope, resume=True, runtime_sha256="b" * 64).hold():
             pytest.fail("Resume cannot authorize a new run or another budget")
     assert before == {p.relative_to(scope.output): p.read_bytes() for p in scope.output.rglob("*") if p.is_file()}
@@ -438,6 +442,21 @@ def test_changed_source_cannot_resume_or_complete(scope):
     with pytest.raises(ScopeError, match="changed"):
         with lifecycle(scope, resume=True).hold():
             pytest.fail("Changed source must not resume")
+
+
+def test_changed_source_refuses_resume_without_promising_reuse(scope):
+    with lifecycle(scope).hold():
+        pass
+    (scope.repositories[0].root / "app.py").write_text("print('changed')\n")
+    changed = admit([str(repository.root) for repository in scope.repositories], str(scope.output))
+    with pytest.raises(
+        ExchangeError,
+        match=r"the selected source code changed since it started\. Run the same command without --resume for a new "
+        r"scan; it repeats every model step because the source changed",
+    ) as caught:
+        with lifecycle(changed, resume=True).hold():
+            pytest.fail("Changed source must not resume")
+    assert "reuses" not in str(caught.value)
 
 
 def test_cost_reservation_is_durable_before_dispatch_and_unknown_cost_blocks_resume(scope):
@@ -996,7 +1015,7 @@ def test_resume_without_an_assessment_says_so(scope):
     assert not (scope.output / ".assessment-state.json").exists()
 
 
-def _restart_choice(scope, answers, budget=None):
+def _restart_choice(scope, answers, budget=None, runtime_sha256="a" * 64):
     from types import SimpleNamespace
 
     from orchestrator.orchestration_controller import _assessment_restart_choice
@@ -1005,6 +1024,7 @@ def _restart_choice(scope, answers, budget=None):
     choice = _assessment_restart_choice(
         SimpleNamespace(output=str(scope.output)),
         budget or AssessmentBudget(1.0, 0.05, 10, 60),
+        runtime_sha256=runtime_sha256,
         readline=lambda: next(replies, ""),  # "" is end of input
         write=shown.append,
     )
@@ -1025,12 +1045,19 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
     assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
 
 
-def test_the_question_omits_a_resume_that_cannot_succeed(scope):
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"budget": AssessmentBudget(2.0, 0.05, 10, 60)}, "the budget or time limits differ"),
+        ({"runtime_sha256": "b" * 64}, "the plugin version changed since it started"),
+    ],
+)
+def test_the_question_omits_a_resume_that_cannot_succeed(scope, change, reason):
     with lifecycle(scope).hold():
         pass
-    choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], budget=AssessmentBudget(2.0, 0.05, 10, 60))
+    choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], **change)
     assert choice is None
-    assert "1  Continue it: not available, the budget or time limits differ" in shown
+    assert f"1  Continue it: not available, {reason}" in shown
     assert "--resume)" not in shown and "Choose 2 or 3 [2]:" in shown
 
 

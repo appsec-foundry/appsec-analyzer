@@ -118,7 +118,8 @@ or runtime change may require a fresh assessment. Without either flag, a new
 scan reuses compatible accepted steps of an unfinished run in the same output.
 In an interactive terminal it first asks whether to continue that run, start
 such a new scan (the default for Enter or end of input), or rebuild; continuing
-is offered only while the run's limits, deadline, and accounting allow it.
+is offered only while the run's limits, deadline, and accounting allow it and
+the Analyzer version is unchanged.
 `--non-interactive`, `--quiet`, `--json`, and CI runs never ask. Earlier results
 stay in the output until a new run completes; that run removes the ones it did
 not replace. Inspect `status` or `progress`

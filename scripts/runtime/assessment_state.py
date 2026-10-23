@@ -237,13 +237,13 @@ class AssessmentState:
         if self.resume:
             if self.state["identity"] != self.identity:
                 again = (
-                    "run again without --resume"
+                    "A new scan is required: run again without --resume"
                     if self.state["status"] == "complete"
-                    else "run again without --resume; unchanged model steps are reused"
+                    else self._new_run_hint(self.state["identity"])
                 )
                 raise ExchangeError(
                     f"Assessment cannot resume: {self._changed(self.state['identity'])} changed since it "
-                    f"started. A new scan is required: {again}"
+                    f"started. {again}"
                 )
             self.budget.max_usd = self._authorized_budget(self.state)
             accounting = self.state["accounting"]
@@ -321,6 +321,25 @@ class AssessmentState:
         if not changed:
             return "its identity"
         return changed[0] if len(changed) == 1 else ", ".join(changed[:-1]) + " and " + changed[-1]
+
+    def _new_run_hint(self, identity) -> str:
+        """How a new run takes over an unfinished run that cannot resume, and what it reuses.
+
+        A job is reused only for unchanged source, so changed source repeats every step.
+        """
+        again = "Run the same command without --resume"
+        if identity.get("scope_sha256") != self.identity["scope_sha256"]:
+            return f"{again} for a new scan; it repeats every model step because the source changed"
+        accepted = set()
+        for folder in (self.directory / JOBS_NAME, self.directory / CACHE_NAME):
+            if folder.is_dir() and not folder.is_symlink():
+                accepted |= {receipt.name for receipt in folder.glob("job-*.receipt.json")}
+        if not accepted:
+            return f"{again} for a new scan"
+        return (
+            f"{again}: a new run with this command's limits reuses every accepted step whose inputs are "
+            f"unchanged ({len(accepted)} accepted so far)"
+        )
 
     def _discard_unfinished_run(self):
         """Clear what an unfinished earlier assessment left, or refuse a fresh start.
@@ -819,13 +838,13 @@ class AssessmentState:
         return path
 
 
-def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
+def unfinished_run(output: Path, budget: AssessmentBudget, runtime_sha256: str) -> dict | None:
     """What a start without --resume or --rebuild can offer for an unfinished run in `output`.
 
     None when the directory holds no readable unfinished run or another live
     run owns it. `resume_blocked` names why continuing cannot succeed from
-    what the state records, or is None; changed source, settings or plugin
-    bytes are still checked when the resume opens.
+    what the state records and the current plugin version, or is None;
+    changed source or settings are still checked when the resume opens.
     """
     path = output / STATE_NAME
     if not path.is_file() or path.is_symlink():
@@ -849,6 +868,8 @@ def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
         max_usd = None
     if accounting["unavailable"]:
         blocked = "an unfinished cost reservation cannot be reconciled"
+    elif state["identity"]["runtime_sha256"] != runtime_sha256:
+        blocked = "the plugin version changed since it started"
     elif state["identity"]["limits"] != limits:
         blocked = "the budget or time limits differ from its original limits"
     elif state["expires_at"] <= time.time():

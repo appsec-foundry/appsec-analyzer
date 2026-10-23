@@ -4207,17 +4207,18 @@ def assess_repositories(
     }
 
 
-def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str | None:
+def _assessment_restart_choice(ns, budget, *, runtime_sha256=None, readline=None, write=None) -> str | None:
     """Ask how to start when the destination holds an unfinished run and no flag chose.
 
     Only an explicit answer selects --resume or --rebuild. Enter, end of input
     and repeated invalid answers keep the default: a new scan that reuses the
     run's accepted steps. Continuing is offered only when the recorded limits,
-    deadline and accounting allow it. Returns "resume", "rebuild" or None.
+    deadline and accounting allow it and the plugin version is unchanged.
+    Returns "resume", "rebuild" or None.
     """
     from runtime.assessment_state import unfinished_run
 
-    found = unfinished_run(Path(ns.output), budget)
+    found = unfinished_run(Path(ns.output), budget, runtime_sha256 or _assessment_runtime_fingerprint())
     if found is None:
         return None
     readline = readline or (lambda: sys.stdin.readline(64))
