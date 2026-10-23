@@ -1810,6 +1810,8 @@ def _assessment_stride(
                 "files": unowned["files"],
                 "text": f"{_count_noun(unowned['files'], 'program file')} belong to no component and were not "
                 f"analysed ({directories})",
+                # Console only (--verbose); the report keeps the counts.
+                "listing": analysis.unowned_listing(scope, components["components"], Namespaces(scope).qualify),
             }
         )
 
@@ -2612,9 +2614,24 @@ def _assessment_host_root_outside(work_root: Path, scope) -> None:
 def _coverage_infos(entries: list[dict], verbose: bool) -> list[str]:
     """Per-component coverage statements with --verbose, otherwise one summary line.
 
-    The statement about files outside every component is always its own line.
+    The statement about files outside every component is always its own line;
+    with --verbose it is followed by the first files of each directory.
     """
-    unowned = [entry["text"] for entry in entries if "unowned" in entry]
+    from appsec_analyzer.terminal import field
+
+    unowned = []
+    for entry in entries:
+        if "unowned" not in entry:
+            continue
+        if not entry.get("listing"):
+            unowned.append(entry["text"])
+        elif not verbose:
+            unowned.append(f"{entry['text']}; --verbose names the first ones in each directory")
+        else:
+            unowned.append(entry["text"])
+            for directory, files, paths in entry["listing"]:
+                more = f", … {files - len(paths)} more" if files > len(paths) else ""
+                unowned.append(f"  {field(directory)} {files}: {', '.join(field(path) for path in paths)}{more}")
     undecided = [entry["text"] for entry in entries if "undecided" in entry]
     if len(undecided) > 1 and not verbose:
         undecided = [
@@ -4205,16 +4222,24 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str 
     readline = readline or (lambda: sys.stdin.readline(64))
     write = write or sys.stderr.write
     started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(found["started_at"]))
-    lines = [f"This output directory holds an unfinished assessment ({found['status']}, started {started})."]
+    minutes = max(int(time.time() - found["started_at"]) // 60, 1)
+    ago = f"{minutes} min" if minutes < 60 else f"{minutes // 60} h" if minutes < 2880 else f"{minutes // 1440} days"
+    spent = f"{found['calls']} model calls" if budget.subscription else f"USD {found['spent_usd']:.2f}"
+    lines = [
+        f"An unfinished assessment is stored in {ns.output}",
+        f"  {str(found['status']).capitalize()}, started {started} ({ago} ago). Spent so far: {spent}.",
+        "",
+    ]
     if found["resume_blocked"]:
-        lines.append(f"  Continuing it is not possible: {found['resume_blocked']}.")
+        lines.append(f"  1  Continue it: not available, {found['resume_blocked']}")
         choices = {"2": None, "3": "rebuild"}
     else:
         lines.append("  1  Continue it (--resume), with its original limits and deadline")
         choices = {"1": "resume", "2": None, "3": "rebuild"}
     lines += [
-        "  2  Start a new scan that reuses its accepted steps (default)",
-        "  3  Rebuild (--rebuild): discard its accepted steps and history",
+        "  2  Start a new run with this command's limits, reusing accepted steps that still match (default)",
+        "  3  Start from scratch (--rebuild): accepted steps and history are deleted",
+        "",
     ]
     write("\n".join(lines) + "\n")
     for _ in range(3):

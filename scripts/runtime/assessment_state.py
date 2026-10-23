@@ -859,4 +859,10 @@ def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
         blocked = "its original budget is exhausted"
     else:
         blocked = None
-    return {"status": state["status"], "started_at": state["started_at"], "resume_blocked": blocked}
+    return {
+        "status": state["status"],
+        "started_at": state["started_at"],
+        "resume_blocked": blocked,
+        "spent_usd": accounting["spent_usd"],
+        "calls": accounting["calls"],
+    }

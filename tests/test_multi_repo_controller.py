@@ -526,6 +526,19 @@ def test_coverage_statements_collapse_to_one_line_unless_verbose():
         "files": 3,
         "text": "3 program files belong to no component",
     }
+    listed = {
+        **unowned,
+        "listing": [("lib/", 5, ["lib/a.ts", "lib/b\x1b[31m.ts"]), ("(repository root)", 1, ["top.js"])],
+    }
+    # --verbose names the first files per directory; control characters in a name never reach the terminal.
+    assert controller._coverage_infos([listed], verbose=True) == [
+        unowned["text"],
+        "  lib/ 5: lib/a.ts, lib/b [31m.ts, … 3 more",
+        "  (repository root) 1: top.js",
+    ]
+    assert controller._coverage_infos([listed], verbose=False) == [
+        f"{unowned['text']}; --verbose names the first ones in each directory"
+    ]
     # Files outside every component stay their own line and never join the per-component count.
     assert controller._coverage_infos([unowned, *entries], verbose=False) == [
         unowned["text"],

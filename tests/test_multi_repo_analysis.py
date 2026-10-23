@@ -1998,6 +1998,19 @@ def test_a_file_without_a_security_signal_is_reported_instead_of_targeted(tmp_pa
     assert stage.unexamined_files(component, targets) == [(scope.repositories[0].repository_id, "lib/format.ts")]
 
 
+def test_program_files_outside_every_component_are_listed_per_directory_and_capped(tmp_path):
+    files = {"src/api.ts": b"x\n", "top.js": b"x\n", **{f"lib/m{n:02}.ts": b"x\n" for n in range(12)}}
+    scope, component = _owned_sources(tmp_path, files, ["src/api.ts"])
+    listing = stage.unowned_listing(scope, [component], lambda rid, path: path, per_directory=3)
+    assert listing == [
+        ("lib/", 12, ["lib/m00.ts", "lib/m01.ts", "lib/m02.ts"]),
+        ("(repository root)", 1, ["top.js"]),
+    ]
+    # The counts the report keeps are the same ones the listing starts from.
+    summary = stage.unowned_summary(scope, [component], lambda rid, path: path)
+    assert [(row["directory"], row["files"]) for row in summary["by_directory"]] == [(d, n) for d, n, _ in listing]
+
+
 def test_program_files_outside_every_component_are_summarised_by_directory(tmp_path):
     files = {
         "src/api.ts": b"x\n",

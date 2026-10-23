@@ -680,23 +680,40 @@ def unowned_sources(scope, components: list[dict]) -> list[tuple[str, str]]:
     )
 
 
+def _unowned_by_directory(scope, components: list[dict], qualify) -> dict[str, list[str]]:
+    """Reported paths of ``unowned_sources`` per top-level directory."""
+    groups: dict[str, list[str]] = {}
+    for rid, path in unowned_sources(scope, components):
+        reported = qualify(rid, path)
+        head, _, rest = path.partition("/")
+        key = reported[: -len(path)] + (head + "/" if rest else "(repository root)")
+        groups.setdefault(key, []).append(reported)
+    return groups
+
+
 def unowned_summary(scope, components: list[dict], qualify) -> dict | None:
     """``{files, by_directory}`` of ``unowned_sources``, grouped by top-level directory, or None.
 
     ``qualify(repository_id, path)`` gives the reported path, so a combined
     assessment names each repository's directories apart.
     """
-    unowned = unowned_sources(scope, components)
-    if not unowned:
+    groups = _unowned_by_directory(scope, components, qualify)
+    if not groups:
         return None
-    counts: dict[str, int] = {}
-    for rid, path in unowned:
-        prefix = qualify(rid, path)[: -len(path)]
-        head, _, rest = path.partition("/")
-        key = prefix + (head + "/" if rest else "(repository root)")
-        counts[key] = counts.get(key, 0) + 1
-    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:10]
-    return {"files": len(unowned), "by_directory": [{"directory": d, "files": n} for d, n in ranked]}
+    ranked = sorted(((d, len(paths)) for d, paths in groups.items()), key=lambda item: (-item[1], item[0]))[:10]
+    return {
+        "files": sum(len(paths) for paths in groups.values()),
+        "by_directory": [{"directory": d, "files": n} for d, n in ranked],
+    }
+
+
+def unowned_listing(
+    scope, components: list[dict], qualify, per_directory: int = 10
+) -> list[tuple[str, int, list[str]]]:
+    """``(directory, files, first paths)`` for the ten largest directories of ``unowned_summary``."""
+    groups = _unowned_by_directory(scope, components, qualify)
+    ranked = sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))[:10]
+    return [(directory, len(paths), sorted(paths)[:per_directory]) for directory, paths in ranked]
 
 
 def unexamined_files(component: dict, targets: list[dict]) -> list[tuple[str, str]]:

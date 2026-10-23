@@ -1020,7 +1020,9 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
         pass
     choice, shown = _restart_choice(scope, answers)
     assert choice == expected
-    assert "unfinished assessment (interrupted" in shown and "1  Continue it (--resume)" in shown
+    assert f"An unfinished assessment is stored in {scope.output}" in shown
+    assert "Interrupted, started" in shown and "Spent so far: USD 0.00." in shown
+    assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
 
 
 def test_the_question_omits_a_resume_that_cannot_succeed(scope):
@@ -1028,7 +1030,8 @@ def test_the_question_omits_a_resume_that_cannot_succeed(scope):
         pass
     choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], budget=AssessmentBudget(2.0, 0.05, 10, 60))
     assert choice is None
-    assert "not possible: the budget or time limits differ" in shown and "--resume)" not in shown
+    assert "1  Continue it: not available, the budget or time limits differ" in shown
+    assert "--resume)" not in shown and "Choose 2 or 3 [2]:" in shown
 
 
 def test_no_question_without_an_unfinished_run(scope):
