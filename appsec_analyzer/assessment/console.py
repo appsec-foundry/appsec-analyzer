@@ -151,9 +151,9 @@ class _AssessmentConsole:
     Each line reads ``TIME  PHASE  EVENT  PROGRESS  ELAPSED  LEFT  DETAIL``.
     PHASE is numbered within this run, so a skipped phase (abuse cases)
     shortens N. EVENT is ``start`` and ``done`` for a phase's bounds, ``✓``
-    for a finished component or verification job, ``·`` for progress, and
-    ``⚠`` (stalled or stopped model call, plugin change, verification job
-    without a result) or
+    for a component whose survey or verification finished, ``·`` for
+    progress, and ``⚠`` (stalled or stopped model call, plugin change,
+    verification job without a result) or
     ``↻`` (rejected answer) for lines that need attention. PROGRESS, ELAPSED
     and LEFT always describe the whole run. DETAIL describes the phase and
     comes last, so its length never shifts a column; a ``done`` line's
@@ -308,11 +308,15 @@ class _AssessmentConsole:
     # three survey jobs (Juice Shop, 2026-10-23: 27 survey jobs took 21 minutes
     # and 19 verification jobs 18), so it adds that share to threat analysis.
     VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 3
-    # The plan comes before the survey, the start after it; both name the job count.
-    _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) jobs? for ")
+    # The plan comes before the survey, the start after it; both name the components and end with the job count.
+    _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) components? for .* · (\d+) jobs?$")
     _VERIFY_START = "Verify start · "
     _VERIFY_DONE = "Verify done · "
-    _VERIFY_JOB = re.compile(r"(Verifying|Finished verifying) (\S+ \d+/\d+): (.*?)(?: · no result \((\w+)\))?$")
+    # A component's jobs are its parts; the console shows one step per component.
+    _VERIFY_JOB = re.compile(
+        r"(Verifying|Finished verifying) component (\d+)/\d+, part \d+/(\d+), (\S+): (.*?)"
+        r"(?: · no result \((\w+)\))?$"
+    )
     _BUDGET_SKIP = re.compile(
         r"Coverage gap: (.+?)(?: \([A-Z][A-Z0-9-]{1,79}\))? job skipped: budget reserved for required completion work"
     )
@@ -350,10 +354,12 @@ class _AssessmentConsole:
         # survey jobs and the current stage; and the components finished.
         self.units: dict[str, dict] = {}
         self.units_done = 0
-        # Verification jobs after the survey, planned before it (REQ-040), the
-        # finished ones, and the start time of each running one by its slot.
+        # Verification jobs after the survey, planned before it (REQ-040), and
+        # the finished ones; the components they verify, the finished ones,
+        # and each component's parts by its number.
         self.verify_jobs, self.verify_done = 0, 0
-        self.verify_running: dict[str, float] = {}
+        self.verify_components, self.verify_components_done = 0, 0
+        self.verify_running: dict[str, dict] = {}
         # Start times and durations of the threat analysis steps, Survey and Verify.
         self.steps: dict[str, float] = {}
         self.step_times: dict[str, float] = {}
@@ -605,11 +611,16 @@ class _AssessmentConsole:
 
         The plan arrives before the survey, so the phase weighs the jobs from the
         start and the run's share never falls. Jobs run concurrently, so a job's
-        start only names it, and its end is the row that advances the share.
+        start only names it, and its end advances the share. A component's jobs
+        are its parts: its row comes when the last one ends, so a component
+        checked in several jobs is still one step.
         """
         with _AssessmentConsole._lock:
             if plan := self._VERIFY_PLAN.match(text):
-                jobs = int(plan[1])
+                components, jobs = int(plan[1]), int(plan[2])
+                # The job count only weighs the step; the line shows the components.
+                text = text[: text.rindex(" · ")]
+                self.verify_components = components
                 if jobs != self.verify_jobs:
                     # The finished part keeps its weight in the larger phase.
                     weight = self._weight(self.phase)
@@ -622,7 +633,7 @@ class _AssessmentConsole:
                         survey = f"Survey done · {_duration(self.step_times['Survey'])}"
                         self.record("·", f"{survey} · {_count_noun(self.units_done, 'component')}", now)
                     self.steps["Verify"] = now
-                    self.current = f"Verify: 0/{jobs} jobs done"
+                    self.current = f"Verify: 0/{components} components done"
                 self.record("·", text, now)
                 self.shown = (self.current, round(100 * self.done))
                 return True
@@ -637,31 +648,54 @@ class _AssessmentConsole:
             job = self._VERIFY_JOB.match(text)
             if not job:
                 return False
-            started, slot, name, cause = job[1] == "Verifying", job[2], job[3], job[4]
+            started, number, total, aspect, name, cause = (
+                job[1] == "Verifying",
+                job[2],
+                int(job[3]),
+                job[4],
+                job[5],
+                job[6],
+            )
             # Names come from repository files and model output.
             name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
+            unit = self.verify_running.setdefault(
+                number, {"started": now, "running": 0, "done": 0, "aspects": [], "gaps": Counter()}
+            )
+            if aspect not in unit["aspects"]:
+                unit["aspects"].append(aspect)
             if started:
-                self.verify_running[slot] = now
-                began = None
+                unit["running"] += 1
             else:
-                began = self.verify_running.pop(slot, None)
+                unit["running"] = max(0, unit["running"] - 1)
+                unit["done"] += 1
+                if cause:
+                    unit["gaps"][cause] += 1
                 self.verify_done += 1
                 weight = self._weight(self.phase)
                 self._advance(self._survey_share() + self.verify_done * self.VERIFY_JOB_WEIGHT / weight)
-            done = f"Verify: {self.verify_done}/{max(self.verify_jobs, self.verify_done)} jobs done"
-            running = len(self.verify_running)
+            finished = not started and unit["done"] >= total
+            self.verify_components_done += finished
+            done = (
+                f"Verify: {self.verify_components_done}/"
+                f"{max(self.verify_components, self.verify_components_done)} components done"
+            )
+            running = sum(1 for row in self.verify_running.values() if row["running"])
             self.current = done + (f" · {running} running" if running else "")
             if started:
-                # The terminal shows running jobs on its status line; a log gets a row.
-                if not self.live:
-                    self.record("·", f"Verify job {slot} started · {name}", now)
+                # The terminal shows running components on its status line; a log gets a row for each.
+                if not self.live and unit["running"] + unit["done"] == 1:
+                    self.record("·", f"Verify component {number} started · {name}", now)
                 return True
-            parts = [done, f"{slot.partition(' ')[0]} · {name}"]
-            if cause:
-                parts.append(f"no result ({cause})")
-            if began is not None:
-                parts.append(_duration(now - began))
-            self.record("⚠" if cause else "✓", " · ".join(parts), now)
+            if not finished:
+                return True
+            parts = [done, f"{', '.join(unit['aspects'])} · {name}"]
+            if gaps := unit["gaps"]:
+                causes, missing = ", ".join(sorted(gaps)), sum(gaps.values())
+                parts.append(
+                    f"no result ({causes})" if total == 1 else f"{missing} of {total} parts without result ({causes})"
+                )
+            parts.append(_duration(now - unit["started"]))
+            self.record("⚠" if gaps else "✓", " · ".join(parts), now)
             self.shown = (self.current, round(100 * self.done))
             return True
 
@@ -957,6 +991,7 @@ class _AssessmentConsole:
                 self.current, self.count, self.positioned, self.parts = "", None, False, {}
                 self.units, self.units_done = {}, 0
                 self.verify_done, self.verify_running, self.steps, self.step_times = 0, {}, {}, {}
+                self.verify_components_done = 0
                 self.corrections, self.budget_skips = Counter(), Counter()
                 self.fraction = 0.0
                 self._advance(0.0)

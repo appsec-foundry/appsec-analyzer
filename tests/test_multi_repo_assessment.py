@@ -3199,53 +3199,86 @@ def test_controller_draws_uncalled_routes_once_per_authentication_method(tmp_pat
 
 
 def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls():
-    """REQ-040: verification, planned before the survey, has its own steps; finished jobs, not starts, advance it."""
+    """REQ-040: verification, planned before the survey, has its own steps; finished jobs, not starts, advance it.
+
+    A component checked in several jobs is one step: its row comes when its last job ends.
+    """
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
-    console.plan_components(1)
+    console.plan_components(2)
     console.step("Running deterministic source scanners")
     before = console.done
-    console.step("Verify planned · 2 jobs for AuthZ after the survey")
+    console.step("Verify planned · 2 components for AuthZ after the survey · 3 jobs")
     # The plan widens the phase before any of it has finished, so the run's share holds.
     assert console.done == before
-    console.step("Surveying component: API (1/1)")
+    console.step("Surveying component: API (1/2)")
+    console.step("Surveying component: Web (2/2)")
     clock.tick(60)
     console.step("Analyzed component: API")
+    console.step("Analyzed component: Web")
     survey = console.done
     clock.tick(5)
-    console.step("Verify start · 2 jobs for AuthZ · about USD 0.80, USD 3.00 of the budget left")
-    assert console.done == survey and console.current == "Verify: 0/2 jobs done"
-    console.step("Verifying AuthZ 1/2: API (part 1 of 2)")
-    console.step("Verifying AuthZ 2/2: API (part 2 of 2)")
-    # Jobs run concurrently: a start finishes nothing, not even the job before it.
-    assert console.done == survey and console.current == "Verify: 0/2 jobs done · 2 running"
+    console.step("Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left · 3 jobs")
+    assert console.done == survey and console.current == "Verify: 0/2 components done"
+    console.step("Verifying component 1/2, part 1/2, AuthZ: API")
+    console.step("Verifying component 1/2, part 2/2, AuthZ: API")
+    # Jobs run concurrently: a start finishes nothing, and two parts are one running component.
+    assert console.done == survey and console.current == "Verify: 0/2 components done · 1 running"
     clock.tick(30)
-    console.step("Finished verifying AuthZ 2/2: API (part 2 of 2) · no result (budget)")
+    console.step("Finished verifying component 1/2, part 2/2, AuthZ: API · no result (budget)")
     first = console.done
-    assert first > survey and console.current == "Verify: 1/2 jobs done · 1 running"
+    # A finished part advances the share but finishes no component.
+    assert first > survey and console.current == "Verify: 0/2 components done · 1 running"
+    console.step("Verifying component 2/2, part 1/1, AuthZ: Web")
+    assert console.current == "Verify: 0/2 components done · 2 running"
     clock.tick(30)
-    console.step("Finished verifying AuthZ 1/2: API (part 1 of 2)")
-    assert console.done > first and console.current == "Verify: 2/2 jobs done"
+    console.step("Finished verifying component 1/2, part 1/2, AuthZ: API")
+    second = console.done
+    assert second > first and console.current == "Verify: 1/2 components done · 1 running"
+    clock.tick(10)
+    console.step("Finished verifying component 2/2, part 1/1, AuthZ: Web")
+    assert console.done > second and console.current == "Verify: 2/2 components done"
     console.step("Verify done · AuthZ · 12 results, 3 findings")
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
     assert [(event, detail) for _, event, _, _, _, detail in rows] == [
         ("start", ""),
-        ("·", "Verify planned · 2 jobs for AuthZ after the survey"),
-        ("·", "Survey start · 1 component"),
-        ("·", "component 1/1 · API"),
-        ("✓", "Survey: 1/1 components done · API · 1m00s"),
-        ("·", "Survey done · 1m05s · 1 component"),
-        ("·", "Verify start · 2 jobs for AuthZ · about USD 0.80, USD 3.00 of the budget left"),
-        ("·", "Verify job AuthZ 1/2 started · API (part 1 of 2)"),
-        ("·", "Verify job AuthZ 2/2 started · API (part 2 of 2)"),
-        ("⚠", "Verify: 1/2 jobs done · AuthZ · API (part 2 of 2) · no result (budget) · 30s"),
-        ("✓", "Verify: 2/2 jobs done · AuthZ · API (part 1 of 2) · 1m00s"),
-        ("·", "Verify done · 1m00s · AuthZ · 12 results, 3 findings"),
-        ("done", "2m05s · Survey 1m05s · Verify 1m00s · 1 component"),
+        ("·", "Verify planned · 2 components for AuthZ after the survey"),
+        ("·", "Survey start · 2 components"),
+        ("·", "component 1/2 · API"),
+        ("·", "component 2/2 · Web"),
+        ("✓", "Survey: 1/2 components done · API · 1m00s"),
+        ("✓", "Survey: 2/2 components done · Web · 1m00s"),
+        ("·", "Survey done · 1m05s · 2 components"),
+        ("·", "Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left"),
+        ("·", "Verify component 1 started · API"),
+        ("·", "Verify component 2 started · Web"),
+        ("⚠", "Verify: 1/2 components done · AuthZ · API · 1 of 2 parts without result (budget) · 1m00s"),
+        ("✓", "Verify: 2/2 components done · AuthZ · Web · 40s"),
+        ("·", "Verify done · 1m10s · AuthZ · 12 results, 3 findings"),
+        ("done", "2m15s · Survey 1m05s · Verify 1m10s · 2 components"),
     ]
     shares = [int(row[2].strip("~%")) for row in rows]
     assert shares == sorted(shares)
+
+
+def test_a_component_verified_for_several_aspects_is_one_step():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.plan_components(1)
+    console.step("Surveying component: API (1/1)")
+    console.step("Analyzed component: API")
+    console.step("Verify start · 1 component for AuthZ, InputVal · the run's call and time limits apply · 2 jobs")
+    console.step("Verifying component 1/1, part 1/2, AuthZ: API")
+    console.step("Verifying component 1/1, part 2/2, InputVal: API")
+    clock.tick(20)
+    console.step("Finished verifying component 1/1, part 2/2, InputVal: API")
+    console.step("Finished verifying component 1/1, part 1/2, AuthZ: API")
+    details = [row[-1] for row in _rows(lines)]
+    # One row once both aspects ended, naming them in the order their jobs started.
+    assert [detail for detail in details if detail.startswith("Verify: ")] == [
+        "Verify: 1/1 components done · AuthZ, InputVal · API · 20s"
+    ]
 
 
 def test_without_verification_the_threat_analysis_has_no_steps():
@@ -3268,7 +3301,7 @@ def test_a_terminal_shows_running_verification_jobs_on_the_status_line_only():
     console.plan_components(1)
     console.step("Surveying component: API (1/1)")
     console.step("Analyzed component: API")
-    console.step("Verify start · 1 job for AuthZ · the run's call and time limits apply")
-    console.step("Verifying AuthZ 1/1: API")
-    assert console.current == "Verify: 0/1 jobs done · 1 running"
+    console.step("Verify start · 1 component for AuthZ · the run's call and time limits apply · 1 job")
+    console.step("Verifying component 1/1, part 1/1, AuthZ: API")
+    assert console.current == "Verify: 0/1 components done · 1 running"
     assert not any("started" in line for line in lines)

@@ -106,8 +106,12 @@ def plan_pilot(scope, architecture, scanned, test_cases, *, progress) -> dict:
             entries.append(entry)
     work = [(entry, number) for entry in entries if entry["precheck"] for number in range(1, len(entry["jobs"]) + 1)]
     worked = sorted({entry["aspect"] for entry, _ in work}, key=aspects.index)
+    verified = list(dict.fromkeys(entry["component"]["id"] for entry, _ in work))
     if work:
-        progress(f"Verify planned · {_count_jobs(len(work))} for {', '.join(worked)} after the survey")
+        progress(
+            f"Verify planned · {_count_components(len(verified))} for {', '.join(worked)} after the survey"
+            f" · {_count_jobs(len(work))}"
+        )
     return {
         "catalog": catalog,
         "cases": cases,
@@ -117,6 +121,7 @@ def plan_pilot(scope, architecture, scanned, test_cases, *, progress) -> dict:
         "entries": entries,
         "work": work,
         "worked": worked,
+        "verified": verified,
     }
 
 
@@ -150,17 +155,21 @@ def run_pilot(
         )
     components = architecture["components"]["components"]
     owned = analysis.source_selection(components)
+    verified = planned["verified"]
     if work:
-        progress(_budget_statement(jobs, len(work), planned["worked"]))
+        progress(_budget_statement(jobs, len(work), planned["worked"], len(verified)))
+    # The console shows one step per component: each job names its component and its part of the component's jobs.
+    parts = [[index for index, (entry, _) in enumerate(work) if entry["component"]["id"] == cid] for cid in verified]
 
     def investigate(position, item, view):
         entry, number = item
         component, aspect = entry["component"], entry["aspect"]
         rid = component["repository_ids"][0]
         share, count = entry["jobs"][number - 1], len(entry["jobs"])
-        part = f" (part {number} of {count})" if count > 1 else ""
         envelope = envelopes[component["id"]]
-        job = f"{aspect} {position}/{len(work)}: {label(component)}{part}"
+        unit = verified.index(component["id"])
+        part = parts[unit].index(position - 1) + 1
+        job = f"component {unit + 1}/{len(verified)}, part {part}/{len(parts[unit])}, {aspect}: {label(component)}"
         progress(f"Verifying {job}")
         context = {
             **envelope["context"],
@@ -309,32 +318,37 @@ def run_pilot(
     }
 
 
-def _budget_statement(jobs, count: int, aspects: list[str]) -> str:
+def _budget_statement(jobs, count: int, aspects: list[str], components: int) -> str:
     """Whether the remaining budget covers every verification job, said before the first one runs (REQ-040).
 
     Until a verification job is accepted, the reserve of a survey job stands in for one: both carry the
     component's context. A run that cannot cover them all keeps going; the budget stops the jobs it cannot
-    pay, and their aspects are marked incomplete."""
-    subject = f"Verify start · {_count_jobs(count)} for {', '.join(aspects)}"
+    pay, and their aspects are marked incomplete. The job count closes the line for the console, which
+    weighs the jobs and shows the components."""
+    subject = f"Verify start · {_count_components(components)} for {', '.join(aspects)}"
     budget = jobs.budget
     if budget.subscription:
-        return f"{subject} · the run's call and time limits apply"
+        return f"{subject} · the run's call and time limits apply · {_count_jobs(count)}"
     needed = count * budget.job_usd("test_case_investigator", "stride_analyzer")
     available = budget.available_usd()
     if needed <= available:
-        return f"{subject} · about USD {needed:.2f}, USD {available:.2f} of the budget left"
+        return f"{subject} · about USD {needed:.2f}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
     jobs.notes.append(
         f"verification needs about USD {needed:.2f} for {count} jobs, but USD {available:.2f} remained; "
         "aspects whose jobs the budget stops are marked incomplete"
     )
     return (
         f"{subject} · about USD {needed:.2f}, but only USD {available:.2f} of the budget left; "
-        "an aspect that cannot finish is marked incomplete"
+        f"an aspect that cannot finish is marked incomplete · {_count_jobs(count)}"
     )
 
 
 def _count_jobs(count: int) -> str:
     return f"{count} {'job' if count == 1 else 'jobs'}"
+
+
+def _count_components(count: int) -> str:
+    return f"{count} {'component' if count == 1 else 'components'}"
 
 
 def write_workspace(document: dict, workspace, names) -> None:
