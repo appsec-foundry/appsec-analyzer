@@ -549,7 +549,7 @@ requirements:
       - tests/test_verification_budget.py::test_a_covered_verification_says_so_and_leaves_no_note
       - tests/test_verification_budget.py::test_an_uncovered_verification_warns_and_records_a_note
       - tests/test_verification_budget.py::test_a_subscription_run_names_its_limits_instead_of_dollars
-      - tests/test_multi_repo_assessment.py::test_verification_jobs_extend_the_threat_analysis_share_and_advance_it
+      - tests/test_multi_repo_assessment.py::test_verification_is_a_second_threat_analysis_step_whose_share_never_falls
 
   REQ-005:
     applies_to:
