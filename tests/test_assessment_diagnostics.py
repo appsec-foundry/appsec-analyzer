@@ -152,7 +152,7 @@ def test_required_transport_failure_keeps_recovery_advice_and_accounting(tmp_pat
     assert caught.value.reason == "authentication_failed" and caught.value.exit_code == 1
     assert caught.value.usd == 0
     assert caught.value.http_status == 401
-    assert "/login" in str(caught.value) and "--resume" in str(caught.value)
+    assert "sign in again" in str(caught.value) and "--resume" in str(caught.value)
     assert "architecture_analyst one" in str(caught.value)
     assert "RAW_PROVIDER_SECRET" not in str(caught.value) + log.path.read_text()
     assert records(log)[-1]["http_status"] == 401
