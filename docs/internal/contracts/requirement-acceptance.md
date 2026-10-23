@@ -96,7 +96,7 @@ Show verification progress in the live progress and outcome counts in the comple
 
 Operator-owned scan profiles can disable a verification item only with a reason. Organization profiles can mark verification items as required; a conflicting disable refuses the run before any model call. Disabling never suppresses a finding that another source supports, including the rule findings of a disabled rules verification item; such a finding notes the disabled verification item and its reason.
 
-Which security aspects are verified is one of the depth settings that REQ-018 describes. As soon as the number of verification jobs is known, and before the first of them runs, the assessment says whether the remaining budget covers them all. An aspect that could not be verified completely is marked as incomplete.
+Which security aspects are verified is one of the depth settings that REQ-018 describes. Before the survey starts, the assessment names the planned verification jobs. Before the first of them runs, it says whether the remaining budget covers them all. An aspect that could not be verified completely is marked as incomplete.
 
 The survey keeps running for all aspects. If the survey and verification find the same weakness on the same code line, with the same CWE or a CWE of the same weakness family, the report shows one finding and names both methods. Findings on neighbouring lines stay separate, because neighbouring lines often register different routes. If verification shows that a location reported by the survey is protected, the survey finding stays in the report and is marked as contradicted, so that a reader can check it.
 
