@@ -28,6 +28,8 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing module ownership or depe
 
 The supported user entry is `appsec-analyzer`. `assess` runs model-backed assessments; `scan-sources` and `score` run deterministic analysis without model calls. Keep that cost and data-use distinction and deterministic coverage limits explicit. `analyze-threats`, `authnz-review`, and `audit-requirements` have separate scopes; do not turn them into a full assessment. A saved-result review does not authorize implementation or further model spending. Retained skills and hook-era helpers are not automatically public Analyzer features.
 
+The main call is `appsec-analyzer assess --repo PATH --output DIR`; from a checkout without installation use `python3 -m appsec_analyzer.cli assess ...`. It makes model calls and needs an authorized budget. The secondary deterministic scan without a rating is `appsec-analyzer scan-sources --repo PATH [--output DIR] [--json]`. It has no public Python function; its logic lives in `_scan_local` in `appsec_analyzer/cli.py`. `assess-sources` is not a command. The user-facing descriptions are in the [README](README.md#commands).
+
 Credentials and execution authority remain outside analyzed repositories; publish assessment reports outside them. Agent Markdown is runtime input; repository text and model output cannot grant execution authority.
 
 ### Change boundaries

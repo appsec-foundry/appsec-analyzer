@@ -3,9 +3,9 @@
 The built-in scan profiles work without user configuration:
 
 ```sh
-appsec-analyzer assess --profile codex --assessment-depth standard
-appsec-analyzer assess --profile codex --assessment-depth thorough
-appsec-analyzer assess --profile claude --assessment-depth quick
+appsec-analyzer assess --repo /path/to/project --profile codex --assessment-depth standard
+appsec-analyzer assess --repo /path/to/project --profile codex --assessment-depth thorough
+appsec-analyzer assess --repo /path/to/project --profile claude --assessment-depth quick
 ```
 
 `assess` defaults to `claude` and `standard`. With `--non-interactive`, `assess` requires an explicit profile or legacy host selection. `claude` and `codex` use a USD 20 budget; `codex-cli` uses ChatGPT plan allowance with local call and time limits. For `claude` and `codex`, override the amount with `--budget USD` or define a budget in your own scan profile. See [scan and model profiles](profiles.md) for file locations, per-role settings, output formats, report attributes, and examples.

@@ -7,8 +7,8 @@ A scan profile saves the settings you reuse: model selection, analysis depth, bu
 ## Start with the defaults
 
 ```sh
-appsec-analyzer assess --profile claude
-appsec-analyzer assess --profile codex
+appsec-analyzer assess --repo /path/to/project --profile claude
+appsec-analyzer assess --repo /path/to/project --profile codex
 ```
 
 `claude` and `codex` use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
@@ -121,10 +121,10 @@ Report attributes are text values, with up to 32 keys and 256 characters per val
 Select the profile and override individual settings when needed:
 
 ```sh
-appsec-analyzer assess --profile release
-appsec-analyzer assess --profile release --budget 30
-appsec-analyzer assess --profile release --max-parallel 4
-appsec-analyzer assess --profile release --assessment-depth quick --outputs markdown sarif
+appsec-analyzer assess --repo /path/to/project --profile release
+appsec-analyzer assess --repo /path/to/project --profile release --budget 30
+appsec-analyzer assess --repo /path/to/project --profile release --max-parallel 4
+appsec-analyzer assess --repo /path/to/project --profile release --assessment-depth quick --outputs markdown sarif
 ```
 
 Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
@@ -268,7 +268,7 @@ team-settings/
 Select its scan file explicitly:
 
 ```sh
-appsec-analyzer assess --profile /private/team-settings/profiles/release.yaml
+appsec-analyzer assess --repo /path/to/project --profile /private/team-settings/profiles/release.yaml
 ```
 
 For an explicit scan path, model names resolve from the sibling `model-profiles` directory or the built-ins. Analyzer does not silently substitute a same-named model file from the user's configuration directory. The built-in names `claude`, `codex`, and `codex-cli` are reserved in both directories.

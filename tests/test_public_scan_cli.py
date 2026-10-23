@@ -299,7 +299,7 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     monkeypatch.setattr(orchestration_controller, "assess_main", record_assessment)
-    arguments = [command, *budget_args]
+    arguments = [command, "--repo", str(tmp_path), *budget_args]
     assert cli.main(arguments) == 0
     assert observed[:2] == ["--repo", str(tmp_path)]
     assert observed.count("--hard-budget") == 1

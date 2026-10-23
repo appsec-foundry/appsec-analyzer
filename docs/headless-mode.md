@@ -10,7 +10,7 @@ Install the package, then invoke the same public program locally or in CI:
 
 ```sh
 appsec-analyzer assess --repo /checkout --budget 20 --output /private/assessment
-appsec-analyzer assess-sources --repo /checkout --output /private/source-scan
+appsec-analyzer scan-sources --repo /checkout --output /private/source-scan
 appsec-analyzer score /checkout --json
 appsec-analyzer assess --repo /checkout --profile claude \
   --budget 20 --output /private/assessment --non-interactive

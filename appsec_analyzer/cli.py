@@ -48,9 +48,89 @@ def _engine_imports() -> None:
     initialize()
 
 
+# Top-level help groups the commands by purpose; a test keeps it in step with the registered commands.
+_COMMAND_GROUPS = (
+    (
+        "Start here",
+        (
+            ("assess", "Full security assessment (model calls, default limit USD 20)"),
+            ("review", "Discuss a finished assessment with Claude Code or Codex"),
+        ),
+    ),
+    (
+        "Quick checks without model calls",
+        (
+            ("score", "Security score from 0 to 100"),
+            ("scan-sources", "Raw scanner observations without a rating"),
+            ("repo-profile", "Size, languages, and build manifests of a repository"),
+        ),
+    ),
+    (
+        "Focused analysis (model calls)",
+        (
+            ("analyze-threats", "Answer one security question about code, a design, or a change"),
+            ("authnz-review", "Authentication and authorization review only"),
+            ("audit-requirements", "Check a repository against a security requirements catalog"),
+        ),
+    ),
+    (
+        "Work with an assessment",
+        (
+            ("status", "Inspect the state of an assessment"),
+            ("progress", "Read the progress feed of a running assessment"),
+            ("stop", "Request cancellation of a running assessment"),
+            ("results", "List and verify the published deliverables"),
+            ("query", "Read saved assessment facts"),
+            ("export", "Convert a finished assessment to SARIF, HTML, PDF, and other formats"),
+            ("abuse-cases", "List the defined abuse cases or show one"),
+        ),
+    ),
+    (
+        "Setup and integration",
+        (
+            ("preflight", "Check Git access and provider setup before an assessment"),
+            ("profiles", "List, inspect, or validate scan and model profiles"),
+            ("platform-settings", "Security settings of a GitHub or GitLab repository"),
+            ("distribution", "Create your organization's own command"),
+            ("organization", "Inspect or validate the bundled organization defaults"),
+            ("organization-config", "Validate, inspect, or run an engine-only organization projection"),
+            ("assessment-entry", "Prepare an existing host assessment"),
+            ("analyst", "Focused design, change, and hypothesis analysis"),
+            ("capabilities", "Show scanner and provider qualification"),
+            ("version", "Show engine and public interface versions"),
+        ),
+    ),
+)
+
+
+def _command_overview(registered) -> str:
+    lines = []
+    for title, entries in _COMMAND_GROUPS:
+        rows = [f"  {name:<21}{summary}" for name, summary in entries if name in registered]
+        if rows:
+            lines += [f"{title}:", *rows, ""]
+    lines += [
+        "Examples:",
+        "  %(prog)s assess --repo /path/to/project --output ~/assessments/project",
+        "  %(prog)s review ~/assessments/project",
+        "  %(prog)s score /path/to/project",
+        "",
+        "Run '%(prog)s <command> --help' for the options of a command.",
+    ]
+    return "\n".join(lines)
+
+
 def _parser(*, organization=None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=organization.command if organization else "appsec-analyzer")
-    commands = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(
+        prog=organization.command if organization else "appsec-analyzer",
+        usage="%(prog)s [-h] <command> [options]",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    # The grouped overview in the description replaces the flat command list. An explicit prog keeps the
+    # custom usage line out of the subcommands' own usage.
+    commands = parser.add_subparsers(
+        dest="command", required=True, metavar="<command>", help=argparse.SUPPRESS, prog=parser.prog
+    )
     if organization is not None:
         org = commands.add_parser("organization", help="Inspect or validate the bundled defaults without model calls")
         org.add_argument("action", choices=("show", "validate"))
@@ -127,10 +207,40 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         "assess",
         help="Run the full headless security assessment with live progress",
         description="Assess the selected repository with live progress and publish security reports.",
+        usage="%(prog)s --repo PATH [--output DIR] [--budget USD] [options]",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Bundled organization and scan profiles are selected automatically; explicit options override defaults."
-            if organization
-            else "Example: appsec-analyzer assess (USD 20 budget); override with --budget USD"
+            "Examples:\n"
+            "  # Local checkout; --output chooses where the results go\n"
+            "  %(prog)s --repo /path/to/project --output ~/assessments/project\n"
+            "\n"
+            "  # Current directory; results go to the default private user-data directory\n"
+            "  %(prog)s --repo .\n"
+            "\n"
+            "  # Remote repository (cloned into a temporary directory)\n"
+            "  %(prog)s --repo https://github.com/your-org/your-project.git\n"
+            "\n"
+            "  # Backend and frontend as one system\n"
+            "  %(prog)s --repo /path/to/backend --repo /path/to/frontend\n"
+            "\n"
+            "  # Quicker and cheaper: quick depth with a USD 5 limit\n"
+            "  %(prog)s --repo . --assessment-depth quick --budget 5\n"
+            "\n"
+            "  # Also write SARIF and HTML\n"
+            "  %(prog)s --repo . --sarif --html\n"
+            "\n"
+            "  # Continue an interrupted run in its --output directory, or start over\n"
+            "  %(prog)s --repo . --output ~/assessments/project --resume\n"
+            "  %(prog)s --repo . --output ~/assessments/project --rebuild\n"
+            "\n"
+            "  # CI: fixed provider profile, no questions\n"
+            "  %(prog)s --repo . --profile claude --non-interactive\n"
+            "\n"
+            + (
+                "Bundled organization and scan profiles are selected automatically; explicit options override defaults."
+                if organization
+                else "The default model-cost limit is USD 20; override it with --budget USD."
+            )
         ),
     )
     _add_assessment_arguments(assess, default_repo=True, organization=organization)
@@ -371,6 +481,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         "--pentest-target", type=_pentest_target, metavar="URL", help="Target metadata only; never contacted"
     )
     authnz.add_argument("--gate", action="store_true", help="Fail on Critical/High findings or an incomplete review")
+    parser.description = _command_overview(commands.choices)
     return parser
 
 
@@ -391,14 +502,19 @@ def _slug(value: str) -> str:
 
 
 def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool, organization=None) -> None:
-    parser.add_argument(
+    scope_group = parser.add_argument_group("Scope")
+    output_group = parser.add_argument_group("Output and exports")
+    cost_group = parser.add_argument_group("Cost and limits")
+    provider_group = parser.add_argument_group("Provider and models")
+    control_group = parser.add_argument_group("Run control")
+    scope_group.add_argument(
         "--repo",
         action="append",
         required=not default_repo,
         metavar="PATH",
-        help="Repository to assess (default: current directory)" if default_repo else "Repository to assess",
+        help="Repository to assess: a local path (. for the current directory) or a Git URL; required for assess",
     )
-    parser.add_argument(
+    scope_group.add_argument(
         "--platform-token-env",
         metavar="NAME",
         help=(
@@ -406,12 +522,12 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
             "phase; without it only public data is checked"
         ),
     )
-    parser.add_argument(
+    provider_group.add_argument(
         "--host",
         choices=("claude-cli", "openai", "gateway", "codex-cli", "copilot-cli", "lite", "bedrock"),
         help="Legacy provider selection; --profile selects the host automatically",
     )
-    parser.add_argument(
+    provider_group.add_argument(
         "--profile",
         metavar="NAME_OR_FILE",
         help=(
@@ -420,8 +536,12 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
             else "Scan profile name or external YAML file (default: claude; built-ins: claude, codex, codex-cli, copilot-cli, lite, bedrock; also 'lite MODEL')"
         ),
     )
-    parser.add_argument("--output", metavar="DIR", help="Assessment directory outside the repository")
-    parser.add_argument(
+    output_group.add_argument(
+        "--output",
+        metavar="DIR",
+        help="Where the results go; outside the repository (default: the application's private user-data directory)",
+    )
+    cost_group.add_argument(
         "--budget",
         "--hard-budget",
         "--max-budget",
@@ -432,34 +552,34 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="USD",
         help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with CLI subscription profiles)",
     )
-    parser.add_argument(
+    cost_group.add_argument(
         "--assessment-depth", choices=("quick", "standard", "thorough"), default="standard", action=_Explicit
     )
-    parser.add_argument(
+    cost_group.add_argument(
         "--max-parallel",
         type=int,
         choices=range(1, MAX_PARALLEL + 1),
         metavar="N",
         help=f"Assess at most N components at once (1–{MAX_PARALLEL}; default: {DEFAULT_MAX_PARALLEL}; overrides profile)",
     )
-    parser.add_argument(
+    output_group.add_argument(
         "--outputs",
         nargs="+",
         choices=("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks"),
         help="Replace profile export selection; Markdown and YAML remain the base result",
     )
-    parser.add_argument(
+    provider_group.add_argument(
         "--launch-defaults", choices=("advisor",), help="Apply Advisor depth budgets and component concurrency defaults"
     )
-    parser.add_argument(
+    provider_group.add_argument(
         "--interactive-launch",
         action="store_true",
         help="Compatibility alias for Advisor defaults, Claude CLI, width 72 and unattended execution",
     )
-    parser.add_argument(
+    cost_group.add_argument(
         "--soft-budget", "--max-cost", type=_positive_budget, help="Deprecated: a hard limit of 1.25 times this amount"
     )
-    parser.add_argument(
+    cost_group.add_argument(
         "--component-workers",
         dest="max_parallel",
         type=int,
@@ -467,34 +587,34 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="N",
         default=argparse.SUPPRESS,
     )
-    parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
-    parser.add_argument("--resume", action="store_true", help="Continue the unfinished assessment in --output")
-    parser.add_argument(
+    scope_group.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
+    control_group.add_argument("--resume", action="store_true", help="Continue the unfinished assessment in --output")
+    control_group.add_argument(
         "--rebuild", action="store_true", help="Start over, discarding earlier accepted steps and history in --output"
     )
-    parser.add_argument("--quiet", action="store_true")
-    parser.add_argument(
+    control_group.add_argument("--quiet", action="store_true")
+    control_group.add_argument(
         "--non-interactive",
         action="store_true",
         help="Never prompt for a higher budget or how to start beside an unfinished assessment (use in CI)",
     )
-    parser.add_argument(
+    control_group.add_argument(
         "--verbose",
         action="store_true",
         help="Show full startup details, correlated model calls and sanitized correction details",
     )
-    parser.add_argument("--progress-file", metavar="PATH")
-    parser.add_argument(
+    control_group.add_argument("--progress-file", metavar="PATH")
+    provider_group.add_argument(
         "--model",
         metavar="MODEL",
         help="Model selection; 'lite NAME' or 'bedrock NAME' selects a configured provider model",
     )
-    parser.add_argument(
+    provider_group.add_argument(
         "--reasoning-model", choices=("sonnet", "opus-cheap", "opus", "sonnet-economy", "haiku-economy")
     )
-    parser.add_argument("--project", metavar="NAME")
-    parser.add_argument("--width", type=int, metavar="COLUMNS")
-    parser.add_argument(
+    scope_group.add_argument("--project", metavar="NAME")
+    output_group.add_argument("--width", type=int, metavar="COLUMNS")
+    output_group.add_argument(
         "--slug",
         nargs="?",
         const="__auto__",
@@ -502,56 +622,47 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="NAME",
         help="Also publish copies with this filename suffix; bare flag chooses one",
     )
-    parser.add_argument(
+    output_group.add_argument(
         "--pentest-format",
         choices=("generic", "strix"),
         default="generic",
         help="Format for --pentest-tasks (default: generic)",
     )
-    parser.add_argument(
+    output_group.add_argument(
         "--pentest-target",
         type=_pentest_target,
         metavar="URL",
         help="HTTP(S) target URL to include in exported pentest tasks",
     )
-    parser.add_argument("--org-profile", metavar="FILE")
-    parser.add_argument("--preset", metavar="NAME")
-    parser.add_argument("--no-org-profile", action="store_true")
+    provider_group.add_argument("--org-profile", metavar="FILE")
+    provider_group.add_argument("--preset", metavar="NAME")
+    provider_group.add_argument("--no-org-profile", action="store_true")
     for role in ("stride", "triage", "merger"):
-        parser.add_argument(f"--{role}-model", metavar="MODEL")
-    parser.add_argument(
+        provider_group.add_argument(f"--{role}-model", metavar="MODEL")
+    cost_group.add_argument(
         "--max-calls",
         type=int,
         metavar="N",
         help="Maximum CLI model exchanges including retries (default: 1000; subscription profiles only)",
     )
-    parser.add_argument("--max-duration", type=int, metavar="SECONDS")
-    parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
-    parser.add_argument("--evidence-verifier-cap", type=int, metavar="N")
-    parser.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
-    parser.add_argument("--context", metavar="SOURCE")
-    parser.add_argument(
+    cost_group.add_argument("--max-duration", type=int, metavar="SECONDS")
+    output_group.add_argument("--fail-on", choices=("critical", "high", "medium"))
+    cost_group.add_argument("--evidence-verifier-cap", type=int, metavar="N")
+    scope_group.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
+    scope_group.add_argument("--context", metavar="SOURCE")
+    scope_group.add_argument(
         "--abuse-case-file",
         action="append",
         metavar="PATH",
         help="Repository-relative YAML case file; repeat for several files (replaces profile selection)",
     )
-    parser.add_argument(
+    control_group.add_argument(
         "--keep-runtime-files", action="store_true", help="Retain private intermediate assessment files for debugging"
     )
-    for flag in (
-        "sarif",
-        "threatdragon",
-        "pdf",
-        "html",
-        "pentest-tasks",
-        "no-requirements",
-        "skip-context",
-        "no-qa",
-        "ignore-legacy",
-        "migrate-legacy",
-    ):
-        parser.add_argument("--" + flag, action="store_true")
+    for flag in ("sarif", "threatdragon", "pdf", "html", "pentest-tasks"):
+        output_group.add_argument("--" + flag, action="store_true")
+    for flag in ("no-requirements", "skip-context", "no-qa", "ignore-legacy", "migrate-legacy"):
+        control_group.add_argument("--" + flag, action="store_true")
 
 
 def _capabilities() -> dict:
@@ -1458,6 +1569,18 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             return 0
         if ns.command == "assess" and ns.non_interactive and not (ns.repo and (ns.profile or ns.host)):
             raise ValueError("assess --non-interactive requires --repo and an explicit --profile (or legacy --host)")
+        if ns.command == "assess" and not ns.repo:
+            # An assessment makes model calls; it never falls back to the current directory silently.
+            command = organization.command if organization else "appsec-analyzer"
+            raise ValueError(
+                "assess needs --repo: name the repository to assess.\n"
+                f"  Local checkout:     {command} assess --repo /path/to/project\n"
+                f"  Current directory:  {command} assess --repo .\n"
+                f"  Remote repository:  {command} assess --repo https://github.com/your-org/your-project.git\n"
+                f"  Own results folder: {command} assess --repo . --output ~/assessments/project\n"
+                "Without --output, results go to the application's private user-data directory.\n"
+                f"All options: {command} assess --help"
+            )
         if ns.command in ("assess", "preflight"):
             _prepare_profile(ns)
         if ns.command == "audit-requirements":

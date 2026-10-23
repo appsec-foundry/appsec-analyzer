@@ -163,7 +163,7 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 
 ```sh
 # Show what the scanners found, without a rating
-appsec-analyzer assess-sources --repo /path/to/project
+appsec-analyzer scan-sources --repo /path/to/project
 ```
 
 ### `abuse-cases`: list the defined cases
@@ -278,7 +278,7 @@ cd /path/to/appsec-analyzer
 python3 -m appsec_analyzer.cli scan-sources --repo /path/to/project
 ```
 
-Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples and always pass `--repo`, because it defaults to the current directory.
+Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples. `assess` and `scan-sources` need `--repo`; pass `--repo .` for the current directory.
 
 </details>
 
