@@ -21,7 +21,7 @@ def _say(ns, label, message, *, status="muted", always=False):
     """One ``  ✓ Label       value`` row under a single ``Preflight`` heading.
 
     Before an assessment, completed checks wait for the console, which shows
-    them as a Preflight phase under the run summary; a failure still prints here.
+    them as a Preflight block under the run summary; a failure still prints here.
     """
     symbol = {"ok": "✓", "warn": "⚠", "critical": "✗", "muted": "·"}[status]
     if getattr(ns, "command", "preflight") != "preflight" and status != "critical" and not always:

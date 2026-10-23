@@ -72,7 +72,7 @@ def test_logo_command_is_plain_off_a_terminal(capsys, monkeypatch) -> None:
     lines = capsys.readouterr().out.splitlines()
     assert "\x1b" not in "".join(lines)
     assert lines[0] == "   ╭  ▄█▄  ╮  appsec-analyzer"
-    assert lines[1] == "   │ █████ │  architecture and threat analysis"
+    assert lines[1] == "   │ █████ │  Code-based application threat assessment"
     assert lines[2].startswith("   ╰  ▀█▀  ╯  v") and lines[2].endswith(" · headless")
 
 
@@ -84,8 +84,8 @@ def test_logo_lines_keep_their_width_in_colour() -> None:
 
 def test_a_long_logo_detail_wraps_under_its_column() -> None:
     detail = "v1 · Headless Mode (deterministic controller, experimental)"
-    lines = logo(Style(False), detail, 50)
-    assert len(lines) > 3 and all(len(line) <= 50 for line in lines)
+    lines = logo(Style(False), detail, 60)
+    assert len(lines) > 3 and all(len(line) <= 60 for line in lines)
     assert all(line.startswith(" " * 14) and line[14] != " " for line in lines[3:])
     assert " ".join(line.strip() for line in lines[2:]).endswith(detail.split("v1 · ")[1])
     assert logo(Style(False), detail, 200) == logo(Style(False), detail)

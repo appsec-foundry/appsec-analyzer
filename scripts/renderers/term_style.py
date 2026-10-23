@@ -122,7 +122,7 @@ class Style:
         return self.gradient("━" * filled) + self("─" * (width - filled), "muted")
 
 
-TAGLINE = "architecture and threat analysis"
+TAGLINE = "Code-based application threat assessment"
 
 
 def plugin_version() -> str:

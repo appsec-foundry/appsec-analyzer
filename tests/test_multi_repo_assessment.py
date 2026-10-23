@@ -395,7 +395,7 @@ def _console_run(console, clock):
     console.close()
 
 
-def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
+def test_preflight_checks_form_a_block_above_the_grid(monkeypatch):
     events = []
     monkeypatch.setattr(controller._AssessmentProgress, "emit", lambda *a, **kw: events.append(a))
     lines, clock = [], _Clock()
@@ -408,17 +408,22 @@ def test_preflight_checks_open_the_grid_as_their_own_phase(monkeypatch):
         ]
     )
     console.preflight([])
+    # A later start check continues the block under the same heading.
+    console.preflight([("·", "Platform settings", "reusing the result of the interrupted run")])
     # The checks finished before the run, so the progress file gets no event for them.
     assert events == []
-    assert lines[0].split() == ["TIME", "PHASE", "EVENT", "PROGRESS", "ELAPSED", "LEFT", "DETAIL"]
-    assert [line.split(None, 3)[1:] for line in lines[1:]] == [
-        ["Preflight", "✓", "Repository: local Git checkout"],
-        ["Preflight", "⚠", "Trust check: skipped (trusted mode)"],
-        ["Preflight", "·", "Provider: not tested; no model call before the assessment"],
+    assert lines == [
+        "  Preflight",
+        "    ✓ Repository         local Git checkout",
+        "    ⚠ Trust check        skipped (trusted mode)",
+        "    · Provider           not tested; no model call before the assessment",
+        "    · Platform settings  reusing the result of the interrupted run",
     ]
-    # The grid header is not repeated when the first phase starts.
+    # The grid opens below the block when the first phase starts.
     console.step("Discovering every selected repository")
-    assert sum(line.startswith("TIME") for line in lines) == 1
+    assert lines[5] == ""
+    assert lines[6].split() == ["TIME", "PHASE", "EVENT", "PROGRESS", "ELAPSED", "LEFT", "DETAIL"]
+    assert sum(line.startswith("TIME") for line in lines) == 1 and lines.count("  Preflight") == 1
 
 
 def test_a_resumed_console_counts_elapsed_on_from_the_earlier_attempts():
@@ -432,18 +437,28 @@ def test_a_resumed_console_counts_elapsed_on_from_the_earlier_attempts():
     assert [row[3] for row in _rows(lines)[:2]] == ["30m", "32m"]
 
 
-def test_a_long_platform_settings_check_wraps_under_its_detail_column(monkeypatch):
-    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 100)
+def test_a_long_preflight_check_wraps_under_its_message_column(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 60)
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
     detail = "sending read requests to github.com anonymously (public data only); no source code is sent"
     console.preflight([("·", "Platform settings", detail)])
-    first, *rest = lines[1].split("\n")
-    column = first.index("Platform settings")
-    assert first.split(None, 3)[1:3] == ["Preflight", "·"]
-    # The detail continues under its own column instead of at the screen edge.
-    assert rest and len(first) < 100 and all(len(line) < 100 and not line[:column].strip() for line in rest)
-    assert " ".join(part.strip() for part in [first[column:], *rest]) == f"Platform settings: {detail}"
+    first, *rest = lines[1:]
+    column = first.index("sending")
+    assert first[:column].split() == ["·", "Platform", "settings"]
+    # The message continues under its own column instead of at the screen edge.
+    assert rest and all(len(line) < 60 for line in [first, *rest])
+    assert all(not line[:column].strip() and line[column] != " " for line in rest)
+    assert " ".join(line.strip() for line in [first[column:], *rest]) == detail
+
+
+def test_a_long_preflight_check_stays_one_line_in_a_plain_log():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    detail = "sending read requests to github.com anonymously (public data only); no source code is sent"
+    console.preflight([("·", "Platform settings", detail)])
+    # Without a terminal or --width there is no width to wrap at.
+    assert lines[1] == f"    · Platform settings  {detail}"
 
 
 def test_default_console_writes_every_line_in_one_column_grid():
@@ -819,12 +834,13 @@ def test_compact_header_distinguishes_limits_and_retains_warnings(subscription, 
     args += ["--max-calls", "123"] if subscription else ["--hard-budget", "12.50"]
     ns = controller._assessment_argument_parser().parse_args(args)
     budget = controller._assessment_budget(ns, subscription=subscription)
-    cfg = {"host_profile": {"kind": "openai"}}
+    # A subscription run is a Codex CLI run; an API run uses an API host.
+    cfg = {"host_profile": {"kind": "codex-cli" if subscription else "openai"}}
     inputs = (ns, budget, "standard", "Models: m1 (14 roles); m2 (recon_scanner)", "Recon → Controls")
     detailed = dict(controller._assessment_intro(*inputs, cfg=cfg))
     rows = dict(controller._assessment_intro(*inputs, cfg=cfg, compact=True))
     if subscription:
-        assert rows["Call limit"] == "123, including retries; ChatGPT allowance applies"
+        assert rows["Call limit"] == "123, including retries; ChatGPT subscription applies"
         assert "Budget" not in rows
         assert rows["Billing"] == "ChatGPT subscription via Codex CLI"
     else:
@@ -2726,7 +2742,7 @@ def test_colour_changes_no_column_of_the_console(monkeypatch, capsys):
     plain_lines = plain.splitlines()
     # On a terminal the logo replaces the title line; every fact and row stays.
     assert "   ╭  ▄█▄  ╮  appsec-analyzer" in stripped
-    assert "   │ █████ │  architecture and threat analysis" in stripped
+    assert "   │ █████ │  Code-based application threat assessment" in stripped
     assert "LLM-backed code assessment (alpha)" in coloured
     assert "▶ appsec-analyzer — LLM-backed code assessment (alpha)" in plain
     facts = lambda lines: [line for line in lines if " : " in line]  # noqa: E731
