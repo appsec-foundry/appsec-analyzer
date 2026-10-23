@@ -37,6 +37,7 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | e824f194, cfa30c2b, 676e68d7, 8f16254f | The commits of `fix/console-and-usage-limit` (3e4f6c9c, c45e1135, 1f42a5cd, 445d2079), applied to this branch: an immediate stop at a rejected usage window, the platform settings Preflight row, elapsed time on resume, and the Codex timeout test that counts a reaped descendant as ended. |
 | cf0fbdc2 | Starting points after the second run: routes that finale-rest and epilogue resources generate, only in the pilot's facts; TC-AUTHZ-01 from every route that takes a request body; TC-AUTHZ-02 from authenticated reads without an object identifier. Catalog version 3. |
 | b100c018 | InputVal, DataProt, and AI investigated: code sites in `data/code-sites.yaml`, routes with the sinks their handlers reach as candidates, the post-check `site-reached`, goal test cases, jobs only with a candidate or a goal. Catalog version 4. |
+| 612811f1 | Changes after the third run: the reply contract admits `AI`, absent-at-sink controls located at the sink, every independent violation in one rejection, `starting_files` in the context, findings in shared files of no component, dropped findings instead of a replaced job, and no finding for an examined goal test case. |
 
 ## What works today
 
@@ -276,6 +277,64 @@ Prepared on 2026-10-23 for b100c018. The product owner starts it with `bash /tmp
 | Pattern gaps | Weaknesses whose `site-reached` result says no fixed pattern marks them. |
 | Cost per aspect | Jobs, calls, USD, and corrections per aspect against the estimate. |
 
+### Result of the third run (2026-10-23)
+
+The product owner ran the profile at b100c018 on Juice Shop at 33518f5a0 into `/home/mrohr/appsec-reports/juice-authz-pilot-3`. The run completed in 56 minutes with 141 calls for USD 22.23 and two run issues: the Express server's InputVal job 1/2 and its AI job were replaced after three rejected answers each.
+
+| Question | Result |
+| --- | --- |
+| Product Tampering, `PUT /api/Products/:id` | Found: TCF-018 at the generated route, under TC-AUTHZ-02 and TC-AUTHZ-03. |
+| Editing any review, `PATCH /rest/products/reviews` | Found: TCF-023 under TC-AUTHZ-01. |
+| User list, `GET /rest/user/authentication-details` | Found: TCF-043 under TC-AUTHZ-02 on Authentication & Session Surface. |
+| Hits of the second run | All seven again. With Product Tampering the pilot finds 8 of the 9 authorization challenges and misses only GDPR Data Theft. The STRIDE step of this run finds 6 and misses Admin Registration, Forged Feedback, and GDPR Data Theft. |
+| Injection and parsing | Accepted: only the login SQL injection (TCF-044), which covers the four login challenges. The replaced InputVal job's answers held the search SQL injection, all three NoSQL challenges, SSTi, the b2bOrder RCE, XXE, and SSRF; the STRIDE step found all of them except NoSQL DoS and NoSQL Manipulation. Cross-site scripting: the pilot finds 7 of 9 (DOM, Bonus Payload, Reflected, HTTP-Header, API-only, Client-side and Server-side XSS Protection), the STRIDE step 4; both miss CSP Bypass and Video XSS. |
+| Data protection | Pilot only: a second REST path to the password hash, because `saveLoginIp` returns the user record, and TOTP secrets stored in clear. STRIDE only: Email Leak (JSONP), Confidential Document and the two backups (FTP and null byte), and Exposed Credentials, the last with TC-DATA-03 disabled. Neither finds GDPR Data Theft, NFT Takeover, or `whoami?fields=password`. |
+| AI | The AI job was replaced. Through AuthZ the pilot found the coupon tool without a server-side limit (TCF-012), which covers Chatbot Prompt Injection and Greedy Chatbot Manipulation. System Prompt Extraction was only in the rejected answer. Neither finds AI Debugging. |
+| Goal test cases | No finding of their own. Seven answers said that nothing beyond the concrete test cases was found; the controller recorded each as undecidable. |
+| Pattern gaps | One: passwords in the query string under TC-DATA-04. |
+| Cost per aspect | AuthZ 9 jobs, 17 calls, USD 4.71, 4 corrections; InputVal 5 jobs, 9 calls, USD 2.65; DataProt 4 jobs, 4 calls, USD 0.62; AI 1 job, 3 calls, USD 0.73. The pilot cost USD 8.71 against USD 7 to 10 estimated. USD 2.26 went to the two replaced jobs and USD 1.25 to correction calls in accepted jobs. Without the pilot the run cost USD 13.52, as in the first two runs (USD 13.26 and 13.31). |
+
+The comparison matched findings by file and title; the individual pilot findings were not checked against the code.
+
+Root causes of the two replaced jobs, reproduced with the recorded answers and confirmed by an independent review:
+
+- The reply contract did not admit the aspect `AI`, while the normalizer sets the aspect from the job, so every AI answer failed whatever the model wrote. The aspect list was kept by hand in five places, and no test sent an AI answer through the exchange.
+- The investigator policy carried a shortened copy of the STRIDE trace rule without the sentence that `absent-at-sink` cites the sink, which the shared validator enforces. The model cited the truncation line before the sink.
+- The review stopped at the first failing check. The first answer already broke three independent rules (unlisted further reads, a finding anchored in a file of no component, the trace rule), and the model learned of them one per correction; the third was the last.
+- The context did not list the starting files that the policy names, so the model could not tell which of its reads were further reads. Unlisted further reads were rejected once in each of the first two runs and four times in this one.
+- Shared helpers belong to no component, 12 of 14 files under `lib/` in Juice Shop. A finding could not anchor there, so an input-to-sink weakness whose sink lies in such a helper had no valid answer.
+
+### Changes after the third run
+
+Decided by the product owner on 2026-10-23 and built in 612811f1. The measures address the mechanisms above for any analyzed repository, not Juice Shop alone:
+
+- The reply contract admits `AI`. A test checks that the reply contract, the profile code, and the profile schema name the same aspects, all from the catalog, and that a reply of every investigated aspect passes the normalizer, the contract, and the review. A controller test runs an AI job.
+- The normalizer locates a control that is absent at the sink at the sink. Both pilot policies carry the STRIDE trace paragraph verbatim, and a test compares them.
+- The review of an investigation reports every independent class of violation in one rejection, each within its share of the 2,000-character correction feedback, and names findings by index. The STRIDE step keeps its review.
+- The context lists `starting_files`, the same set the review checks further reads against.
+- A finding or model candidate may anchor in a shared file of no component that the job read, and still belongs to the component. Only the pilot allows it, so the STRIDE step stays comparable; extending the STRIDE step is open.
+- A finding that still breaks an evidence, trace, or rating rule after the last correction is dropped with a warning, its weakness candidates record undecidable with a fixed reason, and the job's other answers stand. Only the pilot uses it.
+- A goal test case records no finding when the model examined the component and proposes no finding. This changes the decision of 2026-10-22 for goal test cases only; a concrete test case without an examined location stays undecidable.
+- A job artifact that breaks its output contract names the failing path in the error.
+
+Considered and not built: classifying controller contract defects in the host, because a normalizer can turn a model error such as duplicate local IDs into an invalid artifact, and the aspect test already catches the drift before a run; and filling in unlisted further reads in the controller, because each needs a test case and a reason that only the model knows.
+
+Raised by the product owner on 2026-10-23 and not built: the catalog has no OAuth or OIDC test case (state, PKCE, redirect URI, ID token validation, account linking by email), and IAM is not investigated. In the third run only the STRIDE step reported OAuth weaknesses.
+
+### Fourth run on Juice Shop
+
+Prepared on 2026-10-23 for 612811f1. The product owner starts it with `bash /tmp/authz-pilot/run.sh`, which now writes into `/home/mrohr/appsec-reports/juice-authz-pilot-4` with the same profile and budget.
+
+| Question | Expected result |
+| --- | --- |
+| Replaced jobs | None; the Express server's InputVal and AI jobs are accepted. |
+| Injection and parsing | InputVal test cases find the search SQL injection, the three NoSQL challenges, SSTi, the b2bOrder RCE, and XXE. |
+| AI | AI test cases find Chatbot Prompt Injection, Greedy Chatbot Manipulation, and System Prompt Extraction. |
+| Corrections | Correction calls cost less than the USD 1.25 of the third run, since one correction names every violation. |
+| Dropped findings | Each dropped finding is named in a warning; none is expected. |
+| Goal test cases | Answers without a finding record no finding instead of undecidable. |
+| Cost | Pilot about USD 6 to 8, run about USD 19.50 to 21.50. |
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
@@ -336,6 +395,7 @@ Stricter than the plan on purpose:
 - Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). At 998b0b13, `make check-analyzer BASE=356f0cfc` passed with 954 and 168 tests, and the tests of the changed modules passed with the pilot tests of `tests/test_controller_fixture.py`, including the new tests for shared jobs, a failed job, and a resumed run with shared jobs (156 tests). The three controller fixture tests that never start the pilot were not rerun. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
 - At ec424ef9, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 168 tests; of 954 analyzer tests one failed, the Codex timeout test, whose race 8f16254f removes, and it passed three times alone. At cf0fbdc2, the gate passed with 954 and 168 tests, `make test-controller` with 12 tests, and the tests of the changed modules passed. The seven failing progress-header and budget tests of `test_multi_repo_assessment.py` fail at ec424ef9 as well, before the applied fixes.
 - At b100c018, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 954 and 168 tests. `make test-controller` passed 12 of 13 tests; the thirteenth expected the AuthZ test cases without TC-AUTHZ-06, and after that expectation was added it passed alone. The tests of the changed modules passed: candidates, post-checks, outcomes, case analysis, catalog, and profiles. The bound of the NoSQL pattern changed after the gate, and its example test and the catalog tests passed again.
+- At 612811f1, the tests of the changed modules and their direct consumers passed: case analysis, outcomes, candidates, post-checks, catalog, host, jobs, budget holds, multi-repository analysis, intermediate validation, and profiles (907 tests), and `make test-controller` (14 tests, including a new one with an AI job). The controller tests ran before two rejection texts and one comment were reworded; the case analysis and multi-repository analysis tests ran after (233 tests). `make check-analyzer` and `tests/test_multi_repo_assessment.py` were not run, because the change touches no public command, packaging, or requirement.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
