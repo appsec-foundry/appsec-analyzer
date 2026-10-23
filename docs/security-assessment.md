@@ -144,7 +144,41 @@ Accepted jobs remain in the output directory. After correcting the cause, repeat
 
 ## Survey and verification
 
-An assessment uses two analysis methods. The survey reviews every component for any kind of weakness and labels each finding with one of the six STRIDE categories, which serve as its checklist. Verification takes selected security aspects, such as authorization, and works through the fixed verification items of the [verification catalog](../data/test-cases.yaml) at every relevant code location, recording an outcome for each item. The survey always runs. Verification runs beside it for the aspects that the assessment depth selects:
+An assessment examines the code with two methods. The survey looks at each component openly and reports any weakness it finds. Verification works through a fixed list of questions for selected security aspects, such as authorization, and answers each question at every place in the code where it applies. The survey always runs. Verification runs after it for the aspects that the assessment depth or your profiles select.
+
+### The survey
+
+A model reads one component at a time, such as the API server or the web frontend, and reports the weaknesses it finds. The six STRIDE categories are its checklist, and each finding carries one of them. Older reports and some messages still call the survey the STRIDE analysis.
+
+Because the survey is open, it also finds weaknesses that no list foresees. In the pilot runs on OWASP Juice Shop, it reported weaknesses that the verification catalog has no item for, such as an OAuth login without a `state` parameter and a password reset without throttling. The survey does not go through the code route by route, though. When many routes share one weakness, it often reports one finding with a few examples.
+
+### Verification
+
+The [verification catalog](../data/test-cases.yaml) lists verification items per security aspect. Each item is one question. For authorization, `TC-AUTHZ-01` asks whether access to an object checks its owner, and `TC-AUTHZ-02` whether privileged operations check the caller's role. Each aspect also has a goal item, such as `TC-AUTHZ-06`, which asks whether a caller can read or change data beyond their rights by any path.
+
+Verification takes two steps for each aspect:
+
+1. Without a model, Analyzer collects the places where the items apply. For authorization, these are the application's routes and the hits of the matching scanner rules. For input validation, they are code sites such as raw database queries, shell commands, or HTML output.
+2. One model job per component answers every item at every place, with the code of the handlers, middlewares, and guards involved. It records a finding, a control, or another outcome for each item, and it may add places it found itself.
+
+A place that the job could not decide records undecidable. Undecidable, partial, and no finding never count as a control, and comments or documentation are not evidence of one. Catalog IDs still start with `TC-`, and the settings and result fields still say `test_cases`, because the items were called test cases before.
+
+### An example
+
+In a pilot run on Juice Shop, the survey reported that a user can change another user's basket items through `PUT /api/BasketItems/:id`. Verification checked `TC-AUTHZ-01` on every basket item route. It also found that any logged-in user can read and delete other users' basket items through `GET` and `DELETE` on the same path. In the same run, it found that any logged-in user can read every user record through `GET /api/Users/:id` and create products through `POST /api/Products`. The survey reported neither. Of the nine authorization challenges in Juice Shop, verification found eight and the survey seven. Verifying authorization took nine model jobs in that run and cost USD 4.45.
+
+### How the results come together
+
+While they run, the two methods do not see each other's results. Verification starts from the routes and scanner hits, not from survey findings, because a weakness that two methods find independently is better supported than one a model was asked to confirm. After both have finished, Analyzer compares their findings by location and CWE:
+
+| Case | What the report shows |
+| --- | --- |
+| Both found the weakness: same CWE, at the same location or within three lines. | One finding. Its card says "Found by: survey and verification" and names the verification items. |
+| Verification found a protecting control where the survey reported a weakness with the same CWE. | The survey finding stays and is marked "Contradicted by verification". Check the code before you close it. |
+| Only verification found the weakness. | The finding is listed in the section Verification Findings. These findings do not count in the totals of the findings register yet. |
+| Only the survey found the weakness, or verification did not examine the location. | The survey finding stays unchanged. |
+
+### What each depth verifies
 
 | Depth | Survey | Verification |
 | --- | --- | --- |
@@ -152,17 +186,30 @@ An assessment uses two analysis methods. The survey reviews every component for 
 | standard | yes | `AuthZ` |
 | thorough | yes | `AuthZ`, `InputVal`, `DataProt`, `AI` |
 
-These are the shipped defaults in [data/assessment-depths.yaml](../data/assessment-depths.yaml), chosen after four pilot runs on Juice Shop: at standard depth, verification of authorization found more authorization weaknesses than the survey in every run, while the other aspects added less for their cost. Each verified aspect adds model calls and sends more source code to the model; verifying authorization added about USD 4.50 to a standard run on Juice Shop, and its cost grows with the number of routes. A scan profile can change the aspects per depth, an organization profile can set its own defaults and make aspects mandatory, and the same file sets the other [depth settings](profiles.md#what-each-depth-does), such as the number of abuse cases and the architect review. The run header shows the methods, such as `Survey · Verify AuthZ`.
+These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth verifies authorization only, because in four pilot runs on Juice Shop this aspect added the most for its cost. The run header shows the methods, such as `Survey · Verify AuthZ`.
 
-The catalog names the security questions an assessment can answer, grouped by aspect, such as authorization or supply chain. Each verification item lists the scanner rules that seed it, the evidence a finding or a protecting control needs, and the matching entries of the control catalog. Catalog IDs still start with `TC-`, and the settings and result fields still say `test_cases`.
+Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the first verification job, the run states how many jobs it plans, their estimated cost, and whether the remaining budget covers them. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis.
 
-With `test_cases: true` in a scan profile, a run records the verification items without additional model calls. Only the nine rule-based items then receive an outcome, from the recorded results of their scanner rules, and items that need a model investigation are listed in the report as not examined.
+### Configure verification
 
-A rule-based verification item has one of these outcomes: finding, control, partial, undecidable, or not applicable. It reports a control only when every applicable rule is satisfied and the scanner recorded a result for each. A rule without a recorded result never counts as satisfied. A control here means that the examined files contain the expected configuration. It does not show that the control works in production.
+You choose the verified aspects per depth in a scan profile, and an organization can set its own defaults in an organization profile. Analyzer starts from the shipped file, applies the organization profile, and then the scan profile. There is no command-line option for it.
 
-A verified aspect, `AuthZ`, `InputVal`, `DataProt`, or `AI`, adds model jobs after the survey. Before the first of them, the run states how many jobs it plans, their estimated cost, and whether the remaining budget covers them; the estimate uses the survey's measured cost per job until a verification job has finished. A run whose budget does not cover them keeps going, the budget stops the jobs it cannot pay, and each aspect it could not finish is marked incomplete in the completion summary and the report. The progress display counts the verification jobs: its share drops once when the plan is known and then grows with each job. Each component gets one model job per selected aspect on the survey's model, or several when it has more than 40 candidates, but only when one of the aspect's test cases has a starting candidate there or the aspect's goal test case applies; otherwise its test cases record undecidable without a model call. The job receives the component's starting candidates from the route inventory and the scanner rules, together with the code of the middlewares and guards their routes run, answers each candidate, and may add its own. Several jobs share the candidates by location, so each route is examined in one of them for every test case that names it, and only the first job adds candidates of its own. Role checks and privileged fields start from every route that changes state, whatever its guards. Owner checks also start from every route that takes a request body, because the body can carry the object identifier, and role checks also from authenticated reads without one, such as user lists. The candidates include the routes that finale-rest and epilogue resources generate from data models; only the pilot sees them, so the route inventory, the STRIDE analysis, and the other commands do not list them. Input validation, data protection, and language model test cases start from code sites that the fixed patterns of `data/code-sites.yaml` mark, such as raw queries, commands, HTML output, model calls, or sensitive fields in data models: a route whose handler reaches such a site is the candidate and names the site, and a site no route reaches is a candidate of its own. Each aspect also has a goal test case, which asks for an attacker goal, such as changing data beyond one's rights, by any path and adds its own candidates. Fixed post-checks over the route inventory and the code sites test its claims; a code site confirms only the mechanism of a weakness, never a control. Each test case then records one outcome per component: finding, control, partial, no finding, undecidable, not applicable, or disabled. A test case that examined no location records undecidable; only a goal test case records no finding when its search across the component found nothing beyond the other test cases. A control requires evidence at every candidate location, and the reason says where only model review supports it. Partial, no finding, and undecidable never count as a control, and comments, documentation, and controls outside the examined sources are not control evidence. A finding may lie in a shared file that belongs to no component, such as a helper that a handler calls, when the job read that file. A finding that still breaks an evidence, trace, or rating rule after the job's last correction is dropped with a warning, its candidates record undecidable, and the job's other answers stand. A failed or unaffordable job makes its candidates undecidable with a warning, and the run continues. The aspects `IAM` and `SessionMgmt` are accepted but not investigated yet.
+To verify input validation as well at standard depth, and authorization already at quick depth, add this to a scan profile:
 
-Both methods often find the same weakness. A verification finding with the same CWE as a survey finding, at one of its locations or within three lines of it, is shown once: the survey's finding card says "Found by: survey and verification" and names the verification finding and items. Where verification evidenced a protecting control at a location of a survey finding with the CWE of that item, the survey finding stays in the report and is marked "Contradicted by verification", so that a reader can check it. Survey findings at locations that verification did not examine stay unchanged.
+```yaml
+schema_version: 1
+depths:
+  standard:
+    verify: [AuthZ, InputVal]
+  quick:
+    verify: [AuthZ]
+```
+
+`verify: []` runs the survey only at that depth. `test_cases: false` does the same for every depth whose `verify` the profile does not set. To leave out a single item, list it under `test_cases.disable` with a reason, and the report shows it as disabled with that reason. An organization profile can make aspects mandatory with `test_cases.required_aspects`, and a scan profile cannot remove them. Profiles inside an assessed repository are rejected, so repository content cannot select or disable verification. [Verification settings](profiles.md#verification-settings) describes every field, and [what each depth does](profiles.md#what-each-depth-does) the other depth settings.
+
+`test_cases: true` records the catalog without model jobs. Only the nine rule-based items then receive an outcome, from the recorded results of their scanner rules, and the other items are listed as not examined. A rule-based item reports a control only when every applicable rule is satisfied and the scanner recorded a result for each. A control here means that the examined files contain the expected configuration. It does not show that the control works in production.
+
+### Where to find the results
 
 With verification on:
 
@@ -174,7 +221,7 @@ With verification on:
 - The completion summary shows a Verification row with the outcome counts.
 - In SARIF, a linked finding uses the verification item ID as `ruleId`. The finding ID moves to the result property `findingId`.
 
-Repository content cannot select or disable verification items or aspects. The design and the pilot runs are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md) and the [implementation status](internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md).
+The aspects `IAM` and `SessionMgmt` are accepted but not investigated yet. How the places to check are chosen and how outcomes are decided is described in the [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs). The design and the pilot runs are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md) and the [implementation status](internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md).
 
 ## Known threats
 

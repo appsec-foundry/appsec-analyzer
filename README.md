@@ -331,7 +331,7 @@ Command-line options override the defaults from a scan profile.
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
 | `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. |
-| `--assessment-depth LEVEL` | `quick` (no business-logic checks), `standard` (default), or `thorough`. With Claude, `thorough` uses Opus for STRIDE and cost about 1.8× as much in one Juice Shop comparison, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). Beside the survey, `standard` also verifies authorization route by route and `thorough` four security aspects, which adds model calls; see [survey and verification](docs/security-assessment.md#survey-and-verification). |
+| `--assessment-depth LEVEL` | `quick` (no business-logic checks), `standard` (default), or `thorough`. With Claude, `thorough` uses Opus for STRIDE and cost about 1.8× as much in one Juice Shop comparison, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). Beside the survey, `standard` also verifies authorization route by route and `thorough` four security aspects, which adds model calls; see [survey and verification](docs/security-assessment.md#survey-and-verification). A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does). |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. |
@@ -344,7 +344,7 @@ Command-line options override the defaults from a scan profile.
 
 An abuse case is something an attacker or a user must not be able to do. Analyzer comes with two sets. [business.yaml](data/abuse-cases/business.yaml) has seven business rules: a user must not, for example, see other users' data, give themselves a higher role, approve their own request, or redeem a coupon twice. [technical.yaml](data/abuse-cases/technical.yaml) has attack chains such as account takeover through XSS or admin access through a forged JWT.
 
-`assess` checks the cases that fit the code, except at `quick` depth. A standard run checks up to three business rules, a thorough run up to eight. If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
+`assess` checks the cases that fit the code, except at `quick` depth. By default, a standard run checks up to three business rules, a thorough run up to eight. A scan profile can change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does). If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
 
 To add your own rules, put them in a YAML file in the repository and pass it to `assess`:
 

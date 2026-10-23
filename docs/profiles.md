@@ -112,6 +112,23 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
+On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
+
+When a provider connection drops or cannot be opened, Analyzer repeats the call after 15 seconds. A failed call without a cost report, such as a Codex subscription call or a failed API call, is repeated at most once, and these paid repeats count toward the stricter retry limits. If the connection stays down for a required job, the run pauses with exit code 3 and keeps accepted work; check connectivity, then rerun the same command with `--resume`. An optional job records a coverage gap instead. Login, quota, certificate, configuration, and request errors are never repeated.
+
+Report attributes are text values, with up to 32 keys and 256 characters per value. They appear near the report title and under `meta.report_attributes` in the YAML result. They label the report; they do not change severity, authorize actions, or become analysis instructions. Keep credentials and confidential personal data out of them.
+
+Select the profile and override individual settings when needed:
+
+```sh
+appsec-analyzer assess --profile release
+appsec-analyzer assess --profile release --budget 30
+appsec-analyzer assess --profile release --max-parallel 4
+appsec-analyzer assess --profile release --assessment-depth quick --outputs markdown sarif
+```
+
+Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
+
 ### What each depth does
 
 Each assessment depth has default settings, which Analyzer ships in [data/assessment-depths.yaml](../data/assessment-depths.yaml):
@@ -152,23 +169,6 @@ An [organization profile](org-profiles.md) can set its own defaults under the sa
 The object form has two optional fields. `aspects` names the aspects for every depth whose `verify` the scan profile does not set, a non-empty subset of `IAM`, `SessionMgmt`, `AuthZ`, `InputVal`, `DataProt`, and `AI`; without it, each depth keeps its default aspects. `IAM` and `SessionMgmt` are accepted but not investigated yet. `disable` lists verification items to leave out, each as `id` (a catalog ID such as `TC-CI-01`, listed once) and a `reason` of 1 to 300 printable characters. A disabled item reports the outcome `disabled` with the reason, and the scanner findings linked to it stay in the report. Any other value, an unknown depth or aspect, an ID that is not in the catalog, or a missing or overlong reason is rejected before the host check or any retrieval.
 
 An organization profile can name verification items in `test_cases.required` and aspects in `test_cases.required_aspects`. A scan profile that disables a required item is refused before the run state is created and before any model call, with a message naming the ID. Required aspects are verified at every depth in addition to those the scan profile selects; a scan profile cannot remove them, even with `false`. Only the operator's profile files can change depth settings or verification; a profile inside an assessed repository is rejected.
-
-On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
-
-When a provider connection drops or cannot be opened, Analyzer repeats the call after 15 seconds. A failed call without a cost report, such as a Codex subscription call or a failed API call, is repeated at most once, and these paid repeats count toward the stricter retry limits. If the connection stays down for a required job, the run pauses with exit code 3 and keeps accepted work; check connectivity, then rerun the same command with `--resume`. An optional job records a coverage gap instead. Login, quota, certificate, configuration, and request errors are never repeated.
-
-Report attributes are text values, with up to 32 keys and 256 characters per value. They appear near the report title and under `meta.report_attributes` in the YAML result. They label the report; they do not change severity, authorize actions, or become analysis instructions. Keep credentials and confidential personal data out of them.
-
-Select the profile and override individual settings when needed:
-
-```sh
-appsec-analyzer assess --profile release
-appsec-analyzer assess --profile release --budget 30
-appsec-analyzer assess --profile release --max-parallel 4
-appsec-analyzer assess --profile release --assessment-depth quick --outputs markdown sarif
-```
-
-Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
 
 ## Save an abuse-case selection
 
