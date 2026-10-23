@@ -192,7 +192,6 @@ Each assessment depth has default settings, which Analyzer ships in one document
 - how many abuse cases are checked, that is, attack scenarios against the application's rules, such as ordering without paying, and whether the model may add cases of its own;
 - whether a second model call reviews the findings, called the architect review;
 - whether the assessment identifies the users and systems that interact with the application;
-- how many places per component are examined in detail where data passes from a less trusted to a more trusted part of the system;
 - the budget of a run that is started through the Claude Code assessment dialogue without a budget.
 
 A team can change each of these for a single depth in its scan profile, the file with the team's saved run settings. It can also list abuse cases that are always checked or never checked.

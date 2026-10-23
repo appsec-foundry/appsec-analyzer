@@ -13,7 +13,7 @@ Collects what each assessment depth does into one documented, shipped file and l
 
 The product owner approved the wording on 2026-10-23 in the conversation that drafted it, after asking for it to be clear for users. These decisions were made there:
 
-- The file holds the settings that change cost and coverage: verified aspects, number of abuse cases and model-derived cases, architect review, actor discovery, trust boundary crossings examined in detail, and the default budget of an interactive start.
+- The file holds the settings that change cost and coverage: verified aspects, number of abuse cases and model-derived cases, architect review, actor discovery, and the default budget of a run started through the Claude Code assessment dialogue.
 - Verified aspects are written as a plain list per depth (`verify: [AuthZ]`); an empty list runs the survey only. The rule-based verification items without a model stay available through `test_cases: true` in a scan profile.
 - Which abuse cases a run checks is chosen in the scan profile, through lists of cases to always or never check, for every depth or single depths. The shipped file names only counts, because it does not know the application.
 - An organization profile can set its own defaults for each depth, with the same keys as the shipped file; a team's scan profile can still change them. The order is shipped file, organization profile, scan profile, command line. Organization distributions (REQ-039) can so ship their own standards.
@@ -22,6 +22,8 @@ The product owner approved the wording on 2026-10-23 in the conversation that dr
 - Model selection per role stays in the model profiles, because it depends on the provider. Internal limits such as turn budgets and quality-gate repairs stay out of the settings, as the context routing contract requires for implementation limits.
 
 After a review for readers who do not know the product, the product owner approved a plainer wording on 2026-10-23: abuse cases, the architect review, the trust boundary crossings, the scan profile, and the organization profile are explained where they appear, the budget names the Claude Code assessment dialogue, and REQ-040's example says "request" instead of "route". The rules did not change.
+
+The approved wording first listed how many trust boundary crossings per component are examined in detail. Before the implementation it turned out that only the plugin-era dispatch path reads that limit (2, 4, and 6 per depth); the `assess` controller examines every crossing and passes the depth only as a label. The product owner chose on 2026-10-23 to remove the point rather than add a new limit, so no setting exists that changes nothing.
 
 ## Risks raised
 
