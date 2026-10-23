@@ -354,6 +354,26 @@ Prepared on 2026-10-23 for 612811f1. The product owner starts it with `bash /tmp
 | `context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds; the guides already describe the setting | Before the branch is merged; the phase exists since 5e3f39bb. |
 | Replacing the STRIDE step, the REQ-004 change, score integration, `TC-APP` test cases, control posture feeding | A positive pilot decision. |
 
+## Integration option: methods by assessment depth
+
+Raised by the product owner on 2026-10-23 and taken as the direction for a later integration; the aspects per depth are decided after the fourth run and a run on a second repository.
+
+The idea is to choose the methods by assessment depth: the cheaper method alone at quick depth, both combined at standard depth. The cost data of the three runs reverse the first guess about which method is cheaper. At standard depth the STRIDE step covers every aspect of every component for about USD 7, with evidence verification about USD 10, while the pilot's four aspects are estimated at USD 6 to 8 after 612811f1, and AuthZ alone cost USD 4.71 in the third run. The pilot's cost follows its number of jobs, because every call carries about 90,000 tokens of context, so all 14 catalog aspects would cost far more than the STRIDE step. The rules test cases cost nothing.
+
+| Depth | Methods | Added cost |
+| --- | --- | --- |
+| quick | STRIDE step and rules test cases | none |
+| standard | STRIDE step, plus test cases for the aspects where the pilot measurably finds more; after three runs AuthZ and the cross-site scripting part of InputVal | about USD 3 to 5 |
+| thorough | STRIDE step, test cases for every pilot aspect, and the open review | about USD 8 to 10 |
+
+Conditions:
+
+- Combining both needs the merge step, which is not built; until then the same weakness appears in the threats and in the test case findings.
+- The interactive launch caps standard depth at USD 20. The third run cost USD 22.23 with four pilot aspects, so standard depth can take only selected aspects.
+- The target picture keeps every aspect assignable to one method. The depth would decide which aspects get both. Whether the STRIDE step becomes cheaper when it leaves an aspect to the test cases is not measured; its cost follows the fixed context per component more than the number of aspects.
+- The data come from one intentionally vulnerable repository, three runs, and standard depth only. Quick depth has no measured cost in this pilot.
+- The change alters REQ-040 and the behavior of the depths, so it needs its own requirement proposal and the product owner's approval.
+
 ## Decisions taken during the implementation
 
 Decided by the product owner:
