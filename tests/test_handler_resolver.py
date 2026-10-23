@@ -746,6 +746,109 @@ def test_middleware_definitions_name_route_and_prefix_guards_but_not_global_ones
     assert spans == [(lib, 6, 9), (lib, 2, 5)]
 
 
+@pytest.mark.parametrize(
+    "lib,registration,expected",
+    [
+        # A repository guard that hands on: its definition.
+        (
+            "lib/guards.ts",
+            "app.get('/api/Users', guards.requireLogin())",
+            [("lib/guards.ts", 2, 5)],
+        ),
+        # An authentication package guard: the line that configures it.
+        (
+            "shared/access.js",
+            "app.use('/api/Cards/:id', guards.requireToken())",
+            [("shared/access.js", 6, 6)],
+        ),
+        # Guard and identity binding before a handler that a generator adds later.
+        (
+            "lib/guards.ts",
+            "app.post('/api/Orders', guards.requireLogin(), guards.bindOwner())",
+            [("lib/guards.ts", 2, 5), ("lib/guards.ts", 7, 10)],
+        ),
+    ],
+)
+def test_a_guard_registered_without_a_handler_is_middleware_of_its_route(tmp_path, lib, registration, expected):
+    """A last argument that hands the request on guards a handler registered elsewhere, such as a generator's."""
+    module = lib.rsplit(".", 1)[0]
+    root = write(
+        tmp_path,
+        {
+            "server.ts": "import express from 'express'\n"
+            f"import * as guards from './{module}'\n"
+            "const app = express()\n"
+            f"{registration}\n",
+            lib: "import tokenGate from 'express-jwt'\n"
+            "export const requireLogin = () => (req, res, next) => {\n"
+            "  if (!req.headers.authorization) return res.sendStatus(401)\n"
+            "  next()\n"
+            "}\n"
+            "export const requireToken = () => tokenGate({ secret: KEY, algorithms: ['RS256'] })\n"
+            "export const bindOwner = () => (req, res, next) => {\n"
+            "  req.body.UserId = req.user.id\n"
+            "  next()\n"
+            "}\n",
+        },
+    )
+    resolver = HandlerResolver(root)
+    line = 4
+    path = registration.split("'")[1]
+    assert resolver.registration_middleware("server.ts", line, path) == expected
+    row = next((r for r in ri.build_inventory(root)["routes"] if r["handler_line"] == line), None)
+    if row is not None:
+        assert resolver.middleware_definitions(row) == expected
+
+
+def test_a_last_argument_that_answers_stays_the_handler(tmp_path):
+    root = write(
+        tmp_path,
+        {
+            "server.ts": "import express from 'express'\n"
+            "import { show } from './routes/show'\n"
+            "const app = express()\n"
+            "app.get('/api/Users', show())\n",
+            "routes/show.ts": "export const show = () => (req, res, next) => {\n"
+            "  if (!req.query.id) return next(new Error('id'))\n"
+            "  res.json({ id: req.query.id })\n"
+            "}\n",
+        },
+    )
+    # Forwarding an error is no hand-on: the handler answers the request itself.
+    assert HandlerResolver(root).registration_middleware("server.ts", 4, "/api/Users") == []
+
+
+@pytest.mark.parametrize(
+    "importer,source,expected",
+    [
+        # A class behind an export alias: the module's first line.
+        ("import { Order as OrderModel } from './models/order'\n", "OrderModel", ("models/order.ts", 1)),
+        # A top-level definition the importer names directly.
+        ("import { Card } from './models/card'\n", "Card", ("models/card.ts", 2)),
+        ("const { Card } = require('./models/card')\n", "Card", ("models/card.ts", 2)),
+        # A definition of the file itself.
+        ("const Note = sequelize.define('note', {})\n", "Note", ("server.ts", 1)),
+        # Escaping the repository, test code and unknown names are no site.
+        ("import { Order } from '../outside/order'\n", "Order", None),
+        ("import { Order } from './test/order'\n", "Order", None),
+        ("", "Order", None),
+    ],
+)
+def test_a_definition_site_follows_imports_inside_the_repository(tmp_path, importer, source, expected):
+    root = write(
+        tmp_path / "repo",
+        {
+            "server.ts": importer + "export {}\n",
+            "models/order.ts": "class Order extends Model {}\nOrder.init({ role: DataTypes.STRING })\n"
+            "export { Order }\n",
+            "models/card.ts": "import { Model } from 'sequelize'\nexport const Card = sequelize.define('card', {})\n",
+            "test/order.ts": "export const Order = {}\n",
+        },
+    )
+    write(tmp_path, {"outside/order.ts": "export const Order = {}\n"})
+    assert HandlerResolver(root).definition_site("server.ts", source) == expected
+
+
 def test_a_route_without_middleware_names_no_definition(tmp_path):
     write(
         tmp_path,

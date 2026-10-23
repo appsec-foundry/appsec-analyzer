@@ -425,6 +425,8 @@ Decided by the product owner on 2026-10-23: build the correction fix and merge r
 
 Open: two of the four further-read calls fetched guard code from `lib/insecurity.ts`, although the preload is meant to carry the guards the candidates' routes run. Prompt caching across the jobs of one component, set aside in the batching decision, remains the largest lever and would apply to the survey as well.
 
+A later run on 2026-10-23 showed the same: 6 of 16 authorization calls only asked for two to four further slices, mostly `lib/insecurity.ts` and `models/*.ts`, at USD 1.34 together. Two producer gaps caused it. `middleware_definitions` took a registration's last argument for its handler, so a guard-only registration such as `app.get('/api/Users', isAuthorized())` named no guard; 96 of 131 Juice Shop routes with middleware had none. Generated REST routes recorded neither the guards of the registrations that run for them nor the data model the generator serves. Built in 2e56eb65: a last argument that hands the request on counts as middleware, generated routes list their guards and data model, and the verification preload serves guards, then data models, then the candidates' windows, inside the job's allowed sources. Not measured in a run yet. Survey requests change with the added middleware spans, so earlier accepted survey jobs are not reused.
+
 ### Linking survey and verification findings (analysed 2026-10-23)
 
 The product owner asked whether authorization verification works together with the survey or runs independently of it. Analysed by replaying `combine_methods` offline on the saved models and pilot sidecars of runs 2 to 4, without model calls.
