@@ -15,7 +15,7 @@ It does not scan dependencies for known CVEs, search comprehensively for secrets
 
 If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor), which packages it as a Claude Code plugin.
 
-[Quick start](#quick-start) · [Commands](#commands) · [Data use](#security-and-data-use) · [Install](#install) · [Options](#options) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Data use](#security-and-data-use) · [Commands](#commands) · [Cost limits](#cost-limits) · [Install](#install) · [Options](#assessment-options) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
 
 ## Quick start
 
@@ -45,24 +45,57 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 > [!NOTE]
 > With API billing, the Juice Shop scan costs about USD 14. Analyzer asks before it exceeds the default limit of USD 20.
 
+## Security and data use
+
+> [!IMPORTANT]
+> **Model-backed commands send source excerpts and context to the selected provider.** Check your organization's rules and the provider's data-handling terms before you analyze confidential code.
+
+`score` and `scan-sources` send no source to a model. They still need network access when you pass a Git URL.
+
+Analyzed repositories are untrusted input: their content cannot authorize tools or select provider credentials. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive. See the [security policy](SECURITY.md).
+
 ## Commands
 
-`appsec-analyzer <command> --help` lists the options of each command. Commands with model calls send source excerpts to your provider (see [Security and data use](#security-and-data-use)) and stay within the default cost limit shown below. Change it with `--budget`, or `--max-budget-usd` for `analyze-threats`.
+`appsec-analyzer --help` shows the commands in the same groups as the table below. `appsec-analyzer <command> --help` lists the options of each command.
 
-| Command | Purpose | Model calls |
+`assess` and the focused analysis commands make model calls. They send source excerpts to your provider (see [Security and data use](#security-and-data-use)) and stop at a [cost limit](#cost-limits). `review` starts your coding assistant, which uses its own account.
+
+| Command | Purpose |
+| --- | --- |
+| **Start here** | |
+| [`assess`](#assess-full-security-assessment) | Full security assessment of a repository or a system of repositories. |
+| [`review`](#review-discuss-an-assessment-with-your-coding-agent) | Discuss a finished assessment and plan fixes with Claude Code or Codex. |
+| **Quick checks without model calls** | |
+| [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. |
+| [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. |
+| [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. |
+| **Focused analysis with model calls** | |
+| [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. |
+| [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. |
+| [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. |
+| **Work with an assessment** | |
+| `status`, `progress`, `results`, `stop` | Follow, inspect, or stop a running assessment. |
+| [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. |
+| [`abuse-cases`](#abuse-cases-list-the-defined-cases) | List the defined abuse cases, or show one with the result a saved assessment records. |
+| **Setup and integration** | |
+| `preflight` | Check repository access and provider setup before you spend budget. |
+| `profiles` | List and validate scan and model profiles. |
+| [`platform-settings`](#platform-settings-github-and-gitlab-security-settings) | Security settings of a GitHub or GitLab repository, such as branch protection. |
+| [`distribution`](#distribution-start-your-organizations-own-command) | Create the files for your organization's own command, and align its engine pins after an engine update. |
+| `capabilities` | Show the available scanners and provider qualification. |
+
+### Cost limits
+
+Each model-backed command stops at a spending limit. The values are default upper limits, not expected costs.
+
+| Command | Default limit | Change with |
 | --- | --- | --- |
-| [`assess`](#assess-full-security-assessment) | Full security assessment of a repository or a system of repositories. | Yes, up to USD 20 |
-| [`review`](#review-discuss-an-assessment-with-your-coding-agent) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
-| [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. | Yes, up to USD 1 per call |
-| [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. | Yes, up to USD 5 |
-| [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. | Yes, up to USD 5 |
-| [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. | No |
-| [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. | No |
-| [`abuse-cases`](#abuse-cases-list-the-defined-cases) | List the defined abuse cases, or show one with the result a saved assessment records. | No |
-| [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. | No |
-| [`platform-settings`](#platform-settings-github-and-gitlab-security-settings) | Security settings of a GitHub or GitLab repository, such as branch protection. | No |
-| [`distribution`](#distribution-start-your-organizations-own-command) | Create the files for your organization's own command, and align its engine pins after an engine update. | No |
-| [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
+| `assess` | USD 20 per assessment | `--budget USD` |
+| `analyze-threats` | USD 1 per model call | `--max-budget-usd USD` |
+| `authnz-review` | USD 5 per review | `--budget USD` |
+| `audit-requirements` | USD 5 per audit | `--budget USD` |
+
+In an interactive terminal, `assess` may ask for a higher limit before it skips work. `analyze-threats` limits each model call, not the whole question; one question takes up to four calls. With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`); see [Model provider](#model-provider). `review` uses the assistant's own account and usage limits.
 
 ### `assess`: full security assessment
 
@@ -96,6 +129,36 @@ appsec-analyzer review /path/to/assessment
 
 # Use Codex instead
 appsec-analyzer review /path/to/assessment --with codex
+```
+
+### `score`: deterministic security rating
+
+`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
+
+```sh
+# Rate a local checkout
+appsec-analyzer score /path/to/project
+
+# Rate a remote repository and print JSON for scripts
+appsec-analyzer score https://github.com/your-org/your-project.git --json
+```
+
+### `scan-sources`: raw scanner observations
+
+`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `assess`.
+
+```sh
+# Show what the scanners found, without a rating
+appsec-analyzer scan-sources --repo /path/to/project
+```
+
+### `repo-profile`: size, languages, and layout
+
+`repo-profile` shows what a scan would have to read: working-tree size, how much of it is installed dependencies or build output, the language split by bytes, the build manifests and whether they sit in one root or several, and tracked versus untracked content. It reads directory entries only and passes no judgement on security.
+
+```sh
+# Profile the current directory, or print JSON for scripts
+appsec-analyzer repo-profile /path/to/project --json
 ```
 
 ### `analyze-threats`: answer a security question
@@ -145,25 +208,13 @@ appsec-analyzer audit-requirements --repo /path/to/project \
   --requirements /path/to/catalog.yaml --output /path/to/audit --host claude-cli --md
 ```
 
-### `score`: deterministic security rating
+### `export`: other report formats
 
-`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
-
-```sh
-# Rate a local checkout
-appsec-analyzer score /path/to/project
-
-# Rate a remote repository and print JSON for scripts
-appsec-analyzer score https://github.com/your-org/your-project.git --json
-```
-
-### `scan-sources`: raw scanner observations
-
-`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `assess`.
+`export` writes a finished assessment to other formats. The destination must be a new directory outside any Git checkout. See [Reports and exports](#reports-and-exports) and [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).
 
 ```sh
-# Show what the scanners found, without a rating
-appsec-analyzer scan-sources --repo /path/to/project
+# Create SARIF for code scanning and HTML for reading
+appsec-analyzer export --assessment /path/to/assessment --output /path/to/export --formats sarif html
 ```
 
 ### `abuse-cases`: list the defined cases
@@ -174,15 +225,6 @@ appsec-analyzer scan-sources --repo /path/to/project
 # List all cases, or show one
 appsec-analyzer abuse-cases --repo /path/to/project
 appsec-analyzer abuse-cases AC-B-001 --repo /path/to/project
-```
-
-### `repo-profile`: size, languages, and layout
-
-`repo-profile` shows what a scan would have to read: working-tree size, how much of it is installed dependencies or build output, the language split by bytes, the build manifests and whether they sit in one root or several, and tracked versus untracked content. It reads directory entries only and passes no judgement on security.
-
-```sh
-# Profile the current directory, or print JSON for scripts
-appsec-analyzer repo-profile /path/to/project --json
 ```
 
 ### `platform-settings`: GitHub and GitLab security settings
@@ -212,33 +254,6 @@ appsec-analyzer distribution update-engine ./northstar-appsec
 ```
 
 `init` needs a name of 2 to 30 lowercase letters and digits, and a directory that does not exist or is empty. The profiles, context, abuse cases and requirements it creates are sample content to replace. `update-engine` changes the engine version in `setup.cfg`, `requirements.lock` and `organization.yaml`, and stops without changes if one is missing. Building the wheels, installing and releasing remain manual; see the [organization packaging guide](docs/organization-distributions.md).
-
-### `export`: other report formats
-
-`export` writes a finished assessment to other formats. The destination must be a new directory outside any Git checkout. See [Reports and exports](#reports-and-exports).
-
-```sh
-# Create SARIF for code scanning and HTML for reading
-appsec-analyzer export --assessment /path/to/assessment --output /path/to/export --formats sarif html
-```
-
-### Helper commands
-
-| Command | Purpose |
-| --- | --- |
-| `preflight` | Checks repository access and provider setup before you spend budget. |
-| `status`, `progress`, `results`, `stop` | Follow, inspect, or stop a running assessment. |
-| `profiles` | Lists and validates scan and model profiles. |
-| `capabilities` | Shows the available scanners and provider qualification. |
-
-## Security and data use
-
-> [!IMPORTANT]
-> **Model-backed commands send source excerpts and context to the selected provider.** Check your organization's rules and the provider's data-handling terms before you analyze confidential code.
-
-`score` and `scan-sources` send no source to a model. They still need network access when you pass a Git URL.
-
-Analyzed repositories are untrusted input: their content cannot authorize tools or select provider credentials. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive. See the [security policy](SECURITY.md).
 
 ## Install
 
@@ -325,20 +340,28 @@ appsec-analyzer assess --repo /path/to/project --profile bedrock --budget 20
 
 [Configuration](docs/configuration.md) describes provider setup in detail. Organizations can ship preconfigured profiles; see the [organization packaging guide](docs/organization-distributions.md).
 
-## Options
+## Assessment options
 
-Command-line options override the defaults from a scan profile.
+These options apply to `assess`. Command-line options override the defaults from a scan profile.
 
 | Option | Effect |
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
 | `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. |
-| `--assessment-depth LEVEL` | `quick` (no business-logic checks), `standard` (default), or `thorough`. With Claude, `thorough` uses Opus for the survey and cost about 1.8× as much in one Juice Shop comparison, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough). Beside the survey, `standard` also verifies authorization route by route and `thorough` four security aspects, which adds model calls; see [survey and verification](docs/security-assessment.md#survey-and-verification). A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does). |
+| `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. |
 | `--non-interactive` | For CI. Without it, an interactive terminal may ask for a higher budget before skipping work. |
 | `--verbose` | Show job and call identities and detailed correction messages. |
+
+`--assessment-depth` sets what `assess` checks beside the [survey](docs/security-assessment.md#survey-and-verification), which always runs:
+
+- `quick` runs no verification and no business-logic checks.
+- `standard` also verifies authorization route by route.
+- `thorough` verifies four security aspects. With Claude, it uses Opus for the survey. In one Juice Shop comparison, it cost about 1.8× as much as `standard`, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough).
+
+Each verified aspect adds model calls. A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does).
 
 [Scan and model profiles](docs/profiles.md) explains how to store settings and choose models per role.
 
@@ -401,14 +424,7 @@ Request more formats when you start the scan, for example `assess --repo /path/t
 | `--threatdragon` | OWASP Threat Dragon model. |
 | `--pentest-tasks` | Tasks for follow-up penetration testing. |
 
-To export a finished assessment later:
-
-```sh
-appsec-analyzer export --assessment /path/to/assessment \
-  --output /path/to/new-export --formats markdown yaml sarif html
-```
-
-The export directory must be new and outside any Git checkout. See [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).
+To convert a finished assessment later, use [`export`](#export-other-report-formats).
 
 ## Documentation
 
