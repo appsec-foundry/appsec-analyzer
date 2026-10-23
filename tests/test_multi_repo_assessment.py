@@ -378,13 +378,13 @@ def _console_run(console, clock):
     console.plan_components(2)
     console.step("Reviewing trust crossing: signal-external-ingress-0123abcd (1/3)")
     clock.tick(60)
-    console.step("Analyzing all STRIDE categories: API (1/2)")
+    console.step("Surveying component: API (1/2)")
     clock.tick(60)
     console.call("1 min: no model activity for 95 s (waiting for the API)")
     console.step("Independently verifying evidence: API")
     clock.tick(60)
     console.step("Analyzed component: API (1/2)")
-    console.step("Analyzing all STRIDE categories: Store (2/2)")
+    console.step("Surveying component: Store (2/2)")
     clock.tick(console.PROGRESS_SECONDS)
     console.call("2 min: model is thinking (~9,000 tokens)", "stride_analyzer")
     console.call("result: 3 threats (134 s)", "stride_analyzer", "claude-sonnet-5-5")
@@ -649,11 +649,11 @@ def test_progress_counts_the_planned_components(components, share, prior):
     assert (phase, event, progress, elapsed, left) == ("5/8 Threat analysis", "start", share, "5m", prior)
     # Once a component has finished, LEFT extrapolates the measured speed:
     # elapsed × (1 − share) / share. A start alone is no progress (MR-16).
-    console.step("Analyzing all STRIDE categories: api (1/2)")
-    console.step("Analyzing all STRIDE categories: store (2/2)")
+    console.step("Surveying component: api (1/2)")
+    console.step("Surveying component: store (2/2)")
     assert console._run_fields(clock())[2] == prior
     clock.tick(60)
-    console.step("Finished STRIDE job: api (1/1)")
+    console.step("Finished survey job: api (1/1)")
     console.step("Analyzed component: api (1/2)")
     exact = console.done
     assert console._run_fields(clock())[2] == "~" + controller._elapsed(360 * (1 - exact) / exact)
@@ -733,11 +733,11 @@ def test_verbose_console_keeps_the_grid_and_adds_every_step_and_call():
     console = controller._AssessmentConsole(True, verbose.append, clock=clock)
     console.step("Discovering every selected repository")
     console.call("reads app/server.ts:1-200 (3 s)")
-    console.step("Analyzing all STRIDE categories: API (1/2)")
+    console.step("Surveying component: API (1/2)")
     console.call("result: 3 threats (134 s)", "stride_analyzer", "sonnet")
     console.close()
     details = [(row[1], row[5]) for row in _rows(verbose)]
-    for shown in ("reads app/server.ts:1-200 (3 s)", "component 1/2 · API", "STRIDE [sonnet] answered — 2m14s"):
+    for shown in ("reads app/server.ts:1-200 (3 s)", "component 1/2 · API", "survey [sonnet] answered — 2m14s"):
         assert ("·", shown) in details
     assert details[-1] == ("done", "0s · 2 components")
 
@@ -2083,9 +2083,9 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     console = controller._AssessmentConsole(False, lines.append, live=live, clock=clock)
     console.plan_components(2)
     console.step("Assessing controls: Gateway (1/2)")
-    console.step("Analyzing all STRIDE categories: Gateway (1/2)")
+    console.step("Surveying component: Gateway (1/2)")
     clock.tick(5)
-    console.step("Analyzing all STRIDE categories: Ledger \x1b[2J\u202e (2/2)")
+    console.step("Surveying component: Ledger \x1b[2J\u202e (2/2)")
     console.step("Analyzed component: Ledger \x1b[2J\u202e (1/2)")
     clock.tick(5)
     console.step("Analyzed component: Gateway (2/2)")
@@ -2282,13 +2282,13 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
 
     monkeypatch.setenv("COLUMNS", "400")
     console = controller._AssessmentConsole(verbose, [].append, live=True)
-    console.step("Analyzing all STRIDE categories: Gateway (1/3)")
+    console.step("Surveying component: Gateway (1/3)")
     now = clock.monotonic()
     for index, (name, age, state) in enumerate(
         [
-            ("STRIDE", 130, "model is thinking (~9,000 tokens)"),
+            ("survey", 130, "model is thinking (~9,000 tokens)"),
             ("controls", 20, "model is writing its result (~1,200 characters)"),
-            ("STRIDE", 5, "waiting for the model's first response"),
+            ("survey", 5, "waiting for the model's first response"),
         ]
     ):
         console.running[index] = _Call(name, now - age, state)
@@ -2296,7 +2296,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     status = _status_frames(capsys.readouterr().err)[-1][-1]
     # Oldest first, at most TICK_CALLS named; the rest counted.
     assert status.endswith(
-        "Survey: 0/3 components done · STRIDE 2m10s model is thinking (~9,000 tokens)"
+        "Survey: 0/3 components done · survey 2m10s model is thinking (~9,000 tokens)"
         " · controls 20s model is writing its result (~1,200 characters) · +1 more"
     )
     # Without a call in flight, the running controller step and its age.
@@ -2304,7 +2304,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     console.activity_started = clock.monotonic() - 45
     console.tick()
     status = _status_frames(capsys.readouterr().err)[-1][-1]
-    assert status.endswith("Survey: 0/3 components done · Analyzing all STRIDE categories: Gateway (1/3) · 45s")
+    assert status.endswith("Survey: 0/3 components done · Surveying component: Gateway (1/3) · 45s")
     controller._AssessmentConsole.clear_status()
 
 
@@ -2716,7 +2716,7 @@ def _coloured_console_output(monkeypatch, capsys, **env):
     )
     console.plan_components(2)
     console.step("Assessing controls: Gateway (1/2)")
-    console.step("Analyzing all STRIDE categories: Gateway (1/2)")
+    console.step("Surveying component: Gateway (1/2)")
     console.notice("model call stalled")
     console.close()
     return capsys.readouterr().err
@@ -2871,7 +2871,7 @@ def test_a_status_redraw_overwrites_in_place_in_one_flush(monkeypatch, component
     console = controller._AssessmentConsole(False, [].append, live=True)
     console.plan_components(4)
     for index in range(components):
-        console.step(f"Analyzing all STRIDE categories: Part{index} ({index + 1}/4)")
+        console.step(f"Surveying component: Part{index} ({index + 1}/4)")
     console.step("Running deterministic source scanners")
     console.tick()
     flushed.clear()
@@ -2893,7 +2893,7 @@ def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
     monkeypatch.setenv("COLUMNS", "400")
     console = controller._AssessmentConsole(False, [].append, live=True)
     console.plan_components(4)
-    console.step("Analyzing all STRIDE categories: Gateway (2/4)")
+    console.step("Surveying component: Gateway (2/4)")
     console.tick()
     *above, first = _status_frames(capsys.readouterr().err)[-1]
     console.tick()
@@ -2901,7 +2901,7 @@ def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
     controller._AssessmentConsole.clear_status()
     frame = lambda status: status[10 + controller._AssessmentConsole._PHASE_WIDTH + 2]  # noqa: E731 - the event column
     assert "━" in first and "─" in first
-    assert first.endswith("Survey: 0/4 components done · Analyzing all STRIDE categories: Gateway (2/4) · 0s")
+    assert first.endswith("Survey: 0/4 components done · Surveying component: Gateway (2/4) · 0s")
     # The running component has its own line and bar above the run's row.
     assert len(above) == 1 and "Gateway" in above[0] and above[0].rstrip().endswith("Survey")
     assert {frame(first), frame(second)} <= set(SPINNER) and frame(first) != frame(second)
@@ -2914,9 +2914,9 @@ def test_each_running_component_gets_its_own_bar_and_the_area_clears_whole(capsy
     lines = []
     console = controller._AssessmentConsole(False, lines.append, live=True)
     console.plan_components(4)
-    console.step("Analyzing all STRIDE categories: Gateway (1/4)")
-    console.step("Analyzing all STRIDE categories: Ledger (2/4)")
-    console.step(f"Finished STRIDE job: Gateway ({done}/{total})")
+    console.step("Surveying component: Gateway (1/4)")
+    console.step("Surveying component: Ledger (2/4)")
+    console.step(f"Finished survey job: Gateway ({done}/{total})")
     console.step("Independently verifying evidence: Ledger")
     console.tick()
     *above, bottom = _status_frames(capsys.readouterr().err)[-1]
@@ -2943,9 +2943,9 @@ def test_model_updates_keep_the_component_rows_visible(capsys, monkeypatch, mess
     monkeypatch.setenv("COLUMNS", "200")
     console = controller._AssessmentConsole(False, [].append, live=True)
     console.plan_components(3)
-    console.step("Analyzing all STRIDE categories: Gateway (1/3)")
-    console.step("Analyzing all STRIDE categories: Ledger (2/3)")
-    console.step("Finished STRIDE job: Gateway (10/20)")
+    console.step("Surveying component: Gateway (1/3)")
+    console.step("Surveying component: Ledger (2/3)")
+    console.step("Finished survey job: Gateway (10/20)")
     console.tick()
     console.call(message, "stride_analyzer")
     console.tick()
@@ -2964,7 +2964,7 @@ def test_a_successful_correction_is_counted_not_listed(verbose):
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(verbose, lines.append, clock=clock)
     console.plan_components(1)
-    console.step("Analyzing all STRIDE categories: API (1/1)")
+    console.step("Surveying component: API (1/1)")
     console.call("answer rejected, asking for a correction: threats/0/title: too long", "stride_analyzer", "m")
     console.call("answer rejected, asking for a correction: evidence[1] cites a blank line", "stride_analyzer", "m")
     console.call("answer rejected, asking for a correction: decisions: missing T-1", "evidence_verifier", "m")
@@ -2974,7 +2974,7 @@ def test_a_successful_correction_is_counted_not_listed(verbose):
     listed = [row for row in rows if row[1] == "↻"]
     assert len(listed) == (3 if verbose else 0)
     done = next(row[5] for row in rows if row[1] == "done" and row[0].endswith("Threat analysis"))
-    assert done.endswith("3 answers corrected (STRIDE 2, evidence review 1)")
+    assert done.endswith("3 answers corrected (evidence review 1, survey 2)")
 
 
 @pytest.mark.parametrize("roles", [0, 1, 2])
@@ -3078,7 +3078,7 @@ def test_verification_jobs_extend_the_threat_analysis_share_and_advance_it():
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
     console.plan_components(1)
-    console.step("Analyzing all STRIDE categories: API (1/1)")
+    console.step("Surveying component: API (1/1)")
     console.step("Analyzed component: API")
     survey_done = console.done
     console.step("Verify: 4 jobs for AuthZ, about USD 1.60; the remaining USD 3.00 covers them")

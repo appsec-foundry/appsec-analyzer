@@ -438,8 +438,8 @@ def test_only_the_first_job_of_a_split_component_carries_its_context_lines(tmp_p
     # MR-16 console: each finished job and each finished component is reported, in completion order.
     # Both repositories name their component "Service": the label tells them apart.
     name = f"{component['name']} [{component['id'][-6:]}]"
-    assert [s for s in steps if s.startswith(f"Finished STRIDE job: {name} ")] == [
-        f"Finished STRIDE job: {name} ({n}/{len(stride)})" for n in range(1, len(stride) + 1)
+    assert [s for s in steps if s.startswith(f"Finished survey job: {name} ")] == [
+        f"Finished survey job: {name} ({n}/{len(stride)})" for n in range(1, len(stride) + 1)
     ]
     finished = [s for s in steps if s.startswith("Analyzed component: ")]
     count = len(architecture["components"]["components"])

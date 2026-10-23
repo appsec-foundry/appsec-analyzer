@@ -151,7 +151,7 @@ def run(ns, *, api_profile=None, runtime=None):
             raise ValueError("Preflight generation test could not prepare its private temporary workspace") from None
         result["generation_test"] = "primary_model_passed"
         result["limitations"] = [
-            "Only the primary STRIDE model was tested for generation; other roles and live assessment quality remain unverified."
+            "Only the survey's model, the primary model, was tested for generation; other roles and live assessment quality remain unverified."
         ]
     for limitation in result["limitations"]:
         if not test_model:

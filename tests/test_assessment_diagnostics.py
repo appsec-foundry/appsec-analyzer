@@ -124,7 +124,7 @@ def test_verbose_corrections_keep_job_call_identity_and_the_detailed_reason(tmp_
 
     lines = []
     console = _AssessmentConsole(True, write=lines.append, live=False)
-    console.step("Analyzing all STRIDE categories: Gateway (1/1)")
+    console.step("Surveying component: Gateway (1/1)")
     trace = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test").job(
         "stride_analyzer", "component-gateway"
     )
@@ -136,7 +136,7 @@ def test_verbose_corrections_keep_job_call_identity_and_the_detailed_reason(tmp_
     text = "\n".join(lines)
     assert "component-gateway" in text and "call-000001" in text and trace.fields["job_id"] in text
     assert "threats/5/evidence/line is blank" in text
-    assert console.corrections["STRIDE"] == 1
+    assert console.corrections["survey"] == 1
 
 
 def test_required_transport_failure_keeps_recovery_advice_and_accounting(tmp_path):

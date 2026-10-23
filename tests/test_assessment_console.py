@@ -53,13 +53,13 @@ RUN = [
         "left": "~14m",
         "detail": "1/9 components done · Payments API · 57s",
     },
-    {"event": "correction", "phase": "Threat analysis", "number": 5, "total": 8, "detail": "STRIDE: rejected"},
+    {"event": "correction", "phase": "Threat analysis", "number": 5, "total": 8, "detail": "survey: rejected"},
     {
         "event": "warning",
         "phase": "Threat analysis",
         "number": 5,
         "total": 8,
-        "detail": "STRIDE [sonnet]: 2 min: no model activity for 125 s (waiting for the API)",
+        "detail": "survey [sonnet]: 2 min: no model activity for 125 s (waiting for the API)",
     },
     {
         "event": "phase_start",
@@ -84,7 +84,7 @@ def test_each_milestone_gets_one_finished_line_and_the_rest_none():
         "▶ Phase 1/8 — Reconnaissance  (<1m elapsed)",
         "✓ Phase 1/8 — Reconnaissance: 39s · 1 repository · 1145 files",
         "  · 1/9 components analyzed  (~39% done · 8m elapsed · ~14m left (rough estimate))",
-        "⚠ STRIDE [sonnet]: 2 min: no model activity for 125 s (waiting for the API)",
+        "⚠ survey [sonnet]: 2 min: no model activity for 125 s (waiting for the API)",
         "▶ Phase 6/8 — Consolidation  (~82% done · 25m elapsed · ~8m left (rough estimate))",
     ]
 

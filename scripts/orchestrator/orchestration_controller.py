@@ -1881,7 +1881,7 @@ def _assessment_stride(
             context["declared_context"] = assessment_context.component_context(captured, component)
         if platform is not None:
             context["platform_settings"] = platform
-        progress(f"Analyzing all STRIDE categories: {label(component)} ({position}/{len(components['components'])})")
+        progress(f"Surveying component: {label(component)} ({position}/{len(components['components'])})")
         targets = analysis.analysis_targets(scope, component, architecture, scanned[component["id"]])
         unexamined = analysis.unexamined_files(component, targets)
         if unexamined:
@@ -2061,7 +2061,7 @@ def _assessment_stride(
                 )
             )
             # Per-component progress: components run concurrently (MR-16).
-            progress(f"Finished STRIDE job: {label(component)} ({index}/{len(target_batches)})")
+            progress(f"Finished survey job: {label(component)} ({index}/{len(target_batches)})")
         for part, (target_batch, _) in zip(parts, target_batches, strict=True):
             # A coverage statement for the report, not an action item (REQ-003).
             jobs.infos.extend(
@@ -3357,8 +3357,8 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
         "actor_discoverer": (3, "Architecture"),
         "trust_boundary_analyst": (7, "Trust Boundaries"),
         "control_analyst": (8, "Controls"),
-        "stride_analyzer": (9, "STRIDE"),
-        "evidence_verifier": (9, "STRIDE"),
+        "stride_analyzer": (9, "Survey"),
+        "evidence_verifier": (9, "Survey"),
         "threat_merger": (10, "Scan Synthesis"),
         "triage_validator": (10, "Scan Synthesis"),
         "architect_reviewer": (10, "Scan Synthesis"),

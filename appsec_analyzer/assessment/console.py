@@ -196,7 +196,7 @@ class _AssessmentConsole:
         "architecture_analyst": "architecture",
         "trust_boundary_analyst": "trust boundaries",
         "control_analyst": "controls",
-        "stride_analyzer": "STRIDE",
+        "stride_analyzer": "survey",
         "test_case_investigator": "verification",
         "open_reviewer": "open review",
         "evidence_verifier": "evidence review",
@@ -222,8 +222,8 @@ class _AssessmentConsole:
         ("Reviewing trust crossing", "Trust boundaries"),
         ("Assessing controls", "Controls"),
         ("Running deterministic source scanners", "Threat analysis"),
-        ("Analyzing all STRIDE categories", "Threat analysis"),
-        ("Finished STRIDE job", "Threat analysis"),
+        ("Surveying component", "Threat analysis"),
+        ("Finished survey job", "Threat analysis"),
         ("Independently verifying evidence", "Threat analysis"),
         ("Analyzed component", "Threat analysis"),
         ("Reviewing merge candidates", "Consolidation"),
@@ -255,7 +255,7 @@ class _AssessmentConsole:
         "Reviewing trust crossing batch",
         "Reviewing trust crossing",
         "Assessing controls",
-        "Analyzing all STRIDE categories",
+        "Surveying component",
         "Reviewing findings as architect",
         "Reviewing promoted findings as architect",
         "Verifying abuse case",
@@ -263,7 +263,7 @@ class _AssessmentConsole:
     )
     # Subjects that also get a permanent line each, so the run's console
     # names every discovered repository, analyzed component and verified abuse case.
-    LISTED = ("Discovering repository", "Analyzing all STRIDE categories", "Verifying abuse case")
+    LISTED = ("Discovering repository", "Surveying component", "Verifying abuse case")
     # Listed names come from repository files and model output.
     _NAME_MAX = 100
     # What a phase's subjects are, for progress lines and the done line's count.
@@ -273,7 +273,7 @@ class _AssessmentConsole:
         "Reviewing trust crossing batch": "batch",
         "Reviewing trust crossing": "crossing",
         "Assessing controls": "component",
-        "Analyzing all STRIDE categories": "component",
+        "Surveying component": "component",
         "Reviewing findings as architect": "architect review",
         "Reviewing promoted findings as architect": "architect review",
         "Verifying abuse case": "abuse case",
@@ -336,7 +336,7 @@ class _AssessmentConsole:
         # Roles whose last answer was rejected: their next answer is the correction.
         self.correcting: set = set()
         # Components in analysis, in start order: name -> finished and planned
-        # STRIDE jobs and the current stage; and the components finished.
+        # survey jobs and the current stage; and the components finished.
         self.units: dict[str, dict] = {}
         self.units_done = 0
         # Verification jobs after the survey, known once the survey has finished (REQ-040).
@@ -916,10 +916,10 @@ class _AssessmentConsole:
             self._heartbeat(now)
 
     # Steps of a component analyzed concurrently with others (MR-16): its
-    # start, each finished STRIDE job, its evidence review and its end.
+    # start, each finished survey job, its evidence review and its end.
     UNIT_STEPS = (
-        "Analyzing all STRIDE categories",
-        "Finished STRIDE job",
+        "Surveying component",
+        "Finished survey job",
         "Independently verifying evidence",
         "Analyzed component",
     )
@@ -930,7 +930,7 @@ class _AssessmentConsole:
         name = self._POSITION.sub("", text[len(prefix) :].lstrip(": "))
         name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
         with _AssessmentConsole._lock:
-            if prefix == "Analyzing all STRIDE categories":
+            if prefix == "Surveying component":
                 self.positioned = True
                 if position:
                     self.count = (max(int(position[2]), self.count[0] if self.count else 0), "component")
@@ -938,7 +938,7 @@ class _AssessmentConsole:
                 line = f"component {position[1]}/{position[2]} · {name}" if position else name
                 if not self.live:
                     self.record("·", line, now)
-            elif prefix == "Finished STRIDE job":
+            elif prefix == "Finished survey job":
                 unit = self.units.get(name)
                 if unit is not None and position:
                     unit["done"], unit["total"] = int(position[1]), int(position[2])
@@ -966,7 +966,7 @@ class _AssessmentConsole:
 
     @staticmethod
     def _unit_progress(unit: dict) -> int:
-        """Percent of one component: its STRIDE jobs, then one share for the evidence review."""
+        """Percent of one component: its survey jobs, then one share for the evidence review."""
         if unit["stage"] == "review":
             return 90
         if not unit["total"]:
