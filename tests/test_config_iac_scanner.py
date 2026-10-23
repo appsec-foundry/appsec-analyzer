@@ -529,3 +529,47 @@ def test_absence_still_holds_reruns_the_check_on_the_current_repository(tmp_path
     _write(repo / "Dockerfile", "FROM runtime:1\nUSER app\n")
     assert scanner.absence_still_holds(repo, "IAC-900", ["Dockerfile"], checks_path=catalog) is False
     assert scanner.absence_still_holds(repo, "IAC-999", ["Dockerfile"], checks_path=catalog) is None
+
+
+def test_scan_records_whether_each_check_was_violated_satisfied_or_not_applicable(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Dockerfile").write_text("FROM runtime:1\nUSER app\nRUN install\n", encoding="utf-8")
+    checks = [
+        _check("IAC-001", "Dockerfile", "Dockerfile", "present", pattern=r"^USER "),
+        _check("IAC-002", "Dockerfile", "Dockerfile", "absent", pattern="RUN install"),
+        _check("IAC-003", "npm_config", "package.json", "absent", pattern='"postinstall"'),
+        _check("IAC-004", "npm_config", "package-lock.json", "file_exists", pattern=""),
+    ]
+
+    result = scanner.scan(repo, _catalog(tmp_path, checks), depth="standard", output=tmp_path / "out.json")
+
+    assert {row["check_id"]: (row["status"], row["files"]) for row in result["rules_evaluated"]} == {
+        "IAC-001": ("satisfied", 1),
+        "IAC-002": ("violated", 1),
+        "IAC-003": ("not_applicable", 0),
+        "IAC-004": ("violated", 0),
+    }
+    assert len(result["rules_evaluated"]) == result["checks_run"]
+    assert {row["check_id"] for row in result["rules_evaluated"] if row["status"] == "violated"} == {
+        row["check_id"] for row in result["findings"]
+    }
+
+
+def test_repository_checks_are_not_applicable_without_their_precondition(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text("x\n", encoding="utf-8")
+    check = _check(
+        "IAC-040",
+        "github_workflow",
+        ".github/workflows/*.yml",
+        "repository",
+        capability="sbom",
+        precondition="has_build_pipeline",
+    )
+
+    result = scanner.scan(repo, _catalog(tmp_path, [check]), depth="standard", output=tmp_path / "out.json")
+
+    assert result["rules_evaluated"] == [{"check_id": "IAC-040", "status": "not_applicable", "files": 0}]
+    assert result["findings"] == []

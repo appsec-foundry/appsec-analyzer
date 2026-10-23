@@ -15238,6 +15238,13 @@ def _build_threat_card(
         refs_parts.append(
             f"[OWASP {owasp_ref}:2025]({_OWASP_TOP10_2025_URLS.get(owasp_ref, 'https://owasp.org/Top10/2025/')})"
         )
+    case_ids = [c for c in (t.get("test_case_ids") or []) if re.fullmatch(r"TC-[A-Z]+-[0-9]{2}", str(c))]
+    if case_ids:
+        # REQ-040: the appendix "Verification Items" holds one anchor per verification item.
+        refs_parts.append("Verification items: " + ", ".join(f"[{c}](#{c.lower()})" for c in case_ids))
+        rule_ids = [r for r in (t.get("rule_ids") or []) if re.fullmatch(r"[A-Z][A-Z0-9-]*", str(r))]
+        if rule_ids:
+            refs_parts.append("Rules: " + ", ".join(rule_ids))
     classification_line = ""
     if refs_parts:
         # Item 5: classification label is italic, not bold — the
@@ -15547,6 +15554,8 @@ def _build_threat_card(
             violated_card = "**Violates:** " + " · ".join(_parts)
 
     fields = [meta_line]
+    if verification_card := _verification_card(t):
+        fields.append(verification_card)
     if violated_card:
         fields.append(violated_card)
     if weakness_card:
@@ -16501,6 +16510,252 @@ def _render_platform_security_settings(ctx: RenderContext, env: jinja2.Environme
             if _PLATFORM_ID.fullmatch(str(c.get("id", "")))
         ]
         lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+# Only `control` may read like a control; partial and no-finding labels say they are none.
+_TEST_CASE_OUTCOMES = {
+    "finding": "Finding",
+    "control": "Control evidenced",
+    "partial": "Partial, not a control",
+    "no_finding": "No finding, no control",
+    "undecidable": "Undecidable",
+    "not_applicable": "Not applicable",
+    "disabled": "Disabled",
+}
+_TEST_CASE_ID = re.compile(r"TC-[A-Z]+-[0-9]{2}")
+_TEST_CASE_FINDING_ID = re.compile(r"TCF-[0-9]{3,}")
+
+
+def _table_text(value: object) -> str:
+    return " ".join(str(value).replace("|", "/").split())
+
+
+def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
+    """Every catalog test case with its outcome in this run (REQ-040).
+
+    The catalog supplies titles, objectives, and evidence rules; the model supplies the outcomes. A test
+    case without a result in this run is listed as not examined, never as a control. A model-investigated
+    test case has one row per component."""
+    block = ctx.yaml_data.get("test_case_results")
+    results = block.get("results") if isinstance(block, dict) else None
+    if not isinstance(results, list):
+        return ""
+    by_id: dict[str, list[dict]] = {}
+    for row in results:
+        if isinstance(row, dict) and "test_case_id" in row:
+            by_id.setdefault(row["test_case_id"], []).append(row)
+    names = component_names(ctx.yaml_data)
+
+    def component(row: dict) -> str:
+        return _safe_boundary_text(names.get(str(row.get("component_id")), row.get("component_id")), table=True)
+
+    try:
+        catalog = yaml.safe_load((PLUGIN_ROOT / "data" / "test-cases.yaml").read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        catalog = {}
+    cases = [case for case in catalog.get("test_cases", []) if isinstance(case, dict)]
+    counts: dict[str, int] = {}
+    for row in results:
+        counts[row.get("outcome")] = counts.get(row.get("outcome"), 0) + 1
+    summary = " · ".join(
+        f"{counts[key]} {label.lower()}" for key, label in _TEST_CASE_OUTCOMES.items() if key in counts
+    )
+    lines = [
+        '<a id="appendix-verification-items"></a>',
+        "## Appendix: Verification Items",
+        "",
+        f"Verification catalog version {block.get('catalog_version')}. Examined in this run: {summary or 'none'}. "
+        "A verification item is reported as a control only when every applicable rule is satisfied; a rule without "
+        "a recorded scanner result never counts as satisfied. A finding that several verification items link counts "
+        "once in the severity totals and once per verification item here.",
+        "",
+    ]
+    incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
+    if incomplete:
+        lines += [
+            f"Verification of {', '.join(incomplete)} is incomplete: the model budget ended before every job ran, "
+            "so the items it did not reach are undecidable.",
+            "",
+        ]
+    if any(row.get("scope") == "component" for rows in by_id.values() for row in rows):
+        lines += [
+            "A model-investigated verification item shows one row per component. It is a control only when the "
+            "control is evidenced at every candidate location; a partial, no finding or undecidable result is never a "
+            "control. Comments, documentation and controls outside the examined sources are not control evidence.",
+            "",
+        ]
+
+    def inapplicable(rows: list[dict]) -> list[dict]:
+        """The not-applicable component rows of a test case, when several share one line."""
+        found = [row for row in rows if row.get("scope") == "component" and row.get("outcome") == "not_applicable"]
+        return found if len(found) > 1 else []
+
+    # A verification finding that the survey reported too is shown under the survey's ID.
+    survey_ids = {
+        str(row.get("id")): [str(v) for v in row.get("survey_finding_ids") or [] if re.fullmatch(r"T-\d{3,}", str(v))]
+        for row in ctx.yaml_data.get("test_case_findings") or []
+        if isinstance(row, dict)
+    }
+    lines += ["| Verification item | Aspect | Outcome | Reason |", "|---|---|---|---|"]
+    for case in cases:
+        rows = by_id.get(case["id"]) or []
+        collapsed = inapplicable(rows)
+        shown = [row for row in rows if not any(row is other for other in collapsed)]
+        for row in shown if rows else [None]:
+            outcome = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"]) if row else "Not examined"
+            reason = _table_text(row["reason"]) if row else "Needs a model investigation that this run did not make."
+            subject = f"[{case['id']}](#{case['id'].lower()})"
+            if row and row.get("scope") == "component":
+                subject += f" · {component(row)}"
+            lines.append(f"| {subject} | {case['aspect']} | {outcome} | {reason} |")
+        if collapsed:
+            listed = ", ".join(component(row) for row in collapsed)
+            lines.append(
+                f"| [{case['id']}](#{case['id'].lower()}) · {len(collapsed)} components | {case['aspect']} "
+                f"| {_TEST_CASE_OUTCOMES['not_applicable']} | {_table_text(collapsed[0]['reason'])}: {listed} |"
+            )
+    lines.append("")
+    for case in cases:
+        rows = by_id.get(case["id"]) or []
+        lines += [
+            f'<a id="{case["id"].lower()}"></a>',
+            f"### {case['id']}: {_table_text(case['title'])}",
+            "",
+            f"Mode: {case['mode']}. STRIDE: {', '.join(case['stride'])}. CWE: {', '.join(case['cwe'])}.",
+            "",
+            f"Objective: {_table_text(case['objective'])}",
+            "",
+            f"Evidence for a control: {_table_text(case['evidence']['control'])}.",
+            "",
+        ]
+        collapsed = inapplicable(rows)
+        if collapsed:
+            listed = ", ".join(component(row) for row in collapsed)
+            lines += [f"Not applicable for {len(collapsed)} components: {listed}.", ""]
+        for row in rows:
+            if any(row is other for other in collapsed):
+                continue
+            outcome = f"{_TEST_CASE_OUTCOMES.get(row['outcome'], row['outcome'])}. {_table_text(row['reason'])}."
+            candidates = row.get("candidates") or {}
+            if row.get("scope") == "component":
+                lines += [f"Outcome for {component(row)}: {outcome} {_candidate_counts(candidates)}", ""]
+                if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
+                    lines += ["Evidenced by model review only; no post-check confirmed it.", ""]
+                linked = [
+                    f"{value} (as {', '.join(survey_ids[value])})" if survey_ids.get(value) else value
+                    for value in map(str, row.get("finding_ids") or [])
+                    if _TEST_CASE_FINDING_ID.fullmatch(value)
+                ]
+                if linked:
+                    lines += [
+                        f"Findings: {', '.join(linked)} (see [Verification Findings](#verification-findings)).",
+                        "",
+                    ]
+                continue
+            rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
+            lines += [
+                f"Outcome: {outcome} "
+                f"Evidenced for {candidates.get('evidenced', 0)} of {candidates.get('applicable', 0)} applicable rules.",
+                "",
+                f"Rules: {rules}" if rules else "Rules: none",
+                "",
+            ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _candidate_counts(candidates: dict) -> str:
+    """The candidate locations of a component result, in neutral counts."""
+    parts = [
+        f"{candidates.get(key, 0)} {label}"
+        for key, label in (
+            ("weaknesses", "weakness"),
+            ("evidenced", "control"),
+            ("undecidable", "undecidable"),
+            ("rejected", "rejected"),
+            ("unexamined", "not examined"),
+        )
+        if candidates.get(key)
+    ]
+    return f"Candidate locations: {candidates.get('applicable', 0)}" + (f" ({', '.join(parts)})." if parts else ".")
+
+
+def _verification_card(t: dict) -> str:
+    """REQ-040: whether verification found this survey finding too, or evidenced a control at its location."""
+    cases = [
+        str(c) for c in (t.get("verification") or {}).get("test_case_ids") or [] if _TEST_CASE_ID.fullmatch(str(c))
+    ]
+    found = [
+        str(f)
+        for f in (t.get("verification") or {}).get("finding_ids") or []
+        if _TEST_CASE_FINDING_ID.fullmatch(str(f))
+    ]
+    if found:
+        links = ", ".join(f"[{c}](#{c.lower()})" for c in cases)
+        return f"**Found by:** survey and verification ({', '.join(found)}{'; ' + links if links else ''})"
+    rows = [row for row in t.get("verification_contradicted") or [] if isinstance(row, dict)]
+    spots = [
+        f"[{row['test_case_id']}](#{str(row['test_case_id']).lower()}) at "
+        f"{_safe_boundary_text(row.get('file'), table=True)}:{row.get('line')}"
+        for row in rows
+        if _TEST_CASE_ID.fullmatch(str(row.get("test_case_id")))
+    ]
+    if spots:
+        return (
+            "**Contradicted by verification:** a control was evidenced at "
+            + "; ".join(spots)
+            + ". Check this survey finding before acting on it."
+        )
+    return ""
+
+
+def _render_test_case_findings(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
+    """Verification findings that the survey did not report, listed apart from the findings register (REQ-040)."""
+    findings = [row for row in ctx.yaml_data.get("test_case_findings") or [] if isinstance(row, dict)]
+    rows = [row for row in findings if not row.get("survey_finding_ids")]
+    if not findings:
+        return ""
+    names = component_names(ctx.yaml_data)
+    shared = len(findings) - len(rows)
+    lines = [
+        '<a id="verification-findings"></a>',
+        "## Verification Findings",
+        "",
+        "Verification reported these findings, which the survey did not report at the same location. They do not "
+        "count in the totals of the findings register. The verification appendix shows each verification item's "
+        "outcome per component."
+        + (
+            f" {shared} further verification {'finding' if shared == 1 else 'findings'} matched a survey finding "
+            "with the same CWE at the same location and appear there, marked as found by both methods."
+            if shared
+            else ""
+        ),
+        "",
+    ]
+    if not rows:
+        return "\n".join(lines).rstrip() + "\n"
+    lines += [
+        "| ID | Verification items | Component | Finding | Risk | Location |",
+        "|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        cases = ", ".join(
+            f"[{value}](#{value.lower()})"
+            for value in map(str, row.get("test_case_ids") or [])
+            if _TEST_CASE_ID.fullmatch(value)
+        )
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+        location = (
+            f"{_safe_boundary_text(evidence.get('file'), table=True)}:{evidence.get('line')}"
+            if evidence.get("file")
+            else "—"
+        )
+        name = names.get(str(row.get("component_id")), row.get("component_id"))
+        lines.append(
+            f"| {_safe_boundary_text(row.get('id'), table=True)} | {cases or '—'} "
+            f"| {_safe_boundary_text(name, table=True)} | {_safe_boundary_text(row.get('title'), table=True)} "
+            f"| {_safe_boundary_text(row.get('risk'), table=True)} | {location} |"
+        )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -18265,6 +18520,8 @@ def _render_by_id(ctx: RenderContext, env: jinja2.Environment, section_id: str, 
         "abuse_cases": _render_abuse_cases,
         "mitigation_register": _render_mitigation_register,
         "requirements_compliance": _render_requirements_compliance,
+        "test_case_findings": _render_test_case_findings,
+        "appendix_test_cases": _render_appendix_test_cases,
         "appendix_run_statistics": _render_appendix_run_statistics,
         "composition_notes": _render_composition_notes,
         # M3.3 — `run_issues` no longer rendered into threat-model.md.
@@ -18626,6 +18883,8 @@ def render(
             or any((t.get("vektor") or "").strip() for t in (yaml_data.get("threats") or []) if isinstance(t, dict)),
             "has_trust_boundaries": bool(yaml_data.get("trust_boundaries")),
             "has_platform_settings": bool((yaml_data.get("meta") or {}).get("platform_security_settings")),
+            "has_test_case_results": bool((yaml_data.get("test_case_results") or {}).get("results")),
+            "has_test_case_findings": bool(yaml_data.get("test_case_findings")),
             # Quick-mode §7 gate. False suppresses §7 in both TOC and body
             # (resolver returned `""` — current depth is quick and no rich
             # prior content was found). True keeps §7 — either via the

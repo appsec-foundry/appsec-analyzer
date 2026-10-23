@@ -7523,3 +7523,29 @@ def test_external_boundary_elevations_use_the_ids_triage_recorded(tmp_path):
     )
     compose._external_boundary_elevations_cached.cache_clear()
     assert compose._external_boundary_elevations_cached(str(tmp_path)) == {"T-001": ("tb-2",)}
+
+
+def _card_with(tmp_path: Path, **extra) -> str:
+    ctx = compose.RenderContext(output_dir=tmp_path, contract={}, yaml_data={}, triage={}, fragments_dir=tmp_path)
+    threat = _make_threat_for_cell("Login concatenates email into SQL.", comp_id="C-01")
+    threat["_category"] = "TH-05"
+    threat.update(extra)
+    return compose._build_threat_card(
+        t=threat,
+        sev="critical",
+        taxonomy={"TH-05": {"title": "Injection"}},
+        components={"C-01": {"name": "REST API"}},
+        repo_root=None,
+        ctx=ctx,
+    )
+
+
+def test_classification_line_links_the_test_cases_and_rules_behind_a_finding(tmp_path: Path) -> None:
+    cell = _card_with(tmp_path, test_case_ids=["TC-INPUT-01"], rule_ids=["INJ-001", "INJ-PY-001"])
+    assert "Test cases: [TC-INPUT-01](#tc-input-01) · Rules: INJ-001, INJ-PY-001" in cell
+
+
+def test_classification_line_ignores_malformed_test_case_and_rule_ids(tmp_path: Path) -> None:
+    cell = _card_with(tmp_path, test_case_ids=["TC-x](javascript:alert(1))"], rule_ids=["bad id"])
+    assert "Test cases:" not in cell and "Rules:" not in cell
+    assert "Test cases:" not in _card_with(tmp_path)

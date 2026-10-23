@@ -616,3 +616,43 @@ def test_cli_reads_a_published_set_and_refuses_a_mixed_one(tmp_path):
     legacy.write_text(published.read_text(encoding="utf-8"), encoding="utf-8")
     res = _run(["--output-dir", str(tmp_path)])
     assert res.returncode == 2 and "both" in res.stderr and not res.stdout
+
+
+def test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them(tmp_path):
+    body = """\
+        meta: {project: {name: Demo}}
+        threats:
+          - {t_id: T-001, risk: High}
+        test_case_results:
+          catalog_version: "1"
+          results:
+            - {test_case_id: TC-CI-01, outcome: finding}
+            - {test_case_id: TC-CI-02, outcome: control}
+            - {test_case_id: TC-INFRA-01, outcome: control}
+            - {test_case_id: TC-INFRA-02, outcome: undecidable}
+    """
+    _write_model(tmp_path, body)
+    assert ("Verification", "4 examined · 1 finding · 2 controls · 1 undecidable") in stm.completion_rows(tmp_path)
+    assert all("incomplete" not in text for _, text in stm.completion_rows(tmp_path))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _write_model(plain, "meta: {project: {name: Demo}}\nthreats:\n  - {t_id: T-001, risk: High}\n")
+    assert all(label != "Verification" for label, _ in stm.completion_rows(plain))
+
+
+def test_completion_rows_name_aspects_the_budget_left_incomplete(tmp_path):
+    body = """\
+        meta: {project: {name: Demo}}
+        threats:
+          - {t_id: T-001, risk: High}
+        test_case_results:
+          catalog_version: "1"
+          incomplete_aspects: [AuthZ, InputVal]
+          results:
+            - {test_case_id: TC-AUTHZ-01, outcome: undecidable}
+    """
+    _write_model(tmp_path, body)
+    assert (
+        "",
+        "incomplete for AuthZ, InputVal: the budget ended before every verification job ran",
+    ) in stm.completion_rows(tmp_path)

@@ -1,0 +1,153 @@
+# code-sites.yaml: fixed patterns that mark code sites as starting points of test cases (REQ-040).
+#
+# A site is a line of comment-blanked code outside test files that a pattern
+# matches. It is a hint for the model investigation, never a verdict. A test
+# case names a kind in its starting points as ``code_sites.<kind>``; a route
+# whose resolved handler reaches a site of that kind becomes the candidate, and
+# a site no route of the component reaches becomes a candidate of its own.
+#
+# A kind takes its pattern from ``patterns`` (alternatives, joined), from the
+# applicability ``signal`` of the same name in model/case_candidates.py, or
+# from ``source: egress_clients``, the outbound calls whose destination the
+# request chooses. ``scope: model`` limits a kind to files that define data
+# models. ``matches`` and ``ignores`` are lines the pattern must and must not
+# mark; tests/test_case_candidates.py checks them. Structure:
+# schemas/code-sites.schema.yaml.
+version: 1
+model_file:
+- 'sequelize\.define\s*\('
+- '\.init\s*\(\s*\{'
+- 'DataTypes\.'
+- '\bmongoose\.Schema\b'
+- '\bnew\s+Schema\s*\('
+- '@Column\b'
+- '\bmodels\.Model\b'
+- '\bdb\.Column\s*\('
+kinds:
+- kind: raw_query
+  description: a query runs from a string, which may contain input
+  patterns:
+  - '\.(?:query|raw|rawQuery|execute|executemany|executeQuery|executeUpdate)\s*\('
+  - '\.\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)\s*\('
+  - '\bknex\.raw\s*\('
+  - '\bcreateStatement\s*\('
+  matches:
+  - "models.sequelize.query(`SELECT * FROM Users WHERE email = '${req.body.email}'`)"
+  - 'cursor.execute("SELECT * FROM users WHERE id = %s" % uid)'
+  - 'await prisma.$queryRawUnsafe(sql)'
+  ignores:
+  - 'Product.findAll({ where: { id: req.params.id } })'
+  - 'const term = req.query.q'
+- kind: nosql_query
+  description: a document store query on a collection, or a $where expression
+  patterns:
+  - '\$where\b'
+  - '\b\w{0,64}[Cc]ollection\s*\.\s*(?:find|findOne|update|updateOne|updateMany|remove|deleteOne|deleteMany|count|countDocuments|aggregate)\s*\('
+  - '\bdb\s*\.\s*collection\s*\('
+  matches:
+  - "db.reviewsCollection.find({ $where: 'this.product == ' + id })"
+  - 'db.reviewsCollection.update({ _id: req.body.id }, { $set: { message } })'
+  - "const users = db.collection('users')"
+  ignores:
+  - 'UserModel.findOne({ where: { email } })'
+  - 'await user.update({ password: newPassword })'
+  - 'items.find(item => item.id === id)'
+- kind: command
+  description: code runs a command, evaluates code, or compiles a template
+  signal: command_execution
+  matches:
+  - 'const result = vm.runInContext(code, sandbox)'
+  - 'exec(`convert ${file} out.png`)'
+  ignores:
+  - 'const executor = new Executor()'
+- kind: html_output
+  description: content reaches HTML without the framework's encoding
+  patterns:
+  - 'bypassSecurityTrust(?:Html|Script|Style|Url|ResourceUrl)\s*\('
+  - '\[innerHTML\]\s*='
+  - '\.(?:innerHTML|outerHTML)\s*='
+  - 'insertAdjacentHTML\s*\('
+  - 'document\.write\s*\('
+  - 'dangerouslySetInnerHTML'
+  - '\bv-html\b'
+  - '\.html\s*\(\s*[^)\s]'
+  - '<%-'
+  - '\{\{\{'
+  - '\|\s*safe\b'
+  - '\bres\.(?:send|write|end)\s*\([^)\n]*(?:\+|\$\{)'
+  matches:
+  - 'this.sanitizer.bypassSecurityTrustHtml(this.searchValue)'
+  - '<div [innerHTML]="product.description"></div>'
+  - "res.send('<h1>' + req.query.name + '</h1>')"
+  ignores:
+  - '<div>{{ product.description }}</div>'
+  - 'res.send(result)'
+- kind: parser
+  description: code parses XML or deserializes data
+  signal: xml_or_deserialization
+  matches:
+  - 'const doc = libxml.parseXml(data, { noent: true })'
+  ignores:
+  - 'const data = JSON.stringify(order)'
+- kind: file_path
+  description: code reads, writes, or serves a file by path
+  signal: file_access
+  matches:
+  - 'res.sendFile(path.resolve("ftp/", file))'
+  ignores:
+  - 'const fileName = "report.pdf"'
+- kind: upload
+  description: code accepts uploads or extracts archives
+  signal: uploads_or_archives
+  matches:
+  - 'const upload = multer({ storage })'
+  ignores:
+  - 'const uploaded = true'
+- kind: transport
+  description: code starts a server or sets transport security
+  ignore_case: true
+  patterns:
+  - 'rejectUnauthorized\s*:\s*false'
+  - 'NODE_TLS_REJECT_UNAUTHORIZED'
+  - '\bsecure\s*:\s*false'
+  - '\bhelmet\b'
+  - '\bhsts\b'
+  - 'strictTransportSecurity'
+  - '\bhttps?\.createServer\s*\('
+  - '\b(?:app|server)\.listen\s*\('
+  matches:
+  - 'const agent = new https.Agent({ rejectUnauthorized: false })'
+  - 'app.listen(port)'
+  - "res.cookie('token', token, { secure: false })"
+  ignores:
+  - 'const server = createWorker()'
+- kind: sensitive_field
+  description: a data model defines a credential, payment, or personal secret field
+  scope: model
+  ignore_case: true
+  patterns:
+  - '^\s*(?:password|passwd|pwd|totpSecret|secret\w*|token\w*|api_?key|card_?num\w*|card_?number|cvv|ssn|security_?answer|answer|iban|account_?number)\s*[:=(]'
+  matches:
+  - '  password: {'
+  - '  cardNum: DataTypes.INTEGER,'
+  ignores:
+  - '  email: {'
+  - 'const password = req.body.password'
+- kind: outbound_request
+  description: an outbound call goes to a destination the request chooses
+  source: egress_clients
+- kind: llm_call
+  description: code calls a language model or defines a tool the model may call
+  patterns:
+  - '\b(?:generateText|streamText|generateObject|streamObject)\s*\('
+  - '\btool\s*\(\s*\{'
+  - '\bchat\s*\.\s*completions\s*\.\s*create\s*\('
+  - '\bmessages\s*\.\s*create\s*\('
+  - '\bresponses\s*\.\s*create\s*\('
+  - '\bgenerateContent\s*\('
+  matches:
+  - 'const result = streamText({ model, system: systemPrompt, messages })'
+  - 'const completion = await client.chat.completions.create({ model, messages })'
+  - 'lookupOrder: tool({ description, inputSchema, execute })'
+  ignores:
+  - 'const text = generateId()'

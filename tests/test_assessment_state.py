@@ -149,6 +149,20 @@ def test_interrupted_session_releases_lock_and_resumes_same_identity(scope):
         assert resumed.budget.deadline <= initial.budget.deadline + 1
 
 
+def test_budget_holds_are_never_persisted_and_start_empty_on_resume(scope):
+    initial = lifecycle(scope)
+    with initial.hold():
+        initial.budget.hold("open-review", 0.5, 3)
+        initial.budget.calls, initial.budget.spent_usd = 1, 0.01
+        initial.checkpoint()
+        assert "hold" not in json.dumps(stored(scope))
+        assert stored(scope)["accounting"].keys() == {"calls", "spent_usd", "unavailable"}
+    # The controller recomputes holds for a resumed run.
+    resumed = lifecycle(scope, resume=True)
+    with resumed.hold():
+        assert resumed.budget.holds == {} and resumed.budget.calls == 1
+
+
 def test_worked_time_continues_across_attempts_without_the_pause_between_them(scope, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])

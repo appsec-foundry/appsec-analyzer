@@ -1,0 +1,1586 @@
+# test-cases.yaml: catalog of named security test cases (REQ-040).
+#
+# A test case is a security question for one aspect, not a detector. Scanner
+# rules and facts are starting points, never limits. Only Analyzer's own
+# package defines test cases; repository content cannot add, select, or
+# disable them. Structure: schemas/test-cases.schema.yaml.
+#
+# mode: rules   - outcome follows from the rules, no model call by default
+#       seeded  - rules seed a model investigation
+#       model   - little or no rule support
+#
+# unmapped_rules lists scanner rules that are deliberately not a starting point.
+version: 1
+catalog_version: '4'
+aspects:
+- id: IAM
+  title: Identity and authentication
+- id: SessionMgmt
+  title: Session management
+- id: AuthZ
+  title: Authorization
+- id: InputVal
+  title: Input handling
+- id: DataProt
+  title: Data protection
+- id: Crypto
+  title: Cryptography
+- id: FrontendSec
+  title: Frontend and mobile client security
+- id: Audit
+  title: Logging and auditing
+- id: Availability
+  title: Availability
+- id: BusinessLogic
+  title: Business logic
+- id: AI
+  title: AI features
+- id: Infra
+  title: Infrastructure
+- id: SupplyChain
+  title: Supply chain and CI
+- id: DevTooling
+  title: Developer tooling
+test_cases:
+- id: TC-AUTHN-01
+  title: Sensitive routes, operations, and channels require authentication
+  aspect: IAM
+  stride:
+  - Spoofing
+  - Elevation of Privilege
+  cwe:
+  - CWE-306
+  mode: seeded
+  objective: Determine whether every route, operation, and channel that reaches sensitive data or functions requires an authenticated caller.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules:
+    - AUTHZ-008
+    - ARCH-AUTHN-001
+    - ARCH-MGMT-001
+    facts:
+    - route_inventory.authn_signal
+    - route_inventory.missing_authz_suspect
+  guidance: Start with the unauthenticated route candidates. Also check non-HTTP entry points such as WebSocket handlers, GraphQL resolvers, jobs, and exports. Reject candidates that are public by design, with evidence.
+  scope: component
+  controls:
+  - Password-Based Login
+  - Anonymous Access (No Authentication)
+  - WebSocket Authentication
+  evidence:
+    finding: route or channel, the sensitive operation it reaches, and the missing authentication check
+    control: location where authentication is enforced for the route or channel
+  post:
+  - check: route-registered
+  - check: handler-chain-lacks-guard
+    guard: authentication
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-01/
+- id: TC-AUTHN-02
+  title: Tokens are verified with a pinned algorithm and a server-held key
+  aspect: IAM
+  stride:
+  - Spoofing
+  cwe:
+  - CWE-347
+  - CWE-345
+  mode: seeded
+  objective: Determine whether every token the application accepts is verified with a pinned algorithm and a key held by the server.
+  applies_when:
+  - signal: jwt_usage
+  starting_points:
+    rules:
+    - AUTHZ-005
+    - AUTHZ-006
+    - AUTHZ-007
+    - AUTHZ-103
+    - AUTHZ-201
+    - AUTHZ-GO-001
+    - AUTHZ-CS-001
+    - AUTHZ-PHP-001
+    - AUTHZ-RB-001
+    - ARCH-JWT-001
+  guidance: Check each place that parses or decodes tokens, including libraries wrapped by middleware. A decode without verification is a weakness only where its result is trusted.
+  scope: component
+  controls:
+  - Session Token Validation (JWT Based)
+  - Session Token Signing (JWT Based)
+  evidence:
+    finding: token parsing call and the missing or unpinned verification
+    control: location of the verification call with its algorithm and key source
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-02/
+- id: TC-AUTHN-03
+  title: Token expiry, issuer, and audience are validated
+  aspect: IAM
+  stride:
+  - Spoofing
+  cwe:
+  - CWE-345
+  mode: seeded
+  objective: Determine whether token lifetime, issuer, and audience are checked wherever tokens are accepted.
+  applies_when:
+  - signal: jwt_usage
+  starting_points:
+    rules:
+    - AUTHZ-009
+    - AUTHZ-104
+    - AUTHZ-CS-003
+  guidance: Distinguish explicitly disabled claim checks from library defaults and name the default when relying on it.
+  scope: component
+  controls:
+  - Session Token Expiry
+  - Session Token Validation (JWT Based)
+  evidence:
+    finding: verification call with the disabled or missing claim check
+    control: location of the claim validation
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-03/
+- id: TC-AUTHN-04
+  title: Passwords are strong and stored with an adaptive hash
+  aspect: IAM
+  stride:
+  - Spoofing
+  - Information Disclosure
+  cwe:
+  - CWE-916
+  - CWE-521
+  mode: seeded
+  objective: Determine whether passwords are subject to a minimum strength and stored only with an adaptive hash and a sufficient cost.
+  applies_when:
+  - signal: password_handling
+  starting_points:
+    rules:
+    - AUTHN-002
+    - CRYPTO-003
+    - CRYPTO-001
+    - CRYPTO-JAVA-001
+    - CRYPTO-PY-001
+    - CRYPTO-GO-001
+    - CRYPTO-CS-001
+    - CRYPTO-PHP-001
+    - CRYPTO-RB-001
+    - CRYPTO-KT-001
+    - CRYPTO-SWIFT-001
+    - CRYPTO-DART-001
+  guidance: A broken hash in code that does not handle passwords belongs to TC-CRYPTO-01. Check registration, password change, and reset paths, not only login.
+  scope: component
+  controls:
+  - Password Hashing
+  - Password-Based Login
+  - User Registration
+  evidence:
+    finding: password storage or policy code and the weak hash, cost, or policy
+    control: location of the adaptive hash call with its cost and of the policy check
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-04/
+- id: TC-AUTHN-05
+  title: Recovery, re-authentication, and login responses resist takeover and enumeration
+  aspect: IAM
+  stride:
+  - Spoofing
+  - Information Disclosure
+  cwe:
+  - CWE-640
+  - CWE-204
+  mode: model
+  objective: Determine whether account recovery, password change, and login responses prevent takeover and do not reveal which accounts exist.
+  applies_when:
+  - signal: password_handling
+  starting_points:
+    rules:
+    - AUTHN-001
+  guidance: Check whether a password change needs the current password, whether recovery relies on guessable answers, and whether responses and timing differ for known and unknown accounts.
+  scope: component
+  controls:
+  - Password Reset
+  - Password Change
+  - Multi-Factor Verification (TOTP)
+  evidence:
+    finding: recovery, change, or login handler and the missing verification step
+    control: location of the verification step or uniform response
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-05/
+- id: TC-SESSION-01
+  title: Session tokens are protected in storage, transport, lifetime, and logout
+  aspect: SessionMgmt
+  stride:
+  - Spoofing
+  - Information Disclosure
+  cwe:
+  - CWE-613
+  - CWE-1004
+  - CWE-614
+  mode: model
+  objective: Determine whether session tokens are protected against theft and reuse in storage, transport, lifetime, and logout.
+  applies_when:
+  - signal: session_handling
+  starting_points:
+    rules:
+    - ARCH-COOKIE-001
+  guidance: Check cookie attributes, token storage in the browser, server-side invalidation at logout and password change, and session lifetime.
+  scope: component
+  controls:
+  - Session Token Storage (Browser localStorage)
+  - Session Token Revocation
+  - Session Token Expiry
+  evidence:
+    finding: session creation or storage code and the missing protection
+    control: location of the protecting attribute, invalidation, or lifetime limit
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-SESSION-01/
+- id: TC-AUTHZ-01
+  title: Object access checks the owner
+  aspect: AuthZ
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-639
+  mode: seeded
+  objective: Determine whether every access to user-owned objects in this component is bound to the authenticated caller or tenant.
+  applies_when:
+  - signal: object_id_routes
+  starting_points:
+    rules:
+    - AUTHZ-001
+    - AUTHZ-002
+    - AUTHZ-301
+    - ARCH-BOLA-001
+    facts:
+    - route_inventory.missing_authz_suspect
+    - route_inventory.authn_signal
+  guidance: Start with the candidates. Also check other entry points of the component that reach the same data, such as WebSocket handlers, GraphQL resolvers, jobs, or exports. Consider compensating controls such as ORM scopes, policies, or row-level security that the repository enforces. Reject candidates that are public by design, with evidence. Routes that accept a request body are candidates as well, because the body can carry the object identifier, as in an update that takes the ID from the body. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
+  scope: component
+  controls:
+  - Object-Level Authorization
+  evidence:
+    finding: request input, data access, and the location where the ownership check is missing
+    control: location of the ownership comparison
+  post:
+  - check: route-registered
+  - check: handler-chain-lacks-guard
+    guard: ownership
+  - check: variant-search
+    pattern: same data-access pattern in other handlers of the component
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-01/
+- id: TC-AUTHZ-02
+  title: Privileged operations check the role or permission
+  aspect: AuthZ
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-285
+  - CWE-862
+  mode: seeded
+  objective: Determine whether every privileged operation checks the caller's role or permission on the server.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules:
+    - AUTHZ-302
+    - ARCH-AUTHZ-001
+    facts:
+    - route_inventory.missing_authz_suspect
+    - route_inventory.state_changing
+    - route_inventory.authenticated_read_without_id
+  guidance: Compare the operations a client interface offers only to administrators with the checks on the server. Check administrative routes registered outside the main router. Authenticated reads without an object identifier are candidates as well, because a list of other users' records is a privileged operation unless the server limits it to the caller. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
+  scope: component
+  controls:
+  - Role-Based Access Control
+  - Explicit Deny Baseline
+  evidence:
+    finding: privileged operation and the missing role or permission check
+    control: location of the role or permission check
+  post:
+  - check: route-registered
+  - check: handler-chain-lacks-guard
+    guard: authorization
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-02/
+- id: TC-AUTHZ-03
+  title: Request bodies cannot set privileged fields
+  aspect: AuthZ
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  cwe:
+  - CWE-915
+  mode: seeded
+  objective: Determine whether request bodies can set fields that only the server or a privileged role may set, such as role, owner, price, or status.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules:
+    - AUTHZ-003
+    - AUTHZ-004
+    - AUTHZ-101
+    - AUTHZ-102
+    - AUTHZ-202
+    - AUTHZ-PHP-002
+    - AUTHZ-RB-002
+    facts:
+    - route_inventory.accepts_body
+    abuse_cases:
+    - AC-T-002
+  guidance: Check create and update handlers that pass a request body to a model or ORM, and the field allow-lists they use. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
+  scope: component
+  controls:
+  - Mass-Assignment Prevention
+  evidence:
+    finding: handler, the request body binding, and the privileged field it can set
+    control: location of the field allow-list or explicit field assignment
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-03/
+- id: TC-AUTHZ-04
+  title: Tenant data stays isolated
+  aspect: AuthZ
+  stride:
+  - Information Disclosure
+  - Elevation of Privilege
+  cwe:
+  - CWE-639
+  - CWE-284
+  mode: model
+  objective: Determine whether data of one tenant is reachable only with that tenant's identity at every data access.
+  applies_when:
+  - signal: tenant_identifier
+  starting_points:
+    rules: []
+    facts:
+    - capability_signals.tenant_identifier
+  guidance: Check that the tenant identifier comes from the authenticated identity and not from the request, and that queries, caches, and background jobs are scoped by it.
+  scope: component
+  controls:
+  - Object-Level Authorization
+  evidence:
+    finding: data access without tenant scoping or with a client-supplied tenant identifier
+    control: location of the tenant scope on the data access
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-04/
+- id: TC-AUTHZ-05
+  title: Authorization the client interface implies is enforced on the server
+  aspect: AuthZ
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-602
+  - CWE-285
+  mode: model
+  objective: Determine whether restrictions that the client interface implies, such as hidden buttons or disabled forms, are also enforced by the server.
+  applies_when:
+  - signal: frontend_code
+  starting_points:
+    rules: []
+  guidance: Start from client code that hides or disables functions by role and follow each to its server endpoint.
+  scope: component
+  controls:
+  - Role-Based Access Control
+  evidence:
+    finding: client restriction and the server endpoint that lacks the matching check
+    control: location of the server-side check
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-05/
+- id: TC-AUTHZ-06
+  title: Callers cannot read or change data beyond their rights
+  aspect: AuthZ
+  stride:
+  - Information Disclosure
+  - Tampering
+  - Elevation of Privilege
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether a caller can read, change, or delete records of other users, or records that only privileged roles may change, by any path in this component.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. List the component's data objects that belong to users or that only privileged roles may change, such as accounts, orders, baskets, balances, prices, and reviews, and check every way a request reaches each of them, including routes the candidates do not list, generated routes, bulk operations, and indirect writes. Add a candidate for each path that achieves the goal. A finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - Object-Level Authorization
+  - Role-Based Access Control
+  evidence:
+    finding: the data object, the request path that reaches it, and the missing check
+    control: location of the check that keeps the object out of reach
+  post:
+  - check: route-registered
+  - check: handler-chain-lacks-guard
+    guard: ownership
+  - check: handler-chain-lacks-guard
+    guard: authorization
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-06/
+- id: TC-INPUT-01
+  title: Database queries are parameterized
+  aspect: InputVal
+  stride:
+  - Tampering
+  cwe:
+  - CWE-89
+  mode: seeded
+  objective: Determine whether request-derived values reach database queries only as bound parameters.
+  applies_when:
+  - signal: database_access
+  starting_points:
+    rules:
+    - INJ-001
+    - INJ-JAVA-001
+    - INJ-PY-001
+    - INJ-GO-001
+    - INJ-CS-001
+    - INJ-PHP-001
+    - INJ-RB-001
+    - MOBILE-AND-001
+    - MOBILE-DART-001
+    - ARCH-SQLI-001
+    abuse_cases:
+    - AC-T-001
+    facts:
+    - code_sites.raw_query
+  guidance: 'Trace persisted input to its sink: a value stored earlier and used in a query later is request-derived. Give input, sink, and connection for injection findings. The candidates are code sites that fixed patterns found; examine other sites of the component too.'
+  scope: component
+  controls:
+  - Parameterized Database Access
+  evidence:
+    finding: input source, the query construction, and the database connection
+    control: location of the parameter binding or query builder
+  post:
+  - check: site-reached
+    site: raw_query
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-01/
+- id: TC-INPUT-02
+  title: NoSQL predicates are not built from input
+  aspect: InputVal
+  stride:
+  - Tampering
+  cwe:
+  - CWE-943
+  mode: seeded
+  objective: Determine whether query predicates for document databases are free of request-controlled operators and code.
+  applies_when:
+  - signal: database_access
+  starting_points:
+    rules:
+    - INJ-NODE-006
+    facts:
+    - code_sites.nosql_query
+  guidance: Check queries that pass a request object or string as the predicate and operators such as $where or $ne reachable from input. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Parameterized Database Access
+  - Input Schema Validation
+  evidence:
+    finding: input source and the query predicate it controls
+    control: location of the schema validation or fixed predicate
+  post:
+  - check: site-reached
+    site: nosql_query
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-02/
+- id: TC-INPUT-03
+  title: Input cannot reach OS commands, code evaluation, or template compilation
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  cwe:
+  - CWE-78
+  - CWE-94
+  - CWE-1336
+  mode: seeded
+  objective: Determine whether request-derived values can reach a shell, a code evaluator, or a template compiler.
+  applies_when:
+  - signal: command_execution
+  starting_points:
+    rules:
+    - INJ-002
+    - INJ-JAVA-002
+    - INJ-PY-002
+    - INJ-GO-002
+    - INJ-CS-002
+    - INJ-PHP-002
+    - INJ-RB-002
+    - INJ-NODE-007
+    - INJ-NODE-008
+    - ARCH-INPUT-001
+    abuse_cases:
+    - AC-T-001
+    facts:
+    - code_sites.command
+  guidance: Trace persisted input to its sink. Give input, sink, and connection. A sandbox counts only where the repository enforces it and the payload cannot leave it. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Input Schema Validation
+  - Sandbox Isolation
+  evidence:
+    finding: input source and the command, evaluator, or compiler it reaches
+    control: location of the fixed command, argument array, or sandbox
+  post:
+  - check: site-reached
+    site: command
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-03/
+- id: TC-INPUT-04
+  title: Output is encoded for its context, including DOM sinks
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Information Disclosure
+  cwe:
+  - CWE-79
+  mode: model
+  objective: Determine whether untrusted values are encoded for the context in which they are rendered, including server templates and DOM sinks.
+  applies_when:
+  - signal: frontend_code
+  starting_points:
+    rules:
+    - ARCH-XSS-001
+    - ARCH-XSS-002
+    facts:
+    - code_sites.html_output
+  guidance: Check template bypasses, raw HTML insertion, DOM sinks such as innerHTML, and values that are stored and rendered later. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Output Encoding
+  - Content Security Policy
+  evidence:
+    finding: untrusted value, the rendering sink, and the missing encoding
+    control: location of the context-aware encoding or sanitizer
+  post:
+  - check: site-reached
+    site: html_output
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-04/
+- id: TC-INPUT-05
+  title: Outbound requests cannot be steered to unintended destinations
+  aspect: InputVal
+  stride:
+  - Information Disclosure
+  - Tampering
+  cwe:
+  - CWE-918
+  mode: seeded
+  objective: Determine whether request-derived values can choose the destination of an outbound request.
+  applies_when:
+  - signal: outbound_requests
+  starting_points:
+    rules:
+    - INJ-003
+    - INJ-JAVA-003
+    - INJ-PY-003
+    - INJ-GO-003
+    - INJ-CS-003
+    - INJ-PHP-003
+    - INJ-RB-003
+    facts:
+    - code_sites.outbound_request
+  guidance: Check URL allow-lists, redirects followed by the client, and image or webhook fetchers. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Network Segmentation
+  - Input Schema Validation
+  evidence:
+    finding: input source and the outbound request it controls
+    control: location of the destination allow-list
+  post:
+  - check: site-reached
+    site: outbound_request
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-05/
+- id: TC-INPUT-06
+  title: Parsers reject external entities and unsafe deserialization
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Information Disclosure
+  - Elevation of Privilege
+  cwe:
+  - CWE-611
+  - CWE-502
+  mode: seeded
+  objective: Determine whether XML parsers disable external entities and whether deserialization of untrusted data is restricted to safe types.
+  applies_when:
+  - signal: xml_or_deserialization
+  starting_points:
+    rules:
+    - INJ-005
+    - ARCH-INPUT-001
+    facts:
+    - code_sites.parser
+  guidance: Check parser configuration and the origin of the bytes that are deserialized. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Input Schema Validation
+  evidence:
+    finding: parser or deserializer call, the untrusted input, and the unsafe configuration
+    control: location of the hardened parser configuration or type allow-list
+  post:
+  - check: site-reached
+    site: parser
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-06/
+- id: TC-FILE-01
+  title: File paths stay within intended directories and files are served only as intended
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Information Disclosure
+  cwe:
+  - CWE-22
+  mode: seeded
+  objective: Determine whether request-derived values can select files outside the intended directories and whether static serving exposes more than intended.
+  applies_when:
+  - signal: file_access
+  starting_points:
+    rules:
+    - INJ-004
+    - INJ-JAVA-004
+    - INJ-PY-004
+    - INJ-GO-004
+    - INJ-CS-004
+    - INJ-PHP-004
+    - INJ-RB-004
+    facts:
+    - code_sites.file_path
+  guidance: Check path joins with request input, directory listings, and static roots that include source, configuration, or backups. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Input Schema Validation
+  evidence:
+    finding: input source and the file access it controls
+    control: location of the path normalization and containment check
+  post:
+  - check: site-reached
+    site: file_path
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-FILE-01/
+- id: TC-FILE-02
+  title: Uploads and archives are type-checked, size-limited, and extracted safely
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Denial of Service
+  cwe:
+  - CWE-434
+  - CWE-409
+  - CWE-22
+  mode: model
+  objective: Determine whether uploads and archives are checked for type and size and are extracted without writing outside the target directory.
+  applies_when:
+  - signal: uploads_or_archives
+  starting_points:
+    rules: []
+    facts:
+    - code_sites.upload
+  guidance: Check storage location, served content type, file name handling, and archive entry paths. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Input Schema Validation
+  evidence:
+    finding: upload or extraction code and the missing check
+    control: location of the type, size, and path checks
+  post:
+  - check: site-reached
+    site: upload
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-FILE-02/
+- id: TC-INPUT-07
+  title: Input cannot take control of what the server executes, stores, or reaches
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  - Information Disclosure
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether untrusted input can make this component run code or commands of the attacker's choice, read or change stored data outside the intended query, or reach files, hosts, or resources it should not, by any interpreter, parser, or library.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. For each goal, look for any path from request data, uploaded content, or stored values to the mechanism that would achieve it, including interpreters and libraries no other test case names, such as LDAP, XPath, expression languages, query builder fragments, template helpers, or prototype pollution. Give input, sink, and connection, and add a candidate for each path that achieves a goal. A finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - Input Schema Validation
+  - Parameterized Database Access
+  - Sandbox Isolation
+  evidence:
+    finding: input source, the mechanism it reaches, and what the attacker achieves
+    control: location of the validation, binding, or isolation that stops it
+  post:
+  - check: site-reached
+    site: any
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-07/
+- id: TC-DATA-01
+  title: Responses contain only intended fields
+  aspect: DataProt
+  stride:
+  - Information Disclosure
+  cwe:
+  - CWE-200
+  - CWE-213
+  mode: model
+  objective: Determine whether responses contain only the fields the caller needs and may see.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+    facts:
+    - route_inventory.reads_data
+  guidance: Check handlers that serialize whole database records, expose password hashes or tokens, or return internal fields to non-owners. The candidates are read routes whose handlers read stored data; examine other responses too.
+  scope: component
+  controls:
+  - Input Schema Validation
+  evidence:
+    finding: handler, the serialized object, and the sensitive field it exposes
+    control: location of the field selection or response mapping
+  post:
+  - check: route-registered
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DATA-01/
+- id: TC-DATA-02
+  title: Sensitive data is protected at rest
+  aspect: DataProt
+  stride:
+  - Information Disclosure
+  cwe:
+  - CWE-311
+  - CWE-922
+  mode: seeded
+  objective: Determine whether sensitive data is stored encrypted or in protected storage.
+  applies_when:
+  - signal: always
+  starting_points:
+    rules:
+    - IAC-092
+    - MOBILE-AND-002
+    - MOBILE-DART-002
+    - MOBILE-IOS-001
+    - MOBILE-RN-001
+    facts:
+    - code_sites.sensitive_field
+  guidance: Check databases, files, volumes, and client-side storage. Encryption outside the examined sources is not evidence. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Data at Rest Encryption
+  - Client-Side Storage Safety
+  evidence:
+    finding: storage location and the sensitive data stored unprotected
+    control: location of the encryption or protected storage configuration
+  post:
+  - check: site-reached
+    site: sensitive_field
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DATA-02/
+- id: TC-DATA-03
+  title: Secrets are not embedded in code, client bundles, or deployment files
+  aspect: DataProt
+  stride:
+  - Information Disclosure
+  cwe:
+  - CWE-798
+  - CWE-540
+  mode: seeded
+  objective: Determine whether credentials, keys, and tokens are kept out of source, client bundles, and deployment files.
+  applies_when:
+  - signal: always
+  starting_points:
+    rules:
+    - ARCH-SECRET-001
+    - IAC-023
+    - IAC-083
+    - IAC-093
+  guidance: Report only the location and kind of a secret, never its value. Check client bundles and example files that deploy with real values.
+  scope: component
+  controls:
+  - Secret Management
+  evidence:
+    finding: location and kind of the embedded secret
+    control: location of the secret reference to an external store
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DATA-03/
+- id: TC-DATA-04
+  title: Data in transit is encrypted and kept out of URLs
+  aspect: DataProt
+  stride:
+  - Information Disclosure
+  - Tampering
+  cwe:
+  - CWE-319
+  - CWE-598
+  mode: seeded
+  objective: Determine whether sensitive data travels only over encrypted channels and is kept out of URLs.
+  applies_when:
+  - signal: always
+  starting_points:
+    rules:
+    - ARCH-TLS-001
+    - IAC-084
+    - IAC-086
+    - IAC-094
+    facts:
+    - code_sites.transport
+  guidance: Check listener, client, and database connection settings and secrets or tokens in query strings. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - Transport Layer Security
+  - TLS Certificate Management
+  evidence:
+    finding: connection or URL carrying sensitive data without encryption
+    control: location of the TLS configuration or header
+  post:
+  - check: site-reached
+    site: transport
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DATA-04/
+- id: TC-DATA-05
+  title: Sensitive data cannot reach anyone not entitled to it
+  aspect: DataProt
+  stride:
+  - Information Disclosure
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether credentials, personal data, or payment data that this component handles can reach a person or system not entitled to it, through responses, errors, logs, exports, files, caches, or outbound calls.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. List the sensitive data the component holds or passes on, follow each item to every place it leaves the component, and check who can receive it there. Add a candidate for each place where someone not entitled receives it. Secrets embedded in code belong to TC-DATA-03, and a finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - Production Error Handler
+  - Transport Layer Security
+  evidence:
+    finding: the sensitive data, the place where it leaves the component, and who receives it there
+    control: location of the field selection, masking, or access check
+  post:
+  - check: route-registered
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DATA-05/
+- id: TC-CRYPTO-01
+  title: Cryptographic primitives are current and not hand-rolled
+  aspect: Crypto
+  stride:
+  - Information Disclosure
+  - Tampering
+  cwe:
+  - CWE-327
+  - CWE-328
+  mode: seeded
+  objective: Determine whether security-relevant cryptography uses current algorithms and modes from vetted libraries.
+  applies_when:
+  - signal: crypto_usage
+  starting_points:
+    rules:
+    - CRYPTO-001
+    - CRYPTO-JAVA-001
+    - CRYPTO-PY-001
+    - CRYPTO-GO-001
+    - CRYPTO-CS-001
+    - CRYPTO-PHP-001
+    - CRYPTO-RB-001
+    - CRYPTO-KT-001
+    - CRYPTO-SWIFT-001
+    - CRYPTO-DART-001
+    - CRYPTO-004
+    - CRYPTO-JAVA-003
+    - CRYPTO-HOMEGROWN-XOR
+  guidance: A hash used only for cache keys or checksums is not a finding. Passwords belong to TC-AUTHN-04.
+  scope: component
+  controls:
+  - Data at Rest Encryption
+  evidence:
+    finding: cryptographic call in a security-relevant use and the weak primitive
+    control: location of the current primitive and mode
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-CRYPTO-01/
+- id: TC-CRYPTO-02
+  title: Secrets and tokens use cryptographic randomness and are not derived from public data
+  aspect: Crypto
+  stride:
+  - Spoofing
+  - Information Disclosure
+  cwe:
+  - CWE-330
+  - CWE-338
+  mode: seeded
+  objective: Determine whether secrets, tokens, and identifiers that grant access are generated with cryptographic randomness.
+  applies_when:
+  - signal: crypto_usage
+  starting_points:
+    rules:
+    - CRYPTO-002
+    - CRYPTO-JAVA-002
+    - CRYPTO-PY-002
+    - CRYPTO-GO-002
+    - CRYPTO-CS-002
+    - CRYPTO-PHP-002
+    - CRYPTO-RB-002
+    - CRYPTO-KT-002
+    - CRYPTO-SWIFT-002
+    - CRYPTO-DART-002
+    - CRYPTO-JAVA-002B
+  guidance: Check password reset tokens, API keys, session identifiers, and values derived from time or user data.
+  scope: component
+  controls:
+  - Session Token Signing (JWT Based)
+  evidence:
+    finding: generation call for a security-relevant value and the non-cryptographic source
+    control: location of the cryptographic generator
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-CRYPTO-02/
+- id: TC-FRONT-01
+  title: 'Browser protections are configured: CSP, framing, CORS, subresource integrity, message origins'
+  aspect: FrontendSec
+  stride:
+  - Tampering
+  - Information Disclosure
+  cwe:
+  - CWE-1021
+  - CWE-942
+  - CWE-346
+  mode: model
+  objective: 'Determine whether the browser protections that apply to this application are configured: content security policy, framing, CORS, subresource integrity, cross-site request forgery, and message origins.'
+  applies_when:
+  - signal: frontend_code
+  starting_points:
+    rules:
+    - ARCH-CORS-001
+  guidance: Judge each protection separately and record the outcome of every one in the evidence, so that a configured policy does not hide a missing one.
+  scope: component
+  controls:
+  - HTTP Security Headers
+  - Content Security Policy
+  - CORS Policy
+  - CSRF Protection
+  - Open Redirect Prevention
+  evidence:
+    finding: response or page missing a protection that applies to it
+    control: location of each configured protection
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-FRONT-01/
+- id: TC-MOBILE-01
+  title: Mobile WebViews and inter-process interfaces do not expose privileged functions
+  aspect: FrontendSec
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-749
+  mode: seeded
+  objective: Determine whether mobile WebViews and exported components expose functions that untrusted content or other apps can call.
+  applies_when:
+  - signal: mobile_code
+  starting_points:
+    rules:
+    - MOBILE-AND-003
+  guidance: Check JavaScript bridges, exported activities and receivers, and the origins loaded into a WebView.
+  scope: component
+  controls:
+  - Client-Side Storage Safety
+  evidence:
+    finding: exposed bridge or component and the privileged function
+    control: location of the origin restriction or removed export
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-MOBILE-01/
+- id: TC-AUDIT-01
+  title: Security-relevant actions are logged, and logs and errors do not leak data
+  aspect: Audit
+  stride:
+  - Repudiation
+  - Information Disclosure
+  cwe:
+  - CWE-778
+  - CWE-532
+  - CWE-209
+  mode: model
+  objective: Determine whether authentication, authorization failures, and administrative actions are logged, and whether logs and error responses are free of secrets and internal details.
+  applies_when:
+  - signal: always
+  starting_points:
+    rules:
+    - IAC-014
+  guidance: Report only the kind and location of leaked data, never its value.
+  scope: component
+  controls:
+  - Security Event Logging
+  - Request Access Logging
+  - Production Error Handler
+  evidence:
+    finding: security-relevant action without a log entry, or log and error output that exposes data
+    control: location of the log call or error handler
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUDIT-01/
+- id: TC-AVAIL-01
+  title: Expensive and authentication endpoints are rate-limited and input-driven work is bounded
+  aspect: Availability
+  stride:
+  - Denial of Service
+  cwe:
+  - CWE-770
+  - CWE-307
+  - CWE-400
+  mode: model
+  objective: Determine whether login, recovery, and expensive endpoints are rate-limited and whether work driven by input has an upper bound.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Check request size limits, pagination limits, regular expressions on input, and unbounded loops or queries. A limit enforced only outside the examined sources is not evidence.
+  scope: component
+  controls:
+  - Authentication Rate Limiting
+  - API Rate Limiting
+  evidence:
+    finding: endpoint or input-driven work without a bound
+    control: location of the limit
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AVAIL-01/
+- id: TC-LOGIC-01
+  title: Business values and workflow order are decided on the server
+  aspect: BusinessLogic
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  cwe:
+  - CWE-840
+  - CWE-639
+  mode: model
+  objective: Determine whether prices, quantities, balances, and the order of workflow steps are decided on the server and not accepted from the client.
+  applies_when:
+  - signal: always
+  starting_points:
+    rules: []
+    abuse_cases:
+    - AC-B-001
+    - AC-B-002
+    - AC-B-003
+    - AC-B-004
+    - AC-B-005
+    - AC-B-006
+    - AC-B-007
+  guidance: The business abuse cases remain the place for misuse scenarios; this test case checks only that business values come from the server.
+  scope: component
+  controls:
+  - Object-Level Authorization
+  evidence:
+    finding: handler that accepts a business value or step from the client
+    control: location of the server-side computation or state check
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-LOGIC-01/
+- id: TC-AI-01
+  title: Untrusted content cannot steer the model into privileged actions
+  aspect: AI
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  cwe:
+  - CWE-1427
+  mode: model
+  objective: Determine whether untrusted content that reaches a model prompt can cause privileged actions.
+  applies_when:
+  - signal: llm_features
+  starting_points:
+    rules: []
+    abuse_cases:
+    - AC-T-007
+    facts:
+    - code_sites.llm_call
+  guidance: Follow documents, web content, and user input into prompts and check which tools or data the model can then use. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - LLM Output Filtering
+  evidence:
+    finding: untrusted content path into a prompt and the privileged action it can cause
+    control: location of the control that limits the action regardless of model output
+  post:
+  - check: site-reached
+    site: llm_call
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AI-01/
+- id: TC-AI-02
+  title: Model output is validated before it reaches interpreters, browsers, or structured sinks
+  aspect: AI
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  cwe:
+  - CWE-94
+  - CWE-79
+  - CWE-20
+  mode: seeded
+  objective: Determine whether model output is validated before it is rendered, executed, or parsed as structured data.
+  applies_when:
+  - signal: llm_features
+  starting_points:
+    rules:
+    - INJ-LLM-001
+    - INJ-LLM-002
+    - INJ-LLM-003
+    facts:
+    - code_sites.llm_call
+  guidance: Treat model output as untrusted input. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - LLM Output Filtering
+  evidence:
+    finding: model output and the sink it reaches without validation
+    control: location of the output validation or schema check
+  post:
+  - check: site-reached
+    site: llm_call
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AI-02/
+- id: TC-AI-03
+  title: Model-selected tools, objects, and destinations are authorized and restricted
+  aspect: AI
+  stride:
+  - Elevation of Privilege
+  - Information Disclosure
+  cwe:
+  - CWE-285
+  - CWE-918
+  mode: seeded
+  objective: Determine whether tools, objects, and destinations that a model selects are authorized for the caller and restricted by an allow-list.
+  applies_when:
+  - signal: llm_features
+  starting_points:
+    rules:
+    - AUTHZ-LLM-001
+    - INJ-LLM-004
+    facts:
+    - code_sites.llm_call
+  guidance: Check MCP servers and tool registries together with the authorization of each tool call. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - LLM Output Filtering
+  evidence:
+    finding: model-selected tool, object, or destination and the missing authorization
+    control: location of the authorization or allow-list
+  post:
+  - check: site-reached
+    site: llm_call
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AI-03/
+- id: TC-AI-04
+  title: Retrieval and memory respect the caller's access
+  aspect: AI
+  stride:
+  - Information Disclosure
+  cwe:
+  - CWE-639
+  - CWE-200
+  mode: model
+  objective: Determine whether retrieved documents and stored memories are limited to what the caller may access.
+  applies_when:
+  - signal: llm_features
+  starting_points:
+    rules: []
+    facts:
+    - code_sites.llm_call
+  guidance: Check access filters on vector queries and shared caches or memories across users. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  scope: component
+  controls:
+  - LLM Output Filtering
+  evidence:
+    finding: retrieval or memory access without a caller filter
+    control: location of the access filter
+  post:
+  - check: site-reached
+    site: llm_call
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AI-04/
+- id: TC-AI-05
+  title: The model cannot be made to act or disclose beyond what the caller may
+  aspect: AI
+  stride:
+  - Tampering
+  - Information Disclosure
+  - Elevation of Privilege
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether a caller, or content the model reads, can make this component's language model features perform actions, reveal data or instructions, or grant benefits beyond what the caller may receive, by any path.
+  applies_when:
+  - signal: llm_features
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. List what the model can do or reveal in this component, such as the tools it may call, the data and system instructions in its context, and the decisions it makes for the caller, and check every way a caller or the content the model reads can steer it there. Add a candidate for each path that achieves a goal. A finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - LLM Output Filtering
+  - Role-Based Access Control
+  evidence:
+    finding: the path from the caller or the content to what the model does or reveals
+    control: location of the check that limits the model's actions or output
+  post:
+  - check: site-reached
+    site: llm_call
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AI-05/
+- id: TC-INFRA-01
+  title: Containers and pods run with least privilege
+  aspect: Infra
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-250
+  mode: rules
+  objective: Determine whether containers and pods run as non-root, without extra capabilities, and with restricted privileges.
+  applies_when:
+  - signal: iac_files
+    iac_type: Dockerfile
+  - signal: iac_files
+    iac_type: docker_compose
+  - signal: iac_files
+    iac_type: helm_values
+  - signal: iac_files
+    iac_type: kubernetes
+  starting_points:
+    rules:
+    - IAC-002
+    - IAC-004
+    - IAC-020
+    - IAC-021
+    - IAC-022
+    - IAC-080
+    - IAC-081
+    - IAC-082
+    - IAC-085
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls:
+  - Container Runtime Hardening (Distroless)
+  evidence:
+    finding: configuration violating a rule
+    control: configuration matching a rule's expected pattern
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INFRA-01/
+- id: TC-INFRA-02
+  title: Data and admin services are not publicly exposed
+  aspect: Infra
+  stride:
+  - Information Disclosure
+  - Elevation of Privilege
+  cwe:
+  - CWE-668
+  mode: rules
+  objective: Determine whether data stores and administrative services are kept off public networks.
+  applies_when:
+  - signal: iac_files
+    iac_type: docker_compose
+  - signal: iac_files
+    iac_type: terraform
+  starting_points:
+    rules:
+    - IAC-024
+    - IAC-090
+    - IAC-091
+    - IAC-095
+    - IAC-096
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls:
+  - Network Segmentation
+  evidence:
+    finding: configuration violating a rule
+    control: configuration matching a rule's expected pattern
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INFRA-02/
+- id: TC-INFRA-03
+  title: Service identities and cloud permissions follow least privilege
+  aspect: Infra
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-269
+  - CWE-250
+  mode: seeded
+  objective: Determine whether service identities and cloud roles have only the permissions their workloads need.
+  applies_when:
+  - signal: iac_files
+    iac_type: terraform
+  starting_points:
+    rules:
+    - IAC-097
+    - ARCH-DBSEP-001
+  guidance: Judge wildcard permissions against what the workload does.
+  scope: repository
+  controls:
+  - Cloud IAM Role Assumption
+  - Kubernetes ServiceAccount Authentication
+  evidence:
+    finding: identity or role with excess permissions
+    control: location of the scoped permission
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INFRA-03/
+- id: TC-SUPPLY-01
+  title: Build inputs are pinned and locked
+  aspect: SupplyChain
+  stride:
+  - Tampering
+  cwe:
+  - CWE-829
+  - CWE-494
+  mode: rules
+  objective: Determine whether base images, actions, and dependencies are pinned and locked.
+  applies_when:
+  - signal: iac_files
+    iac_type: Dockerfile
+  - signal: iac_files
+    iac_type: github_workflow
+  - signal: iac_files
+    iac_type: npm_config
+  starting_points:
+    rules:
+    - IAC-001
+    - IAC-011
+    - IAC-050
+    - ARCH-SUPPLY-001
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls:
+  - Base Image Pinning
+  - Lockfile Integrity
+  evidence:
+    finding: configuration violating a rule
+    control: configuration matching a rule's expected pattern
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-SUPPLY-01/
+- id: TC-SUPPLY-02
+  title: Dependencies are updated automatically
+  aspect: SupplyChain
+  stride:
+  - Tampering
+  cwe:
+  - CWE-1104
+  mode: rules
+  objective: Determine whether an update tool covers every dependency ecosystem in use.
+  applies_when:
+  - signal: iac_files
+    iac_type: dependabot
+  - signal: iac_files
+    iac_type: renovate
+  starting_points:
+    rules:
+    - IAC-030
+    - IAC-031
+    - IAC-032
+    - IAC-033
+    - IAC-034
+    - IAC-035
+  guidance: The outcome follows from the rules. These rules report a missing practice, not an exploitable weakness.
+  scope: repository
+  controls:
+  - Dependency Vulnerability Scanning
+  evidence:
+    finding: ecosystem without an update configuration
+    control: update configuration covering the ecosystem
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-SUPPLY-02/
+- id: TC-SUPPLY-03
+  title: Install and build scripts cannot run untrusted code
+  aspect: SupplyChain
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  cwe:
+  - CWE-829
+  mode: rules
+  objective: Determine whether install and build steps can run code from unreviewed or unpinned sources.
+  applies_when:
+  - signal: iac_files
+    iac_type: Dockerfile
+  - signal: iac_files
+    iac_type: npm_config
+  starting_points:
+    rules:
+    - IAC-005
+    - IAC-051
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls:
+  - Lockfile Integrity
+  evidence:
+    finding: configuration violating a rule
+    control: configuration matching a rule's expected pattern
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-SUPPLY-03/
+- id: TC-SUPPLY-04
+  title: Released artifacts are signed and described by an SBOM
+  aspect: SupplyChain
+  stride:
+  - Tampering
+  cwe:
+  - CWE-494
+  mode: rules
+  objective: Determine whether released artifacts are signed and accompanied by a software bill of materials.
+  applies_when:
+  - signal: iac_files
+    iac_type: github_workflow
+  starting_points:
+    rules:
+    - IAC-040
+    - IAC-041
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls:
+  - Container Image Signing
+  evidence:
+    finding: release workflow without signing or SBOM
+    control: release workflow step that signs or describes the artifact
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-SUPPLY-04/
+- id: TC-CI-01
+  title: Workflows run with least-privilege tokens
+  aspect: SupplyChain
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-732
+  mode: rules
+  objective: Determine whether workflows declare minimal token permissions.
+  applies_when:
+  - signal: iac_files
+    iac_type: github_workflow
+  starting_points:
+    rules:
+    - IAC-010
+    - IAC-015
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls:
+  - Lockfile Integrity
+  evidence:
+    finding: workflow without a permissions block or with excess permissions
+    control: workflow permissions block
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-CI-01/
+- id: TC-CI-02
+  title: Untrusted event data and forks cannot execute in privileged workflows
+  aspect: SupplyChain
+  stride:
+  - Elevation of Privilege
+  - Tampering
+  cwe:
+  - CWE-94
+  - CWE-829
+  mode: seeded
+  objective: Determine whether data from untrusted events and workflows triggered by forks can run with secrets or write permissions.
+  applies_when:
+  - signal: iac_files
+    iac_type: github_workflow
+  starting_points:
+    rules:
+    - IAC-012
+    - IAC-013
+  guidance: 'Judge reachability: an expression in a step is a finding only where a privileged workflow evaluates it.'
+  scope: repository
+  controls:
+  - Lockfile Integrity
+  evidence:
+    finding: workflow trigger, the untrusted value, and the privileged step
+    control: location of the restriction on the trigger or the value
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-CI-02/
+- id: TC-DEVAGENT-01
+  title: Coding agents run sandboxed and with approvals
+  aspect: DevTooling
+  stride:
+  - Elevation of Privilege
+  cwe:
+  - CWE-250
+  - CWE-693
+  mode: rules
+  objective: Determine whether coding-agent configuration in the repository keeps agents sandboxed and requires approvals.
+  applies_when:
+  - signal: iac_files
+    iac_type: agent_automation
+  - signal: iac_files
+    iac_type: agent_config
+  starting_points:
+    rules:
+    - IAC-060
+    - IAC-061
+    - IAC-063
+    - IAC-064
+    - IAC-066
+    - IAC-067
+    - IAC-068
+    - IAC-071
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls: []
+  evidence:
+    finding: configuration violating a rule
+    control: configuration matching a rule's expected pattern
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DEVAGENT-01/
+- id: TC-DEVAGENT-02
+  title: Agent tools, MCP servers, hooks, and permission rules are not auto-trusted or over-broad
+  aspect: DevTooling
+  stride:
+  - Elevation of Privilege
+  - Tampering
+  cwe:
+  - CWE-250
+  - CWE-829
+  mode: rules
+  objective: Determine whether agent tools, MCP servers, hooks, and permission rules in the repository are not trusted automatically or granted too broadly.
+  applies_when:
+  - signal: iac_files
+    iac_type: agent_config
+  starting_points:
+    rules:
+    - IAC-062
+    - IAC-065
+    - IAC-069
+    - IAC-070
+    - IAC-072
+    - IAC-073
+    - IAC-074
+    - IAC-075
+  guidance: The outcome follows from the rules.
+  scope: repository
+  controls: []
+  evidence:
+    finding: configuration violating a rule
+    control: configuration matching a rule's expected pattern
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DEVAGENT-02/
+unmapped_rules:
+- rule: IAC-003
+  reason: A missing container health check is operational hardening, not a weakness an attacker can use. It stays a standalone scanner finding.

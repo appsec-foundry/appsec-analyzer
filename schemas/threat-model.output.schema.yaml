@@ -1318,6 +1318,35 @@ properties:
         id:
           type: string
           pattern: "^T-\\d{3,}$"
+        verification:
+          description: >-
+            REQ-040: verification findings with the same CWE at a location of this survey threat, and their
+            test cases. The report shows the weakness once and names both methods.
+          type: object
+          additionalProperties: false
+          required: [finding_ids, test_case_ids]
+          properties:
+            finding_ids:
+              type: array
+              minItems: 1
+              items: { type: string, pattern: "^TCF-[0-9]{3,}$" }
+            test_case_ids:
+              type: array
+              items: { type: string, pattern: "^TC-[A-Z]+-[0-9]{2}$" }
+        verification_contradicted:
+          description: >-
+            REQ-040: locations of this survey threat where a test case with its CWE evidenced a control. The
+            threat stays in the report so that a reader can check it.
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [test_case_id, file, line]
+            properties:
+              test_case_id: { type: string, pattern: "^TC-[A-Z]+-[0-9]{2}$" }
+              file: { type: string, minLength: 1 }
+              line: { type: integer, minimum: 1 }
         component:   { type: string }
         stride:
           type: string
@@ -2061,6 +2090,183 @@ properties:
                 type: string
                 enum: [confirmed-exploitable]
               poc_hint: { type: [string, "null"] }
+
+  test_case_results:
+    type: object
+    description: >-
+      Outcomes of the security test case catalog (REQ-040). Present only for runs that enable test cases.
+      Rule-driven outcomes come from recorded scanner results; a rule without a result is unknown and
+      never counts as satisfied. A model-investigated test case has one result per component, with its
+      candidate counts, the deterministic post-checks of the model's claims, and the model's proposed
+      outcome only when it differs from the derived one.
+    additionalProperties: false
+    required: [catalog_version, results]
+    properties:
+      catalog_version:
+        type: string
+        pattern: ^[0-9]+$
+      results:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [test_case_id, aspect, scope, outcome, reason, evidence_basis, candidates, rules, finding_ids]
+          allOf:
+            - if: { properties: { scope: { const: component } } }
+              then: { required: [component_id] }
+          properties:
+            test_case_id:
+              type: string
+              pattern: ^TC-[A-Z]+-[0-9]{2}$
+            aspect:
+              type: string
+              minLength: 1
+            scope:
+              enum: [repository, component]
+            component_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            outcome:
+              enum: [finding, control, partial, no_finding, undecidable, not_applicable, disabled]
+            proposed_outcome:
+              description: The model's proposed outcome, recorded only when it differs from the derived outcome.
+              enum: [finding, control, partial, no_finding, undecidable]
+            reason:
+              type: string
+              minLength: 1
+            evidence_basis:
+              enum: [deterministic, model]
+            candidates:
+              type: object
+              additionalProperties: false
+              required: [applicable, evidenced]
+              properties:
+                applicable: { type: integer, minimum: 0 }
+                evidenced: { type: integer, minimum: 0 }
+                weaknesses: { type: integer, minimum: 0 }
+                rejected: { type: integer, minimum: 0 }
+                undecidable: { type: integer, minimum: 0 }
+                model_added: { type: integer, minimum: 0 }
+                unexamined: { type: integer, minimum: 0 }
+            post_checks:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [candidate_id, check, claim, result, reason]
+                properties:
+                  candidate_id:
+                    type: string
+                    pattern: ^(?:pc-[0-9a-f]{16}|m-[1-9][0-9]{0,2})$
+                  check:
+                    enum: [route-registered, handler-chain-lacks-guard, site-reached]
+                  guard:
+                    enum: [authentication, authorization, ownership]
+                  site:
+                    type: string
+                    pattern: ^[a-z][a-z_]*$
+                  claim:
+                    enum: [weakness, control]
+                  result:
+                    enum: [confirmed, contradicted, not_verifiable]
+                  reason:
+                    type: string
+                    minLength: 1
+            unreviewed_variants:
+              type: object
+              additionalProperties: false
+              required: [count, route_ids]
+              properties:
+                count: { type: integer, minimum: 0 }
+                route_ids:
+                  type: array
+                  maxItems: 40
+                  items:
+                    type: string
+                    pattern: ^R-[0-9]{3,5}$
+            rules:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [rule_id, status]
+                properties:
+                  rule_id: { type: string, minLength: 1 }
+                  status: { enum: [violated, satisfied, not_applicable, unknown] }
+            finding_ids:
+              type: array
+              items: { type: string, minLength: 1 }
+            control_locations:
+              description: >-
+                Candidate locations where the model investigation evidenced a control. A survey finding
+                with a CWE of this test case at one of them records the contradiction.
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [file, line]
+                properties:
+                  file: { type: string, minLength: 1 }
+                  line: { type: integer, minimum: 1 }
+      incomplete_aspects:
+        description: >-
+          Aspects whose verification the model budget ended before every job ran; their unanswered test
+          cases are undecidable with the budget reason.
+        type: array
+        uniqueItems: true
+        items: { type: string, minLength: 1 }
+
+  test_case_findings:
+    type: array
+    description: >-
+      Findings of the verification method (REQ-040), present only when a model investigation reported
+      one. Each is the investigation's STRIDE finding item under a TCF- ID. They do not count in the
+      totals of `threats`. One with the same CWE at a location of a survey threat names it in
+      `survey_finding_ids`, and the threat names it in `verification`, so the report shows the weakness
+      once. The component results in `test_case_results` name them in `finding_ids`.
+    items:
+      type: object
+      additionalProperties: true
+      required: [id, component_id, aspect, test_case_ids, title, stride, risk, cwe, evidence]
+      properties:
+        id:
+          type: string
+          pattern: ^TCF-[0-9]{3,}$
+        component_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        aspect:
+          type: string
+          minLength: 1
+        test_case_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            pattern: ^TC-[A-Z]+-[0-9]{2}$
+        title:
+          type: string
+          minLength: 1
+        stride:
+          $ref: "#/properties/threats/items/properties/stride"
+        risk:
+          $ref: "#/properties/threats/items/properties/risk"
+        cwe:
+          type: string
+          pattern: ^CWE-[0-9]+$
+        evidence:
+          type: object
+          required: [file, line]
+          properties:
+            file: { type: string, minLength: 1 }
+            line: { type: integer, minimum: 1 }
+        survey_finding_ids:
+          description: Survey threats with the same CWE at the same code location.
+          type: array
+          minItems: 1
+          items: { type: string, pattern: "^T-[0-9]{3,}$" }
 
   threat_hypotheses:
     # DEPRECATED (P1, weakness-class evidence model): retired as a user-facing

@@ -43,6 +43,8 @@ ROLES = (
     "ms_renderer",
     "secarch_renderer",
 )
+# Aspects with a model investigation in the pilot; the object form of test_cases selects among them.
+TEST_CASE_ASPECTS = ("IAM", "SessionMgmt", "AuthZ", "InputVal", "DataProt", "AI")
 NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 MAX_BYTES = 65_536
 
@@ -136,6 +138,89 @@ def validate(document: dict, kind: str) -> None:
         # Do not print the instance: a mistyped field may hold a credential.
         location = ".".join(str(p) for p in error.schema_path if p != "properties")
         raise ProfileError(f"invalid {kind} profile ({location})")
+
+
+def depth_test_cases(depth: str):
+    """The shipped verification setting of one assessment depth, from data/verification-depths.yaml."""
+    document = yaml.safe_load((resource_root() / "data/verification-depths.yaml").read_text())
+    return normalize_test_cases(document["depths"][depth])
+
+
+def normalize_test_cases(value, depth: str | None = None):
+    """The test_cases setting of one depth as false, true, or {"aspects": [...], "disable": [{"id", "reason"}]}.
+
+    No value takes the shipped setting of ``depth``. In the object form, ``depths`` names the aspects of
+    single depths, ``aspects`` those of every other depth, and a depth that neither names keeps its shipped
+    aspects; false at a depth runs the survey only. The result is sorted and unique so equal settings share
+    one identity. Every disabled ID must exist in the shipped test case catalog; the schema has already
+    bounded the other fields."""
+    if value is None:
+        return depth_test_cases(depth) if depth else False
+    if type(value) is bool:
+        return value
+    if not isinstance(value, dict):
+        raise ProfileError("test_cases must be true, false, or an object")
+    depths = value.get("depths", {})
+    for aspects in [value.get("aspects", []), *depths.values()]:
+        if aspects is not False and (
+            any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects)
+        ):
+            raise ProfileError("test_cases.aspects must be unique pilot aspects")
+    if depth in depths:
+        aspects = depths[depth]
+    elif "aspects" in value or depth is None:
+        aspects = value.get("aspects", [])
+    else:
+        shipped = depth_test_cases(depth)
+        aspects = shipped["aspects"] if shipped else False
+    disable = value.get("disable", [])
+    ids = [row["id"] for row in disable]
+    if len(set(ids)) != len(ids):
+        raise ProfileError("test_cases.disable names a test case twice")
+    known = {
+        case["id"] for case in yaml.safe_load((resource_root() / "data/test-cases.yaml").read_text())["test_cases"]
+    }
+    if unknown := sorted(set(ids) - known):
+        raise ProfileError(f"test_cases.disable names unknown test case {unknown[0]}")
+    if aspects is False:
+        return False
+    return {
+        "aspects": [item for item in TEST_CASE_ASPECTS if item in aspects],
+        "disable": [{"id": row["id"], "reason": row["reason"]} for row in sorted(disable, key=lambda row: row["id"])],
+    }
+
+
+def session_test_cases(setting, *, enabled: bool = False, aspects=()):
+    """What one run evaluates: False, or {"aspects": [...], "disable": [...]}.
+
+    ``aspects`` is empty for the boolean form (every scanner-based test case, no model investigation).
+    The internal ``--test-cases`` and ``--test-case-aspects`` flags can only switch the feature on or
+    narrow the aspects; only the profile setting can disable a test case."""
+    setting = normalize_test_cases(setting if setting is not None else False)
+    base = setting if isinstance(setting, dict) else {"aspects": [], "disable": []}
+    if not (setting or enabled or aspects):
+        return False
+    if aspects:
+        if any(item not in TEST_CASE_ASPECTS for item in aspects):
+            raise ProfileError("test case aspects must be pilot aspects")
+        base = {**base, "aspects": [item for item in TEST_CASE_ASPECTS if item in aspects]}
+    return base
+
+
+def refuse_required_test_case_disable(test_cases, required) -> None:
+    """Refuse a run that disables a test case the organization profile requires."""
+    if not isinstance(test_cases, dict):
+        return
+    if conflict := sorted({row["id"] for row in test_cases["disable"]} & set(required or ())):
+        raise ProfileError(f"test case {conflict[0]} is required by the organization profile and cannot be disabled")
+
+
+def add_required_aspects(test_cases, required):
+    """The run's setting with every aspect the organization profile makes mandatory; a scan profile cannot remove one."""
+    if not required:
+        return test_cases
+    base = test_cases if isinstance(test_cases, dict) else {"aspects": [], "disable": []}
+    return {**base, "aspects": [item for item in TEST_CASE_ASPECTS if item in base["aspects"] or item in required]}
 
 
 def catalog() -> dict:
@@ -306,6 +391,7 @@ def resolve_scan(
         "assessment_depth": "standard",
         "budget": 20,
         "max_parallel": DEFAULT_MAX_PARALLEL,
+        "test_cases": None,
         "outputs": ["markdown", "yaml"],
         "abuse_case_files": [],
     }
@@ -321,6 +407,11 @@ def resolve_scan(
         if value is not None:
             _assign(settings, provenance, {key: value}, "CLI")
     settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
+    if settings["assessment_depth"] not in DEPTHS:
+        raise ProfileError("unsupported assessment depth")
+    if settings["test_cases"] is None:
+        provenance["test_cases"] = f"analyzer default for {settings['assessment_depth']} depth"
+    settings["test_cases"] = normalize_test_cases(settings["test_cases"], settings["assessment_depth"])
     try:
         validate_max_parallel(settings["max_parallel"])
     except ValueError as exc:
@@ -362,7 +453,9 @@ def resolve_scan(
         )
     elif max_calls is not None or "max_calls" in scan:
         raise ProfileError("max_calls is available only with codex-cli")
-    definition = {"scan": scan, "models": model["layers"], "settings": settings}
+    # A false value is the default of older snapshots; omitting it keeps their identity.
+    identity = {key: value for key, value in settings.items() if key != "test_cases" or value}
+    definition = {"scan": scan, "models": model["layers"], "settings": identity}
     if connection is not None:
         definition["provider_connection"] = connection
         definition["model_override"] = model_override

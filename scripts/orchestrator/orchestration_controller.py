@@ -94,7 +94,12 @@ from appsec_analyzer.assessment.console import (
     _count_noun,
     _elapsed,
 )
-from appsec_analyzer.model_roles import SEMANTIC_ROLE_MODEL_KEYS, SEMANTIC_ROLE_REGISTRY
+from appsec_analyzer.model_roles import (
+    PROFILE_ROLE_ALIASES,
+    SEMANTIC_ROLE_MODEL_KEYS,
+    SEMANTIC_ROLE_REGISTRY,
+    profile_role,
+)
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -777,6 +782,7 @@ def _assessment_session(
     rebuild=False,
     api_profile=None,
     run_profile=None,
+    test_cases=False,
 ):
     """Admit one owned analysis session without selecting a primary source root.
 
@@ -805,6 +811,18 @@ def _assessment_session(
     if org_profile.get("active") and org_profile.get("path"):
         cfg["org_profile_path"] = org_profile["path"]
     cfg["max_parallel"] = budget.max_parallel
+    # False, or {"aspects": [...], "disable": [{"id", "reason"}]}; a bare True is the scanner-only form.
+    cfg["test_cases"] = test_cases = {"aspects": [], "disable": []} if test_cases is True else test_cases
+    try:
+        from appsec_analyzer.profiles import ProfileError, add_required_aspects, refuse_required_test_case_disable
+
+        refuse_required_test_case_disable(test_cases, cfg.get("org_profile_test_cases_required"))
+        # REQ-040: the organization's mandatory aspects join whatever the scan profile selects.
+        cfg["test_cases"] = test_cases = add_required_aspects(
+            test_cases, cfg.get("org_profile_test_cases_required_aspects")
+        )
+    except ProfileError as exc:
+        raise CallError(str(exc)) from exc
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
 
@@ -862,7 +880,7 @@ def _assessment_session(
         key = SEMANTIC_ROLE_MODEL_KEYS.get(role) if role in SEMANTIC_ROLE_REGISTRY else RENDERER_MODEL_KEYS.get(role)
         if key is None or not cfg.get(key):
             raise ControllerError(f"assessment job {role} requires a registered semantic role and resolved model")
-        settings = (run_profile or {}).get("models", {}).get(role)
+        settings = (run_profile or {}).get("models", {}).get(profile_role(role))
         return host_factory(role, settings["model"] if settings else cfg[key], ceiling)
 
     with _stop_on_terminate(state), state.hold():
@@ -1721,8 +1739,15 @@ def _assessment_stride(
     depth="standard",
     captured=None,
     platform=None,
+    test_cases=None,
+    pilot=None,
 ):
-    """Analyze every finalized component and independently review its evidence."""
+    """Analyze every finalized component and independently review its evidence.
+
+    When ``test_cases`` selects pilot aspects, the REQ-040 test case pilot runs
+    after the STRIDE work and before the merge, and ``pilot`` receives its
+    sidecar document.
+    """
     from contexts import multi_repo_analysis as analysis
     from model import assessment_scanner_findings
     from model.merge_threats import merge_assessment
@@ -1786,6 +1811,9 @@ def _assessment_stride(
     def label(component):
         return component["name"] + (f" [{component['id'][-6:]}]" if names[component["name"]] > 1 else "")
 
+    # REQ-040 pilot: its jobs reuse each component's STRIDE context envelope.
+    envelopes = {} if pilot is not None and isinstance(test_cases, dict) and test_cases["aspects"] else None
+
     def analyze(position, component, jobs):
         """Analyze and review one component; `jobs` is its own view (MR-16)."""
         neighborhood = analysis.component_neighborhood(components, flows, component["id"])
@@ -1838,6 +1866,16 @@ def _assessment_stride(
         for rid, path in sorted(job_allowed):
             readable_sources.setdefault(rid, []).append(path)
         context["readable_sources"] = readable_sources
+        if envelopes is not None:
+            # Recorded, never changed: the STRIDE requests stay the same with and without the pilot.
+            envelopes[component["id"]] = {
+                "context": {key: value for key, value in context.items() if key != "lens_ids"},
+                "neighborhood": neighborhood,
+                "incident": incident,
+                "adjacent": adjacent,
+                "allowed": allowed,
+                "job_allowed": job_allowed,
+            }
 
         # Lines the context cites from earlier stages (controls, flows,
         # boundaries) arrive with the first job's first packet: a job that
@@ -2067,6 +2105,25 @@ def _assessment_stride(
     scope.verify_unchanged()
     found = sum(len(document["threats"]) for document in documents) + sum(len(rows) for rows in scanned.values())
     _phase_result(progress, "Threat analysis", _count_noun(found, "finding"))
+    if envelopes is not None:
+        from orchestrator import assessment_test_cases
+
+        pilot.update(
+            assessment_test_cases.run_pilot(
+                scope,
+                jobs,
+                architecture,
+                scanned,
+                test_cases,
+                envelopes,
+                requirement_ids=assessment_context.requirement_ids(captured) if captured else frozenset(),
+                instructions=_assessment_role_instructions,
+                concurrently=_assessment_components_concurrently,
+                label=label,
+                progress=progress,
+            )
+        )
+        scope.verify_unchanged()
     merged = merge_assessment(
         scope,
         components,
@@ -2373,6 +2430,14 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-calls", type=int, metavar="N")
     parser.add_argument("--max-duration", type=int, metavar="SECONDS")
     parser.add_argument("--max-parallel", type=int, choices=range(1, MAX_PARALLEL + 1), metavar="N")
+    parser.add_argument("--test-cases", action="store_true", help="Set by the scan profile; not a public option.")
+    parser.add_argument(
+        "--test-case-aspects",
+        type=lambda text: tuple(text.split(",")),
+        default=(),
+        metavar="A,B",
+        help="Set by the scan profile; not a public option.",
+    )
     # appsec-analyzer runs one phase per invocation and continues with --resume.
     parser.add_argument(
         "--pause-after",
@@ -2728,6 +2793,9 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
 
     by_model: dict[str, list[str]] = {}
     for role, key in sorted({**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}.items()):
+        if role in PROFILE_ROLE_ALIASES:
+            # An alias runs on its profile role's model, which the lineup already names.
+            continue
         selected = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {}).get("model", cfg.get(key))
         settings = (cfg.get("operator_profile") or {}).get("models", {}).get(role, {})
         if settings.get("adapter") in ("lite", "bedrock"):
@@ -2781,6 +2849,14 @@ def _assessment_options(ns, cfg: dict[str, Any]) -> str:
     if ns.fail_on:
         options.append(f"exit status fails on {ns.fail_on} or worse")
     return "\n".join(options)
+
+
+def _methods_label(test_cases) -> str:
+    """The analysis methods of a run for its header: the survey, and the aspects verification covers (REQ-040)."""
+    if not test_cases:
+        return "Survey"
+    aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
+    return "Survey · Verify " + (", ".join(aspects) if aspects else "scanner rules only")
 
 
 def _assessment_intro(
@@ -2863,6 +2939,7 @@ def _assessment_intro(
         ("Time limit", limit),
         ("Depth", depth),
         ("Max parallel", str(budget.max_parallel)),
+        ("Methods", _methods_label((cfg or {}).get("test_cases", getattr(ns, "test_case_config", ns.test_cases)))),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
         *(scope_facts or []),
         ("Trust mode", trust),
@@ -2885,6 +2962,8 @@ def _assessment_intro(
                     value += f" (1.25 × deprecated --soft-budget USD {ns.soft_budget:g})"
         elif key == "Time limit":
             key, value = "Settings", f"{depth} depth · {limit} limit · max parallel: {budget.max_parallel}"
+        elif key == "Methods":
+            value = value.replace(" · ", ", ")
         elif key in ("Depth", "Max parallel"):
             continue
         elif key == "Billing":
@@ -2964,7 +3043,9 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
         runtime = preflight(repositories=repositories)
 
         def cli_factory(role, model, ceiling):
-            return CliTransport(work_root, model, run_profile["models"][role]["reasoning_effort"], runtime)
+            return CliTransport(
+                work_root, model, run_profile["models"][profile_role(role)]["reasoning_effort"], runtime
+            )
 
         return cli_factory
     executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
@@ -2992,7 +3073,10 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
             model=model,
             max_budget_usd=ceiling,
             executable=executable,
-            effort=(run_profile or {}).get("models", {}).get(role, {}).get("reasoning_effort", ASSESSMENT_EFFORT),
+            effort=(run_profile or {})
+            .get("models", {})
+            .get(profile_role(role), {})
+            .get("reasoning_effort", ASSESSMENT_EFFORT),
             events_path=events_path,
             max_thinking_tokens=ASSESSMENT_MAX_THINKING_TOKENS if events_dir else None,
             # Each exchange prompt is unique and read again only within minutes (MD-11).
@@ -3114,11 +3198,13 @@ def _assessment_workspace(
     named: bool = True,
     started_at: int | None = None,
     invocation: str = "",
+    test_case_pilot: dict | None = None,
 ):
     """Write the legacy-shaped Stage-1 handoff of the qualified artifacts.
 
     ``named`` is false when the project name only repeats a sole repository's
     label; the model then keeps the name its manifest gives (RA-18).
+    ``test_case_pilot`` is the REQ-040 pilot's document, when the run made one.
     """
     from orchestrator import assessment_review
     from orchestrator import assessment_workspace as ws
@@ -3146,6 +3232,10 @@ def _assessment_workspace(
         {"schema_version": 1, "security_controls": ws._project(controls, names)},
     )
     ws.write_json(workspace / ".threats-merged.json", {**ws.project_document(merged, names), "version": 1})
+    if test_case_pilot:
+        from orchestrator import assessment_test_cases
+
+        assessment_test_cases.write_workspace(test_case_pilot, workspace, names)
     (workspace / ".recon-summary.md").write_text(ws.recon_summary(project, scope), encoding="utf-8")
     settings = {
         **{k: v for k, v in cfg.items() if k not in ("invocation_args",)},
@@ -3362,6 +3452,19 @@ def _assessment_render(
 
             if block := report_block(platform_settings):
                 model["meta"]["platform_security_settings"] = block
+        if cfg.get("test_cases"):
+            # REQ-040: links scanner findings to test cases and records the rules test case outcomes.
+            from model import case_outcomes
+
+            model["test_case_results"] = case_outcomes.build_block(
+                workspace,
+                model.get("threats") or [],
+                {row["id"]: row["reason"] for row in cfg["test_cases"]["disable"]},
+            )
+            if findings := case_outcomes.pilot_findings(workspace):
+                model["test_case_findings"] = findings
+            # The survey's findings name verification's at the same location, and verified controls contradict them.
+            case_outcomes.combine_methods(model.get("threats") or [], findings, model["test_case_results"]["results"])
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -3607,10 +3710,24 @@ def assess_repositories(
         run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
         if ns.max_parallel is None:
             ns.max_parallel = run_profile["settings"]["max_parallel"]
+        # Snapshots saved before the setting existed carry no value: false.
+        ns.test_cases = ns.test_cases or bool(run_profile["settings"].get("test_cases", False))
         if ns.max_calls is None and run_profile["adapter"] in ("codex-cli", "copilot-cli"):
             ns.max_calls = run_profile["settings"]["max_calls"]
     # Opened first, so every refusal after this still ends the file with its `end` record.
     _AssessmentProgress.open(ns.progress_file)
+    from appsec_analyzer.profiles import ProfileError, session_test_cases
+
+    try:
+        # False, or the aspects and disabled test cases this run evaluates.
+        ns.test_case_config = session_test_cases(
+            (run_profile or {}).get("settings", {}).get("test_cases"),
+            enabled=ns.test_cases,
+            aspects=ns.test_case_aspects,
+        )
+    except ProfileError as exc:
+        raise CallError(str(exc)) from exc
+    ns.test_cases = bool(ns.test_case_config)
     unsupported = sorted({arg.split("=", 1)[0] for arg in rest} & set(_ASSESSMENT_UNSUPPORTED))
     if unsupported:
         raise CallError(f"{', '.join(unsupported)} is not supported; the controller runs full assessments only")
@@ -3715,7 +3832,7 @@ def assess_repositories(
             if ns.model and ns.model != api_profile.model:
                 raise CallError("the requested model differs from the selected API profile")
             factory = lambda role, model, ceiling: ResponsesTransport(
-                role_api_profile(run_profile["models"][role]) if run_profile else api_profile, ceiling
+                role_api_profile(run_profile["models"][profile_role(role)]) if run_profile else api_profile, ceiling
             )
         else:
             factory = host_factory or _assessment_cli_host_factory(
@@ -3758,6 +3875,7 @@ def assess_repositories(
                 rebuild=ns.rebuild,
                 api_profile=api_profile,
                 run_profile=run_profile,
+                test_cases=ns.test_case_config,
             )
             with session as (cfg, state, jobs):
                 _assessment_unsupported_configuration(cfg, scope)
@@ -3894,6 +4012,7 @@ def assess_repositories(
                 )
                 controls = _assessment_controls(scope, jobs, architecture, progress=say, platform=platform)
                 _phase_result(say, "Controls", _count_noun(len(controls), "control"))
+                pilot = {}
                 _, _, merged = _assessment_stride(
                     scope,
                     jobs,
@@ -3905,6 +4024,8 @@ def assess_repositories(
                     depth=depth,
                     captured=captured,
                     platform=platform,
+                    test_cases=cfg["test_cases"],
+                    pilot=pilot,
                 )
                 _phase_result(say, "Consolidation", _count_noun(len(merged["threats"]), "finding") + " after merge")
                 original, _ = build_assessment_model(
@@ -3942,6 +4063,7 @@ def assess_repositories(
                         named=bool(ns.project) or len(labels) > 1,
                         started_at=state.state["started_at"],
                         invocation=_assessment_invocation(argv),
+                        test_case_pilot=pilot,
                     )
                     warnings.extend(
                         _assessment_render(

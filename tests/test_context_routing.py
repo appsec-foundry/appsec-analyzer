@@ -665,6 +665,41 @@ def test_component_architecture_context_is_delivered_only_when_selected(tmp_path
     assert selected["source_receipt"]["artifact_path"] == architecture_path
 
 
+def test_test_case_roles_receive_catalog_and_candidates_but_no_shared_documents(tmp_path):
+    _catalog, bindings = _contracts()
+    agents = {row["id"]: row for row in bindings["agents"]}
+    assert (
+        agents["test_case_investigator"]["model_setting"] == agents["open_reviewer"]["model_setting"] == "stride_model"
+    )
+    assert "test_cases.catalog" in bindings["trust_classes"]["plugin_owned"]
+    output = tmp_path / "out"
+    candidates = ".dispatch-context/api/test-case-candidates.json"
+    results = ".dispatch-context/api/test-case-results.json"
+    for relative in (candidates, results, ".threat-modeling-context.md"):
+        (output / relative).parent.mkdir(parents=True, exist_ok=True)
+        (output / relative).write_text("{}\n", encoding="utf-8")
+
+    plan = _resolve(
+        _generic_action(output, "test_case_investigator", "pilot-api-authz", [candidates], component_id="api"), output
+    )
+    rows = {row["context_id"]: row for row in plan["deliveries"]}
+    assert rows["test_cases.candidates"]["status"] == "delivered"
+    assert rows["test_cases.candidates"]["applies_to"] == "current_component"
+    assert rows["test_cases.catalog"]["status"] == "observed_plugin_owned"
+    assert rows["business.project_context"]["status"] == "forbidden"
+
+    plan = _resolve(_generic_action(output, "open_reviewer", "pilot-api-open", [results], component_id="api"), output)
+    assert {row["context_id"]: row["status"] for row in plan["deliveries"]}["test_cases.results"] == "delivered"
+
+    with pytest.raises(routing.ContextRoutingError, match="required context 'test_cases.candidates'"):
+        _resolve(_generic_action(output, "test_case_investigator", "pilot-api-iam", [], component_id="api"), output)
+    shared = _generic_action(
+        output, "open_reviewer", "pilot-api-shared", [results, ".threat-modeling-context.md"], component_id="api"
+    )
+    with pytest.raises(routing.ContextRoutingError, match="forbidden context"):
+        _resolve(shared, output)
+
+
 def test_plan_is_not_copied_into_diagnostics():
     assert routing.PLAN_NAME not in diagnostic_bundle.LOG_NAMES
     assert routing.PLAN_RECEIPT_NAME not in diagnostic_bundle.LOG_NAMES

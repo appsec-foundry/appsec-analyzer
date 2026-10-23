@@ -1,0 +1,63 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://appsec-analyzer.local/schemas/code-sites.schema.yaml
+title: Code site patterns for test case starting points
+type: object
+additionalProperties: false
+required: [version, model_file, kinds]
+properties:
+  version:
+    const: 1
+  model_file:
+    $ref: '#/$defs/patterns'
+  kinds:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      additionalProperties: false
+      required: [kind, description]
+      properties:
+        kind:
+          type: string
+          pattern: ^[a-z][a-z_]*$
+        description:
+          type: string
+          minLength: 1
+        patterns:
+          $ref: '#/$defs/patterns'
+        signal:
+          type: string
+          pattern: ^[a-z][a-z_]*$
+        source:
+          enum: [egress_clients]
+        scope:
+          enum: [any, model]
+        ignore_case:
+          type: boolean
+        matches:
+          $ref: '#/$defs/lines'
+        ignores:
+          $ref: '#/$defs/lines'
+      # Exactly one origin; a pattern kind proves itself with examples both ways.
+      oneOf:
+        - required: [patterns, matches, ignores]
+          not: {anyOf: [{required: [signal]}, {required: [source]}]}
+        - required: [signal, matches, ignores]
+          not: {anyOf: [{required: [patterns]}, {required: [source]}]}
+        - required: [source]
+          not: {anyOf: [{required: [patterns]}, {required: [signal]}, {required: [matches]}, {required: [ignores]}]}
+$defs:
+  patterns:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 1
+      maxLength: 400
+  lines:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 1
+      maxLength: 300

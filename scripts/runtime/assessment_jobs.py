@@ -97,6 +97,9 @@ class AssessmentBudget(DiscoveryBudget):
         self.observed = {}
         self.reserve_completion = False
         self.on_budget_increase = None
+        # Controller-set shares of optional work, {group: (usd, calls)}. They
+        # live in memory only; the controller recomputes them on resume.
+        self.holds = {}
 
     def request_more_budget(self, should_stop) -> bool:
         if self.subscription or self.on_budget_increase is None or self.unsettled or self._inflight or should_stop():
@@ -107,9 +110,47 @@ class AssessmentBudget(DiscoveryBudget):
         # gap afterwards; asking now would pause the run for nothing.
         if optional and any(key not in (group, REPORT_JOB) for key in self.required):
             return False
+        # A hold divides the money that is left; it never asks for more.
+        if optional and self.holds:
+            return False
         previous = self.max_usd
         self.on_budget_increase(should_stop)
         return self.max_usd > previous
+
+    def hold(self, group, usd, calls):
+        """Keep `usd` and `calls` for `group`'s optional jobs until `release(group)`.
+
+        Only optional jobs of other groups see less; required work outranks a
+        hold, and the completion reserve still applies to every job. A
+        subscription run holds calls only (`usd` is None). A hold may exceed
+        what is left: other optional jobs then become budget gaps, and the held
+        group spends only what is actually available.
+        """
+        if (
+            type(group) is not str
+            or not group
+            or type(calls) is not int
+            or calls < 0
+            or (
+                usd is not None
+                if self.subscription
+                else type(usd) not in (int, float) or not math.isfinite(usd) or usd < 0
+            )
+        ):
+            raise ExchangeError("Invalid budget hold")
+        with self._lock:
+            self.holds[group] = (0.0 if self.subscription else float(usd), calls)
+
+    def release(self, group):
+        with self._lock:
+            self.holds.pop(group, None)
+
+    def _held_for_others(self, index):
+        """What other groups hold against the current optional job: 0 usd, 1 calls."""
+        group, _role, optional = getattr(self._local, "job", (None, None, False))
+        if not optional:
+            return 0
+        return sum(held[index] for key, held in self.holds.items() if key != group)
 
     def plan_completion(self):
         """Protect the required renderer; only the controller may change this plan."""
@@ -142,6 +183,12 @@ class AssessmentBudget(DiscoveryBudget):
                 planned_role, count = self.required[group]
                 self.plan_required(group, planned_role, count - 1)
 
+    def job_usd(self, role, fallback_role):
+        """The reserved cost of one more job of ``role``, measured on ``fallback_role`` while ``role`` has none."""
+        if not self.observed.get(role, (0.0, 0, 0.0))[1]:
+            role = fallback_role
+        return self._estimate(role)[0]
+
     def _estimate(self, role):
         cost, jobs, seconds = self.observed.get(role, (0.0, 0, 0.0))
         # A cold role keeps a full call allowance. Measurements include all
@@ -173,7 +220,7 @@ class AssessmentBudget(DiscoveryBudget):
     def available_usd(self):
         if self.subscription:
             return 0.0
-        available = super().available_usd()
+        available = super().available_usd() - self._held_for_others(0)
         if not self.reserve_completion:
             return available
         reserved, _ = self._reserve()
@@ -211,13 +258,14 @@ class AssessmentBudget(DiscoveryBudget):
         return seconds
 
     def call_limit(self):
+        limit = self.max_calls - self._held_for_others(1)
         if not self.reserve_completion:
-            return self.max_calls
+            return limit
         group, _role, optional = getattr(self._local, "job", (None, None, False))
         reserved = sum(
             2 * count for key, (_, count) in self.required.items() if key != group and (optional or key == REPORT_JOB)
         )
-        return self.max_calls - reserved
+        return limit - reserved
 
     def remaining_seconds(self):
         # Every individual exchange still has the existing one-hour ceiling.
@@ -416,6 +464,7 @@ class AssessmentJobs:
         preload=(),
         budget_group=None,
         trace=None,
+        salvage=None,
     ):
         """Execute or resume one job, including its accepted retrieval receipt.
 
@@ -425,7 +474,8 @@ class AssessmentJobs:
         normalizer redoes the job instead of failing a resumed one.
 
         ``preload`` slices reach the first packet (see ``run_exchange``) and
-        join the request identity.
+        join the request identity, as does ``salvage``, which may keep part
+        of a result still rejected after the last correction.
 
         ``on_failure(reason)`` makes the job optional (decision OR-39): when
         the model returns no acceptable result, a call times out after its
@@ -452,6 +502,8 @@ class AssessmentJobs:
         }
         if normalize is not None:
             request["normalizer"] = getattr(normalize, "version", None) or normalize.__qualname__
+        if salvage is not None:
+            request["salvage"] = getattr(salvage, "version", None) or salvage.__qualname__
         if preload:
             request["preload"] = [list(key) for key in preload]
         request_sha256 = digest(request)
@@ -463,8 +515,11 @@ class AssessmentJobs:
         validator = Draft202012Validator(json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
 
         def accept(artifact, ranges):
-            if not Draft202012Validator(schema).is_valid(artifact):
-                raise ExchangeError("Assessment job artifact violates its output contract")
+            error = next(iter(Draft202012Validator(schema).iter_errors(artifact)), None)
+            if error is not None:
+                # The path names the contract's own keys and indices, never a value.
+                where = "/".join(str(part) for part in error.absolute_path) or "the root"
+                raise ExchangeError(f"Assessment job artifact violates its output contract at {where}")
             for row in ranges:
                 if (row["repository_id"], row["path"]) not in allowed_sources:
                     raise ExchangeError("Assessment receipt contains an unauthorized source")
@@ -557,6 +612,7 @@ class AssessmentJobs:
                     normalize=normalize,
                     preload=preload,
                     context_limit_bytes=self.context_limit(instructions, schema),
+                    salvage=salvage,
                 )
         except BudgetExhausted as exc:
             if on_failure is None or self.budget.unsettled or self.should_stop():

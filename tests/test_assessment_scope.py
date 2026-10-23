@@ -240,3 +240,53 @@ def test_startup_reports_scope_before_model_work_and_quiet_preserves_the_start_e
     if mode == "console":
         assert "USD 5.00" in captured.err
         assert "required analysis and report take priority" not in captured.err
+
+
+def _org_profile(tmp_path, required):
+    profile = tmp_path / "org-profile.yaml"
+    profile.write_text(
+        "api_version: appsec-advisor.org-profile/v2\n"
+        "organization: {id: testco, name: TestCo, profile_version: t1}\n"
+        'compatibility: {core: ">=0.0 <999.0"}\n'
+        f"test_cases: {{required: {json.dumps(required)}}}\n"
+        "default_preset: std\npresets:\n  std:\n    base_mode: standard\n"
+    )
+    return profile
+
+
+def _session(scope, tmp_path, test_cases, required):
+    budget = controller._assessment_budget(
+        controller._assessment_argument_parser().parse_args(["--repo", str(tmp_path / "app"), "--hard-budget", "5"])
+    )
+
+    def no_model(*args):
+        pytest.fail("a refused run must not reach a model")
+
+    profile = _org_profile(tmp_path, required)
+    return controller._assessment_session(
+        scope, ["--org-profile", str(profile)], budget=budget, host_factory=no_model, test_cases=test_cases
+    )
+
+
+def test_a_required_test_case_reaches_the_session_configuration(tmp_path):
+    scope = _scope(tmp_path)
+    config = {"aspects": ["IAM"], "disable": [{"id": "TC-CI-01", "reason": "legacy pipeline"}]}
+    with _session(scope, tmp_path, config, ["TC-INFRA-01"]) as (cfg, _state, _jobs):
+        assert cfg["org_profile_test_cases_required"] == ["TC-INFRA-01"]
+        assert cfg["test_cases"] == config
+
+
+def test_disabling_a_required_test_case_is_refused_before_the_run_state_exists(tmp_path):
+    scope = _scope(tmp_path)
+    config = {"aspects": [], "disable": [{"id": "TC-CI-01", "reason": "legacy pipeline"}]}
+    with pytest.raises(controller.CallError, match="TC-CI-01 is required by the organization profile"):
+        with _session(scope, tmp_path, config, ["TC-CI-01", "TC-INFRA-01"]):
+            pytest.fail("the session must not start")
+    assert not (scope.output / ".assessment-state.json").exists()
+
+
+@pytest.mark.parametrize("test_cases", [False, True, {"aspects": [], "disable": []}])
+def test_a_run_that_disables_nothing_is_not_refused(tmp_path, test_cases):
+    scope = _scope(tmp_path)
+    with _session(scope, tmp_path, test_cases, ["TC-CI-01"]) as (cfg, _state, _jobs):
+        assert bool(cfg["test_cases"]) is bool(test_cases)

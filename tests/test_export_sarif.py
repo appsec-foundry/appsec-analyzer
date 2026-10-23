@@ -611,3 +611,24 @@ def test_qualified_non_absence_evidence_keeps_its_hash():
     evidence = {"file": "app.py", "line": 3, "repository_id": "repo-0123456789abcdef", "sha256": "c" * 64}
     result = export_sarif._build_result(_make_threat(evidence=[evidence]), {}, {}, qualified=True)
     assert result["locations"][0]["physicalLocation"]["properties"]["sourceSha256"] == "c" * 64
+
+
+def test_linked_findings_share_the_rule_of_their_test_case():
+    first = _make_threat(id="T-001", test_case_ids=["TC-INPUT-01"], rule_ids=["INJ-001"])
+    second = _make_threat(id="T-002", test_case_ids=["TC-INPUT-01"], rule_ids=["INJ-PY-001"])
+    plain = _make_threat(id="T-003")
+    sarif = export_sarif.build_sarif({"meta": {}, "threats": [first, second, plain], "mitigations": []})
+    run = sarif["runs"][0]
+    assert [rule["id"] for rule in run["tool"]["driver"]["rules"]] == ["TC-INPUT-01", "T-003"]
+    assert [result["ruleId"] for result in run["results"]] == ["TC-INPUT-01", "TC-INPUT-01", "T-003"]
+    assert run["results"][1]["properties"]["findingId"] == "T-002"
+    assert run["results"][1]["properties"]["scannerRuleIds"] == ["INJ-PY-001"]
+    rule = run["tool"]["driver"]["rules"][0]
+    assert rule["properties"]["aspect"] == "InputVal" and "CWE-89" in rule["properties"]["cwe"]
+
+
+def test_unknown_test_case_ids_leave_the_finding_as_its_own_rule():
+    threat = _make_threat(test_case_ids=["TC-NOPE-99"])
+    run = export_sarif.build_sarif({"meta": {}, "threats": [threat], "mitigations": []})["runs"][0]
+    assert [result["ruleId"] for result in run["results"]] == ["T-001"]
+    assert "findingId" not in run["results"][0].get("properties", {})

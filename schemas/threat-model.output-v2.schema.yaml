@@ -723,6 +723,10 @@ properties:
     $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/security_controls
   security_architecture:
     $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/security_architecture
+  test_case_results:
+    $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/test_case_results
+  test_case_findings:
+    $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/test_case_findings
   threats:
     type: array
     items:

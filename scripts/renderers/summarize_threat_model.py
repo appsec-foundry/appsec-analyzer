@@ -738,7 +738,32 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
         rows.append(("", f"§8 register lists {summary['totals']['threats']}; practice sites fold into weaknesses"))
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
+    if summary.get("test_case_counts"):
+        rows.append(("Verification", test_case_line(summary["test_case_counts"])))
+    if summary.get("incomplete_aspects"):
+        aspects = ", ".join(summary["incomplete_aspects"])
+        rows.append(("", f"incomplete for {aspects}: the budget ended before every verification job ran"))
     return rows
+
+
+_TEST_CASE_WORDS = (
+    ("finding", "finding", "findings"),
+    ("control", "control", "controls"),
+    ("partial", "partial", "partial"),
+    ("no_finding", "no finding", "no finding"),
+    ("undecidable", "undecidable", "undecidable"),
+    ("not_applicable", "not applicable", "not applicable"),
+    ("disabled", "disabled", "disabled"),
+)
+
+
+def test_case_line(counts: dict[str, int]) -> str:
+    """Outcome counts of the examined verification items (REQ-040), in a fixed order."""
+    parts = [f"{sum(counts.values())} examined"]
+    for key, singular, plural in _TEST_CASE_WORDS:
+        if counts.get(key):
+            parts.append(f"{counts[key]} {singular if counts[key] == 1 else plural}")
+    return " · ".join(parts)
 
 
 def completion_severity_counts(output_dir: Path) -> dict[str, int]:
@@ -760,7 +785,20 @@ def _completion_summary(output_dir: Path) -> dict | None:
         return None
     if not isinstance(data, dict):
         return None
-    return build_summary(data, Path(output_dir))
+    summary = build_summary(data, Path(output_dir))
+    block = data.get("test_case_results")
+    results = block.get("results") if isinstance(block, dict) else None
+    if isinstance(results, list) and results:
+        counts: dict[str, int] = {}
+        for row in results:
+            if isinstance(row, dict) and isinstance(row.get("outcome"), str):
+                counts[row["outcome"]] = counts.get(row["outcome"], 0) + 1
+        if counts:
+            summary["test_case_counts"] = counts
+        incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
+        if incomplete:
+            summary["incomplete_aspects"] = incomplete
+    return summary
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

@@ -630,6 +630,45 @@ def test_an_exhausted_correction_says_whether_every_attempt_failed_alike(tmp_pat
     assert ("each for the same reason" in str(raised.value)) is repeat
 
 
+def test_a_salvage_keeps_what_the_last_rejection_does_not_concern(tmp_path):
+    def review(artifact, slices):
+        if artifact["summary"] != "kept":
+            raise host.Rejection("Findings violate the rules", ["findings[0] breaks a rule"], findings=[0])
+
+    def run(salvage):
+        model = Model([_result("a"), _result("b"), _result("c")])
+        result = host.run_exchange(
+            model,
+            view(tmp_path),
+            instructions="trusted task",
+            context={},
+            artifact_schema=ARTIFACT,
+            allowed_sources=frozenset({(REPO, "app.py")}),
+            timeout_s=60,
+            should_stop=lambda: False,
+            review=review,
+            salvage=salvage,
+        )
+        return result, model
+
+    seen = []
+
+    def salvage(artifact, rejection):
+        seen.append((artifact["summary"], rejection.findings))
+        return {"summary": "kept"}
+
+    result, model = run(salvage)
+    # Salvage runs only once no correction is left, on the last result.
+    assert result.artifact == {"summary": "kept"} and seen == [("c", (0,))]
+    assert len(model.prompts) == host.MAX_CORRECTIONS + 1 and result.calls == host.MAX_CORRECTIONS + 1
+    # Without a salvage, with nothing kept, or with a kept result the review still rejects, the exchange fails.
+    for other in (None, lambda artifact, rejection: None, lambda artifact, rejection: {"summary": "still"}):
+        with pytest.raises(host.ModelAnswerFailure, match="Result rejected after 3 attempt"):
+            run(other)
+    with pytest.raises(host.ModelAnswerFailure):
+        run(lambda artifact, rejection: {"unexpected": True})  # a kept result must pass the contract too
+
+
 def test_a_normalized_result_is_what_review_correction_and_caller_see(tmp_path):
     """The controller sets what it can derive; the model is never asked to repair it."""
     reviewed = []

@@ -140,6 +140,12 @@ Path-bearing arrays and records are bounded by their artifact schemas. The
 bindings contract does not advertise a generic path limit because a serialized
 document has no schema-independent definition of which strings are paths.
 
+Verification (REQ-040) adds two agents of one component each. The
+`test_case_investigator` receives the plugin-owned verification catalog as
+instructions and its component's starting candidates as untrusted context; the
+planned `open_reviewer` receives the component's verification results and
+business context. Their catalog IDs keep the earlier "test case" wording.
+
 Repository declarations remain data inputs. They cannot edit the core catalog,
 assign agents, choose paths or schemas, change models or tools, relax limits,
 or remove required or forbidden context. A trusted packaged extension that

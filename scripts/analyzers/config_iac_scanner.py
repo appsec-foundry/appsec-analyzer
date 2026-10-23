@@ -357,6 +357,22 @@ def _generated_at(output: Path) -> str:
     return dt.datetime.fromtimestamp(epoch, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _repository_applies(facts: dict[str, Any], check: dict[str, Any]) -> bool:
+    """Whether a repository-level check concerns this repository at all."""
+    precondition = check.get("precondition")
+    if precondition and not supply_chain_facts.precondition_holds(facts, precondition):
+        return False
+    if check["capability"] == "dependency_updates":
+        return check["ecosystem"] in facts["capabilities"]["dependency_updates"]["ecosystems_used"]
+    return True
+
+
+def _evaluated(check: dict[str, Any], violated: bool, applies: bool, files: int) -> dict[str, Any]:
+    """The outcome of one check: violated, satisfied, or not applicable, with the files it examined."""
+    status = "violated" if violated else "satisfied" if applies else "not_applicable"
+    return {"check_id": check["id"], "status": status, "files": files}
+
+
 def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dict[str, Any]:
     """Run each catalog check on its selected files: at most one finding per check and file.
 
@@ -371,15 +387,19 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
     facts = supply_chain_facts.collect(repo_root, inventory)
     selected = _selected_files(repo_root, checks, inventory, depth=depth)
     pending: list[dict[str, Any]] = []
+    evaluated: list[dict[str, Any]] = []
     for check in checks:
+        before = len(pending)
         if check["expect"] == "repository":
             gap = supply_chain_facts.capability_gap(facts, check)
             if gap is not None:
                 pending.append({"check": check, "path": None, "line": 0, **gap})
+            evaluated.append(_evaluated(check, len(pending) > before, _repository_applies(facts, check), 0))
             continue
         paths = selected[check["id"]]
         if check["expect"] == "file_exists" and not paths:
             pending.append({"check": check, "path": None, "line": 0, "snippet": "File not found", "searched_files": []})
+            evaluated.append(_evaluated(check, True, True, 0))
             continue
         for path in paths:
             try:
@@ -393,6 +413,9 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
                 if line == 0:
                     row["searched_files"] = [path.relative_to(repo_root).as_posix()]
                 pending.append(row)
+        evaluated.append(
+            _evaluated(check, len(pending) > before, check["expect"] == "file_exists" or bool(paths), len(paths))
+        )
 
     findings: list[dict[str, Any]] = []
     for index, row in enumerate(pending, start=1):
@@ -421,6 +444,7 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
         "violations": len(findings),
         "inventory_source": inventory.source,
         "findings": findings,
+        "rules_evaluated": evaluated,
         "supply_chain_facts": facts,
     }
     uncovered = _uncovered_surfaces(repo_root, checks_path, checks, inventory)

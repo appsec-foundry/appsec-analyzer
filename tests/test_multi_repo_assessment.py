@@ -484,7 +484,7 @@ def test_default_console_writes_every_line_in_one_column_grid():
         ("5/8 Threat analysis", "⚠", "~36%", "3m", "~11m", "1 min: no model activity for 95 s (waiting for the API)"),
         # A finished component gets its own event, so `done` marks only a
         # phase's end; the share follows completions, not starts.
-        ("5/8 Threat analysis", "✓", "~46%", "4m", "~5m", "1/2 components done · API · 2m00s"),
+        ("5/8 Threat analysis", "✓", "~46%", "4m", "~5m", "Survey: 1/2 components done · API · 2m00s"),
         ("5/8 Threat analysis", "·", "~46%", "4m", "~5m", "component 2/2 · Store"),
         # MR-17: a successful correction is counted on the done line, its reason only under --verbose.
         ("5/8 Threat analysis", "done", "~56%", "7m", "~5m", "4m30s · 2 components · 1 answer corrected (STRIDE 1)"),
@@ -540,7 +540,7 @@ def test_the_progress_file_names_every_row_field_by_field(tmp_path):
         "progress": "~46%",
         "elapsed": "4m",
         "left": "~5m",
-        "detail": "1/2 components done · API · 2m00s",
+        "detail": "Survey: 1/2 components done · API · 2m00s",
     }
     assert [r["detail"] for r in records if r["event"] == "warning"] == [
         "1 min: no model activity for 95 s (waiting for the API)"
@@ -2107,8 +2107,8 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     ]
     # A finish counts completions, never a start slot: Ledger started second but finished first.
     assert [row[5] for row in rows if row[1] == "✓"] == [
-        "1/2 components done · Ledger ?[2J? · 0s",
-        "2/2 components done · Gateway · 10s",
+        "Survey: 1/2 components done · Ledger ?[2J? · 0s",
+        "Survey: 2/2 components done · Gateway · 10s",
     ]
     assert [(row[0], row[5]) for row in _rows(lines) if row[1] == "done"][-1] == (
         "7/8 Abuse cases",
@@ -2296,7 +2296,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     status = _status_frames(capsys.readouterr().err)[-1][-1]
     # Oldest first, at most TICK_CALLS named; the rest counted.
     assert status.endswith(
-        "0/3 components done · STRIDE 2m10s model is thinking (~9,000 tokens)"
+        "Survey: 0/3 components done · STRIDE 2m10s model is thinking (~9,000 tokens)"
         " · controls 20s model is writing its result (~1,200 characters) · +1 more"
     )
     # Without a call in flight, the running controller step and its age.
@@ -2304,7 +2304,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     console.activity_started = clock.monotonic() - 45
     console.tick()
     status = _status_frames(capsys.readouterr().err)[-1][-1]
-    assert status.endswith("0/3 components done · Analyzing all STRIDE categories: Gateway (1/3) · 45s")
+    assert status.endswith("Survey: 0/3 components done · Analyzing all STRIDE categories: Gateway (1/3) · 45s")
     controller._AssessmentConsole.clear_status()
 
 
@@ -2901,9 +2901,9 @@ def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
     controller._AssessmentConsole.clear_status()
     frame = lambda status: status[10 + controller._AssessmentConsole._PHASE_WIDTH + 2]  # noqa: E731 - the event column
     assert "━" in first and "─" in first
-    assert first.endswith("0/4 components done · Analyzing all STRIDE categories: Gateway (2/4) · 0s")
+    assert first.endswith("Survey: 0/4 components done · Analyzing all STRIDE categories: Gateway (2/4) · 0s")
     # The running component has its own line and bar above the run's row.
-    assert len(above) == 1 and "Gateway" in above[0] and above[0].rstrip().endswith("STRIDE")
+    assert len(above) == 1 and "Gateway" in above[0] and above[0].rstrip().endswith("Survey")
     assert {frame(first), frame(second)} <= set(SPINNER) and frame(first) != frame(second)
 
 
@@ -2921,12 +2921,14 @@ def test_each_running_component_gets_its_own_bar_and_the_area_clears_whole(capsy
     console.tick()
     *above, bottom = _status_frames(capsys.readouterr().err)[-1]
     assert len(above) == 2 and "Gateway" in above[0] and "Ledger" in above[1]
-    assert above[0].rstrip().endswith(f"{done}/{total} STRIDE jobs") and above[1].rstrip().endswith("evidence review")
-    assert "0/4 components done" in bottom
+    assert above[0].rstrip().endswith(f"{done}/{total} Survey jobs") and above[1].rstrip().endswith("evidence review")
+    assert "Survey: 0/4 components done" in bottom
     console.step("Analyzed component: Ledger (1/4)")
     written = capsys.readouterr().err
     # Three status lines are cleared from the bottom up before the permanent line.
-    assert written == "\r\033[K" + "\033[1A\033[K" * 2 and lines[-1].endswith("1/4 components done · Ledger · 0s")
+    assert written == "\r\033[K" + "\033[1A\033[K" * 2 and lines[-1].endswith(
+        "Survey: 1/4 components done · Ledger · 0s"
+    )
     console.tick()
     assert len(_status_frames(capsys.readouterr().err)[-1]) == 2
     controller._AssessmentConsole.clear_status()
@@ -2952,7 +2954,7 @@ def test_model_updates_keep_the_component_rows_visible(capsys, monkeypatch, mess
     assert len(frames) == 3
     for frame in frames:
         assert len(frame) == 3
-        assert "Gateway" in frame[0] and frame[0].endswith("10/20 STRIDE jobs")
+        assert "Gateway" in frame[0] and frame[0].endswith("10/20 Survey jobs")
         assert "Ledger" in frame[1]
 
 
@@ -3069,3 +3071,22 @@ def test_controller_draws_uncalled_routes_once_per_authentication_method(tmp_pat
         assert row["repository_id"] == rid
         validate_source(scope, row, path_key="file")
     assert "Session cookie" in build_figure1_dfd_svg({**components, **result}, {}, {}, detail=False)
+
+
+def test_verification_jobs_extend_the_threat_analysis_share_and_advance_it():
+    """REQ-040: the verification plan after the survey adds its jobs to the phase; each job advances it."""
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.plan_components(1)
+    console.step("Analyzing all STRIDE categories: API (1/1)")
+    console.step("Analyzed component: API")
+    survey_done = console.done
+    console.step("Verify: 4 jobs for AuthZ, about USD 1.60; the remaining USD 3.00 covers them")
+    # The run's share is recomputed once with the larger phase, as when the component count became known.
+    planned = console.done
+    assert planned < survey_done
+    console.step("Verifying AuthZ 1/4: API (part 1 of 4)")
+    assert console.done == planned
+    console.step("Verifying AuthZ 3/4: API (part 3 of 4)")
+    assert console.done > planned
+    assert any("Verify: 4 jobs for AuthZ" in line for line in lines)

@@ -218,6 +218,24 @@ def _merge_capability(values: list[dict]) -> dict:
     return result
 
 
+_EVALUATED_RANK = {"violated": 2, "satisfied": 1, "not_applicable": 0}
+
+
+def _merge_rules_evaluated(documents: list[list[dict]]) -> list[dict]:
+    """One entry per check across repositories: any violation wins, then any satisfied repository."""
+    merged: dict[str, dict] = {}
+    for rows in documents:
+        for row in rows:
+            known = merged.get(row["check_id"])
+            if known is None:
+                merged[row["check_id"]] = dict(row)
+                continue
+            known["files"] += row["files"]
+            if _EVALUATED_RANK[row["status"]] > _EVALUATED_RANK[known["status"]]:
+                known["status"] = row["status"]
+    return list(merged.values())
+
+
 def _merge_config(rows: list[tuple[_Repo, dict]], receipts: list[str]) -> dict:
     if not rows:
         return dict(NO_IAC_STUB)
@@ -252,6 +270,9 @@ def _merge_config(rows: list[tuple[_Repo, dict]], receipts: list[str]) -> dict:
         "violations": sum(document["violations"] for _, document in rows),
         "findings": findings,
     }
+    evaluated = _merge_rules_evaluated([document.get("rules_evaluated", []) for _, document in rows])
+    if evaluated:
+        merged["rules_evaluated"] = evaluated
     if facts:
         merged["supply_chain_facts"] = {
             "version": 1,

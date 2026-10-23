@@ -227,8 +227,49 @@ def _result_trust_boundaries(threat: dict, boundary_facts: dict[str, dict]) -> l
     return entries
 
 
+_CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "test-cases.yaml"
+
+
+def _catalog_cases() -> dict[str, dict]:
+    """Catalog test cases by ID; empty when the catalog cannot be read."""
+    try:
+        document = yaml.safe_load(_CATALOG_PATH.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {case["id"]: case for case in document.get("test_cases", []) if isinstance(case, dict) and "id" in case}
+
+
+def _linked_case(threat: dict, cases: dict[str, dict]) -> str | None:
+    """The test case that names a finding in SARIF: its first linked, catalog-known test case."""
+    for case_id in threat.get("test_case_ids") or []:
+        if case_id in cases:
+            return case_id
+    return None
+
+
+def _build_case_rule(case: dict) -> dict:
+    stride = case.get("stride") or []
+    return {
+        "id": case["id"],
+        "name": f"{stride[0]}/{_slugify(case['title'])}" if stride else _slugify(case["title"]),
+        "shortDescription": {"text": case["title"]},
+        "fullDescription": {"text": " ".join(str(case.get("objective", "")).split()) or case["title"]},
+        "properties": {
+            "tags": ["security", str(case.get("aspect", "")).lower(), *(value.lower() for value in stride)],
+            "aspect": case.get("aspect"),
+            "stride": stride,
+            "cwe": case.get("cwe") or [],
+        },
+    }
+
+
 def _build_result(
-    threat: dict, mitigations_by_id: dict[str, dict], boundary_facts: dict[str, dict], *, qualified: bool = False
+    threat: dict,
+    mitigations_by_id: dict[str, dict],
+    boundary_facts: dict[str, dict],
+    *,
+    qualified: bool = False,
+    cases: dict[str, dict] | None = None,
 ) -> dict:
     tid = _threat_id(threat)
     risk = threat.get("risk") or threat.get("severity")
@@ -295,6 +336,14 @@ def _build_result(
     boundaries = _result_trust_boundaries(threat, boundary_facts)
     if boundaries:
         properties["trustBoundaries"] = boundaries
+    case_id = _linked_case(threat, cases or {})
+    if case_id:
+        # The test case names the rule; the finding keeps its own ID for lookups.
+        result["ruleId"] = case_id
+        properties["findingId"] = tid
+        properties["testCaseIds"] = [value for value in threat["test_case_ids"] if value in (cases or {})]
+        if threat.get("rule_ids"):
+            properties["scannerRuleIds"] = list(threat["rule_ids"])
     if properties:
         result["properties"] = properties
 
@@ -357,6 +406,7 @@ def build_sarif(
     rules: list[dict] = []
     results: list[dict] = []
     seen_rule_ids: set[str] = set()
+    cases = _catalog_cases() if any(t.get("test_case_ids") for t in threats) else {}
     for threat in threats:
         tid = _threat_id(threat)
         if not tid:
@@ -364,10 +414,12 @@ def build_sarif(
         exportable, _reason = _is_sarif_exportable(threat)
         if not exportable:
             continue
-        if tid not in seen_rule_ids:
-            rules.append(_build_rule(threat, mitigations_by_id))
-            seen_rule_ids.add(tid)
-        results.append(_build_result(threat, mitigations_by_id, boundary_facts, qualified=qualified))
+        case_id = _linked_case(threat, cases)
+        rule_id = case_id or tid
+        if rule_id not in seen_rule_ids:
+            rules.append(_build_case_rule(cases[case_id]) if case_id else _build_rule(threat, mitigations_by_id))
+            seen_rule_ids.add(rule_id)
+        results.append(_build_result(threat, mitigations_by_id, boundary_facts, qualified=qualified, cases=cases))
 
     run: dict[str, Any] = {
         "tool": {

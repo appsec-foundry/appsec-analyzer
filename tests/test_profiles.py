@@ -11,6 +11,24 @@ import yaml
 from appsec_analyzer import cli, profiles, resource_root
 from tests.test_public_assessment_operations import openai_metadata as openai_metadata
 
+REASON = {"id": "TC-CI-01", "reason": "legacy pipeline"}
+BAD_TEST_CASE_OBJECTS = (
+    {"aspects": []},
+    {"aspects": ["Infra"]},
+    {"aspects": ["IAM", "IAM"]},
+    {"aspects": "IAM"},
+    {"unknown": True},
+    {"disable": [{"id": "TC-CI-01"}]},
+    {"disable": [{"id": "TC-CI-01", "reason": ""}]},
+    {"disable": [{"id": "TC-CI-01", "reason": "x" * 301}]},
+    {"disable": [{"id": "TC-CI-01", "reason": "bad\nreason"}]},
+    {"disable": [{"id": "TC-CI-01", "reason": "ok", "extra": 1}]},
+    {"disable": [{"id": "tc-ci-01", "reason": "ok"}]},
+    {"disable": [{"id": "TC-NOPE-99", "reason": "not in the catalog"}]},
+    {"disable": [REASON, {**REASON, "reason": "again"}]},
+    {"disable": REASON},
+)
+
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
@@ -116,6 +134,230 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     assert seen["profile"]["settings"]["max_parallel"] == expected
 
 
+def test_test_cases_default_follows_the_depth(home):
+    plain = profiles.resolve_scan("claude")
+    assert plain["settings"]["test_cases"] == {"aspects": ["AuthZ"], "disable": []}
+    assert plain["origins"]["settings"]["test_cases"] == "analyzer default for standard depth"
+    assert profiles.resolve_scan("claude", depth="quick")["settings"]["test_cases"] is False
+    assert profiles.resolve_scan("claude", depth="thorough")["settings"]["test_cases"] == {
+        "aspects": ["AuthZ", "InputVal", "DataProt", "AI"],
+        "disable": [],
+    }
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
+    enabled = profiles.resolve_scan("cases")
+    assert enabled["settings"]["test_cases"] is True
+    assert enabled["origins"]["settings"]["test_cases"].endswith("cases.yaml")
+    assert enabled["definition_sha256"] != plain["definition_sha256"]
+
+
+def test_test_case_depths_override_single_depths_and_keep_the_others(home):
+    setting = {"depths": {"standard": ["InputVal", "AuthZ"], "quick": False, "thorough": []}}
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": setting})
+    assert profiles.resolve_scan("cases")["settings"]["test_cases"] == {"aspects": ["AuthZ", "InputVal"], "disable": []}
+    assert profiles.resolve_scan("cases", depth="quick")["settings"]["test_cases"] is False
+    # An empty list keeps the scanner-based verification items without a model investigation.
+    assert profiles.resolve_scan("cases", depth="thorough")["settings"]["test_cases"] == {"aspects": [], "disable": []}
+    write(
+        home,
+        "scan",
+        "some",
+        {"schema_version": 1, "test_cases": {"depths": {"quick": ["AI"]}, "aspects": ["DataProt"]}},
+    )
+    assert profiles.resolve_scan("some", depth="quick")["settings"]["test_cases"]["aspects"] == ["AI"]
+    # `aspects` covers every depth that `depths` does not name.
+    assert profiles.resolve_scan("some")["settings"]["test_cases"]["aspects"] == ["DataProt"]
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [{"depths": {"deep": ["AuthZ"]}}, {"depths": {}}, {"depths": {"standard": ["Infra"]}}, {"depths": {"quick": True}}],
+)
+def test_invalid_test_case_depths_are_rejected(home, setting):
+    write(home, "scan", "bad", {"schema_version": 1, "test_cases": setting})
+    with pytest.raises(profiles.ProfileError, match="invalid scan profile"):
+        profiles.resolve_scan("bad")
+
+
+def test_required_aspects_join_the_selected_aspects_and_cannot_be_removed():
+    assert profiles.add_required_aspects(False, ["AuthZ"]) == {"aspects": ["AuthZ"], "disable": []}
+    setting = {"aspects": ["InputVal"], "disable": [REASON]}
+    assert profiles.add_required_aspects(setting, ["DataProt", "AuthZ"]) == {
+        "aspects": ["AuthZ", "InputVal", "DataProt"],
+        "disable": [REASON],
+    }
+    for required in (None, []):
+        assert profiles.add_required_aspects(False, required) is False
+        assert profiles.add_required_aspects(setting, required) == setting
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, "yes", None, []])
+def test_non_boolean_test_cases_is_rejected_before_host_or_checkout(home, monkeypatch, capsys, value):
+    from appsec_analyzer import hosts
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not start"))
+    write(home, "scan", "bad", {"schema_version": 1, "test_cases": value})
+    assert cli.main(["assess", "--repo", "https://example.invalid/repo.git", "--profile", "bad"]) == 2
+    assert "invalid scan profile (test_cases." in capsys.readouterr().err
+
+
+def test_test_case_object_is_normalized_and_keeps_its_own_identity(home):
+    write(
+        home,
+        "scan",
+        "cases",
+        {
+            "schema_version": 1,
+            "test_cases": {
+                "aspects": ["AI", "DataProt", "IAM"],
+                "disable": [{"id": "TC-INFRA-01", "reason": "managed by platform"}, REASON],
+            },
+        },
+    )
+    resolved = profiles.resolve_scan("cases")
+    assert resolved["settings"]["test_cases"] == {
+        "aspects": ["IAM", "DataProt", "AI"],
+        "disable": [REASON, {"id": "TC-INFRA-01", "reason": "managed by platform"}],
+    }
+    write(home, "scan", "plain", {"schema_version": 1, "test_cases": True})
+    assert resolved["definition_sha256"] != profiles.resolve_scan("plain")["definition_sha256"]
+
+
+def test_a_test_case_object_without_aspects_keeps_the_depth_default(home):
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"disable": [REASON]}})
+    setting = profiles.resolve_scan("cases")["settings"]["test_cases"]
+    assert setting == {"aspects": ["AuthZ"], "disable": [REASON]}
+    assert profiles.session_test_cases(setting) == setting
+    # Quick depth runs the survey only, so its disables have nothing to apply to.
+    assert profiles.resolve_scan("cases", depth="quick")["settings"]["test_cases"] is False
+
+
+def test_session_test_cases_form():
+    assert profiles.session_test_cases(False) is False
+    assert profiles.session_test_cases(None) is False
+    assert profiles.session_test_cases(True) == {"aspects": [], "disable": []}
+    assert profiles.session_test_cases(False, enabled=True) == {"aspects": [], "disable": []}
+    assert profiles.session_test_cases(False, aspects=("DataProt", "IAM")) == {
+        "aspects": ["IAM", "DataProt"],
+        "disable": [],
+    }
+    setting = {"aspects": ["IAM"], "disable": [REASON]}
+    assert profiles.session_test_cases(setting) == setting
+    # A flag can narrow the aspects but never removes a disable.
+    assert profiles.session_test_cases(setting, aspects=("AuthZ",)) == {"aspects": ["AuthZ"], "disable": [REASON]}
+    with pytest.raises(profiles.ProfileError):
+        profiles.session_test_cases(False, aspects=("Infra",))
+
+
+def test_disabling_a_required_test_case_is_refused():
+    config = {"aspects": [], "disable": [REASON]}
+    with pytest.raises(profiles.ProfileError, match="TC-CI-01 is required by the organization profile"):
+        profiles.refuse_required_test_case_disable(config, ["TC-INFRA-01", "TC-CI-01"])
+    for allowed in (False, True, config):
+        profiles.refuse_required_test_case_disable(allowed, ["TC-INFRA-01"])
+        profiles.refuse_required_test_case_disable(allowed, None)
+    profiles.refuse_required_test_case_disable(True, ["TC-CI-01"])
+
+
+def test_a_profile_inside_a_repository_cannot_enable_or_disable_test_cases(home, tmp_path):
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    path = repository / "scan.yaml"
+    path.write_text(yaml.safe_dump({"schema_version": 1, "test_cases": {"disable": [REASON]}}))
+    with pytest.raises(profiles.ProfileError, match="outside"):
+        profiles.resolve_scan(str(path), repositories=[str(repository)])
+    with pytest.raises(profiles.ProfileError, match="outside"):
+        profiles.read_document(path, repositories=[str(repository)])
+
+
+@pytest.mark.parametrize("change", [{"aspects": ["IAM"]}, {"disable": [REASON]}])
+def test_changing_aspects_or_disabled_test_cases_requires_a_new_run(home, tmp_path, monkeypatch, change):
+    from runtime import assessment_state
+
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / assessment_state.STATE_NAME).write_text("{}")
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"aspects": ["IAM", "AuthZ"]}})
+    saved = profiles.resolve_scan("cases")
+    monkeypatch.setattr(assessment_state, "_read_state", lambda p: {"operator_profile": saved})
+    assert profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"aspects": ["IAM", "AuthZ"], **change}})
+    with pytest.raises(profiles.ProfileError, match="changed"):
+        profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
+
+
+def test_object_test_cases_reach_the_controller_as_aspects_and_profile(home, tmp_path, monkeypatch):
+    setting = {"aspects": ["AuthZ", "IAM"], "disable": [REASON]}
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": setting})
+    from appsec_analyzer import hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller as controller
+
+    seen = {}
+
+    def assess(args, **kwargs):
+        seen.update(args=list(args), profile=kwargs["run_profile"])
+        ns, _ = controller._assessment_argument_parser().parse_known_args(args)
+        assert ns.test_cases is True and ns.test_case_aspects == ("IAM", "AuthZ")
+        return 0
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(controller, "assess_main", assess)
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    assert cli.main(["assess", "--repo", str(repo), "--profile", "cases"]) == 0
+    assert "--test-cases" in seen["args"]
+    assert seen["args"][seen["args"].index("--test-case-aspects") + 1] == "IAM,AuthZ"
+    from appsec_analyzer.profiles import session_test_cases
+
+    assert session_test_cases(seen["profile"]["settings"]["test_cases"], enabled=True) == {
+        "aspects": ["IAM", "AuthZ"],
+        "disable": [REASON],
+    }
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_public_test_cases_reaches_controller_from_profile(home, tmp_path, monkeypatch, enabled):
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": enabled})
+    from appsec_analyzer import hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller as controller
+
+    seen = {}
+
+    def assess(args, **kwargs):
+        seen.update(args=args, profile=kwargs["run_profile"])
+        ns, _ = controller._assessment_argument_parser().parse_known_args(args)
+        assert ns.test_cases is enabled
+        return 0
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(controller, "assess_main", assess)
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    assert cli.main(["assess", "--repo", str(repo), "--profile", "cases"]) == 0
+    assert ("--test-cases" in seen["args"]) is enabled
+    assert seen["profile"]["settings"]["test_cases"] is enabled
+
+
+def test_test_cases_change_requires_new_run_and_older_snapshot_means_false(home, tmp_path, monkeypatch):
+    from runtime import assessment_state
+
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / assessment_state.STATE_NAME).write_text("{}")
+    # Quick depth runs the survey only, so its identity equals that of snapshots older than the setting.
+    older = profiles.resolve_scan("claude", depth="quick")
+    del older["settings"]["test_cases"]
+    monkeypatch.setattr(assessment_state, "_read_state", lambda p: {"operator_profile": older})
+    restored = profiles.restore_profile(profiles.resolve_scan("claude", depth="quick"), output, resume=True)
+    assert restored["settings"]["test_cases"] is False
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
+    with pytest.raises(profiles.ProfileError, match="changed"):
+        profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
+
+
 @pytest.mark.parametrize("command", ["assess", "profiles show", "profiles validate"])
 @pytest.mark.parametrize("value", ["0", "-1", "17", "2.5", "true", "many"])
 def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypatch, command, value):
@@ -167,6 +409,8 @@ def test_operator_can_override_builtin_recon_model(home, base, override):
         {"budget": True},
         {"budget": float("inf")},
         *({"max_parallel": value} for value in (0, -1, 17, True, 2.0, "3")),
+        *({"test_cases": value} for value in ("true", 1, 0, None, [])),
+        *({"test_cases": value} for value in BAD_TEST_CASE_OBJECTS),
         {"model_profile": "../codex"},
         {"endpoint": "https://untrusted.invalid"},
         {"outputs": ["shell"]},
@@ -425,7 +669,37 @@ def test_role_catalog_matches_the_controller():
     from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
     from orchestrator.orchestration_controller import SEMANTIC_ROLE_MODEL_KEYS
 
-    assert set(profiles.ROLES) == set(SEMANTIC_ROLE_MODEL_KEYS) | set(RENDERER_MODEL_KEYS)
+    from appsec_analyzer.model_roles import PROFILE_ROLE_ALIASES, profile_role
+
+    assert set(profiles.ROLES) | set(PROFILE_ROLE_ALIASES) == set(SEMANTIC_ROLE_MODEL_KEYS) | set(RENDERER_MODEL_KEYS)
+    # Aliases stay out of the profiles, so adding one leaves every profile's identity unchanged.
+    assert not set(PROFILE_ROLE_ALIASES) & set(profiles.ROLES)
+    assert set(PROFILE_ROLE_ALIASES.values()) <= set(profiles.ROLES)
+    assert profile_role("test_case_investigator") == profile_role("open_reviewer") == "stride_analyzer"
+    assert profile_role("threat_merger") == "threat_merger"
+    for role, target in PROFILE_ROLE_ALIASES.items():
+        assert SEMANTIC_ROLE_MODEL_KEYS[role] == SEMANTIC_ROLE_MODEL_KEYS[target]
+
+
+def test_alias_roles_use_their_profile_roles_settings_and_stay_out_of_the_lineup(home, tmp_path):
+    sample(
+        home,
+        model={
+            "schema_version": 1,
+            "base": "claude",
+            "roles": {"stride_analyzer": {"model": "sonnet", "reasoning_effort": "high"}},
+        },
+    )
+    selected = profiles.resolve_scan("release")
+    assert "test_case_investigator" not in selected["models"]
+    cli._engine_imports()
+    from orchestrator import orchestration_controller as controller
+
+    factory = controller._assessment_cli_host_factory(tmp_path, run_profile=selected)
+    for role in ("test_case_investigator", "open_reviewer"):
+        assert factory(role, "sonnet", 2).effort == "high"
+    lineup, _ = controller._assessment_model_lines({"stride_model": "big"})
+    assert "stride_analyzer" in lineup and "test_case_investigator" not in lineup and "open_reviewer" not in lineup
 
 
 def test_custom_models_cannot_bypass_organization_opus_rule(home):

@@ -29,6 +29,53 @@ properties:
     type: integer
     minimum: 1
     maximum: 16
+  test_cases:
+    description: >-
+      The verification method beside the survey. Without the setting each depth uses its shipped default.
+      A boolean enables or disables the verification items for every depth, without a model investigation
+      when true; the object selects the verified aspects for every depth or single depths and disables
+      named verification items with a reason.
+    oneOf:
+    - type: boolean
+    - type: object
+      additionalProperties: false
+      properties:
+        aspects:
+          description: >-
+            Aspects whose verification items a model investigates at every depth that `depths` does not
+            name; without it such a depth keeps its shipped aspects.
+          $ref: "#/$defs/test_case_aspects"
+        depths:
+          description: Aspects verified at single depths; false runs the survey only at that depth.
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            quick:
+              $ref: "#/$defs/depth_aspects"
+            standard:
+              $ref: "#/$defs/depth_aspects"
+            thorough:
+              $ref: "#/$defs/depth_aspects"
+        disable:
+          description: Test cases to leave out of the assessment, each with the reason.
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - reason
+            properties:
+              id:
+                type: string
+                pattern: ^TC-[A-Z]+-[0-9]{2}$
+              reason:
+                type: string
+                minLength: 1
+                maxLength: 300
+                pattern: ^[^\x00-\x1f\x7f-\x9f]*$
   outputs:
     type: array
     maxItems: 7
@@ -64,3 +111,31 @@ properties:
         additionalProperties: *id001
 required:
 - schema_version
+$defs:
+  test_case_aspects:
+    type: array
+    minItems: 1
+    maxItems: 6
+    uniqueItems: true
+    items:
+      enum:
+      - IAM
+      - SessionMgmt
+      - AuthZ
+      - InputVal
+      - DataProt
+      - AI
+  depth_aspects:
+    oneOf:
+    - const: false
+    - type: array
+      maxItems: 6
+      uniqueItems: true
+      items:
+        enum:
+        - IAM
+        - SessionMgmt
+        - AuthZ
+        - InputVal
+        - DataProt
+        - AI

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appsec-advisor/schemas/open-review.schema.json",
+  "title": "Open review of one component",
+  "description": "REQ-040 pilot. Evidence-supported weaknesses of one component that no security test case covers. Load it through contexts/case_analysis.contract: each findings item is the STRIDE threat item of multi-repo-stride.schema.json, which the loader closes with the extension field given here. The controller sets the identity fields and every finding's empty test_case_ids.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_scope_sha256",
+    "component_inventory_fingerprint",
+    "component_id",
+    "findings",
+    "discovery_escapes"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source_scope_sha256": {"$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/source_scope_sha256"},
+    "component_inventory_fingerprint": {"$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/component_inventory_fingerprint"},
+    "component_id": {"$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/component_id"},
+    "findings": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/threats/items",
+        "properties": {
+          "test_case_ids": {
+            "type": "array",
+            "maxItems": 0,
+            "items": {"type": "string", "pattern": "^TC-[A-Z]+-[0-9]{2}$"}
+          }
+        },
+        "required": ["test_case_ids"]
+      }
+    },
+    "discovery_escapes": {
+      "type": "array",
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason", "search_paths"],
+        "properties": {
+          "reason": {"enum": ["missing-control-proof", "ambiguous-data-flow", "other-entry-point", "variant-check"]},
+          "search_paths": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 15,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 512}
+          }
+        }
+      }
+    }
+  }
+}
