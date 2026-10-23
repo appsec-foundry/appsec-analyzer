@@ -411,6 +411,20 @@ Built on `feat/assessment-depth-settings`: `appsec_analyzer/depth_settings.py` l
 
 Limits: organization distributions (REQ-039) do not carry `depths` yet, like `test_cases.required`; a checked organization or repository case that is not active is skipped with a warning only when the cases are matched; `derived_abuse_cases` is at most 6, the deriver's proposal limit; other depth-dependent behavior, such as the thorough-only database privilege check and the plugin-era STRIDE turn budgets, phase time budgets, and evidence verifier limit, is unchanged and not a setting.
 
+### Cost of authorization verification (analysed 2026-10-23)
+
+The product owner asked whether authorization verification runs only where it is needed, since it cost USD 4.45 in the fourth run. Analysed by the implementing session from the fourth run's job receipts, host events, and candidate files, without model calls.
+
+- Components: 3 of 9 components got AuthZ jobs; the others have no routes and record not applicable or undecidable without a call. All three produced findings. The Express server cost USD 3.81 in 7 jobs and 13 calls.
+- Candidates: the model rejected 144 of 294 candidate answers as not applicable. Narrowing the starting points would still lose findings: 31 of 37 weakness answers came from the route facts that start every state-changing route, body route, or authenticated read without identifier, not from scanner hits, among them admin registration through `role` in `POST /api/Users`, `/encryptionkeys` and `/support/logs` without login, and the user list. Skipping routes by their authentication, identifier, or guard signal would presume the answer the verification exists to give.
+- Cost driver: each call sends 56,000 to 110,000 input tokens and returns 1,000 to 17,000. Of the USD 4.45, 9 answer calls cost USD 2.67, 4 calls that read further code before answering USD 0.87, and 3 correction calls USD 0.92. The 16 calls wrote 1.25 million tokens to the prompt cache and read 0.16 million from it.
+- Corrections: across the four runs, nine verification and open review replies were rejected only because `discovery_escapes` left out a file the job had served; two of the three AuthZ corrections of the fourth run were of this kind.
+- Repeated paths: 19 candidate answers share method and path with another candidate of the same test case, such as four registrations of `POST /api/Users`. They are separate registrations with their own middleware, which the model answers differently (`POST /rest/user/data-export` at `server.ts:620` a control, at `server.ts:621` undecidable) and the post-checks evaluate per registration.
+
+Decided by the product owner on 2026-10-23: build the correction fix and merge repeated paths. Built in ed6bae78: an unlisted further read no longer rejects a verification or open review reply, because the job receipt records every served range; a listed file the job did not serve, more than 15 further files, and findings in unread files are still rejected. Merging repeated paths was not built: it would mix answers about different code into one candidate and need per-registration post-checks to change, for at most one job less on Juice Shop. Expected saving: about USD 0.70 of authorization verification per run on Juice Shop, and the same rejection in the other aspects.
+
+Open: two of the four further-read calls fetched guard code from `lib/insecurity.ts`, although the preload is meant to carry the guards the candidates' routes run. Prompt caching across the jobs of one component, set aside in the batching decision, remains the largest lever and would apply to the survey as well.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
