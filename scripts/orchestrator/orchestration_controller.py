@@ -1396,11 +1396,12 @@ def _assessment_flow_route_auth(scope, flows: dict, route_inventories: dict) -> 
     return result
 
 
-def _assessment_architecture(scope, jobs, *, progress):
+def _assessment_architecture(scope, jobs, *, progress, depth="standard"):
     """Sequence fresh per-root discovery and the existing architecture handoff.
 
     This is an internal controller stage, not a separate assessment pipeline.
     Its result must still pass boundary, STRIDE, build and publication gates.
+    ``depth`` decides which architecture rule hits need an owning component.
     """
     from contexts import multi_repo_analysis as analysis
     from contexts.reconcile_multi_repo_architecture import _id
@@ -1426,7 +1427,10 @@ def _assessment_architecture(scope, jobs, *, progress):
         progress=progress,
     )
     components, receipt = finalize_assessment(
-        scope, list(discovery.observations), routes={rid: row["route_rows"] for rid, row in inventories.items()}
+        scope,
+        list(discovery.observations),
+        routes={rid: row["route_rows"] for rid, row in inventories.items()},
+        depth=depth,
     )
     files = sum(len(repository.files) for repository in scope.repositories)
     # The console's done line already counts the discovered repositories.
@@ -4043,7 +4047,7 @@ def assess_repositories(
                 from appsec_analyzer.platform_settings.projection import model_context as platform_context
 
                 platform = platform_context(platform_settings)
-                architecture = _assessment_architecture(scope, jobs, progress=say)
+                architecture = _assessment_architecture(scope, jobs, progress=say, depth=depth)
                 if console:
                     console.plan_components(len(architecture["components"]["components"]))
                 from orchestrator.assessment_declarations import DeclarationError, boundary_declarations

@@ -294,3 +294,189 @@ def test_an_absence_is_reviewed_by_reading_its_file_and_merged(tmp_path):
     assert rootless[0]["component_id"] in owners
     reviews = [ctx for role, ctx in host.calls if role == "evidence_verifier"]
     assert any(f["evidence"]["file"] == "Dockerfile" for ctx in reviews for f in ctx["findings"])
+
+
+CORS = 'const cors = require("cors");\napp.use(cors({ origin: "*", credentials: true }));\n'
+
+
+def architecture(threats):
+    return [t for t in threats if t["source"] in {"architecture-coverage", "threat-hypothesis"}]
+
+
+@pytest.mark.parametrize(
+    ("names", "path"), [(("edge", "service"), "src/server.js"), (("north", "south"), "web/api.js")]
+)
+def test_a_high_confidence_architecture_anti_pattern_becomes_an_owned_scanner_finding(tmp_path, names, path):
+    scope, components, _ = finalized(tmp_path, names=names, files={names[0]: {path: CORS}})
+    repo = by_label(scope)[names[0]]
+    owner = {row["repository_ids"][0]: row["id"] for row in components["components"]}
+    result = scan(scope, components)
+    [threat] = architecture(result[owner[repo.repository_id]])
+    assert threat["source"] == "architecture-coverage" and threat["rule_id"] == "ARCH-CORS-001"
+    assert threat["component_id"] == owner[repo.repository_id]
+    assert threat["local_id"].startswith("deterministic-scan-") and "t_id" not in threat
+    # Architecture findings stay unscored and below Critical, as the merge validators require.
+    assert threat["risk"] != "Critical" and "cvss_v4" not in threat
+    assert threat["evidence"] == {
+        "repository_id": repo.repository_id,
+        "file": path,
+        "line": 2,
+        "sha256": hashlib.sha256(repo.files[path]).hexdigest(),
+    }
+    other = next(r for r in scope.repositories if r is not repo)
+    assert architecture(result[owner[other.repository_id]]) == []
+
+
+def test_an_architecture_finding_names_its_rule_and_items_but_adds_no_verification_candidate(tmp_path):
+    from model import case_outcomes
+    from model.case_candidates import _scanner_hits
+
+    scope, components, _ = finalized(tmp_path, files={"edge": {"src/server.js": CORS, "src/token.js": JWT}})
+    threats = [t for rows in scan(scope, components).values() for t in rows]
+    [threat] = architecture(threats)
+    case_outcomes.annotate_threats([threat], case_outcomes.load_catalog())
+    assert threat["rule_ids"] == ["ARCH-CORS-001"] and "TC-FRONT-01" in threat["test_case_ids"]
+    # Verification starting points stay the source and config hits.
+    assert _scanner_hits([threat]) == []
+    assert _scanner_hits([t for t in threats if t["source"] == "source-scan"])
+
+
+def test_only_anchored_high_confidence_architecture_hits_become_findings():
+    evidence = [{"file": "src/a.js", "line": 3, "signal": "matched line"}]
+    rule = dict(cwe="CWE-942", stride="Tampering", severity_cap="High", evidence=evidence)
+    coverage = {
+        "anti_pattern_candidates": [
+            dict(rule, rule_id="ARCH-CORS-001", title="Permissive CORS", confidence="high"),
+            dict(rule, rule_id="ARCH-TLS-001", title="Cleartext transport", confidence="medium"),
+            dict(
+                rule,
+                rule_id="ARCH-XSS-002",
+                title="Stored XSS",
+                confidence="high",
+                evidence=[{"file": "src/a.js", "line": None}],
+            ),
+        ],
+        "threat_hypotheses": [
+            dict(
+                hypothesis_id="ARCH-HYP-DBSEP-001",
+                rule_id="ARCH-DBSEP-001",
+                title="Shared database principal",
+                proof_state="confirmed",
+                confidence="high",
+                positive_signals=evidence,
+            ),
+            dict(
+                hypothesis_id="ARCH-HYP-AUTHZ-001",
+                rule_id="ARCH-AUTHZ-001",
+                title="No central authorization",
+                proof_state="control-derived",
+                confidence="low",
+                positive_signals=evidence,
+            ),
+        ],
+    }
+    threats = assessment_scanner_findings._architecture_threats(coverage)
+    assert [(t["source"], t["rule_id"]) for t in threats] == [
+        ("architecture-coverage", "ARCH-CORS-001"),
+        ("threat-hypothesis", "ARCH-DBSEP-001"),
+    ]
+    assert threats[1]["hypothesis_id"] == "ARCH-HYP-DBSEP-001" and threats[1]["risk"] == "High"
+    assert all(t["evidence"] == {"file": "src/a.js", "line": 3} for t in threats)
+
+
+def test_hypotheses_are_numbered_across_repositories_in_repository_order():
+    def document():
+        return {
+            "threat_hypotheses": [{"hypothesis_id": "ARCH-HYP-DBSEP-001"}, {"hypothesis_id": "ARCH-HYP-AUTHZ-001"}],
+            "control_assessments": [{"hypothesis_ids": ["ARCH-HYP-DBSEP-001"]}, {"rule_id": "ARCH-CORS-001"}],
+        }
+
+    counters: dict[str, int] = {}
+    first, second = document(), document()
+    for row in (first, second):
+        assessment_scanner_findings.renumber_hypotheses(row, counters)
+    assert [h["hypothesis_id"] for h in first["threat_hypotheses"]] == ["ARCH-HYP-DBSEP-001", "ARCH-HYP-AUTHZ-001"]
+    assert [h["hypothesis_id"] for h in second["threat_hypotheses"]] == ["ARCH-HYP-DBSEP-002", "ARCH-HYP-AUTHZ-002"]
+    assert second["control_assessments"] == [{"hypothesis_ids": ["ARCH-HYP-DBSEP-002"]}, {"rule_id": "ARCH-CORS-001"}]
+
+
+def test_architecture_anchors_and_findings_use_the_assessment_depth(tmp_path, monkeypatch):
+    depths = []
+    original = assessment_scanner_findings.architecture_scan
+
+    def record(root, output, depth):
+        depths.append(depth)
+        return original(root, output, depth)
+
+    monkeypatch.setattr(assessment_scanner_findings, "architecture_scan", record)
+    scope, components, _ = fixture(tmp_path)
+    own_scanner_anchors(scope, components["components"], "thorough")
+    scan(scope, components, depth="quick")
+    count = len(scope.repositories)
+    assert depths == ["thorough"] * count + ["quick"] * count
+
+
+def test_a_failed_architecture_coverage_stops_the_assessment(tmp_path, monkeypatch):
+    scope, components, _ = finalized(tmp_path)
+    monkeypatch.setattr(assessment_scanner_findings.architecture_coverage_checks, "_main", lambda argv: 2)
+    with pytest.raises(ValueError, match="architecture-coverage scanner failed") as caught:
+        scan(scope, components)
+    assert caught.value.repository_id in {repo.repository_id for repo in scope.repositories}
+
+
+@pytest.mark.parametrize("verdict", ["verified", "refuted"])
+def test_an_architecture_hit_is_reviewed_with_its_component_and_kept_only_when_confirmed(tmp_path, verdict):
+    from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
+    from runtime.multi_repo_scope import admit
+    from shared._finding_state import is_refuted
+
+    from tests.test_multi_repo_controller import Host, checkout, controller
+
+    class Reviewer(Host):
+        def invoke(self, role, prompt):
+            reply = super().invoke(role, prompt)
+            if role == "evidence_verifier":
+                for decision in reply.payload["artifact"]["decisions"]:
+                    if decision["evidence"][0]["file"] == "src/server.js":
+                        decision["verdict"] = verdict
+            return reply
+
+    roots = [tmp_path / name for name in ("caller", "receiver")]
+    for root in roots:
+        checkout(root)
+    (roots[1] / "src").mkdir()
+    (roots[1] / "src/server.js").write_text(CORS)
+    scope = admit([str(r) for r in roots], str(tmp_path / "out"))
+    host = Reviewer(scope)
+    jobs = AssessmentJobs(
+        scope, scope.output / ".jobs", AssessmentBudget(2, 0.05, 60, 120), host.factory, lambda: False, lambda: None
+    )
+    architecture_ = controller._assessment_architecture(scope, jobs, progress=lambda text: None)
+    controls = controller._assessment_controls(scope, jobs, architecture_, progress=lambda text: None)
+    _, _, merged = controller._assessment_stride(scope, jobs, architecture_, controls, [], progress=lambda text: None)
+    [threat] = [t for t in merged["threats"] if t.get("rule_id") == "ARCH-CORS-001"]
+    receiver = by_label(scope)["receiver"].repository_id
+    assert threat["source"] == "architecture-coverage"
+    assert threat["evidence"]["repository_id"] == receiver and threat["evidence"]["file"] == "src/server.js"
+    assert threat["evidence_check"] == verdict and is_refuted(threat) == (verdict == "refuted")
+    reviews = [ctx for role, ctx in host.calls if role == "evidence_verifier"]
+    assert sum(f["evidence"]["file"] == "src/server.js" for ctx in reviews for f in ctx["findings"]) == 1
+
+
+def test_a_full_assessment_publishes_a_confirmed_architecture_finding_without_a_score(tmp_path, monkeypatch):
+    import yaml
+    from validators.validate_intermediate import validate_threat_model_output
+
+    from tests.test_multi_repo_assessment import _assess
+
+    def seed(roots):
+        (roots[0] / "src").mkdir()
+        (roots[0] / "src/server.js").write_text(CORS)
+
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("edge", "service"), ("--no-pdf",), seed=seed)
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    [threat] = [t for t in model["threats"] if t.get("rule_id") == "ARCH-CORS-001"]
+    assert threat["source"] == "architecture-coverage" and "cvss_v4" not in threat
+    assert threat["evidence_check"] == "verified"

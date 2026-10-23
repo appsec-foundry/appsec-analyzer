@@ -309,7 +309,7 @@ def validate_receipt(output_dir: Path, repo_root: Path | None = None) -> dict[st
 
 
 def finalize_assessment(
-    scope, discoveries: list[dict], routes: dict[str, list[dict]] | None = None
+    scope, discoveries: list[dict], routes: dict[str, list[dict]] | None = None, *, depth: str = "standard"
 ) -> tuple[dict, dict]:
     """Run existing component finalization against each frozen source tree.
 
@@ -405,7 +405,7 @@ def finalize_assessment(
             qualify_evidence(row)
             components.append(row)
     # Scanner findings must cite a file their component lists (see own_scanner_anchors).
-    reference_count += own_scanner_anchors(scope, components)
+    reference_count += own_scanner_anchors(scope, components, depth)
     if reference_count > MAX_SOURCE_REFERENCES:
         raise ValueError("Reconciled components exceed the source-reference limit")
     components.sort(key=lambda c: c["id"])

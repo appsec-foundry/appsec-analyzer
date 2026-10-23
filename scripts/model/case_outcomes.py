@@ -43,8 +43,9 @@ VIOLATED = "violated"
 NOT_APPLICABLE = "not_applicable"
 UNKNOWN = "unknown"
 
-# Keys of a threat that name the scanner rule behind it.
-_RULE_KEYS = ("source_check_id", "config_check_id")
+# Keys of a threat that name the scanner rule behind it; only architecture
+# findings carry ``rule_id``.
+_RULE_KEYS = ("source_check_id", "config_check_id", "rule_id")
 
 
 def load_catalog(path: Path = CATALOG) -> dict[str, Any]:

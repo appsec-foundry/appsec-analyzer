@@ -10,8 +10,9 @@ root instead: it looks for a root-level Dockerfile, workflow directory,
 manifest or rule anchor and would miss every namespaced repository.
 
 No producer reads Git history, runs a repository command or reaches the
-network. Configuration-scan findings with a source line reach the merged
-threats through ``assessment_scanner_findings.scan`` and evidence review.
+network. Configuration-scan findings and high-confidence architecture hits
+with a source line reach the merged threats through
+``assessment_scanner_findings.scan`` and evidence review.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from validators.validate_intermediate import (
 )
 
 from model import emit_known_bad_libs, emit_sca_practice, resolve_actors
-from model.assessment_scanner_findings import config_scan
+from model.assessment_scanner_findings import config_scan, renumber_hypotheses
 from model.emit_dep_update_activity import _walk_manifests
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -181,15 +182,7 @@ def _merge_coverage(rows: list[tuple[_Repo, dict]]) -> dict:
     for repo, document in rows:
         document = repo.rewrite(document, frozenset({"file"}), captured=True)
         # Hypothesis IDs are numbered per prefix; renumber them across repositories.
-        renamed = {}
-        for hypothesis in document["threat_hypotheses"]:
-            prefix = hypothesis["hypothesis_id"].rsplit("-", 1)[0]
-            counters[prefix] = counters.get(prefix, 0) + 1
-            renamed[hypothesis["hypothesis_id"]] = f"{prefix}-{counters[prefix]:03d}"
-            hypothesis["hypothesis_id"] = renamed[hypothesis["hypothesis_id"]]
-        for assessment in document["control_assessments"]:
-            if "hypothesis_ids" in assessment:
-                assessment["hypothesis_ids"] = [renamed[key] for key in assessment["hypothesis_ids"]]
+        renumber_hypotheses(document, counters)
         for key in ("rules_evaluated", "control_assessments", "threat_hypotheses", "anti_pattern_candidates"):
             merged[key].extend(document[key])
         merged["warnings"].extend(f"{repo.label}: {text}" for text in document["warnings"])
