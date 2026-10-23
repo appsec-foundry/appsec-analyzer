@@ -244,6 +244,7 @@ requirements:
       - appsec_analyzer/organization.py
       - schemas/org-profile.schema.yaml
       - scripts/validators/secret_scan.py
+      - setup.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
