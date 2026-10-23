@@ -600,17 +600,18 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     calls = _calls(host)
     count = len(calls)
     assert count > 1 and host.investigations == [(service, "AuthZ")] * count
-    # The progress counts the step's jobs and names a component's part only when it has several.
+    # The progress names the components to verify and each job's part of its component.
     name = next(row["name"] for row in model["components"] if row["id"] == service)
-    # REQ-040: the jobs are named before the survey, so the live progress weighs them from the start.
-    planned = said.index(f"Verify planned · {count} jobs for AuthZ after the survey")
+    # REQ-040: the plan comes before the survey and ends with the job count the live progress weighs.
+    planned = said.index(f"Verify planned · 1 component for AuthZ after the survey · {count} jobs")
     assert planned < min(said.index(text) for text in said if text.startswith("Surveying component"))
     # Before the first job the run says whether the remaining budget covers them all.
     (start,) = [text for text in said if text.startswith("Verify start · ")]
-    assert start.startswith(f"Verify start · {count} jobs for AuthZ · about USD ") and " of the budget left" in start
-    assert said.index(start) < min(said.index(text) for text in said if text.startswith("Verifying AuthZ "))
-    jobs = [f"AuthZ {number}/{count}: {name} (part {number} of {count})" for number in range(1, count + 1)]
-    assert {text for text in said if text.startswith("Verifying AuthZ ")} == {f"Verifying {job}" for job in jobs}
+    assert start.startswith("Verify start · 1 component for AuthZ · about USD ") and " of the budget left" in start
+    assert start.endswith(f" · {count} jobs")
+    assert said.index(start) < min(said.index(text) for text in said if text.startswith("Verifying component "))
+    jobs = [f"component 1/1, part {number}/{count}, AuthZ: {name}" for number in range(1, count + 1)]
+    assert {text for text in said if text.startswith("Verifying component ")} == {f"Verifying {job}" for job in jobs}
     # Each job reports its end after its start, so the console counts finished jobs.
     assert all(said.index(f"Verifying {job}") < said.index(f"Finished verifying {job}") for job in jobs)
     summary = (

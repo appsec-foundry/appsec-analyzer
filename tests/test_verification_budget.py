@@ -26,18 +26,21 @@ class _Jobs:
 
 def test_a_covered_verification_says_so_and_leaves_no_note():
     jobs = _Jobs(_Budget(0.4, 10.0))
-    text = assessment_test_cases._budget_statement(jobs, 19, ["AuthZ", "InputVal"])
-    assert text == "Verify start · 19 jobs for AuthZ, InputVal · about USD 7.60, USD 10.00 of the budget left"
+    text = assessment_test_cases._budget_statement(jobs, 19, ["AuthZ", "InputVal"], 3)
+    # The console shows the components and weighs the jobs the line ends with.
+    assert text == (
+        "Verify start · 3 components for AuthZ, InputVal · about USD 7.60, USD 10.00 of the budget left · 19 jobs"
+    )
     # Before the first verification job, a survey job's reserve stands in for one.
     assert jobs.budget.roles == [("test_case_investigator", "stride_analyzer")] and not jobs.notes
 
 
 def test_an_uncovered_verification_warns_and_records_a_note():
     jobs = _Jobs(_Budget(0.5, 1.0))
-    text = assessment_test_cases._budget_statement(jobs, 4, ["AuthZ"])
+    text = assessment_test_cases._budget_statement(jobs, 4, ["AuthZ"], 1)
     assert text == (
-        "Verify start · 4 jobs for AuthZ · about USD 2.00, but only USD 1.00 of the budget left; "
-        "an aspect that cannot finish is marked incomplete"
+        "Verify start · 1 component for AuthZ · about USD 2.00, but only USD 1.00 of the budget left; "
+        "an aspect that cannot finish is marked incomplete · 4 jobs"
     )
     assert jobs.notes == [
         "verification needs about USD 2.00 for 4 jobs, but USD 1.00 remained; "
@@ -48,5 +51,6 @@ def test_an_uncovered_verification_warns_and_records_a_note():
 @pytest.mark.parametrize("count", [1, 3])
 def test_a_subscription_run_names_its_limits_instead_of_dollars(count):
     jobs = _Jobs(_Budget(0.0, 0.0, subscription=True))
-    text = assessment_test_cases._budget_statement(jobs, count, ["AI"])
-    assert text.endswith(" · the run's call and time limits apply") and "USD" not in text and not jobs.notes
+    text = assessment_test_cases._budget_statement(jobs, count, ["AI"], 1)
+    assert text.endswith(f" · the run's call and time limits apply · {count} job{'s' if count > 1 else ''}")
+    assert "USD" not in text and not jobs.notes
