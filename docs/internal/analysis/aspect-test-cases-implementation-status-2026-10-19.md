@@ -2,6 +2,18 @@
 
 Status: working document for REQ-040, written 2026-10-19. It records what the implementation branch contains, what is still missing, and the decisions made on the way, so that later sessions can continue. The design and its open questions are in the [proposal](aspect-test-cases-proposal-2026-10-19.md). Nothing here is released, pushed, or measured with a live model.
 
+## Target picture
+
+Set by the product owner on 2026-10-22 and 2026-10-23 for the verification-based method; later sessions build toward it.
+
+1. A clear catalog per aspect with two kinds of test cases: concrete ones, such as SQL injection, object ownership, or cross-site scripting, and one goal test case per aspect that asks for an attacker goal, such as changing data beyond one's rights, by any path.
+2. Every test case names fixed scripts: when it applies, where it starts, and which post-checks test the model's claims. Fixtures with and without the weakness test each test case.
+3. The model only judges. One job per component and aspect answers all of the aspect's test cases; the model may reject candidates with evidence and add its own.
+4. It is efficient. A job runs only where a test case has a candidate or a goal test case applies, because each job costs its full context. The scripts before and after the model cost no tokens. Weaknesses the model finds at lines no pattern knows become new patterns, so the deterministic share grows.
+5. Each aspect stays assignable to the verification-based or the STRIDE-based method on its own, so an aspect where the STRIDE step proves better can go back to it.
+
+Starting points follow what made AuthZ work: the complete list of entry points and the code they run, not patterns of known weaknesses. A candidate is a route together with the code site its handler reaches; a site that no route reaches is a candidate of its own.
+
 ## Where the work is
 
 The implementation lives on the branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc. It is pushed up to 22c65a4c; later commits are local only, and nothing is merged. Create a worktree to continue: `git worktree add <path> feat/aspect-test-cases`. Commit documentation and requirement changes on `main`, and the implementation on this one branch.
@@ -24,6 +36,7 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | ec424ef9 | The pilot's console progress follows the provisional name: "Verifying AuthZ 1/7: component (part 1 of 4)", the result line "AuthZ verification: …", and the role label "verification" in status, correction, and warning lines. |
 | e824f194, cfa30c2b, 676e68d7, 8f16254f | The commits of `fix/console-and-usage-limit` (3e4f6c9c, c45e1135, 1f42a5cd, 445d2079), applied to this branch: an immediate stop at a rejected usage window, the platform settings Preflight row, elapsed time on resume, and the Codex timeout test that counts a reaped descendant as ended. |
 | cf0fbdc2 | Starting points after the second run: routes that finale-rest and epilogue resources generate, only in the pilot's facts; TC-AUTHZ-01 from every route that takes a request body; TC-AUTHZ-02 from authenticated reads without an object identifier. Catalog version 3. |
+| b100c018 | InputVal, DataProt, and AI investigated: code sites in `data/code-sites.yaml`, routes with the sinks their handlers reach as candidates, the post-check `site-reached`, goal test cases, jobs only with a candidate or a goal. Catalog version 4. |
 
 ## What works today
 
@@ -218,7 +231,50 @@ An offline count for the other pilot aspects with the second run's components an
 
 InputVal and DataProt test cases start only from scanner hits, and the second run had six injection hits and none of the DataProt starting rules. The model added one candidate in each of the first two runs, so a test case without candidates would mostly record undecidable. The STRIDE step of the second run reported 5 cross-site scripting, 5 hard-coded credential, 2 SQL injection, 2 NoSQL injection, and 2 path traversal findings.
 
-`bash /tmp/authz-pilot/run.sh` already writes into `/home/mrohr/appsec-reports/juice-authz-pilot-3`; the profile there still selects only `AuthZ`.
+### Changes for the third run
+
+Decided by the product owner on 2026-10-23 and built in b100c018:
+
+- InputVal, DataProt, and AI are investigated. AI joins the pilot aspects, which changes the decision of 2026-10-19; Juice Shop calls a language model in `routes/chat.ts` and documents four challenges about it. A scan profile accepts `AI` among its aspects.
+- Code sites are defined in `data/code-sites.yaml` with lines each pattern must and must not mark, which a test checks, so that a starting point can be read without Python. A kind takes its pattern from the file, from an applicability signal, or from `analyzers/egress_clients.py` for outbound calls to a destination the request chooses. The kinds are `raw_query`, `nosql_query`, `command`, `html_output`, `parser`, `file_path`, `upload`, `transport`, `sensitive_field` (only in data model definitions), `outbound_request`, and `llm_call`.
+- A test case names a kind as `code_sites.<kind>`. A route whose resolved handler reaches a site of that kind is the candidate and lists the sites as `sinks`, which the preload serves; a site that no route of the component reaches is a candidate of its own. TC-DATA-01 starts from read routes whose handlers read stored data (`route_inventory.reads_data`).
+- Goal test cases TC-AUTHZ-06, TC-INPUT-07, TC-DATA-05, and TC-AI-05 are marked `goal: true`, have no starting points, and ride along in the first job of their aspect. Two alternatives were rejected: one broad injection question in place of the concrete SQL, NoSQL, and command test cases, because the product owner wants the concrete questions plus room beyond them; and goals the model derives for the application, which stay with the application-specific test cases of the proposal.
+- Goal test cases name no CWE, so that none narrows the search; their findings name their own CWE as before. The concrete test cases keep theirs.
+- The post-check `site-reached` confirms that the route's handler or the cited line holds a site of the kind the test case names. It confirms only the mechanism of a weakness, never contradicts, never decides a control, and runs also for candidates without a route. Its result "no fixed pattern marks the cited line" lists the weaknesses the patterns miss, the input for new patterns. TC-AUTHZ-06 runs the existing AuthZ checks, TC-DATA-01 and TC-DATA-05 `route-registered`.
+- Jobs stay separate per aspect, rather than one job per component for all aspects, so that cost and results stay attributable per aspect, each aspect stays switchable, and AuthZ stays comparable with the second run. A job runs only when one of its test cases has a candidate or a goal test case applies; otherwise the aspect's test cases record undecidable with a fixed reason. A last job under a quarter of the candidate limit joins the job before it.
+- The NoSQL pattern takes only queries on a collection and `$where`; half of the broader pattern's hits on Juice Shop were Sequelize calls.
+- TC-DATA-03 has no starting points until the separate, Gitleaks-based `scan-secrets` command of REQ-042 exists, and the run profile disables it with that reason.
+- Catalog version 4 with 49 test cases.
+
+Token data from the second run: an investigator call read 55,000 to 99,000 input tokens, 73,000 on average, and wrote 300 to 12,000. Most of the input is the job's fixed context, so the number of jobs drives the cost more than the number of test cases or candidates.
+
+An offline count with the second run's components gives 18 investigator jobs:
+
+| Aspect | Jobs | Candidates |
+| --- | --- | --- |
+| AuthZ | 8 | as before; the frontend job without candidates no longer runs |
+| InputVal | 5 | Express server 39 and 19, 41 of them routes with sinks; Angular frontend 30, among them 25 HTML sinks; Authentication & Session Surface 3; Web3 only the goal test case |
+| DataProt | 4 | Express server 41; Sequelize data models 6 sensitive fields; Web3 only the goal test case; Authentication & Session Surface 2 |
+| AI | 1 | Express server 4: `POST /rest/chat` reaching `streamText` and tool definitions |
+
+Nine component and aspect pairs without a candidate run no job. Expected cost: the pilot about USD 7 to 10 against USD 3.05, the run about USD 20 to 23.50 by receipts. The product owner raised the profile's budget to USD 30, so that the pilot, which runs after the STRIDE step, keeps room.
+
+### Third run on Juice Shop
+
+Prepared on 2026-10-23 for b100c018. The product owner starts it with `bash /tmp/authz-pilot/run.sh`, which writes into `/home/mrohr/appsec-reports/juice-authz-pilot-3`. Its profile selects AuthZ, InputVal, DataProt, and AI, sets a budget of USD 30, and disables TC-DATA-03 with the reason above.
+
+| Question | Expected result |
+| --- | --- |
+| Product Tampering, `PUT /api/Products/:id` | TC-AUTHZ-02 records a weakness at the generated route. |
+| Editing any review, `PATCH /rest/products/reviews` | TC-AUTHZ-01 records a weakness there. |
+| User list, `GET /rest/user/authentication-details` | TC-AUTHZ-02 on Authentication & Session Surface records a weakness. |
+| Hits of the second run | The seven authorization challenges are found again. |
+| Injection and parsing | Compared with the STRIDE step on the documented challenges of the categories Injection (14, three about the chatbot), XSS (9), XXE (2), and Insecure Deserialization (3) that a code review can find, such as Login Admin and Database Schema at `routes/login.ts` and `routes/search.ts`, the NoSQL challenges, SSTi, and the RCE challenges at `routes/b2bOrder.ts`. |
+| Data protection | Compared on the Sensitive Data Exposure challenges that a code review can find, such as Password Hash Leak. |
+| AI | Chatbot Prompt Injection, Greedy Chatbot Manipulation, System Prompt Extraction, and AI Debugging. |
+| Goal test cases | How many findings they add that no concrete test case of their aspect records. |
+| Pattern gaps | Weaknesses whose `site-reached` result says no fixed pattern marks them. |
+| Cost per aspect | Jobs, calls, USD, and corrections per aspect against the estimate. |
 
 ## After the first run: decide with real results
 
@@ -226,7 +282,9 @@ InputVal and DataProt test cases start only from scanner hits, and the second ru
 | --- | --- |
 | Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | Shown by the second run: GDPR Data Theft and other business logic reach no test case. |
 | Shared jobs for the test cases of all investigated aspects of a component | A second aspect is investigated, planned with InputVal. Batching by location exists since 998b0b13. |
-| Starting points for InputVal and DataProt beyond scanner hits, such as query, command, file, outbound request, and HTML output sinks, response serialization, stored sensitive fields, secrets, and transport settings | Shown by the offline count of 2026-10-22: InputVal has five candidates on the Express server and none for output encoding, DataProt none. Needed before the next run. |
+| Starting points for InputVal and DataProt beyond scanner hits, such as query, command, file, outbound request, and HTML output sinks, response serialization, stored sensitive fields, secrets, and transport settings | Built in b100c018, except secrets, which wait for REQ-042. |
+| Fixtures `tests/fixtures/test-cases/TC-.../` with and without the weakness for the pilot aspects | After the third run, to measure exit criterion 2 offline. |
+| Code sites in helper modules that a handler calls, and more REST resource generators | Pattern gaps or misses of the third run show it. |
 | Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by both runs. Built for the pilot's facts in cf0fbdc2; the shared inventory follows only when the pilot is continued. |
 | TC-AUTHZ-01 candidates for routes that take an object ID in the body, and a starting point for sensitive listings without a path parameter | Shown by the second run. Built in cf0fbdc2. |
 | Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
@@ -277,6 +335,7 @@ Stricter than the plan on purpose:
 
 - Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). At 998b0b13, `make check-analyzer BASE=356f0cfc` passed with 954 and 168 tests, and the tests of the changed modules passed with the pilot tests of `tests/test_controller_fixture.py`, including the new tests for shared jobs, a failed job, and a resumed run with shared jobs (156 tests). The three controller fixture tests that never start the pilot were not rerun. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
 - At ec424ef9, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 168 tests; of 954 analyzer tests one failed, the Codex timeout test, whose race 8f16254f removes, and it passed three times alone. At cf0fbdc2, the gate passed with 954 and 168 tests, `make test-controller` with 12 tests, and the tests of the changed modules passed. The seven failing progress-header and budget tests of `test_multi_repo_assessment.py` fail at ec424ef9 as well, before the applied fixes.
+- At b100c018, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 954 and 168 tests. `make test-controller` passed 12 of 13 tests; the thirteenth expected the AuthZ test cases without TC-AUTHZ-06, and after that expectation was added it passed alone. The tests of the changed modules passed: candidates, post-checks, outcomes, case analysis, catalog, and profiles. The bound of the NoSQL pattern changed after the gate, and its example test and the catalog tests passed again.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
