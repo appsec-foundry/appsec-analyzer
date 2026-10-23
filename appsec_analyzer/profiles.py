@@ -140,20 +140,39 @@ def validate(document: dict, kind: str) -> None:
         raise ProfileError(f"invalid {kind} profile ({location})")
 
 
-def normalize_test_cases(value):
-    """The test_cases setting as false, true, or {"aspects": [...], "disable": [{"id", "reason"}]}.
+def depth_test_cases(depth: str):
+    """The shipped verification setting of one assessment depth, from data/verification-depths.yaml."""
+    document = yaml.safe_load((resource_root() / "data/verification-depths.yaml").read_text())
+    return normalize_test_cases(document["depths"][depth])
 
-    The object form is sorted and unique so equal settings share one identity. Without `aspects` it
-    selects none, so only a profile that names an aspect pays for its model investigation. Every
-    disabled ID must exist in the shipped test case catalog; the schema has already bounded the other
-    fields."""
+
+def normalize_test_cases(value, depth: str | None = None):
+    """The test_cases setting of one depth as false, true, or {"aspects": [...], "disable": [{"id", "reason"}]}.
+
+    No value takes the shipped setting of ``depth``. In the object form, ``depths`` names the aspects of
+    single depths, ``aspects`` those of every other depth, and a depth that neither names keeps its shipped
+    aspects; false at a depth runs the survey only. The result is sorted and unique so equal settings share
+    one identity. Every disabled ID must exist in the shipped test case catalog; the schema has already
+    bounded the other fields."""
+    if value is None:
+        return depth_test_cases(depth) if depth else False
     if type(value) is bool:
         return value
     if not isinstance(value, dict):
         raise ProfileError("test_cases must be true, false, or an object")
-    aspects = value.get("aspects", [])
-    if any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects):
-        raise ProfileError("test_cases.aspects must be unique pilot aspects")
+    depths = value.get("depths", {})
+    for aspects in [value.get("aspects", []), *depths.values()]:
+        if aspects is not False and (
+            any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects)
+        ):
+            raise ProfileError("test_cases.aspects must be unique pilot aspects")
+    if depth in depths:
+        aspects = depths[depth]
+    elif "aspects" in value or depth is None:
+        aspects = value.get("aspects", [])
+    else:
+        shipped = depth_test_cases(depth)
+        aspects = shipped["aspects"] if shipped else False
     disable = value.get("disable", [])
     ids = [row["id"] for row in disable]
     if len(set(ids)) != len(ids):
@@ -163,6 +182,8 @@ def normalize_test_cases(value):
     }
     if unknown := sorted(set(ids) - known):
         raise ProfileError(f"test_cases.disable names unknown test case {unknown[0]}")
+    if aspects is False:
+        return False
     return {
         "aspects": [item for item in TEST_CASE_ASPECTS if item in aspects],
         "disable": [{"id": row["id"], "reason": row["reason"]} for row in sorted(disable, key=lambda row: row["id"])],
@@ -192,6 +213,14 @@ def refuse_required_test_case_disable(test_cases, required) -> None:
         return
     if conflict := sorted({row["id"] for row in test_cases["disable"]} & set(required or ())):
         raise ProfileError(f"test case {conflict[0]} is required by the organization profile and cannot be disabled")
+
+
+def add_required_aspects(test_cases, required):
+    """The run's setting with every aspect the organization profile makes mandatory; a scan profile cannot remove one."""
+    if not required:
+        return test_cases
+    base = test_cases if isinstance(test_cases, dict) else {"aspects": [], "disable": []}
+    return {**base, "aspects": [item for item in TEST_CASE_ASPECTS if item in base["aspects"] or item in required]}
 
 
 def catalog() -> dict:
@@ -362,7 +391,7 @@ def resolve_scan(
         "assessment_depth": "standard",
         "budget": 20,
         "max_parallel": DEFAULT_MAX_PARALLEL,
-        "test_cases": False,
+        "test_cases": None,
         "outputs": ["markdown", "yaml"],
         "abuse_case_files": [],
     }
@@ -378,7 +407,11 @@ def resolve_scan(
         if value is not None:
             _assign(settings, provenance, {key: value}, "CLI")
     settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
-    settings["test_cases"] = normalize_test_cases(settings["test_cases"])
+    if settings["assessment_depth"] not in DEPTHS:
+        raise ProfileError("unsupported assessment depth")
+    if settings["test_cases"] is None:
+        provenance["test_cases"] = f"analyzer default for {settings['assessment_depth']} depth"
+    settings["test_cases"] = normalize_test_cases(settings["test_cases"], settings["assessment_depth"])
     try:
         validate_max_parallel(settings["max_parallel"])
     except ValueError as exc:

@@ -410,6 +410,11 @@ requirements:
       - scripts/renderers/summarize_threat_model.py
       - scripts/exporters/export_sarif.py
       - appsec_analyzer/profiles.py
+      - data/verification-depths.yaml
+      - schemas/scan-profile.schema.yaml
+      - schemas/org-profile.schema.yaml
+      - scripts/runtime/resolve_org_profile.py
+      - appsec_analyzer/assessment/console.py
       - scripts/model/merge_threats.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
@@ -459,11 +464,10 @@ requirements:
       - tests/test_compose_threat_model.py::test_classification_line_links_the_test_cases_and_rules_behind_a_finding
       - tests/test_compose_threat_model.py::test_classification_line_ignores_malformed_test_case_and_rule_ids
       - tests/test_summarize_threat_model.py::test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them
-      - tests/test_profiles.py::test_test_cases_defaults_to_false_and_keeps_older_identity
       - tests/test_profiles.py::test_non_boolean_test_cases_is_rejected_before_host_or_checkout
       - tests/test_profiles.py::test_public_test_cases_reaches_controller_from_profile
       - tests/test_profiles.py::test_test_cases_change_requires_new_run_and_older_snapshot_means_false
-      - tests/test_profiles.py::test_a_test_case_object_without_aspects_selects_no_model_investigation
+      - tests/test_profiles.py::test_a_test_case_object_without_aspects_keeps_the_depth_default
       - tests/test_case_candidates.py::test_facts_record_route_authentication_and_handler_evidence
       - tests/test_case_candidates.py::test_facts_are_plain_data_without_absolute_paths
       - tests/test_case_candidates.py::test_routes_belong_to_the_component_that_owns_their_handler
@@ -532,6 +536,21 @@ requirements:
       - tests/test_assessment_budget_holds.py::test_a_subscription_run_holds_calls
       - tests/test_assessment_budget_holds.py::test_an_invalid_hold_is_refused
       - tests/test_assessment_budget_holds.py::test_a_held_job_writes_only_the_receipt_contract
+      - tests/test_profiles.py::test_test_cases_default_follows_the_depth
+      - tests/test_profiles.py::test_test_case_depths_override_single_depths_and_keep_the_others
+      - tests/test_profiles.py::test_invalid_test_case_depths_are_rejected
+      - tests/test_profiles.py::test_required_aspects_join_the_selected_aspects_and_cannot_be_removed
+      - tests/test_resolve_org_profile.py::test_required_aspects_reach_the_effective_profile_sorted
+      - tests/test_case_outcomes.py::test_a_verification_finding_at_a_survey_location_with_the_same_cwe_is_shown_once
+      - tests/test_case_outcomes.py::test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_keeps_it
+      - tests/test_case_outcomes.py::test_investigation_results_name_the_locations_of_evidenced_controls
+      - tests/test_case_outcomes.py::test_build_block_keeps_the_aspects_the_budget_left_incomplete
+      - tests/test_case_outcomes.py::test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect
+      - tests/test_summarize_threat_model.py::test_completion_rows_name_aspects_the_budget_left_incomplete
+      - tests/test_verification_budget.py::test_a_covered_verification_says_so_and_leaves_no_note
+      - tests/test_verification_budget.py::test_an_uncovered_verification_warns_and_records_a_note
+      - tests/test_verification_budget.py::test_a_subscription_run_names_its_limits_instead_of_dollars
+      - tests/test_multi_repo_assessment.py::test_verification_jobs_extend_the_threat_analysis_share_and_advance_it
 
   REQ-005:
     applies_to:

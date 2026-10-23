@@ -1,0 +1,14 @@
+# Shipped default of the verification method per assessment depth (REQ-040).
+#
+# Each depth takes the same values as the scan profile's test_cases setting: false runs the survey only,
+# and an object names the aspects whose verification items a model investigates beside the survey. A scan
+# profile overrides a depth through test_cases.depths, and an organization profile adds mandatory aspects
+# through test_cases.required_aspects. The values follow the four Juice Shop pilot runs of 2026-10-22 and
+# 2026-10-23 recorded in docs/internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md.
+schema_version: 1
+depths:
+  quick: false
+  standard:
+    aspects: [AuthZ]
+  thorough:
+    aspects: [AuthZ, InputVal, DataProt, AI]

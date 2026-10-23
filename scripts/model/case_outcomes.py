@@ -206,15 +206,90 @@ def build_block(
         _read_json(workspace / ".architecture-coverage.json"),
     )
     pilot = _read_json(workspace / PILOT_SIDECAR) or {}
-    return {
+    block = {
         "catalog_version": catalog["catalog_version"],
         "results": evaluate(catalog, statuses, threats, disabled) + list(pilot.get("results") or []),
     }
+    if pilot.get("incomplete_aspects"):
+        block["incomplete_aspects"] = list(pilot["incomplete_aspects"])
+    return block
 
 
 def pilot_findings(workspace: Path) -> list[dict[str, Any]]:
-    """The findings of the pilot sidecar; they stay apart from the threats until the pilot merges them."""
+    """The findings of the verification sidecar, which ``combine_methods`` links with the survey's."""
     return list((_read_json(workspace / PILOT_SIDECAR) or {}).get("findings") or [])
+
+
+#: Lines apart at which a survey and a verification finding in one file count as the same code location.
+SAME_LOCATION_LINES = 3
+
+
+def _survey_locations(threat: Mapping[str, Any]) -> list[tuple[str, int]]:
+    rows = [row for row in threat.get("evidence") or [] if isinstance(row, dict)]
+    rows += [row for row in threat.get("instances") or [] if isinstance(row, dict)]
+    return [(row["file"], row["line"]) for row in rows if row.get("file") and isinstance(row.get("line"), int)]
+
+
+def _near(location: tuple[str, int], file: str, line: int) -> bool:
+    return location[0] == file and abs(location[1] - line) <= SAME_LOCATION_LINES
+
+
+def combine_methods(
+    threats: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    catalog: dict[str, Any] | None = None,
+) -> dict[str, int]:
+    """Link the survey's findings with verification's at the same code location (REQ-040).
+
+    A verification finding with the same CWE as a survey finding at one of its locations names it in
+    ``survey_finding_ids``, and the survey finding names the verification finding and items in
+    ``verification``, so the report shows the weakness once. A survey finding at a location where a
+    verification item evidenced a control for its CWE records the item and location in
+    ``verification_contradicted`` and stays in the report. Survey findings at locations verification
+    did not examine stay unchanged. Returns how many findings were linked and contradicted."""
+    survey = [threat for threat in threats if threat.get("source") == "stride" and threat.get("id")]
+    linked = 0
+    for finding in findings:
+        evidence = finding.get("evidence") or {}
+        if not evidence.get("file") or not isinstance(evidence.get("line"), int):
+            continue
+        matches = [
+            threat
+            for threat in survey
+            if threat.get("cwe") == finding.get("cwe")
+            and any(_near(location, evidence["file"], evidence["line"]) for location in _survey_locations(threat))
+        ]
+        if not matches:
+            continue
+        finding["survey_finding_ids"] = [threat["id"] for threat in matches]
+        linked += 1
+        for threat in matches:
+            block = threat.setdefault("verification", {"finding_ids": [], "test_case_ids": []})
+            block["finding_ids"].append(finding["id"])
+            for case_id in finding.get("test_case_ids") or []:
+                if case_id not in block["test_case_ids"]:
+                    block["test_case_ids"].append(case_id)
+                if case_id not in threat.setdefault("test_case_ids", []):
+                    threat["test_case_ids"].append(case_id)
+    cwes = {case["id"]: set(case["cwe"]) for case in (catalog or load_catalog())["test_cases"]}
+    contradicted = 0
+    for threat in survey:
+        if threat.get("verification"):
+            continue
+        rows = [
+            {"test_case_id": result["test_case_id"], "file": file, "line": line}
+            for result in results
+            if threat.get("cwe") in cwes.get(result.get("test_case_id"), ())
+            for spot in result.get("control_locations") or []
+            for file, line in _survey_locations(threat)
+            if _near((file, line), spot["file"], spot["line"])
+        ]
+        if rows:
+            unique = {(row["test_case_id"], row["file"], row["line"]): row for row in rows}
+            threat["verification_contradicted"] = list(unique.values())
+            contradicted += 1
+    return {"linked": linked, "contradicted": contradicted}
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -297,6 +372,8 @@ def assess_candidates(
             anchor = candidate["anchor"]
             if repository_id is None or anchor.get("repository_id") == repository_id:
                 record["route_id"] = candidate.get("route_id")
+        if anchor and (repository_id is None or anchor.get("repository_id", repository_id) == repository_id):
+            record["anchor"] = {"file": anchor["file"], "line": anchor["line"]}
         if candidate["status"] == "undecidable":
             record["reason"] = UNDECIDABLE_REASONS[candidate["undecidable_reason"]]
             continue
@@ -501,23 +578,30 @@ def investigation_results(
         if facts is not None and any(entry.get("check") == "variant-search" for entry in case["post"]):
             reviewed = [record["route_id"] for record in candidates if record["route_id"]]
             variants = variant_search(case, component_id, facts, reviewed)["unreviewed_variants"]
-        results.append(
-            component_outcome(
-                case,
-                component_id,
-                candidates,
-                unexamined=overflow.get(case_id, 0),
-                proposed_outcome=answer["proposed_outcome"],
-                post_checks=checks,
-                unreviewed_variants=variants,
-                finding_ids=[
-                    finding["local_id"]
-                    for finding in reply["findings"]
-                    if case_id in finding["test_case_ids"] and finding["local_id"] not in dropped
-                ],
-                statuses=statuses,
-            )
+        row = component_outcome(
+            case,
+            component_id,
+            candidates,
+            unexamined=overflow.get(case_id, 0),
+            proposed_outcome=answer["proposed_outcome"],
+            post_checks=checks,
+            unreviewed_variants=variants,
+            finding_ids=[
+                finding["local_id"]
+                for finding in reply["findings"]
+                if case_id in finding["test_case_ids"] and finding["local_id"] not in dropped
+            ],
+            statuses=statuses,
         )
+        # The survey findings these locations contradict are marked when both methods are combined.
+        controlled = {
+            (record["anchor"]["file"], record["anchor"]["line"])
+            for record in candidates
+            if record["status"] == "control" and record.get("anchor")
+        }
+        if controlled:
+            row["control_locations"] = [{"file": file, "line": line} for file, line in sorted(controlled)]
+        results.append(row)
     return {"results": results, "dropped_finding_ids": dropped}
 
 

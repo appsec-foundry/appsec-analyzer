@@ -183,6 +183,12 @@ class AssessmentBudget(DiscoveryBudget):
                 planned_role, count = self.required[group]
                 self.plan_required(group, planned_role, count - 1)
 
+    def job_usd(self, role, fallback_role):
+        """The reserved cost of one more job of ``role``, measured on ``fallback_role`` while ``role`` has none."""
+        if not self.observed.get(role, (0.0, 0, 0.0))[1]:
+            role = fallback_role
+        return self._estimate(role)[0]
+
     def _estimate(self, role):
         cost, jobs, seconds = self.observed.get(role, (0.0, 0, 0.0))
         # A cold role keeps a full call allowance. Measurements include all

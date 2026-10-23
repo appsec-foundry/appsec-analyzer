@@ -15240,8 +15240,8 @@ def _build_threat_card(
         )
     case_ids = [c for c in (t.get("test_case_ids") or []) if re.fullmatch(r"TC-[A-Z]+-[0-9]{2}", str(c))]
     if case_ids:
-        # REQ-040: the appendix "Security Test Cases" holds one anchor per test case.
-        refs_parts.append("Test cases: " + ", ".join(f"[{c}](#{c.lower()})" for c in case_ids))
+        # REQ-040: the appendix "Verification Items" holds one anchor per verification item.
+        refs_parts.append("Verification items: " + ", ".join(f"[{c}](#{c.lower()})" for c in case_ids))
         rule_ids = [r for r in (t.get("rule_ids") or []) if re.fullmatch(r"[A-Z][A-Z0-9-]*", str(r))]
         if rule_ids:
             refs_parts.append("Rules: " + ", ".join(rule_ids))
@@ -15554,6 +15554,8 @@ def _build_threat_card(
             violated_card = "**Violates:** " + " · ".join(_parts)
 
     fields = [meta_line]
+    if verification_card := _verification_card(t):
+        fields.append(verification_card)
     if violated_card:
         fields.append(violated_card)
     if weakness_card:
@@ -16560,20 +16562,27 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         f"{counts[key]} {label.lower()}" for key, label in _TEST_CASE_OUTCOMES.items() if key in counts
     )
     lines = [
-        '<a id="appendix-test-cases"></a>',
-        "## Appendix: Security Test Cases",
+        '<a id="appendix-verification-items"></a>',
+        "## Appendix: Verification Items",
         "",
-        f"Test case catalog version {block.get('catalog_version')}. Examined in this run: {summary or 'none'}. "
-        "A test case is reported as a control only when every applicable rule is satisfied; a rule without a "
-        "recorded scanner result never counts as satisfied. A finding that several test cases link counts once in "
-        "the severity totals and once per test case here.",
+        f"Verification catalog version {block.get('catalog_version')}. Examined in this run: {summary or 'none'}. "
+        "A verification item is reported as a control only when every applicable rule is satisfied; a rule without "
+        "a recorded scanner result never counts as satisfied. A finding that several verification items link counts "
+        "once in the severity totals and once per verification item here.",
         "",
     ]
+    incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
+    if incomplete:
+        lines += [
+            f"Verification of {', '.join(incomplete)} is incomplete: the model budget ended before every job ran, "
+            "so the items it did not reach are undecidable.",
+            "",
+        ]
     if any(row.get("scope") == "component" for rows in by_id.values() for row in rows):
         lines += [
-            "A model-investigated test case shows one row per component. It is a control only when the control is "
-            "evidenced at every candidate location; a partial, no finding or undecidable result is never a control. "
-            "Comments, documentation and controls outside the examined sources are not control evidence.",
+            "A model-investigated verification item shows one row per component. It is a control only when the "
+            "control is evidenced at every candidate location; a partial, no finding or undecidable result is never a "
+            "control. Comments, documentation and controls outside the examined sources are not control evidence.",
             "",
         ]
 
@@ -16582,7 +16591,13 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         found = [row for row in rows if row.get("scope") == "component" and row.get("outcome") == "not_applicable"]
         return found if len(found) > 1 else []
 
-    lines += ["| Test case | Aspect | Outcome | Reason |", "|---|---|---|---|"]
+    # A verification finding that the survey reported too is shown under the survey's ID.
+    survey_ids = {
+        str(row.get("id")): [str(v) for v in row.get("survey_finding_ids") or [] if re.fullmatch(r"T-\d{3,}", str(v))]
+        for row in ctx.yaml_data.get("test_case_findings") or []
+        if isinstance(row, dict)
+    }
+    lines += ["| Verification item | Aspect | Outcome | Reason |", "|---|---|---|---|"]
     for case in cases:
         rows = by_id.get(case["id"]) or []
         collapsed = inapplicable(rows)
@@ -16627,9 +16642,16 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
                 lines += [f"Outcome for {component(row)}: {outcome} {_candidate_counts(candidates)}", ""]
                 if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
                     lines += ["Evidenced by model review only; no post-check confirmed it.", ""]
-                linked = [str(v) for v in row.get("finding_ids") or [] if _TEST_CASE_FINDING_ID.fullmatch(str(v))]
+                linked = [
+                    f"{value} (as {', '.join(survey_ids[value])})" if survey_ids.get(value) else value
+                    for value in map(str, row.get("finding_ids") or [])
+                    if _TEST_CASE_FINDING_ID.fullmatch(value)
+                ]
                 if linked:
-                    lines += [f"Findings: {', '.join(linked)} (see [Test Case Findings](#test-case-findings)).", ""]
+                    lines += [
+                        f"Findings: {', '.join(linked)} (see [Verification Findings](#verification-findings)).",
+                        "",
+                    ]
                 continue
             rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
             lines += [
@@ -16658,21 +16680,62 @@ def _candidate_counts(candidates: dict) -> str:
     return f"Candidate locations: {candidates.get('applicable', 0)}" + (f" ({', '.join(parts)})." if parts else ".")
 
 
+def _verification_card(t: dict) -> str:
+    """REQ-040: whether verification found this survey finding too, or evidenced a control at its location."""
+    cases = [
+        str(c) for c in (t.get("verification") or {}).get("test_case_ids") or [] if _TEST_CASE_ID.fullmatch(str(c))
+    ]
+    found = [
+        str(f)
+        for f in (t.get("verification") or {}).get("finding_ids") or []
+        if _TEST_CASE_FINDING_ID.fullmatch(str(f))
+    ]
+    if found:
+        links = ", ".join(f"[{c}](#{c.lower()})" for c in cases)
+        return f"**Found by:** survey and verification ({', '.join(found)}{'; ' + links if links else ''})"
+    rows = [row for row in t.get("verification_contradicted") or [] if isinstance(row, dict)]
+    spots = [
+        f"[{row['test_case_id']}](#{str(row['test_case_id']).lower()}) at "
+        f"{_safe_boundary_text(row.get('file'), table=True)}:{row.get('line')}"
+        for row in rows
+        if _TEST_CASE_ID.fullmatch(str(row.get("test_case_id")))
+    ]
+    if spots:
+        return (
+            "**Contradicted by verification:** a control was evidenced at "
+            + "; ".join(spots)
+            + ". Check this survey finding before acting on it."
+        )
+    return ""
+
+
 def _render_test_case_findings(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
-    """Findings of the model-backed test case pilot, listed apart from the findings register (REQ-040)."""
-    rows = [row for row in ctx.yaml_data.get("test_case_findings") or [] if isinstance(row, dict)]
-    if not rows:
+    """Verification findings that the survey did not report, listed apart from the findings register (REQ-040)."""
+    findings = [row for row in ctx.yaml_data.get("test_case_findings") or [] if isinstance(row, dict)]
+    rows = [row for row in findings if not row.get("survey_finding_ids")]
+    if not findings:
         return ""
     names = component_names(ctx.yaml_data)
+    shared = len(findings) - len(rows)
     lines = [
-        '<a id="test-case-findings"></a>',
-        "## Test Case Findings (Pilot)",
+        '<a id="verification-findings"></a>',
+        "## Verification Findings",
         "",
-        "Model investigations of the security test cases reported these findings. They are not yet merged with "
-        "the findings register: they do not count in its totals, and the same weakness can appear in both. "
-        "The test case appendix shows each test case's outcome per component.",
+        "Verification reported these findings, which the survey did not report at the same location. They do not "
+        "count in the totals of the findings register. The verification appendix shows each verification item's "
+        "outcome per component."
+        + (
+            f" {shared} further verification {'finding' if shared == 1 else 'findings'} matched a survey finding "
+            "with the same CWE at the same location and appear there, marked as found by both methods."
+            if shared
+            else ""
+        ),
         "",
-        "| ID | Test cases | Component | Finding | Risk | Location |",
+    ]
+    if not rows:
+        return "\n".join(lines).rstrip() + "\n"
+    lines += [
+        "| ID | Verification items | Component | Finding | Risk | Location |",
         "|---|---|---|---|---|---|",
     ]
     for row in rows:

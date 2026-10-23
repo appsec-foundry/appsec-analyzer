@@ -306,7 +306,7 @@ def test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
     assert {row["test_case_id"] for row in block["results"]} >= {"TC-CI-01", "TC-INFRA-01", "TC-SUPPLY-01"}
     assert all(row["outcome"] != "control" or row["candidates"]["evidenced"] for row in block["results"])
     report = (out / "security-assessment.md").read_text()
-    assert "## Appendix: Security Test Cases" in report
+    assert "## Appendix: Verification Items" in report
     linked = [t for t in model["threats"] if t.get("test_case_ids")]
     assert all(t["rule_ids"] for t in linked)
 
@@ -345,7 +345,7 @@ def test_test_cases_stay_out_of_the_model_and_report_by_default(tmp_path, monkey
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
     assert "test_case_results" not in model and "test_case_findings" not in model
     assert not any("test_case_ids" in threat for threat in model["threats"])
-    assert "Appendix: Security Test Cases" not in (out / "security-assessment.md").read_text()
+    assert "Appendix: Verification Items" not in (out / "security-assessment.md").read_text()
 
 
 _PILOT = ("--no-pdf", "--test-case-aspects", "AuthZ")
@@ -412,7 +412,7 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
 
     report = (tmp_path / "pilot" / "security-assessment.md").read_text()
     assert f"| [TC-AUTHZ-01](#tc-authz-01) · {service['name']} | AuthZ | Finding |" in report
-    assert "## Test Case Findings (Pilot)" in report and "not yet merged with the findings register" in report
+    assert "## Verification Findings" in report and "do not count in the totals of the findings register" in report
     assert "| TCF-001 | [TC-AUTHZ-01](#tc-authz-01) |" in report
 
 
@@ -602,6 +602,10 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert count > 1 and host.investigations == [(service, "AuthZ")] * count
     # The progress counts the step's jobs and names a component's part only when it has several.
     name = next(row["name"] for row in model["components"] if row["id"] == service)
+    # REQ-040: before the first job the run says whether the remaining budget covers them all.
+    (plan,) = [text for text in said if text.startswith("Verify: ")]
+    assert plan.startswith(f"Verify: {count} jobs for AuthZ, about USD ") and " the remaining USD " in plan
+    assert said.index(plan) < min(said.index(text) for text in said if text.startswith("Verifying AuthZ "))
     assert {text for text in said if text.startswith("Verifying AuthZ ")} == {
         f"Verifying AuthZ {number}/{count}: {name} (part {number} of {count})" for number in range(1, count + 1)
     }

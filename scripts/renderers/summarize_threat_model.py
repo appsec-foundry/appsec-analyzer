@@ -739,7 +739,10 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
     if summary.get("test_case_counts"):
-        rows.append(("Test cases", test_case_line(summary["test_case_counts"])))
+        rows.append(("Verification", test_case_line(summary["test_case_counts"])))
+    if summary.get("incomplete_aspects"):
+        aspects = ", ".join(summary["incomplete_aspects"])
+        rows.append(("", f"incomplete for {aspects}: the budget ended before every verification job ran"))
     return rows
 
 
@@ -755,7 +758,7 @@ _TEST_CASE_WORDS = (
 
 
 def test_case_line(counts: dict[str, int]) -> str:
-    """Outcome counts of the examined test cases (REQ-040), in a fixed order."""
+    """Outcome counts of the examined verification items (REQ-040), in a fixed order."""
     parts = [f"{sum(counts.values())} examined"]
     for key, singular, plural in _TEST_CASE_WORDS:
         if counts.get(key):
@@ -792,6 +795,9 @@ def _completion_summary(output_dir: Path) -> dict | None:
                 counts[row["outcome"]] = counts.get(row["outcome"], 0) + 1
         if counts:
             summary["test_case_counts"] = counts
+        incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
+        if incomplete:
+            summary["incomplete_aspects"] = incomplete
     return summary
 
 

@@ -358,6 +358,43 @@ The comparison matched findings by file and title against all 83 STRIDE threats 
 
 Assessment by the implementing session, not yet a decision: the expectations of the fourth run are met except the correction cost, which could not be measured. The fixes of 612811f1 hold for the two replaced jobs. The pilot finds more than the STRIDE step on injection (XXE and two NoSQL challenges) and one more authorization challenge (Forged Feedback); on cross-site scripting both find the same. The STRIDE step finds Email Leak and Exposed Credentials, which the pilot does not, and both miss business logic. The AuthZ cost concentrates on the Express server (7 of 9 jobs, USD 3.81 of 4.45), the other two components cost USD 0.16 and 0.48 and produce findings as well, among them the user list. One cause stays open: three of four rejections are unlisted further reads, although the context lists the starting files; the same rejection occurred in every run.
 
+### Analysis after the fourth run
+
+Done by the implementing session on 2026-10-23 with the product owner, from the fourth run's `security-assessment.yaml` and `.threats-merged.json`.
+
+- The challenge counts understate what verification adds for authorization. About ten of its AuthZ findings have no counterpart among the 83 survey threats or their instances. Five were checked in the Juice Shop code and hold: any user reads any user record (`GET /api/Users/:id`, TCF-018), deletes any feedback (`/api/Feedbacks/:id`, TCF-021), creates products (`POST /api/Products`, TCF-016), reads and deletes other users' basket items (`/api/BasketItems/:id`, TCF-019; the survey reports only `PUT`), and reads recycle items without login (`GET /api/Recycles/:id`, TCF-007). The other five were not checked; order tracking may be intended.
+- The survey names a few examples and one systemic finding for authorization; verification walks route by route and finds the gaps the survey does not enumerate. For cross-site scripting both found the same seven challenges.
+- The methods did not know of each other. Verification starts from the route inventory and scanner hits, not from survey findings, and no step linked their results. Of 62 verification findings, 23 had a survey threat with the same CWE at the same line, 24 within three lines.
+- Verification cost USD 7.59 for four of fourteen aspects, as much as the survey for all of them. The survey still found weaknesses outside the catalog in every run, such as JWT handling in the chatbot, OAuth without `state`, password reset throttling, CI/CD supply chain, and Email Leak.
+
+Decided by the product owner on 2026-10-23:
+
+- The methods are called Survey and Verify. Verification does not replace the survey: it covers only catalog aspects, costs far more per aspect, and missed survey findings in every run. Taking single aspects out of the survey waits until verification loses nothing over several runs and two repositories, and until it is measured whether the survey gets cheaper without them.
+- The requirements name both methods, and "test case" becomes "verification item" there (`15ab1c78`, proposal `specs/changes/survey-and-verify/proposal.md`). Code, catalog IDs, the `test_cases` key, and saved results keep the old names until a later change.
+- The verified aspects per depth are a setting, not a requirement. Shipped defaults: quick runs the survey only, standard verifies AuthZ, thorough verifies AuthZ, InputVal, DataProt, and AI. AuthZ alone at standard depth, because verification found 8 of 9 authorization challenges against 6 to 7 for the survey in the third and fourth runs, has deterministic post-checks, and found the weaknesses above; InputVal is the next candidate, measured in one run only, and standard depth with both would exceed the USD 20 standard limit already on Juice Shop. A scan profile changes the aspects per depth; an organization profile makes aspects mandatory.
+- Findings of both methods at the same location and CWE are shown once and name both. A control that verification evidenced at a survey finding's location marks it contradicted and never removes it. Survey findings are not sent to verification as candidates: an independent second finding is stronger evidence than a model asked to confirm a presented claim, and it would add calls.
+- The run states before the first verification job, not before the first model call, whether the budget covers the jobs, because their number depends on the components the architecture analysis finds; aspects the budget cuts short are marked incomplete.
+- The console names the survey's progress lines "Survey" and counts the verification jobs in the progress share and remaining time.
+
+### Survey and verify by depth (built 2026-10-23)
+
+Built on the branch after merging `main` into it:
+
+- `data/verification-depths.yaml` holds the shipped defaults. `profiles.resolve_scan` resolves `test_cases` for the run's depth: no setting takes the default, `depths` overrides single depths, `aspects` covers the others, and `false` at a depth runs the survey only. `profiles show` names the default's origin. The organization profile's `test_cases.required_aspects` joins the selected aspects in the controller.
+- `run_pilot` states the job count, estimated cost, and remaining budget before the first job, using the survey's job reserve until a verification job is accepted (`AssessmentBudget.job_usd`), and records `incomplete_aspects` when the budget replaced a job.
+- `case_outcomes.combine_methods` runs after the model is built: a verification finding with the same CWE within three lines of a survey threat's evidence or instance gets `survey_finding_ids`, the threat `verification`, and a survey threat at a location where an item with its CWE evidenced a control `verification_contradicted`. Component results carry `control_locations` for that.
+- The report's finding cards say "Found by: survey and verification" or "Contradicted by verification", the section Verification Findings lists only findings the survey did not report, and the appendix is called Verification Items and names incomplete aspects. The completion summary row is called Verification. The run header shows `Methods: Survey · Verify AuthZ`.
+- The console labels the survey's component lines "Survey:" and its bars "Survey jobs", and grows the threat analysis share by each planned verification job.
+
+Limits of this step:
+
+- Verification findings that the survey did not report still stay apart from the findings register and its totals, priorities, and mitigations. The full merge into `merge_assessment` is not built.
+- The defaults reach runs with a profile snapshot, which every `appsec-analyzer assess` run has. The internal controller without a run profile keeps verification off unless asked for it.
+- A run saved at standard or thorough depth before the defaults existed cannot resume and needs a new run; quick depth resumes.
+- `IAM` and `SessionMgmt` are accepted but not investigated, so the thorough default lists the four investigated aspects.
+- A job replaced by a model failure, not the budget, makes its candidates undecidable but does not mark the aspect incomplete.
+- The budget statement estimates verification jobs from the survey's reserve per job, which is 1.5 times its average cost; the fourth run's verification jobs cost USD 0.40 each against USD 0.28 per survey job.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
@@ -369,12 +406,12 @@ Assessment by the implementing session, not yet a decision: the expectations of 
 | Code sites in helper modules that a handler calls, and more REST resource generators | Pattern gaps or misses of the third run show it. |
 | Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by both runs. Built for the pilot's facts in cf0fbdc2; the shared inventory follows only when the pilot is continued. |
 | TC-AUTHZ-01 candidates for routes that take an object ID in the body, and a starting point for sensitive listings without a path parameter | Shown by the second run. Built in cf0fbdc2. |
-| Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
+| Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | Partly built after the fourth run: findings at the same location and CWE are linked and shown once, and verified controls contradict survey findings. Verification-only findings joining the register, its totals, and mitigations is open. |
 | Removal rule: a confirmed post-check removes a scanner finding unless the evidence verifier marked it verified, otherwise the finding records `test_case_disagreement` | The merge exists. |
 | Comparison file `security-assessment.test-case-comparison.json` with a schema | The comparison format is settled and the exit criteria are measured. |
 | Fixtures `tests/fixtures/test-cases/TC-.../` and the recorded-response evaluation | The catalog grows beyond the pilot aspects or moves into the default run. One or two AuthZ fixtures are enough for the first run. |
-| Console phase "Security checks", stage-stats entries, per-component report rows | The pilot becomes product behavior. |
-| `context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds; the guides already describe the setting | Before the branch is merged; the phase exists since 5e3f39bb. |
+| Console phase "Security checks", stage-stats entries, per-component report rows | Decided after the fourth run: no own phase; survey and verification share Threat analysis, and the progress counts verification jobs. Stage-stats entries are open. |
+| `context-routing.md` and `orchestration-actions.md` for the new contexts, phase, and holds; the guides already describe the setting | Written before the merge, after the fourth run. |
 | Replacing the STRIDE step, the REQ-004 change, score integration, `TC-APP` test cases, control posture feeding | A positive pilot decision. |
 
 ## Integration option: methods by assessment depth
@@ -398,6 +435,8 @@ Conditions:
 - The change alters REQ-040 and the behavior of the depths, so it needs its own requirement proposal and the product owner's approval.
 
 Decided by the product owner on 2026-10-23: what each depth runs is configuration, not code. The table above is the shipped default. A configuration states per depth which aspects get the verification-based method beside the STRIDE step, and whether the open review runs, in the way the model profiles already state per depth which model each role uses (`depths` in `data/model-profiles/*.yaml`). An operator's scan profile can override the default, and an organization profile can require aspects, as `test_cases.required` does today. The exact place and schema are part of the requirement proposal.
+
+Superseded after the fourth run: the shipped defaults are quick with the survey only, standard with AuthZ verification, and thorough with all four investigated aspects; see [Analysis after the fourth run](#analysis-after-the-fourth-run).
 
 ## Decisions taken during the implementation
 
@@ -437,6 +476,9 @@ Stricter than the plan on purpose:
 
 ## Verification state
 
+- For the survey and verify step after merging `main` (82e9de5e), only the tests of the changed modules ran, as the product owner asked: `tests/test_controller_fixture.py` (14 tests), the profile, case outcome, budget statement, and summary tests (238), the organization profile tests (155), the public CLI and state tests after the merge (356), and the console and header tests of `tests/test_multi_repo_assessment.py` whose texts changed (24); `scripts/check_specs.py` and Ruff on the changed files passed. `test_render_text_names_the_ask_and_review_lanes` fails as on `main`. The rest of `tests/test_multi_repo_assessment.py` and the offline gate `make check-analyzer` were not run.
+- The merge left two copies of one console test and an older branch test of the Preflight row that `main` replaced with its Preflight block (07317bde); the copy and the older test were removed.
+
 - Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). At 998b0b13, `make check-analyzer BASE=356f0cfc` passed with 954 and 168 tests, and the tests of the changed modules passed with the pilot tests of `tests/test_controller_fixture.py`, including the new tests for shared jobs, a failed job, and a resumed run with shared jobs (156 tests). The three controller fixture tests that never start the pilot were not rerun. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
 - At ec424ef9, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 168 tests; of 954 analyzer tests one failed, the Codex timeout test, whose race 8f16254f removes, and it passed three times alone. At cf0fbdc2, the gate passed with 954 and 168 tests, `make test-controller` with 12 tests, and the tests of the changed modules passed. The seven failing progress-header and budget tests of `test_multi_repo_assessment.py` fail at ec424ef9 as well, before the applied fixes.
 - At b100c018, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 954 and 168 tests. `make test-controller` passed 12 of 13 tests; the thirteenth expected the AuthZ test cases without TC-AUTHZ-06, and after that expectation was added it passed alone. The tests of the changed modules passed: candidates, post-checks, outcomes, case analysis, catalog, and profiles. The bound of the NoSQL pattern changed after the gate, and its example test and the catalog tests passed again.
@@ -453,4 +495,4 @@ The name "test case" has a provisional answer. On 2026-10-22 the product owner c
 
 The name "STRIDE-based" stays for now but should be improved, as decided by the product owner on 2026-10-23: it suggests threat modeling per data flow element, while the step is an open, evidence-based code review per component that uses the six STRIDE categories as a checklist and as the label of its findings. Names considered and not taken: "exploration", too weak and generic; "LLM exploration", because the verification-based method is model-backed as well and the product documents say "model", never "LLM"; "sweep", for the breadth the step shows across aspects; "open review", because the planned open review role uses it; "discovery", "audit", and "review", already taken by discovery phases, `audit-requirements`, and `review`.
 
-Decided by the product owner on 2026-10-23: the console and requirement texts say "Survey" for the first method and "Verify" for the second, both short enough for the progress grid. "STRIDE-based" remains a valid description of the survey (it uses the six STRIDE categories as its checklist and as the label of its findings). Nothing is renamed in code or documents before the requirement proposal is approved.
+Decided by the product owner on 2026-10-23: the console and requirement texts say "Survey" for the first method and "Verify" for the second, both short enough for the progress grid. "STRIDE-based" remains a valid description of the survey (it uses the six STRIDE categories as its checklist and as the label of its findings). The requirements use both names since the approved proposal of `15ab1c78`, and the console, report, and guides since the implementation that followed; code names, catalog IDs, and the `test_cases` key keep the old wording for now.

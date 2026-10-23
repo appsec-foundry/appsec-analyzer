@@ -122,6 +122,8 @@ def run_pilot(
                 entry["jobs"] = case_candidates.batches(entry["precheck"])
             entries.append(entry)
     work = [(entry, number) for entry in entries if entry["precheck"] for number in range(1, len(entry["jobs"]) + 1)]
+    if work:
+        progress(_budget_statement(jobs, len(work), sorted({entry["aspect"] for entry, _ in work}, key=aspects.index)))
 
     def investigate(position, item, view):
         entry, number = item
@@ -248,9 +250,54 @@ def run_pilot(
             candidates.setdefault(component["id"], []).extend(
                 {**row, "aspect": entry["aspect"]} for row in _context_candidates(entry["precheck"], rid, facts[rid])
             )
+    # REQ-040: an aspect whose jobs the budget cut short is incomplete, and the result says so.
+    incomplete = [
+        aspect
+        for aspect in aspects
+        if any(
+            answer.get("cause") == "budget"
+            for entry in entries
+            if entry["aspect"] == aspect
+            for _, answer in answered.get(id(entry), [])
+        )
+    ]
     subject = f"{', '.join(aspects)} verification" if aspects else "Verification"
-    progress(f"{subject}: {len(results)} results, {len(findings)} findings")
-    return {"schema_version": 1, "aspects": aspects, "results": results, "findings": findings, "candidates": candidates}
+    progress(
+        f"{subject}: {len(results)} results, {len(findings)} findings"
+        + (f"; incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
+    )
+    return {
+        "schema_version": 1,
+        "aspects": aspects,
+        "incomplete_aspects": incomplete,
+        "results": results,
+        "findings": findings,
+        "candidates": candidates,
+    }
+
+
+def _budget_statement(jobs, count: int, aspects: list[str]) -> str:
+    """Whether the remaining budget covers every verification job, said before the first one runs (REQ-040).
+
+    Until a verification job is accepted, the reserve of a survey job stands in for one: both carry the
+    component's context. A run that cannot cover them all keeps going; the budget stops the jobs it cannot
+    pay, and their aspects are marked incomplete."""
+    subject = f"Verify: {count} {'job' if count == 1 else 'jobs'} for {', '.join(aspects)}"
+    budget = jobs.budget
+    if budget.subscription:
+        return f"{subject}; the run's call and time limits apply"
+    needed = count * budget.job_usd("test_case_investigator", "stride_analyzer")
+    available = budget.available_usd()
+    if needed <= available:
+        return f"{subject}, about USD {needed:.2f}; the remaining USD {available:.2f} covers them"
+    jobs.notes.append(
+        f"verification needs about USD {needed:.2f} for {count} jobs, but USD {available:.2f} remained; "
+        "aspects whose jobs the budget stops are marked incomplete"
+    )
+    return (
+        f"{subject}, about USD {needed:.2f}; the remaining USD {available:.2f} may not cover them, "
+        "and an aspect that cannot finish is marked incomplete"
+    )
 
 
 def write_workspace(document: dict, workspace, names) -> None:
@@ -258,7 +305,12 @@ def write_workspace(document: dict, workspace, names) -> None:
     ws.write_json(
         workspace / case_outcomes.PILOT_SIDECAR,
         ws.project_document(
-            {key: document[key] for key in ("schema_version", "aspects", "results", "findings")}, names
+            {
+                key: document[key]
+                for key in ("schema_version", "aspects", "incomplete_aspects", "results", "findings")
+                if key in document
+            },
+            names,
         ),
     )
     for component_id, rows in document["candidates"].items():

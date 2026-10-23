@@ -814,9 +814,13 @@ def _assessment_session(
     # False, or {"aspects": [...], "disable": [{"id", "reason"}]}; a bare True is the scanner-only form.
     cfg["test_cases"] = test_cases = {"aspects": [], "disable": []} if test_cases is True else test_cases
     try:
-        from appsec_analyzer.profiles import ProfileError, refuse_required_test_case_disable
+        from appsec_analyzer.profiles import ProfileError, add_required_aspects, refuse_required_test_case_disable
 
         refuse_required_test_case_disable(test_cases, cfg.get("org_profile_test_cases_required"))
+        # REQ-040: the organization's mandatory aspects join whatever the scan profile selects.
+        cfg["test_cases"] = test_cases = add_required_aspects(
+            test_cases, cfg.get("org_profile_test_cases_required_aspects")
+        )
     except ProfileError as exc:
         raise CallError(str(exc)) from exc
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
@@ -2847,6 +2851,14 @@ def _assessment_options(ns, cfg: dict[str, Any]) -> str:
     return "\n".join(options)
 
 
+def _methods_label(test_cases) -> str:
+    """The analysis methods of a run for its header: the survey, and the aspects verification covers (REQ-040)."""
+    if not test_cases:
+        return "Survey"
+    aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
+    return "Survey · Verify " + (", ".join(aspects) if aspects else "scanner rules only")
+
+
 def _assessment_intro(
     ns,
     budget,
@@ -2927,7 +2939,7 @@ def _assessment_intro(
         ("Time limit", limit),
         ("Depth", depth),
         ("Max parallel", str(budget.max_parallel)),
-        ("Test cases", "on" if ns.test_cases else "off"),
+        ("Methods", _methods_label((cfg or {}).get("test_cases", getattr(ns, "test_case_config", ns.test_cases)))),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
         *(scope_facts or []),
         ("Trust mode", trust),
@@ -2950,9 +2962,9 @@ def _assessment_intro(
                     value += f" (1.25 × deprecated --soft-budget USD {ns.soft_budget:g})"
         elif key == "Time limit":
             key, value = "Settings", f"{depth} depth · {limit} limit · max parallel: {budget.max_parallel}"
-            if ns.test_cases:
-                value += " · test cases"
-        elif key in ("Depth", "Max parallel", "Test cases"):
+        elif key == "Methods":
+            value = value.replace(" · ", ", ")
+        elif key in ("Depth", "Max parallel"):
             continue
         elif key == "Billing":
             value = {"api": "API", "subscription": "Subscription"}.get(value, value)
@@ -3449,9 +3461,10 @@ def _assessment_render(
                 model.get("threats") or [],
                 {row["id"]: row["reason"] for row in cfg["test_cases"]["disable"]},
             )
-            # The pilot's findings stay apart from the threats until the pilot merges them.
             if findings := case_outcomes.pilot_findings(workspace):
                 model["test_case_findings"] = findings
+            # The survey's findings name verification's at the same location, and verified controls contradict them.
+            case_outcomes.combine_methods(model.get("threats") or [], findings, model["test_case_results"]["results"])
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):

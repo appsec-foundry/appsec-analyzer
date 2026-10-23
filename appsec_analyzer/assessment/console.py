@@ -299,6 +299,12 @@ class _AssessmentConsole:
         "Finalization": 12,
     }
     PER_COMPONENT = {"Controls": 6 / 9, "Threat analysis": 50 / 9}
+    # REQ-040: a verification job carries a component's context like one of its
+    # three survey jobs (Juice Shop, 2026-10-23: 27 survey jobs took 21 minutes
+    # and 19 verification jobs 18), so it adds that share to threat analysis.
+    VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 3
+    _VERIFY_PLAN = re.compile(r"Verify: (\d+) jobs? for ")
+    _VERIFY_JOB = re.compile(r"Verifying \S+ (\d+)/(\d+): ")
     # Wall clock of the nine-component, all-phases run those weights describe
     # (Juice Shop, 33m), for the remaining time before this run has a speed of
     # its own. It is a prior: the measured speed replaces it.
@@ -333,6 +339,8 @@ class _AssessmentConsole:
         # STRIDE jobs and the current stage; and the components finished.
         self.units: dict[str, dict] = {}
         self.units_done = 0
+        # Verification jobs after the survey, known once the survey has finished (REQ-040).
+        self.verify_jobs = 0
         # Corrected answers per role in the current phase (MR-17).
         self.corrections: Counter = Counter()
         self.results: dict[str, str] = {}
@@ -558,8 +566,28 @@ class _AssessmentConsole:
 
     def _weight(self, phase: str) -> float:
         if self.components and phase in self.PER_COMPONENT:
-            return self.PER_COMPONENT[phase] * self.components
-        return self.WEIGHTS[phase]
+            weight = self.PER_COMPONENT[phase] * self.components
+        else:
+            weight = self.WEIGHTS[phase]
+        if phase == "Threat analysis":
+            weight += self.verify_jobs * self.VERIFY_JOB_WEIGHT
+        return weight
+
+    def _verify_step(self, text: str) -> None:
+        """Count verification jobs into the threat analysis share (REQ-040).
+
+        The plan line arrives after the survey, so the phase grows by its jobs and the
+        run's share is recomputed once, as when the component count becomes known."""
+        if plan := self._VERIFY_PLAN.match(text):
+            self.verify_jobs = int(plan[1])
+            weight = self._weight(self.phase)
+            self.fraction = (weight - self.verify_jobs * self.VERIFY_JOB_WEIGHT) / weight
+            self.done = 0.0
+            self._advance(self.fraction)
+        elif (job := self._VERIFY_JOB.match(text)) and self.verify_jobs:
+            weight = self._weight(self.phase)
+            survey = weight - self.verify_jobs * self.VERIFY_JOB_WEIGHT
+            self._advance((survey + (int(job[1]) - 1) * self.VERIFY_JOB_WEIGHT) / weight)
 
     def _advance(self, fraction: float) -> None:
         """Record ``fraction`` of the current phase as finished."""
@@ -834,6 +862,8 @@ class _AssessmentConsole:
         if phase is None:
             # Before the first phase a plain line; inside a phase a progress line of it.
             if self.phase:
+                if self.phase == "Threat analysis":
+                    self._verify_step(text)
                 self.record("·", text)
             else:
                 self.write(text)
@@ -925,11 +955,11 @@ class _AssessmentConsole:
                 running = sum(self._unit_progress(unit) / 100 for unit in self.units.values())
                 self._advance((self.units_done + running) / total)
                 # Under concurrency no single component is current; the bars name the running ones.
-                self.current = f"{self.units_done}/{total} components done"
+                self.current = f"Survey: {self.units_done}/{total} components done"
             if finished is not None:
                 # Counts completions, so it names no start slot such as a start line's "component 4/9".
                 # Its own event, so `done` marks only a phase's end.
-                done = f"{self.units_done}/{total or '?'} components done · {finished}"
+                done = f"Survey: {self.units_done}/{total or '?'} components done · {finished}"
                 self.record("✓", done, now)
             # A permanent line names the component; the heartbeat need not repeat the count.
             self.shown = (self.current, round(100 * self.done))
@@ -948,8 +978,8 @@ class _AssessmentConsole:
         if unit["stage"] == "review":
             return "evidence review"
         if not unit["total"]:
-            return "STRIDE"
-        return f"{unit['done']}/{unit['total']} STRIDE jobs"
+            return "Survey"
+        return f"{unit['done']}/{unit['total']} Survey jobs"
 
     def call(self, text: str, role: str | None = None, model: str | None = None) -> None:
         """Show missing updates and timeouts; show every model-call line with --verbose."""

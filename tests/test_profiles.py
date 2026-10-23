@@ -134,14 +134,60 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     assert seen["profile"]["settings"]["max_parallel"] == expected
 
 
-def test_test_cases_defaults_to_false_and_keeps_older_identity(home):
+def test_test_cases_default_follows_the_depth(home):
     plain = profiles.resolve_scan("claude")
-    assert plain["settings"]["test_cases"] is False
+    assert plain["settings"]["test_cases"] == {"aspects": ["AuthZ"], "disable": []}
+    assert plain["origins"]["settings"]["test_cases"] == "analyzer default for standard depth"
+    assert profiles.resolve_scan("claude", depth="quick")["settings"]["test_cases"] is False
+    assert profiles.resolve_scan("claude", depth="thorough")["settings"]["test_cases"] == {
+        "aspects": ["AuthZ", "InputVal", "DataProt", "AI"],
+        "disable": [],
+    }
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
     enabled = profiles.resolve_scan("cases")
     assert enabled["settings"]["test_cases"] is True
     assert enabled["origins"]["settings"]["test_cases"].endswith("cases.yaml")
     assert enabled["definition_sha256"] != plain["definition_sha256"]
+
+
+def test_test_case_depths_override_single_depths_and_keep_the_others(home):
+    setting = {"depths": {"standard": ["InputVal", "AuthZ"], "quick": False, "thorough": []}}
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": setting})
+    assert profiles.resolve_scan("cases")["settings"]["test_cases"] == {"aspects": ["AuthZ", "InputVal"], "disable": []}
+    assert profiles.resolve_scan("cases", depth="quick")["settings"]["test_cases"] is False
+    # An empty list keeps the scanner-based verification items without a model investigation.
+    assert profiles.resolve_scan("cases", depth="thorough")["settings"]["test_cases"] == {"aspects": [], "disable": []}
+    write(
+        home,
+        "scan",
+        "some",
+        {"schema_version": 1, "test_cases": {"depths": {"quick": ["AI"]}, "aspects": ["DataProt"]}},
+    )
+    assert profiles.resolve_scan("some", depth="quick")["settings"]["test_cases"]["aspects"] == ["AI"]
+    # `aspects` covers every depth that `depths` does not name.
+    assert profiles.resolve_scan("some")["settings"]["test_cases"]["aspects"] == ["DataProt"]
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [{"depths": {"deep": ["AuthZ"]}}, {"depths": {}}, {"depths": {"standard": ["Infra"]}}, {"depths": {"quick": True}}],
+)
+def test_invalid_test_case_depths_are_rejected(home, setting):
+    write(home, "scan", "bad", {"schema_version": 1, "test_cases": setting})
+    with pytest.raises(profiles.ProfileError, match="invalid scan profile"):
+        profiles.resolve_scan("bad")
+
+
+def test_required_aspects_join_the_selected_aspects_and_cannot_be_removed():
+    assert profiles.add_required_aspects(False, ["AuthZ"]) == {"aspects": ["AuthZ"], "disable": []}
+    setting = {"aspects": ["InputVal"], "disable": [REASON]}
+    assert profiles.add_required_aspects(setting, ["DataProt", "AuthZ"]) == {
+        "aspects": ["AuthZ", "InputVal", "DataProt"],
+        "disable": [REASON],
+    }
+    for required in (None, []):
+        assert profiles.add_required_aspects(False, required) is False
+        assert profiles.add_required_aspects(setting, required) == setting
 
 
 @pytest.mark.parametrize("value", ["true", 1, 0, "yes", None, []])
@@ -176,12 +222,13 @@ def test_test_case_object_is_normalized_and_keeps_its_own_identity(home):
     assert resolved["definition_sha256"] != profiles.resolve_scan("plain")["definition_sha256"]
 
 
-def test_a_test_case_object_without_aspects_selects_no_model_investigation(home):
+def test_a_test_case_object_without_aspects_keeps_the_depth_default(home):
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"disable": [REASON]}})
     setting = profiles.resolve_scan("cases")["settings"]["test_cases"]
-    assert setting == {"aspects": [], "disable": [REASON]}
-    # Test cases stay on for the scanner-based outcomes; only a named aspect starts the model pilot.
-    assert profiles.session_test_cases(setting) == {"aspects": [], "disable": [REASON]}
+    assert setting == {"aspects": ["AuthZ"], "disable": [REASON]}
+    assert profiles.session_test_cases(setting) == setting
+    # Quick depth runs the survey only, so its disables have nothing to apply to.
+    assert profiles.resolve_scan("cases", depth="quick")["settings"]["test_cases"] is False
 
 
 def test_session_test_cases_form():
@@ -300,10 +347,11 @@ def test_test_cases_change_requires_new_run_and_older_snapshot_means_false(home,
     output = tmp_path / "out"
     output.mkdir()
     (output / assessment_state.STATE_NAME).write_text("{}")
-    older = profiles.resolve_scan("claude")
+    # Quick depth runs the survey only, so its identity equals that of snapshots older than the setting.
+    older = profiles.resolve_scan("claude", depth="quick")
     del older["settings"]["test_cases"]
     monkeypatch.setattr(assessment_state, "_read_state", lambda p: {"operator_profile": older})
-    restored = profiles.restore_profile(profiles.resolve_scan("claude"), output, resume=True)
+    restored = profiles.restore_profile(profiles.resolve_scan("claude", depth="quick"), output, resume=True)
     assert restored["settings"]["test_cases"] is False
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
     with pytest.raises(profiles.ProfileError, match="changed"):

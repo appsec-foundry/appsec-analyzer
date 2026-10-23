@@ -612,6 +612,13 @@ def test_required_test_cases_reach_the_effective_profile_sorted(isolated_root, t
 def test_required_test_cases_default_to_none(isolated_root):
     effective, errors = rop.resolve(str(FIXTURE_PATH), None, False, None, isolated_root, env={})
     assert errors == [] and effective["test_cases_required"] == []
+    assert effective["test_cases_required_aspects"] == []
+
+
+def test_required_aspects_reach_the_effective_profile_sorted(isolated_root, tmp_path):
+    path = _profile_with_test_cases(tmp_path, {"required_aspects": ["InputVal", "AuthZ"]})
+    effective, errors = rop.resolve(str(path), None, False, None, isolated_root, env={})
+    assert errors == [] and effective["test_cases_required_aspects"] == ["AuthZ", "InputVal"]
 
 
 @pytest.mark.parametrize(
@@ -622,6 +629,9 @@ def test_required_test_cases_default_to_none(isolated_root):
         {"required": ["TC-CI-01; rm -rf"]},
         {"required": "TC-CI-01"},
         {"disable": ["TC-CI-01"]},
+        {"required_aspects": []},
+        {"required_aspects": ["Infra"]},
+        {"required_aspects": ["AuthZ", "AuthZ"]},
     ],
 )
 def test_malformed_required_test_cases_are_rejected(isolated_root, tmp_path, block):

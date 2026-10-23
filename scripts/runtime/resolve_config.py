@@ -1918,10 +1918,7 @@ def resolve_assessment(
     # Sonnet 4.6 exhausts its thinking without returning one at any effort level
     # (user-service replay, 2026-10-11). Only the economy pin moves; an explicit
     # stage model, environment pin, or shared model is kept and warned about.
-    if (
-        cfg.get("stride_model") == SONNET46
-        and not (ns.stride_model or os.environ.get("APPSEC_STRIDE_MODEL") or model)
-    ):
+    if cfg.get("stride_model") == SONNET46 and not (ns.stride_model or os.environ.get("APPSEC_STRIDE_MODEL") or model):
         cfg["stride_model"] = SONNET5
         cfg["stride_model_moved_from"] = SONNET46
         cfg["reasoning_label"] = (
@@ -1933,10 +1930,7 @@ def resolve_assessment(
     # the thinking stop or repeated a rejected artifact until the exchange
     # limit; Sonnet 5.5 returned a valid one in two calls. Only the Haiku
     # default of the recon role moves.
-    if (
-        cfg.get("recon_scanner_model") == HAIKU
-        and not (os.environ.get("APPSEC_RECON_SCANNER_MODEL") or model)
-    ):
+    if cfg.get("recon_scanner_model") == HAIKU and not (os.environ.get("APPSEC_RECON_SCANNER_MODEL") or model):
         cfg["recon_scanner_model"] = SONNET5
     cfg.update(
         assessment_scope="multiple-repositories",
@@ -1988,6 +1982,7 @@ def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, 
                 "org_profile_security_coach": None,
                 "org_profile_llm_policy": None,
                 "org_profile_test_cases_required": [],
+                "org_profile_test_cases_required_aspects": [],
             }
         effective, errors = rop.resolve(
             ns.org_profile,
@@ -2011,6 +2006,7 @@ def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, 
         "org_profile_security_coach": effective.get("security_coach"),
         "org_profile_llm_policy": effective.get("llm_policy"),
         "org_profile_test_cases_required": effective.get("test_cases_required") or [],
+        "org_profile_test_cases_required_aspects": effective.get("test_cases_required_aspects") or [],
     }
     if not effective["org_profile"].get("active"):
         return org_block

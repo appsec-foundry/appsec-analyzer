@@ -100,6 +100,17 @@ properties:
         items:
           type: string
           pattern: "^TC-[A-Z]+-[0-9]{2}$"
+      required_aspects:
+        type: array
+        minItems: 1
+        maxItems: 6
+        uniqueItems: true
+        description: |
+          Aspects whose verification items a model investigates at every
+          assessment depth, beside the survey. A scan profile cannot remove
+          them; they are added to the aspects it selects.
+        items:
+          enum: [IAM, SessionMgmt, AuthZ, InputVal, DataProt, AI]
 
   branding:
     type: object

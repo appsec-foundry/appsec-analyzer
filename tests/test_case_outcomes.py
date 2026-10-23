@@ -175,7 +175,7 @@ def test_appendix_lists_every_catalog_test_case_and_never_shows_an_unexamined_on
     block = tcr.build_block(tmp_path, [])
     ctx = _mk_ctx(tmp_path, yaml_data={"test_case_results": block})
     out = compose._render_appendix_test_cases(ctx, None, {})
-    assert out.startswith('<a id="appendix-test-cases"></a>\n## Appendix: Security Test Cases')
+    assert out.startswith('<a id="appendix-verification-items"></a>\n## Appendix: Verification Items')
     for case in catalog["test_cases"]:
         assert f'<a id="{case["id"].lower()}"></a>' in out
     assert "| [TC-AUTHZ-01](#tc-authz-01) | AuthZ | Not examined |" in out
@@ -305,8 +305,8 @@ def test_test_case_findings_are_listed_apart_and_their_model_text_stays_text(cat
     findings = _pilot(catalog, tmp_path)["findings"]
     model = {"test_case_findings": findings, "components": [{"id": "api", "name": "Order API"}]}
     out = compose._render_test_case_findings(_mk_ctx(tmp_path, yaml_data=model), None, {})
-    assert out.startswith('<a id="test-case-findings"></a>\n## Test Case Findings (Pilot)')
-    assert "not yet merged with the findings register" in out
+    assert out.startswith('<a id="verification-findings"></a>\n## Verification Findings')
+    assert "do not count in the totals of the findings register" in out
     row = next(line for line in out.splitlines() if line.startswith("| TCF-001 |"))
     assert "[TC-AUTHZ-01](#tc-authz-01)" in row and "Order API" in row and "server.js:8" in row
     # Model-written text cannot add a link or a table column.
@@ -574,3 +574,105 @@ def test_the_output_schema_rejects_malformed_component_results(catalog, change):
     row = _outcome(catalog, [_cand("control", confirmed=True)])
     change(row)
     assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]}))
+
+
+# --- survey and verification combined (REQ-040) -------------------------------------
+
+
+def _survey(threat_id, cwe, file, line, *instances, source="stride"):
+    return {
+        "id": threat_id,
+        "source": source,
+        "cwe": cwe,
+        "evidence": [{"file": file, "line": line}],
+        "instances": [{"file": f, "line": n} for f, n in instances],
+    }
+
+
+def _verified(finding_id, cwe, file, line, case="TC-AUTHZ-01"):
+    return {"id": finding_id, "cwe": cwe, "evidence": {"file": file, "line": line}, "test_case_ids": [case]}
+
+
+def test_a_verification_finding_at_a_survey_location_with_the_same_cwe_is_shown_once(catalog):
+    threats = [
+        _survey("T-001", "CWE-639", "routes/basket.ts", 19, ("server.ts", 426)),
+        _survey("T-002", "CWE-79", "routes/basket.ts", 20),
+        _survey("T-003", "CWE-639", "routes/order.ts", 35, source="source-scan"),
+    ]
+    findings = [
+        _verified("TCF-001", "CWE-639", "routes/basket.ts", 21),
+        _verified("TCF-002", "CWE-639", "server.ts", 426, case="TC-AUTHZ-02"),
+        # Another CWE, a location four lines away, and a scanner finding stay apart.
+        _verified("TCF-003", "CWE-862", "routes/basket.ts", 19),
+        _verified("TCF-004", "CWE-639", "routes/basket.ts", 23),
+        _verified("TCF-005", "CWE-639", "routes/order.ts", 35),
+    ]
+    assert tcr.combine_methods(threats, findings, [], catalog) == {"linked": 2, "contradicted": 0}
+    assert threats[0]["verification"] == {
+        "finding_ids": ["TCF-001", "TCF-002"],
+        "test_case_ids": ["TC-AUTHZ-01", "TC-AUTHZ-02"],
+    }
+    assert threats[0]["test_case_ids"] == ["TC-AUTHZ-01", "TC-AUTHZ-02"]
+    assert [row.get("survey_finding_ids") for row in findings] == [["T-001"], ["T-001"], None, None, None]
+    assert "verification" not in threats[1] and "verification" not in threats[2]
+
+
+def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_keeps_it(catalog):
+    threats = [
+        _survey("T-001", "CWE-639", "routes/payment.ts", 30),
+        _survey("T-002", "CWE-79", "routes/payment.ts", 30),
+        _survey("T-003", "CWE-639", "routes/wallet.ts", 12),
+    ]
+    results = [
+        {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 31}]},
+        {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/wallet.ts", "line": 12}]},
+    ]
+    # A weakness that verification found at the same place outweighs its control elsewhere.
+    findings = [_verified("TCF-001", "CWE-639", "routes/wallet.ts", 12)]
+    assert tcr.combine_methods(threats, findings, results, catalog) == {"linked": 1, "contradicted": 1}
+    assert threats[0]["verification_contradicted"] == [
+        {"test_case_id": "TC-AUTHZ-01", "file": "routes/payment.ts", "line": 30}
+    ]
+    # Only a CWE of the verification item is contradicted.
+    assert "verification_contradicted" not in threats[1] and "verification_contradicted" not in threats[2]
+
+
+def test_investigation_results_name_the_locations_of_evidenced_controls(catalog):
+    control = {"status": "control", "control_kind": "code"}
+    reply = {"test_cases": [_answer(control, control)], "findings": []}
+    result = tcr.investigation_results(reply, "api", precheck={"TC-AUTHZ-01": _PRECHECK}, facts=_FACTS, catalog=catalog)
+    # The first control was contradicted by its post-check, so only the confirmed one names its location.
+    assert result["results"][0]["control_locations"] == [{"file": "server.js", "line": 12}]
+
+
+def test_build_block_keeps_the_aspects_the_budget_left_incomplete(tmp_path):
+    (tmp_path / tcr.PILOT_SIDECAR).write_text(json.dumps({"results": [], "incomplete_aspects": ["AuthZ"]}))
+    assert tcr.build_block(tmp_path, [])["incomplete_aspects"] == ["AuthZ"]
+    (tmp_path / tcr.PILOT_SIDECAR).write_text(json.dumps({"results": [], "incomplete_aspects": []}))
+    assert "incomplete_aspects" not in tcr.build_block(tmp_path, [])
+
+
+def test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect(catalog, tmp_path):
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    both = {"verification": {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}}
+    assert compose._verification_card(both) == (
+        "**Found by:** survey and verification (TCF-001; [TC-AUTHZ-01](#tc-authz-01))"
+    )
+    disputed = {"verification_contradicted": [{"test_case_id": "TC-AUTHZ-01", "file": "routes/a.ts", "line": 3}]}
+    assert compose._verification_card(disputed).startswith(
+        "**Contradicted by verification:** a control was evidenced at [TC-AUTHZ-01](#tc-authz-01) at routes/a.ts:3."
+    )
+    assert compose._verification_card({}) == ""
+    findings = [
+        {**_verified("TCF-001", "CWE-639", "a.ts", 1), "survey_finding_ids": ["T-001"], "title": "x", "risk": "High"},
+        {**_verified("TCF-002", "CWE-639", "b.ts", 1), "title": "Only verification", "risk": "High"},
+    ]
+    out = compose._render_test_case_findings(_mk_ctx(tmp_path, yaml_data={"test_case_findings": findings}), None, {})
+    assert "| TCF-002 |" in out and "| TCF-001 |" not in out
+    assert "1 further verification finding matched a survey finding" in out
+    block = {"catalog_version": "1", "results": [], "incomplete_aspects": ["AuthZ"]}
+    appendix = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data={"test_case_results": block}), None, {})
+    assert "Verification of AuthZ is incomplete: the model budget ended before every job ran" in appendix
