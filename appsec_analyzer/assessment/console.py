@@ -313,6 +313,9 @@ class _AssessmentConsole:
     _VERIFY_START = "Verify start · "
     _VERIFY_DONE = "Verify done · "
     _VERIFY_JOB = re.compile(r"(Verifying|Finished verifying) (\S+ \d+/\d+): (.*?)(?: · no result \((\w+)\))?$")
+    _BUDGET_SKIP = re.compile(
+        r"Coverage gap: (.+?)(?: \([A-Z][A-Z0-9-]{1,79}\))? job skipped: budget reserved for required completion work"
+    )
     # Wall clock of the nine-component, all-phases run those weights describe
     # (Juice Shop, 33m), for the remaining time before this run has a speed of
     # its own. It is a prior: the measured speed replaces it.
@@ -356,6 +359,9 @@ class _AssessmentConsole:
         self.step_times: dict[str, float] = {}
         # Corrected answers per role in the current phase (MR-17).
         self.corrections: Counter = Counter()
+        # Budget-skipped optional jobs per role in the current phase: the first
+        # gets a line, the done line counts the rest.
+        self.budget_skips: Counter = Counter()
         self.results: dict[str, str] = {}
         self.review_coverage: dict[str, dict[str, str]] = {}
         self.headed, self.shown = False, None
@@ -913,7 +919,12 @@ class _AssessmentConsole:
 
     def step(self, text: str) -> None:
         if text.startswith("Coverage gap: "):
-            self.notice(text)
+            skip = None if self.verbose else self._BUDGET_SKIP.fullmatch(text)
+            with _AssessmentConsole._lock:
+                if skip:
+                    self.budget_skips[skip[1]] += 1
+                if not skip or self.budget_skips[skip[1]] == 1:
+                    self.notice(text)
             return
         if text.startswith("Review coverage: "):
             detail = text.removeprefix("Review coverage: ")
@@ -946,7 +957,7 @@ class _AssessmentConsole:
                 self.current, self.count, self.positioned, self.parts = "", None, False, {}
                 self.units, self.units_done = {}, 0
                 self.verify_done, self.verify_running, self.steps, self.step_times = 0, {}, {}, {}
-                self.corrections = Counter()
+                self.corrections, self.budget_skips = Counter(), Counter()
                 self.fraction = 0.0
                 self._advance(0.0)
                 scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
@@ -1136,6 +1147,11 @@ class _AssessmentConsole:
                 total = sum(self.corrections.values())
                 roles = ", ".join(f"{role} {count}" for role, count in sorted(self.corrections.items()))
                 produced.append(f"{_count_noun(total, 'answer')} corrected ({roles})")
+            produced.extend(
+                f"{_count_noun(count - 1, f'more {role} job')} skipped for budget"
+                for role, count in self.budget_skips.items()
+                if count > 1
+            )
             self._advance(1.0)
             if self.phase == self.plan[-1]:
                 self.done = 1.0

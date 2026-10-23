@@ -2299,6 +2299,37 @@ def test_a_terminal_shows_the_subject_in_work_as_one_rewritten_status_line(capsy
     assert not any("CI/CD Pipeline" in line for line in lines)
 
 
+@pytest.mark.parametrize("verbose", [False, True])
+def test_budget_skips_of_one_role_get_one_line_per_phase_unless_verbose(verbose):
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(verbose, lines.append, clock=clock)
+
+    def gap(role, selector, budget=True):
+        console.step(controller._assessment_gap_message({"role": role, "selector": selector, "budget": budget}))
+
+    for position, case in enumerate(("AC-T-001", "AC-T-002", "AC-B-001"), 1):
+        console.step(f"Verifying abuse case: {case} ({position}/3)")
+        gap("abuse_case_verifier", f"abuse:{case}")
+    gap("architect_reviewer", "architect:api")
+    # A replaced result is not a planned budget skip; each one keeps its line.
+    gap("abuse_case_verifier", "abuse:AC-T-001", budget=False)
+    gap("abuse_case_verifier", "abuse:AC-T-002", budget=False)
+    console.step("Updating the assessment model")
+    gap("abuse_case_verifier", "abuse:AC-B-002")
+    console.close()
+    rows = _rows(lines)
+    notices = [row[5] for row in rows if row[1] == "⚠"]
+    done = [row[5] for row in rows if row[1] == "done"]
+    skipped = [text for text in notices if "abuse-case verification" in text and "skipped" in text]
+    assert len(skipped) == (4 if verbose else 2)
+    assert sum("architect review job skipped" in text for text in notices) == 1
+    assert sum("using fallback" in text for text in notices) == 2
+    summary = "3 abuse cases" if verbose else "2 more abuse-case verification jobs skipped for budget"
+    assert done[0].endswith(summary)
+    # The next phase counts on its own.
+    assert "more" not in done[1]
+
+
 class _Call:
     def __init__(self, name, started, state):
         self.name, self.started, self._state = name, started, state
