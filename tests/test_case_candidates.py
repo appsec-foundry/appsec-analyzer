@@ -565,6 +565,135 @@ def test_each_generated_route_is_its_own_candidate_at_the_shared_call(catalog, g
     assert sum(any(row in job["TC-AUTHZ-02"] for row in at_call) for job in jobs) == 1
 
 
+# A generator serves imported data models from a loop, behind a guard-only
+# registration and a mount guard; one element's model comes from outside the
+# repository, and one call names its model directly. CommonJS and ES modules
+# import the same way.
+SERVED = {
+    "require": (
+        "const express = require('express')\n"
+        "const finale = require('finale-rest')\n"
+        "const { requireLogin, denyAll } = require('./lib/guards')\n"
+        "const { Order } = require('./models/order')\n"
+        "const { Card } = require('../outside/card')\n"
+        "const { Note } = require('./models/note')\n",
+        "exports.requireLogin = () => (req, res, next) => {\n"
+        "  if (!req.user) return res.sendStatus(401)\n"
+        "  next()\n"
+        "}\n"
+        "exports.denyAll = () => (req, res, next) => res.sendStatus(403) && next()\n",
+    ),
+    "import": (
+        "import express from 'express'\n"
+        "import * as finale from 'finale-rest'\n"
+        "import { requireLogin, denyAll } from './lib/guards'\n"
+        "import { OrderModel as Order } from './models/order'\n"
+        "import { Card } from '../outside/card'\n"
+        "import { Note } from './models/note'\n",
+        "export const requireLogin = () => (req, res, next) => {\n"
+        "  if (!req.user) return res.sendStatus(401)\n"
+        "  next()\n"
+        "}\n"
+        "export const denyAll = () => (req, res, next) => res.sendStatus(403) && next()\n",
+    ),
+}
+
+
+def _served(root: Path, style: str) -> dict:
+    header, guards = SERVED[style]
+    ext = "js" if style == "require" else "ts"
+    files = {
+        f"repo/server.{ext}": header + "const app = express()\n"
+        "app.get('/api/Orders', requireLogin())\n"
+        "app.use('/api/Orders/:id', denyAll())\n"
+        "const resources = [\n"
+        "  { name: 'Order', model: Order },\n"
+        "  { name: 'Card', model: Card },\n"
+        "]\n"
+        "for (const { name, model } of resources) {\n"
+        "  finale.resource({ model, endpoints: [`/api/${name}s`, `/api/${name}s/:id`] })\n"
+        "}\n"
+        "finale.resource({ model: Note, endpoints: ['/api/Notes'] })\n",
+        f"repo/lib/guards.{ext}": guards,
+        f"repo/models/order.{ext}": "class Order extends Model {}\nOrder.init({ role: DataTypes.STRING })\n",
+        f"repo/models/note.{ext}": "const x = 1\nconst Note = sequelize.define('note', { body: DataTypes.TEXT })\n",
+        f"outside/card.{ext}": "export const Card = {}\n",
+    }
+    repo = write_repo(root, files) / "repo"
+    owned = [path.removeprefix("repo/") for path in files if path.startswith("repo/")]
+    return cc.route_facts(repo, build_inventory(repo), [], components={"api": owned}), ext
+
+
+@pytest.mark.parametrize("style", ["require", "import"])
+def test_generated_routes_name_their_guards_and_data_model(tmp_path, style):
+    facts, ext = _served(tmp_path, style)
+    server = f"server.{ext}"
+    rows = {(row["method"], row["path"]): row for row in facts["routes"].values()}
+    order = [f"models/order.{ext}", 1]
+    # The guard-only registration stays the inventory's route and learns the model the generator serves there.
+    listing = rows["GET", "/api/Orders"]
+    assert not listing["generated"] and listing["data_model"] == order and listing["guards"] == []
+    # A generated route lists the guards of the registrations that run for it, and its data model.
+    for method in ("GET", "PUT", "DELETE"):
+        row = rows[method, "/api/Orders/:id"]
+        assert row["generated"] and row["data_model"] == order
+        assert row["guards"] == [[f"lib/guards.{ext}", 5, 5]]
+    created = rows["POST", "/api/Orders"]
+    assert created["generated"] and created["guards"] == [] and created["data_model"] == order
+    # A directly named model resolves to its definition in the same way.
+    assert rows["GET", "/api/Notes"]["data_model"] == [f"models/note.{ext}", 2]
+    # A model from outside the repository names no data model.
+    assert rows["GET", "/api/Cards"]["generated"] and rows["GET", "/api/Cards"]["data_model"] is None
+    assert all(row["data_model"] is None for row in facts["routes"].values() if row["handler_file"] != server)
+    json.dumps(facts)
+
+
+def test_a_string_model_option_names_no_data_model(generated):
+    facts, _ = generated
+    assert all(row["data_model"] is None for row in facts["routes"].values())
+
+
+@pytest.mark.parametrize("allowed_model", [True, False])
+def test_verification_preloads_a_generated_routes_guard_and_data_model(tmp_path, catalog, allowed_model):
+    """A job reads the guard and model a generated route relies on without a further read call."""
+    from orchestrator import assessment_test_cases as pilot
+    from runtime.assessment_host import MAX_CONTEXT_BYTES
+    from runtime.multi_repo_scope import AssessmentScope, RepositoryView
+
+    facts, ext = _served(tmp_path, "import")
+    repo = tmp_path / "repo"
+    files = {path.relative_to(repo).as_posix(): path.read_bytes() for path in repo.rglob("*") if path.is_file()}
+    view = RepositoryView("repo-" + "1" * 16, repo, "b" * 40, "c" * 64, files)
+    scope = AssessmentScope((view,), tmp_path / "output")
+    rid = view.repository_id
+    case = _case(catalog, "TC-AUTHZ-02")
+    candidates = cc.starting_candidates(case, "api", facts, [])["candidates"]
+    route = route_id(facts, "DELETE", "/api/Orders/:id", f"server.{ext}")
+    precheck = {case["id"]: [row for row in candidates if row.get("route_id") == route]}
+    guard, model = f"lib/guards.{ext}", f"models/order.{ext}"
+    allowed = {(rid, path) for path in files if path != model or allowed_model}
+    envelope = {"incident": [], "adjacent": [], "allowed": frozenset(allowed), "job_allowed": frozenset(allowed)}
+    architecture = {
+        "route_inventories": {rid: build_inventory(repo)},
+        "route_middleware": {rid: {}},
+    }
+    component = {"id": "api", "repository_ids": [rid], "paths": [{"repository_id": rid, "path": p} for p in files]}
+    preload = pilot._preload(
+        scope, {"existing_controls": []}, precheck, rid, facts, envelope, architecture, [component], MAX_CONTEXT_BYTES
+    )
+    order = [(key[1], key[2]) for key in preload]
+    # Guard and model come before the candidate's own window, so a full packet still carries them;
+    # the direct imports that fill leftover room would serve them only after it.
+    window = order.index((f"server.{ext}", 1))
+    assert order.index((guard, 5)) < window
+    if allowed_model:
+        assert order.index((model, 1)) < window
+    else:
+        # A model outside the job's sources stays unread: the preload never widens what a job may read.
+        assert (model, 1) not in order
+    assert all((rid, key[1]) in allowed for key in preload)
+
+
 # --- code sites ---------------------------------------------------------------
 
 

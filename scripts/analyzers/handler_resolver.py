@@ -922,6 +922,25 @@ class HandlerResolver:
             return None
         return found[1][0][1][0][0]
 
+    def definition_site(self, rel: str, name: str) -> tuple[str, int] | None:
+        """(file, line) defining the JavaScript name ``name`` as ``rel`` uses it, or None.
+
+        An imported name leads to its module: to its top-level definition there,
+        else to the module's first line, since a class or an export alias defines
+        it in a way this module does not parse. A name of ``rel`` itself needs a
+        top-level definition. A module outside the repository or under test
+        paths is no site.
+        """
+        imported = self._js_imports(rel).get(name)
+        if imported is None:
+            found = self._js_definition(rel, name)
+            return (rel, found[0]) if found else None
+        module = self._module(rel, imported[0])
+        if module is None:
+            return None
+        found = self._js_definition(module, name if imported[1] == "*" else imported[1])
+        return module, found[0] if found else 1
+
     def middleware_definitions(self, route: dict) -> list[tuple[str, int, int]]:
         """(file, first line, last line) of each repository middleware a call-registered route runs.
 
@@ -935,12 +954,27 @@ class HandlerResolver:
         """
         if route.get("framework") not in _CALL_FRAMEWORKS:
             return []
-        found = self._js_registration(route)
+        return self.registration_middleware(
+            route.get("handler_file") or "", route.get("handler_line"), route.get("path")
+        )
+
+    def registration_middleware(self, rel: str, line: int, path: str | None) -> list[tuple[str, int, int]]:
+        """``middleware_definitions`` of the call registration at ``rel:line`` for ``path``.
+
+        A last argument that hands the request on, an authentication package
+        guard or code that calls ``next()``, is a guard registered for the path,
+        not its handler: a later registration or a REST resource generator
+        handles the request, as after ``app.get('/api/Users', isAuthorized())``.
+        """
+        found = self._js_registration({"handler_file": rel, "handler_line": line})
         if found is None:
             return []
         rel, line, text, call, args = found
-        obj, path = call.group("obj"), (route.get("path") or "").rstrip("/") or "/"
+        obj, path = call.group("obj"), (path or "").rstrip("/") or "/"
         elements = [self._js_element(rel, line, arg) for arg in args[1:-1]]
+        ok, last = self._js_element(rel, line, args[-1])
+        if ok and (isinstance(last, _PackageGuard) or any(_JS_BARE_NEXT_RE.search(body) for _rel, _line, body in last)):
+            elements.append((ok, last))
         for use in re.finditer(rf"\b{re.escape(obj)}\s*\.\s*use\s*\(", text[: call.start()]):
             mounted = _split_args(text[use.end() : _matching(text, use.end() - 1) - 1])
             if not mounted or mounted[0][:1] not in "'\"`[":

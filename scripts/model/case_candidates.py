@@ -357,8 +357,12 @@ def route_facts(
             # Rules a scanner reports at the registration, such as authz_confirm's AUTHZ-301/302.
             "scanner_rules": sorted(rules_at.get((row["handler_file"], row["handler_line"]), ())),
             "generated": False,
+            # The data model a generator call serves on this route; the route's own guards are the
+            # architecture's route_middleware, so only a generated route lists them here.
+            "data_model": None,
+            "guards": [],
         }
-    routes.update(_generated_routes(root, files, routes, rows, rules_at))
+    routes.update(_generated_routes(root, files, routes, rows, rules_at, resolver))
     signals, sites = _code_facts(root, files)
     return {
         "files": files,
@@ -699,6 +703,8 @@ _UPDATE_METHOD_RE = re.compile(r"""\bupdateMethod\s*:\s*['"](put|patch|post)['"]
 _LITERAL_RE = re.compile(r"""'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`""")
 _PLACEHOLDER_RE = re.compile(r"\$\{\s*(\w+)\s*\}")
 _FOR_OF_RE = re.compile(r"\bfor\s*\(\s*(?:const|let|var)\s*\{([^{}]{1,300})\}\s*of\s+(\w+)\s*\)\s*\{")
+# The ``model`` option of a generator call, ``model: User`` or the shorthand ``model``.
+_MODEL_OPTION_RE = re.compile(r"(?<![\w$.'\"`])model\s*(?::\s*([A-Za-z_$][\w$]*)\s*)?(?=[,}\n])")
 # Registrations of the same file that may run before the generated handler.
 _REGISTRATION_RE = re.compile(r"""\.\s*(use|all|route|get|post|put|patch|delete)\s*\(\s*(['"`])([^'"`\n]{1,200})\2""")
 _CONTINUATION_RE = re.compile(r"\s*\.")
@@ -718,17 +724,26 @@ _MAX_CHAIN_SPANS = 8
 
 
 def _generated_routes(
-    root: Path, files: list[str], routes: dict[str, dict], rows: Any, rules_at: Mapping[tuple[str, int], set[str]]
+    root: Path,
+    files: list[str],
+    routes: dict[str, dict],
+    rows: Any,
+    rules_at: Mapping[tuple[str, int], set[str]],
+    resolver: HandlerResolver,
 ) -> dict[str, dict]:
     """Rows for the routes that generator calls register and no inventory row lists, under new route IDs.
 
     A generated row anchors at its generator call; its chain holds the call and
     the registrations of the same file that run for its path, such as a guard
-    mounted before the generator. An inventory row of the same file, method and
-    path keeps its anchor and gains the call in its chain. A path built from
-    values the file does not state as string literals is left out, and the
-    IDs continue after the inventory's highest.
+    mounted before the generator, and ``guards`` the definitions of the guards
+    those registrations run. An inventory row of the same file, method and
+    path keeps its anchor and gains the call in its chain. Both name in
+    ``data_model`` the ``[file, line]`` defining the data model the call serves
+    on the path, when the repository defines it. A path built from values the
+    file does not state as string literals is left out, and the IDs continue
+    after the inventory's highest.
     """
+    admitted = set(files)
     known = {(row["handler_file"], row["method"].upper(), row["path"]): row for row in routes.values()}
     numbers = (_ROUTE_NUMBER_RE.fullmatch(str(row.get("route_id"))) for row in rows or [] if isinstance(row, Mapping))
     number = max((int(match[1]) for match in numbers if match), default=0)
@@ -744,6 +759,9 @@ def _generated_routes(
             continue
         newlines = [match.start() for match in re.finditer("\n", code)]
         registrations = _registrations(code, newlines)
+        # Per file: each registration's guard definitions and each model name's site, resolved once.
+        guarded: dict[tuple[int, str], list[list]] = {}
+        sites: dict[str, list | None] = {}
         call_re = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\s*\.\s*resource\s*\(\s*\{")
         for call in call_re.finditer(code):
             calls += 1
@@ -754,21 +772,37 @@ def _generated_routes(
                 continue
             line = bisect.bisect_left(newlines, call.start()) + 1
             span = [rel, line, bisect.bisect_left(newlines, close) + 1]
-            for method, path in _call_routes(code, call.start(), code[call.end() - 1 : close + 1]):
+            options = code[call.end() - 1 : close + 1]
+            models = _call_models(code, call.start(), options)
+            for method, path in _call_routes(code, call.start(), options):
+                name = models.get(path)
+                if name is not None and name not in sites:
+                    site = resolver.definition_site(rel, name)
+                    sites[name] = list(site) if site and site[0] in admitted else None
+                model = None if name is None else sites[name]
                 row = known.get((rel, method, path))
                 if row is not None:
                     if span not in row["chain"]:
                         row["chain"] = sorted([*row["chain"], span])
+                    if row["data_model"] is None:
+                        row["data_model"] = model
                     continue
                 if len(generated) == _MAX_GENERATED_ROUTES or number >= _MAX_ROUTE_NUMBER:
                     return generated
                 number += 1
                 route_id = f"R-{number:03d}"
-                covering = [
-                    [rel, first, last]
+                runs = [
+                    (first, last, registered)
                     for first, last, verb, registered in registrations
                     if _runs_for(verb, registered, method, path)
-                ]
+                ][:_MAX_CHAIN_SPANS]
+                for first, _last, registered in runs:
+                    if (first, registered) not in guarded:
+                        guarded[first, registered] = [
+                            list(site)
+                            for site in resolver.registration_middleware(rel, first, registered)
+                            if site[0] in admitted
+                        ]
                 generated[route_id] = known[(rel, method, path)] = {
                     "route_id": route_id,
                     "method": method,
@@ -789,9 +823,16 @@ def _generated_routes(
                     "ownership_predicate": False,
                     # A generated read returns records of its data model.
                     "reads_data": method == "GET",
-                    "chain": sorted([span, *covering[:_MAX_CHAIN_SPANS]]),
+                    "chain": sorted([span, *([rel, first, last] for first, last, _ in runs)]),
                     "scanner_rules": sorted(rules_at.get((rel, line), ())),
                     "generated": True,
+                    "data_model": model,
+                    "guards": [
+                        list(site)
+                        for site in dict.fromkeys(
+                            tuple(site) for first, _last, registered in runs for site in guarded[first, registered]
+                        )
+                    ],
                 }
     return generated
 
@@ -839,6 +880,21 @@ def _loop_values(code: str, position: int) -> list[dict[str, str]] | None:
 
     ``list`` must be an array literal of object literals in the same file. An
     element states a destructured name only with a plain string literal."""
+    loop = _loop_elements(code, position)
+    return None if loop is None else [_element_literals(element, loop[0]) for element in loop[1]]
+
+
+def _element_literals(element: str, aliases: Mapping[str, str]) -> dict[str, str]:
+    values = {}
+    for local, prop in aliases.items():
+        value = re.search(rf"""\b{re.escape(prop)}\s*:\s*(?:'([^'\n]*)'|"([^"\n]*)")""", element)
+        if value and _SAFE_VALUE_RE.fullmatch(_literal(value)):
+            values[local] = _literal(value)
+    return values
+
+
+def _loop_elements(code: str, position: int) -> tuple[dict[str, str], list[str]] | None:
+    """The innermost ``for (const {...} of list)`` loop around ``position``: each local's property, each element's text."""
     loop = None
     headers = list(_FOR_OF_RE.finditer(code, max(0, position - _MAX_LOOP_CHARS), position))
     for match in headers[-_MAX_LOOPS:]:
@@ -864,15 +920,40 @@ def _loop_values(code: str, position: int) -> list[dict[str, str]] | None:
         if end is None:
             at += 1
             continue
-        element = code[at : end + 1]
-        values = {}
-        for local, prop in aliases.items():
-            value = re.search(rf"""\b{re.escape(prop)}\s*:\s*(?:'([^'\n]*)'|"([^"\n]*)")""", element)
-            if value and _SAFE_VALUE_RE.fullmatch(_literal(value)):
-                values[local] = _literal(value)
-        elements.append(values)
+        elements.append(code[at : end + 1])
         at = end + 1
-    return elements
+    return aliases, elements
+
+
+def _call_models(code: str, start: int, options: str) -> dict[str, str]:
+    """Each path of one generator call mapped to the identifier of the data model it serves.
+
+    The call names the model in its ``model`` option, directly or through a
+    destructured loop variable whose elements state it as a plain identifier.
+    A loop variable names a path's model only through the element that also
+    builds the path, so a path without a placeholder names none.
+    """
+    named = _MODEL_OPTION_RE.search(options)
+    endpoints = _ENDPOINTS_RE.search(options)
+    if named is None or endpoints is None:
+        return {}
+    local = named[1] or "model"
+    templates = [_literal(match) for match in _LITERAL_RE.finditer(endpoints[1])]
+    loop = _loop_elements(code, start)
+    if loop is None or local not in loop[0]:
+        return {path: local for template in templates for path in _expand(template, None)}
+    aliases, elements = loop
+    found: dict[str, str] = {}
+    for element in elements:
+        model = re.search(rf"\b{re.escape(aliases[local])}\s*:\s*([A-Za-z_$][\w$]*)\s*[,}}]", element)
+        if model is None:
+            continue
+        literals = _element_literals(element, aliases)
+        for template in templates:
+            if _PLACEHOLDER_RE.search(template):
+                for path in _expand(template, [literals]):
+                    found.setdefault(path, model[1])
+    return found
 
 
 def _registrations(code: str, newlines: list[int]) -> list[tuple[int, int, str, str]]:

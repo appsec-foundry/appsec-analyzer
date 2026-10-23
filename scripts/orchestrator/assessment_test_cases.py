@@ -35,6 +35,8 @@ from orchestrator import assessment_workspace as ws
 INVESTIGATED_ASPECTS = ("AuthZ", "InputVal", "DataProt", "AI")
 MULTI_REPOSITORY_REASON = "the pilot investigates only components of a single repository"
 NO_CANDIDATE_REASON = "no test case of the aspect has a starting candidate in the component, so no model job ran"
+#: Lines served from where a generated route's data model is defined: the fields its request body can set follow.
+MAX_MODEL_LINES = 120
 _ADAPTATION = (
     "Answer the supplied test cases for the selected component and aspect. The context's "
     "test_case_candidates lists each test case's pre-check candidates; the controller serves each "
@@ -439,7 +441,9 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
 
     The definitions of the middlewares the candidates' routes run come before
     the candidates: one guard decides many routes, and a guard the job cannot
-    read leaves its routes undecidable. The candidates' anchors and resolved
+    read leaves its routes undecidable. The data models that generators serve
+    on the candidates' routes follow, since library code handles those routes
+    with the fields the model defines. The candidates' anchors and resolved
     handler chains take the room left; earlier guard registrations and the
     direct helpers their files import fill the rest.
     """
@@ -455,7 +459,7 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
     )
     inventory = {row.get("route_id"): row for row in architecture["route_inventories"][rid].get("routes", [])}
     wares = architecture.get("route_middleware", {}).get(rid, {})
-    anchors, lines, guards, targets = [], [], [], []
+    anchors, lines, guards, models, targets = [], [], [], [], []
     for row in (row for rows in precheck.values() for row in rows):
         anchor = {"repository_id": rid, **row["anchor"]}
         anchors.append(anchor)
@@ -464,16 +468,20 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
         # A sink can lie far into a long handler.
         lines += [{"repository_id": rid, **sink} for sink in row.get("sinks", [])]
         guards += [
-            {"repository_id": rid, "file": path, "line": start} for path, start, _ in wares.get(row.get("route_id"), [])
+            {"repository_id": rid, "file": path, "line": start}
+            for path, start, _ in [*wares.get(row.get("route_id"), []), *route.get("guards", [])]
         ]
+        if route.get("data_model"):
+            models.append({"repository_id": rid, "file": route["data_model"][0], "line": route["data_model"][1]})
         registered = (inventory.get(row.get("route_id")) or {}).get("guard_lines") or []
         targets.append(
             {"evidence": anchor, "guard_lines": [[rid, route.get("handler_file"), line] for line in registered]}
         )
     served = list(context_preload)
-    # Middleware definitions get a quarter of what is left, the candidates the rest.
+    # Middleware definitions get a quarter of what is left, data models a quarter of the rest, the candidates the rest.
     for rows, share, before, after in (
         (guards, 4, 0, analysis.MAX_MIDDLEWARE_LINES - 1),
+        (models, 4, 0, MAX_MODEL_LINES - 1),
         ([*anchors, *lines], 1, 10, 40),
     ):
         served += [
