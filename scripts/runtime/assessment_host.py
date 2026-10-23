@@ -76,7 +76,7 @@ class Rejection(ExchangeError):
     spends its correction turns on the same defect.
     """
 
-    def __init__(self, summary: str, errors, reads=(), anchors=(), quotations=(), *, surface_issues=()):
+    def __init__(self, summary: str, errors, reads=(), anchors=(), quotations=(), *, surface_issues=(), findings=()):
         """`reads` names (repository_id, path, line) anchors the correction turn must see.
 
         The host serves a window around each authorized anchor before the
@@ -86,12 +86,18 @@ class Rejection(ExchangeError):
         `anchors` lists ``(evidence row, problem)`` pairs when the rejection
         is only that those rows cite a non-executable line; the exchange then
         asks for their lines alone (decision MR-2) instead of the whole result.
+
+        `findings` lists the indices of the findings that every violation
+        concerns, so an exchange's ``salvage`` can drop just those; it is
+        empty when any violation concerns something else.
         """
+        self.summary = summary
         self.errors = [str(error) for error in errors]
         self.reads = tuple(reads)
         self.anchors = tuple(anchors)
         self.quotations = tuple(quotations)
         self.surface_issues = tuple(surface_issues)
+        self.findings = tuple(sorted(set(findings)))
         super().__init__(summary + (": " + "; ".join(self.errors) if self.errors else ""))
 
 
@@ -582,6 +588,7 @@ def run_exchange(
     normalize=None,
     preload=(),
     context_limit_bytes=None,
+    salvage=None,
 ) -> ExchangeResult:
     """Resolve model read proposals only against caller-admitted source bytes.
 
@@ -602,6 +609,11 @@ def run_exchange(
     caller still validates the returned artifact before using it. Each call is
     stateless, so the correction turn also carries the rejected result itself,
     which the reason refers to, unless that exceeds the context limit.
+
+    ``salvage(artifact, rejection)`` may keep part of a result that is still
+    rejected when no correction is left: it returns the result reduced to
+    what the rejection does not concern, or None. The reduced result must
+    pass the contract and ``review`` again, or the exchange fails as before.
     """
     import time
 
@@ -773,10 +785,14 @@ def run_exchange(
             except ValueError as exc:
 
                 def rejected(exc):
+                    """Count a rejection; with no correction left, return a salvaged result or fail."""
                     nonlocal corrections
                     corrections += 1
                     reasons.append(str(exc))
                     if corrections > MAX_CORRECTIONS or number + extra >= MAX_EXCHANGES:
+                        kept = _salvaged(exc)
+                        if kept is not None:
+                            return kept
                         repeated = len(set(reasons)) == 1 and len(reasons) > 1
                         raise ModelAnswerFailure(
                             f"Result rejected after {corrections} attempt(s)"
@@ -791,8 +807,23 @@ def run_exchange(
                     notice = getattr(transport, "on_correction", None)
                     if callable(notice):
                         notice(str(exc))
+                    return None
 
-                rejected(exc)
+                def _salvaged(exc):
+                    if salvage is None:
+                        return None
+                    kept = salvage(copy.deepcopy(artifact), exc)
+                    try:
+                        if kept is None or not artifact_validator.is_valid(kept):
+                            return None
+                        if review is not None:
+                            review(kept, tuple(slices))
+                    except ValueError:
+                        return None
+                    return kept
+
+                if (kept := rejected(exc)) is not None:
+                    return ExchangeResult(kept, tuple(slices), number + extra, cost)
                 if isinstance(exc, Rejection) and exc.quotations:
                     fixed, usd, called = _correct_quotations(
                         transport, artifact, exc.quotations, slices, deadline, should_stop, context_limit_bytes
@@ -811,7 +842,8 @@ def run_exchange(
                             return ExchangeResult(artifact, tuple(slices), number + extra, cost)
                         except ValueError as again:
                             exc = again
-                            rejected(exc)
+                            if (kept := rejected(exc)) is not None:
+                                return ExchangeResult(kept, tuple(slices), number + extra, cost)
                 if isinstance(exc, Rejection) and exc.anchors:
                     # MR-2: only citations are wrong, so only their lines are asked for.
                     fixed, usd = _correct_anchors(
@@ -829,7 +861,8 @@ def run_exchange(
                             return ExchangeResult(artifact, tuple(slices), number + extra, cost)
                         except ValueError as again:
                             exc = again
-                            rejected(exc)
+                            if (kept := rejected(exc)) is not None:
+                                return ExchangeResult(kept, tuple(slices), number + extra, cost)
                 feedback = {
                     "reason": str(exc)[:MAX_FEEDBACK_CHARS],
                     "instruction": "The controller rejected your previous complete result, included as `result`, "

@@ -455,6 +455,7 @@ class AssessmentJobs:
         preload=(),
         budget_group=None,
         trace=None,
+        salvage=None,
     ):
         """Execute or resume one job, including its accepted retrieval receipt.
 
@@ -464,7 +465,8 @@ class AssessmentJobs:
         normalizer redoes the job instead of failing a resumed one.
 
         ``preload`` slices reach the first packet (see ``run_exchange``) and
-        join the request identity.
+        join the request identity, as does ``salvage``, which may keep part
+        of a result still rejected after the last correction.
 
         ``on_failure(reason)`` makes the job optional (decision OR-39): when
         the model returns no acceptable result, a call times out after its
@@ -491,6 +493,8 @@ class AssessmentJobs:
         }
         if normalize is not None:
             request["normalizer"] = getattr(normalize, "version", None) or normalize.__qualname__
+        if salvage is not None:
+            request["salvage"] = getattr(salvage, "version", None) or salvage.__qualname__
         if preload:
             request["preload"] = [list(key) for key in preload]
         request_sha256 = digest(request)
@@ -502,8 +506,11 @@ class AssessmentJobs:
         validator = Draft202012Validator(json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
 
         def accept(artifact, ranges):
-            if not Draft202012Validator(schema).is_valid(artifact):
-                raise ExchangeError("Assessment job artifact violates its output contract")
+            error = next(iter(Draft202012Validator(schema).iter_errors(artifact)), None)
+            if error is not None:
+                # The path names the contract's own keys and indices, never a value.
+                where = "/".join(str(part) for part in error.absolute_path) or "the root"
+                raise ExchangeError(f"Assessment job artifact violates its output contract at {where}")
             for row in ranges:
                 if (row["repository_id"], row["path"]) not in allowed_sources:
                     raise ExchangeError("Assessment receipt contains an unauthorized source")
@@ -596,6 +603,7 @@ class AssessmentJobs:
                     normalize=normalize,
                     preload=preload,
                     context_limit_bytes=self.context_limit(instructions, schema),
+                    salvage=salvage,
                 )
         except BudgetExhausted as exc:
             if on_failure is None or self.budget.unsettled or self.should_stop():

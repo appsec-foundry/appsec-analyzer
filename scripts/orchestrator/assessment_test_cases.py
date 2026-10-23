@@ -82,6 +82,7 @@ def run_pilot(
             f"this pilot investigates {', '.join(INVESTIGATED_ASPECTS)} only"
         )
     components = architecture["components"]["components"]
+    owned = analysis.source_selection(components)
     findings_by_repository = _repository_findings(scope, scanned)
     facts = _repository_facts(scope, architecture, components, findings_by_repository) if aspects else {}
 
@@ -146,11 +147,16 @@ def run_pilot(
         )
         schema = case_analysis.contract(case_analysis.INVESTIGATION)
         limit = view.context_limit(role_instructions, schema)
-        preload = _preload(scope, context, share, rid, facts[rid], envelope, architecture, components, limit)
-        starting = {(key[0], key[1]) for key in preload} | {
-            (rid, row["anchor"]["file"]) for rows in share.values() for row in rows
-        }
+        anchors = {(rid, row["anchor"]["file"]) for rows in share.values() for row in rows}
+        # The job's context names its starting files, which the preload decides; keep room for one per window.
+        longest = max((len(path) for _, path in envelope["job_allowed"]), default=0)
+        reserve = (len(anchors) + MAX_PRELOAD_WINDOWS) * (longest + 64)
+        preload = _preload(scope, context, share, rid, facts[rid], envelope, architecture, components, limit - reserve)
+        starting = {(key[0], key[1]) for key in preload} | anchors
+        context["starting_files"] = [{"repository_id": key[0], "path": key[1]} for key in sorted(starting)]
         identity = {key: context[key] for key in ("source_scope_sha256", "component_inventory_fingerprint")}
+        # Files of no component, such as shared helpers, where a finding may anchor once the job read them.
+        shared = frozenset(envelope["job_allowed"]) - owned
         selector = f"test-cases:{component['id']}:{aspect}" + (f":{number}/{count}" if count > 1 else "")
         artifact = view.execute(
             role="test_case_investigator",
@@ -160,6 +166,7 @@ def run_pilot(
             schema=schema,
             allowed_sources=envelope["job_allowed"],
             normalize=case_analysis.investigation_normalizer(scope, component, aspect, identity, share),
+            salvage=case_analysis.investigation_salvage,
             preload=preload,
             validate=lambda artifact, ranges: case_analysis.validate_investigation(
                 scope,
@@ -177,6 +184,7 @@ def run_pilot(
                 allowed_requirement_ids=requirement_ids,
                 adds_candidates=number == 1,
                 answered_elsewhere=elsewhere,
+                shared_files=shared,
             ),
             # The candidates of a replaced job record undecidable (OR-39).
             on_failure=lambda reason: {"replaced": True},
@@ -184,6 +192,11 @@ def run_pilot(
         if artifact.get("replaced"):
             gap = next(row for row in view.gaps if row["selector"] == selector)
             return {"cause": "budget" if gap.get("budget") else "failure"}
+        if artifact.get("dropped_findings"):
+            view.notes.append(
+                f"verification job {selector} dropped {len(artifact['dropped_findings'])} findings that still broke "
+                "an evidence, trace or rating rule after the last correction; their candidates are undecidable"
+            )
         return {"reply": artifact}
 
     answered = {}

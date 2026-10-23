@@ -233,12 +233,14 @@ UNDECIDABLE_REASONS = {
     "external-control": "the control would lie outside the examined sources",
     "missing-source": "the examined sources cannot settle the question",
     "conflicting-evidence": "the examined sources contradict each other",
+    "finding-dropped": "its finding still broke an evidence, trace or rating rule after the last correction",
 }
 REPLACEMENT_REASONS = {
     "budget": "the model budget ended before this investigation",
     "failure": "the model investigation returned no acceptable result",
 }
 NOTHING_EXAMINED_REASON = "the investigation examined no candidate location in the component"
+GOAL_NO_FINDING_REASON = "the goal was examined across the component without a weakness beyond its other test cases"
 _DOCUMENTATION_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
 
 
@@ -355,7 +357,9 @@ def component_outcome(
     3. otherwise at least one control makes a ``partial``;
     4. otherwise an undecidable or unexamined candidate makes the test case
        ``undecidable``, and so does a test case without any candidate, since
-       nothing was examined;
+       nothing was examined; only a goal test case, whose search covers the
+       component rather than single locations, keeps the model's
+       ``no_finding`` without candidates;
     5. otherwise it is ``no_finding``, also when every candidate was rejected.
 
     A control or partial result is ``deterministic`` only when every control
@@ -396,6 +400,8 @@ def component_outcome(
             if examined
             else "every candidate location was rejected with evidence"
         )
+    elif case.get("goal") and proposed_outcome == "no_finding":
+        outcome, reason = "no_finding", GOAL_NO_FINDING_REASON
     else:
         outcome, reason = "undecidable", NOTHING_EXAMINED_REASON
     if outcome in ("control", "partial"):

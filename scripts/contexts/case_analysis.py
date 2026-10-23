@@ -30,7 +30,7 @@ from typing import Any, Iterable, Mapping
 from jsonschema import Draft202012Validator
 from model import case_postchecks
 from model.case_outcomes import is_documentation, load_catalog
-from runtime.assessment_host import ExchangeError, Rejection
+from runtime.assessment_host import MAX_FEEDBACK_CHARS, ExchangeError, Rejection
 
 from contexts import multi_repo_analysis as analysis
 
@@ -41,6 +41,8 @@ CONTRACTS = (INVESTIGATION, OPEN_REVIEW)
 MAX_ESCAPE_FILES = 15
 
 _STRIDE_ITEM_KEYS = frozenset({"type", "additionalProperties", "required", "properties"})
+#: The undecidable reason of a weakness whose findings the controller dropped (``investigation_salvage``).
+DROPPED = "finding-dropped"
 _COVERAGE_REASON = "Derived from the findings of a test case job."
 
 
@@ -134,15 +136,22 @@ def investigation_normalizer(scope, component, aspect, identity, candidates):
     Identity fields, the aspect and the admitted hash of each cited file come
     from the job. ``candidates`` maps each test case ID to the controller's
     pre-check candidates: a pre-check candidate keeps no model anchor and
-    takes the controller's route. A finding title's location is the anchor's.
+    takes the controller's route. A finding title's location is the anchor's,
+    and a control absent at the sink is located at the trace's sink. The
+    record of dropped findings and its undecidable reason are the
+    controller's alone (``investigation_salvage``).
     """
     known = _fixed_candidates(candidates)
     hashes = analysis.controls_normalizer(scope, identity)
 
     def normalize(artifact):
+        # Only the controller drops findings; a model's copy of that record is no record.
+        artifact.pop("dropped_findings", None)
         # Model anchors of pre-check candidates are dropped before the hashes are set.
         for case in artifact.get("test_cases") or []:
             for row in (case.get("candidates") or []) if isinstance(case, dict) else []:
+                if isinstance(row, dict) and row.get("undecidable_reason") == DROPPED:
+                    row["undecidable_reason"] = "missing-source"
                 if isinstance(row, dict) and row.get("origin") == "pre-check":
                     row.pop("anchor", None)
                     route = known.get(row.get("candidate_id"), {}).get("route_id")
@@ -153,10 +162,40 @@ def investigation_normalizer(scope, component, aspect, identity, candidates):
         artifact = hashes(artifact)
         artifact.update(schema_version=1, component_id=component["id"], aspect=aspect)
         _locate_titles(artifact)
+        _absent_at_sink(artifact)
         return artifact
 
-    normalize.version = "case-investigation-1"
+    normalize.version = "case-investigation-2"
     return normalize
+
+
+def investigation_salvage(artifact, exc):
+    """The reply without the findings that a final rejection alone concerns, or None.
+
+    After the last correction, a rejection whose ``findings`` name every
+    violation costs only those findings: they are dropped and recorded in
+    ``dropped_findings``, and a weakness candidate left without a finding
+    becomes undecidable with the reason ``finding-dropped``. Any other
+    violation keeps the whole reply rejected. The exchange reviews the
+    result again before it accepts it.
+    """
+    findings = artifact.get("findings") or []
+    indices = set(getattr(exc, "findings", ()) or ())
+    if not isinstance(exc, Rejection) or not indices or not indices <= set(range(len(findings))):
+        return None
+    dropped = {findings[index]["local_id"] for index in indices}
+    artifact["findings"] = [row for index, row in enumerate(findings) if index not in indices]
+    for case in artifact["test_cases"]:
+        for row in case["candidates"]:
+            kept = [local_id for local_id in row["finding_ids"] if local_id not in dropped]
+            if row["status"] == "weakness" and not kept:
+                row.update(status="undecidable", undecidable_reason=DROPPED)
+            row["finding_ids"] = kept
+    artifact["dropped_findings"] = sorted(dropped)
+    return artifact
+
+
+investigation_salvage.version = "case-salvage-1"
 
 
 def open_review_normalizer(scope, component, identity):
@@ -170,10 +209,24 @@ def open_review_normalizer(scope, component, identity):
             if isinstance(finding, dict):
                 finding["test_case_ids"] = []
         _locate_titles(artifact)
+        _absent_at_sink(artifact)
         return artifact
 
-    normalize.version = "open-review-1"
+    normalize.version = "open-review-2"
     return normalize
+
+
+def _absent_at_sink(artifact) -> None:
+    """A control absent at the sink is located at the sink, which the trace already names."""
+    for finding in artifact.get("findings") or []:
+        trace = finding.get("mechanism_trace") if isinstance(finding, dict) else None
+        control = trace.get("control") if isinstance(trace, dict) else None
+        if (
+            isinstance(control, dict)
+            and control.get("status") == "absent-at-sink"
+            and isinstance(trace.get("sink"), dict)
+        ):
+            control["location"] = copy.deepcopy(trace["sink"])
 
 
 def _fixed_candidates(candidates: Mapping[str, Iterable[Mapping]]) -> dict[str, Mapping]:
@@ -211,17 +264,21 @@ def combine_investigations(parts: list[dict]) -> dict:
     if len(parts) == 1:
         return parts[0]
     combined = {**copy.deepcopy(parts[0]), "test_cases": [], "findings": [], "discovery_escapes": []}
+    combined.pop("dropped_findings", None)
     cases, proposals = {}, {}
     for index, part in enumerate(parts, 1):
         part = copy.deepcopy(part)
-        # Hash the local identity instead of truncating arbitrary IDs.
-        renamed = {
-            row["local_id"]: f"part-{index}-" + hashlib.sha256(row["local_id"].encode()).hexdigest()[:16]
-            for row in part["findings"]
-        }
+
+        def rename(local_id, index=index):
+            # Hash the local identity instead of truncating arbitrary IDs.
+            return f"part-{index}-" + hashlib.sha256(local_id.encode()).hexdigest()[:16]
+
+        renamed = {row["local_id"]: rename(row["local_id"]) for row in part["findings"]}
         for finding in part["findings"]:
             finding["local_id"] = renamed[finding["local_id"]]
         combined["findings"] += part["findings"]
+        if part.get("dropped_findings"):
+            combined.setdefault("dropped_findings", []).extend(rename(value) for value in part["dropped_findings"])
         combined["discovery_escapes"] += part["discovery_escapes"]
         for case in part["test_cases"]:
             for row in case["candidates"]:
@@ -271,6 +328,7 @@ def validate_investigation(
     allowed_requirement_ids=frozenset(),
     adds_candidates: bool = True,
     answered_elsewhere: Mapping[str, Iterable[Mapping]] | None = None,
+    shared_files=frozenset(),
 ):
     """Accept an investigation only when it answers exactly its job and cites what it read.
 
@@ -282,8 +340,17 @@ def validate_investigation(
     route is checked against. When the candidates are shared among several
     jobs, only the job with ``adds_candidates`` may add model candidates,
     and never at a route or qualified anchor of the same test case that
-    ``answered_elsewhere`` lists for the other jobs. Rejections name
-    controller-known values or pattern-checked IDs, never model text.
+    ``answered_elsewhere`` lists for the other jobs. ``shared_files`` are
+    the job's sources that belong to no component, such as helpers that
+    handlers of several components call: a model candidate or finding may
+    anchor in one that the job read and still belongs to the component.
+    Rejections name controller-known values or pattern-checked IDs, never
+    model text.
+
+    The checks after the job's shape report together: one rejection names
+    every class of violation, so a correction can fix them all at once, and
+    it lists the indices of the violating findings when only findings
+    violate a rule.
 
     A control cited only from documentation is not rejected here; the outcome
     records it as undecidable.
@@ -307,15 +374,36 @@ def validate_investigation(
     identifiers = [row["local_id"] for row in artifact["findings"]]
     if len(identifiers) != len(set(identifiers)):
         raise ExchangeError("Test case finding identities are not unique")
-    errors = _candidate_errors(artifact, expected, component, facts or {}, adds_candidates, answered_elsewhere or {})
+    adopted = frozenset(shared_files) & {(row["repository_id"], row["path"]) for row in ranges}
+    rejections = []
+    errors = _candidate_errors(
+        artifact, expected, component, facts or {}, adds_candidates, answered_elsewhere or {}, adopted
+    )
     errors += _link_errors(artifact)
     if errors:
-        raise Rejection("The investigation's candidates and findings are inconsistent", errors)
-    _validate_escapes(artifact, ranges, starting_sources, set(expected))
-    analysis.validate_retrieved_sources(scope, artifact, ranges, allowed_sources)
-    _validate_findings(
-        scope, component, neighborhood, flows, artifact, ranges, allowed_sources, boundaries, allowed_requirement_ids
-    )
+        rejections.append(Rejection("The investigation's candidates and findings are inconsistent", errors))
+    for check in (
+        lambda: _validate_escapes(artifact, ranges, starting_sources, set(expected)),
+        lambda: analysis.validate_retrieved_sources(scope, artifact, ranges, allowed_sources),
+        lambda: _validate_findings(
+            scope,
+            component,
+            neighborhood,
+            flows,
+            artifact,
+            ranges,
+            allowed_sources,
+            boundaries,
+            allowed_requirement_ids,
+            adopted,
+        ),
+    ):
+        try:
+            check()
+        except Rejection as exc:
+            rejections.append(exc)
+    if rejections:
+        raise _merged(rejections)
     # Last, as in the STRIDE step: every earlier check passed, so only cited lines remain to correct (MR-2).
     cited = [
         {**({"anchor": row["anchor"]} if "anchor" in row else {}), "evidence": _code_evidence(row)}
@@ -350,7 +438,16 @@ def validate_open_review(
     _validate_escapes(artifact, ranges, starting_sources, None)
     analysis.validate_retrieved_sources(scope, artifact, ranges, allowed_sources)
     _validate_findings(
-        scope, component, neighborhood, flows, artifact, ranges, allowed_sources, boundaries, allowed_requirement_ids
+        scope,
+        component,
+        neighborhood,
+        flows,
+        artifact,
+        ranges,
+        allowed_sources,
+        boundaries,
+        allowed_requirement_ids,
+        frozenset(),
     )
 
 
@@ -363,13 +460,15 @@ def _validate_identity(scope, component, flows, artifact, label: str) -> None:
         raise ExchangeError(f"{label} refers to a stale component inventory")
 
 
-def _candidate_errors(artifact, expected, component, facts, adds_candidates, elsewhere) -> list[str]:
+def _candidate_errors(artifact, expected, component, facts, adds_candidates, elsewhere, adopted) -> list[str]:
     """Pre-check answers match the controller's set; model candidates stay in the component and its routes.
 
     A model candidate also belongs to the job that adds them, and not to a
     location another job of the component answers for the same test case.
+    ``adopted`` are shared files of no component that the job read; a model
+    candidate may lie there.
     """
-    own = analysis.source_selection([component])
+    own = analysis.source_selection([component]) | adopted
     errors, seen = [], set()
     for case in artifact["test_cases"]:
         case_id = case["test_case_id"]
@@ -393,7 +492,8 @@ def _candidate_errors(artifact, expected, component, facts, adds_candidates, els
                 )
             elif (anchor["repository_id"], anchor["file"]) not in own:
                 errors.append(
-                    f"{case_id}: candidate {candidate} lies outside the component's own files; move or remove it"
+                    f"{case_id}: candidate {candidate} lies outside the component's own files and the shared files "
+                    "of no component that you read; move or remove it"
                 )
             elif row.get("route_id") in routes or (anchor["repository_id"], anchor["file"], anchor["line"]) in anchors:
                 errors.append(
@@ -484,9 +584,12 @@ def _validate_escapes(artifact, ranges, starting_sources, cases: set[str] | None
 
 
 def _validate_findings(
-    scope, component, neighborhood, flows, artifact, ranges, allowed_sources, boundaries, requirement_ids
+    scope, component, neighborhood, flows, artifact, ranges, allowed_sources, boundaries, requirement_ids, adopted
 ):
-    """The STRIDE review of the reply's findings: evidence, ownership, traces, ratings and executable lines."""
+    """The STRIDE review of the reply's findings: evidence, ownership, traces, ratings and executable lines.
+
+    Every violation of a single finding is named, as ``findings[index]``, in one rejection.
+    """
     analysis.validate_stride(
         scope,
         component,
@@ -497,6 +600,42 @@ def _validate_findings(
         boundaries=boundaries,
         allowed_requirement_ids=requirement_ids,
         related=frozenset(allowed_sources) - analysis.source_selection(neighborhood),
+        adopted=adopted,
+        findings_label="findings",
+    )
+
+
+def _merged(rejections: list) -> Rejection:
+    """One rejection naming every class of violation, each within its share of the correction feedback.
+
+    The host passes at most ``MAX_FEEDBACK_CHARS`` of a reason to the model, so
+    each class keeps an equal share and names how many violations it left
+    out. A violation that two classes report is named once. A single
+    rejection passes unchanged, with its reads, anchors and quotations.
+    """
+    if len(rejections) == 1:
+        return rejections[0]
+    summary = "The answer breaks several acceptance rules; correct every one named here"
+    share = (MAX_FEEDBACK_CHARS - len(summary) - 2) // len(rejections) - 2
+    seen, parts = set(), []
+    for exc in rejections:
+        errors = [error for error in exc.errors if error not in seen]
+        seen.update(errors)
+        text = exc.summary
+        for number, error in enumerate(errors):
+            more = f" (and {len(errors) - number} more)"
+            addition = (": " if number == 0 else "; ") + error
+            if len(text) + len(addition) + len(more) > share:
+                text += more
+                break
+            text += addition
+        parts.append(text)
+    attributed = all(exc.findings for exc in rejections)
+    return Rejection(
+        summary,
+        parts,
+        [read for exc in rejections for read in exc.reads],
+        findings=[index for exc in rejections for index in exc.findings] if attributed else (),
     )
 
 

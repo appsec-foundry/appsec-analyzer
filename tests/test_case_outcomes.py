@@ -360,6 +360,37 @@ def test_component_outcome_table(catalog, candidates, unexamined, outcome, basis
     assert list(_block_validator().iter_errors({"catalog_version": "1", "results": [row]})) == []
 
 
+@pytest.mark.parametrize("goal", [case["id"] for case in tcr.load_catalog()["test_cases"] if case.get("goal")])
+def test_a_goal_examined_without_a_finding_records_no_finding_and_never_a_control(catalog, goal):
+    # A goal test case has no starting candidates; its search covers the component, not single locations.
+    case = _case(catalog, goal)
+    row = tcr.component_outcome(case, "api", [], proposed_outcome="no_finding")
+    assert (row["outcome"], row["reason"], row["evidence_basis"]) == ("no_finding", tcr.GOAL_NO_FINDING_REASON, "model")
+    assert "proposed_outcome" not in row
+    for proposed in (None, "undecidable", "control", "partial"):
+        assert tcr.component_outcome(case, "api", [], proposed_outcome=proposed)["outcome"] == "undecidable"
+    # A concrete test case without an examined location stays undecidable, whatever the model proposed.
+    assert _outcome(catalog, [], proposed_outcome="no_finding")["outcome"] == "undecidable"
+    # A replaced job overrides the goal's answer.
+    assert tcr.replacement_result(case, "api", "failure")["outcome"] == "undecidable"
+
+
+def test_a_weakness_whose_finding_was_dropped_is_undecidable_with_the_fixed_reason(catalog):
+    case = _case(catalog, "TC-AUTHZ-01")
+    dropped = {
+        "candidate_id": "m-1",
+        "origin": "model",
+        "anchor": {"repository_id": "repo-" + "1" * 16, "file": "server.js", "line": 9},
+        "status": "undecidable",
+        "undecidable_reason": "finding-dropped",
+        "evidence": [],
+        "finding_ids": [],
+    }
+    records, _ = tcr.assess_candidates(case, {"candidates": [dropped]}, [])
+    row = tcr.component_outcome(case, "api", records)
+    assert row["outcome"] == "undecidable" and tcr.UNDECIDABLE_REASONS["finding-dropped"] in row["reason"]
+
+
 def test_the_proposed_outcome_is_kept_only_when_it_differs(catalog):
     assert "proposed_outcome" not in _outcome(catalog, [_cand("neither")], proposed_outcome="no_finding")
     assert _outcome(catalog, [_cand("neither")], proposed_outcome="control")["proposed_outcome"] == "control"

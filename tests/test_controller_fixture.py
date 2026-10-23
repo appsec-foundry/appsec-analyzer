@@ -141,6 +141,8 @@ class PilotHost(WebApplicationHost):
         self.listed = []
         # The (path, first line, last line) of each investigation's first packet.
         self.served = []
+        # The starting files each investigation's context lists.
+        self.starting = []
         self.stride_prompts = []
 
     def invoke(self, role, system, prompt, schema, timeout_s, should_stop):
@@ -171,6 +173,7 @@ class PilotHost(WebApplicationHost):
         else:
             self.investigations.append((context["component"]["id"], context["aspect"]))
             self.served.append({(row["path"], row["start_line"], row["end_line"]) for row in packet["source_slices"]})
+            self.starting.append(context.get("starting_files"))
             payload = dict(action="complete", reads=[], artifact=self.investigate(context, packet["source_slices"]))
         _assert_schema_valid(role, schema, payload)
         return HostReply(payload, 0.01)
@@ -535,6 +538,37 @@ def test_each_aspect_gets_its_own_jobs_and_an_aspect_without_candidates_gets_non
     assert skipped and {row["reason"] for row in skipped} == {
         "no test case of the aspect has a starting candidate in the component, so no model job ran"
     }
+
+
+def test_a_language_model_call_gets_an_ai_job_whose_reply_passes_the_contract(tmp_path, monkeypatch):
+    def seed(roots):
+        _seed(roots)
+        # The reports handler now asks a language model with the request's text.
+        (roots[0] / "lib/reports.js").write_text(
+            "const OpenAI = require('openai')\n"
+            "const client = new OpenAI()\n"
+            "module.exports.list = () => async (req, res) =>\n"
+            "  res.json(await client.chat.completions.create({ model: 'm', messages: [{ role: 'user', "
+            "content: req.query.q }] }))\n"
+        )
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    aspects = ("--no-pdf", "--test-case-aspects", "AI")
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), aspects, seed=seed, host=host)
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    service = _service(model)
+    # The fake host's reply passes the projected schema the real CLI enforces, and the job is accepted.
+    assert host.investigations == [(service, "AI")]
+    rows = [row for row in _component_rows(model) if row["component_id"] == service]
+    assert rows and {row["aspect"] for row in rows} == {"AI"}
+    assert case_outcomes.REPLACEMENT_REASONS["failure"] not in {row["reason"] for row in rows}
+    assert any(row["outcome"] == "finding" for row in rows)
+    # The context names the starting files: the first packet's files and the candidates' anchors.
+    (starting,) = host.starting
+    anchors = {row["anchor"]["file"] for case in host.listed[0] for row in case["candidates"]}
+    assert {row["path"] for row in starting} == {path for path, _, _ in host.served[0]} | anchors
 
 
 def _service(model):

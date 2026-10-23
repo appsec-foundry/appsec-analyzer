@@ -1503,6 +1503,8 @@ def validate_stride(
     allowed_requirement_ids=frozenset(),
     targets=None,
     related=frozenset(),
+    adopted=frozenset(),
+    findings_label=None,
 ):
     """Preserve legacy policy/trace checks and scoped executable evidence.
 
@@ -1510,8 +1512,20 @@ def validate_stride(
     without a catalog the allowed set is empty. `related` names files outside
     the neighborhood that the job's targets read as route registrations; their
     lines may support a finding, whose own anchor stays in the component.
+    `adopted` names shared files of no component that the job read, where a
+    finding may anchor and still belong to the component; the STRIDE step
+    passes none.
+
+    With `findings_label`, as a test case job passes, the checks of single
+    findings do not stop at the first violation: every violation names its
+    finding as `<label>[index]`, and one rejection lists them all, with the
+    indices in its `findings` when every violation concerns a finding.
+    Without it, the first violation stops the review as before.
     """
     from validators.validate_intermediate import validate_stride as legacy_validate
+
+    collect = findings_label is not None
+    problems: list[tuple[int | None, str]] = []
 
     if not Draft202012Validator(contract("multi-repo-stride.schema.json")).is_valid(artifact):
         raise ExchangeError("STRIDE job violates its versioned contract")
@@ -1532,18 +1546,35 @@ def validate_stride(
         if set(row["finding_ids"]) != actual or bool(actual) != (row["disposition"] == "finding"):
             raise ExchangeError("STRIDE category coverage does not match its findings")
     allowed = source_selection(neighborhood) | related
-    validate_retrieved_sources(scope, artifact, ranges, allowed)
+    reads = ()
+    try:
+        validate_retrieved_sources(scope, artifact, ranges, allowed)
+    except Rejection as unread:
+        if not collect:
+            raise
+        problems += [(None, error) for error in unread.errors]
+        reads = unread.reads
     if targets is not None:
         validate_surface_coverage(artifact, ranges, targets)
     own = source_selection([component])
     if not any((row["repository_id"], row["path"]) in own for row in ranges):
         raise ExchangeError("STRIDE job did not retrieve its component's source")
-    for finding in artifact["threats"]:
+    for index, finding in enumerate(artifact["threats"]):
         anchor = finding["evidence"]
-        if (anchor["repository_id"], anchor["file"]) not in own:
-            raise ExchangeError("Finding evidence is not owned by the assessed component")
+        if (anchor["repository_id"], anchor["file"]) not in own | adopted:
+            if not collect:
+                raise ExchangeError("Finding evidence is not owned by the assessed component")
+            problems.append(
+                (
+                    index,
+                    f"{findings_label}[{index}].evidence lies in {anchor['file']}, outside the component's own "
+                    "files and the shared files of no component that you read; anchor it in one of them",
+                )
+            )
         if set(finding.get("violated_requirements") or ()) - set(allowed_requirement_ids):
-            raise ExchangeError("Finding cites requirements absent from this job's catalog")
+            if not collect:
+                raise ExchangeError("Finding cites requirements absent from this job's catalog")
+            problems.append((index, f"{findings_label}[{index}] cites requirements absent from this job's catalog"))
         trace = finding.get("mechanism_trace")
         if trace and trace["input"]["repository_id"] != anchor["repository_id"]:
             start = {
@@ -1561,20 +1592,28 @@ def validate_stride(
                 raise ExchangeError("Cross-repository finding trace has no reviewed directional connection")
     # MR-22: the highest rating needs a traceable path a reader can check.
     unbacked = [
-        finding["local_id"]
-        for finding in artifact["threats"]
+        (index, finding["local_id"])
+        for index, finding in enumerate(artifact["threats"])
         if finding.get("risk") == "Critical" and len(finding.get("attack_steps") or []) < 2
     ]
-    if unbacked:
+    if unbacked and not collect:
         raise Rejection(
             "A Critical finding needs at least two attack_steps from the attacker's entry to the impact",
-            [f"{local_id}: add two to five attack_steps or rate it below Critical" for local_id in unbacked],
+            [f"{local_id}: add two to five attack_steps or rate it below Critical" for _, local_id in unbacked],
         )
+    problems += [
+        (index, f"{findings_label}[{index}] is Critical: add two to five attack_steps or rate it below Critical")
+        for index, _ in unbacked
+    ]
     projection = _comparison(artifact)
     projection.pop("schema_version", None)
     ok, errors = legacy_validate(projection)
-    if not ok:
+    if not ok and not collect:
         raise Rejection("STRIDE job violates existing evidence, trace or remediation rules", errors)
+    for error in [] if ok else errors:
+        # The legacy rules name a finding as threats[i]; the index is the finding's, in the same order.
+        named = re.match(r"threats\[(\d+)\]", error)
+        problems.append((int(named.group(1)), findings_label + error[len("threats") :]) if named else (None, error))
     from contexts.prepare_trust_boundary_context import validate_finding_boundary_refs
 
     adjacent = {
@@ -1583,7 +1622,7 @@ def validate_stride(
         if component["id"] in (row.get("from"), row.get("to"))
         or component["id"] in (row.get("covers_components") or [])
     }
-    for finding in projection["threats"]:
+    for index, finding in enumerate(projection["threats"]):
         if finding.get("boundary_refs"):
             refs, diagnostics = validate_finding_boundary_refs(
                 finding,
@@ -1594,11 +1633,23 @@ def validate_stride(
                 known_component_ids={row["id"] for row in neighborhood},
             )
             if diagnostics or len(refs) != len(finding["boundary_refs"]):
-                raise Rejection(
-                    f"Finding {finding.get('id')} refers to a boundary absent from its validated neighborhood "
-                    f"(boundaries adjacent to this component: {', '.join(sorted(adjacent)) or 'none'})",
-                    diagnostics,
+                where = f"(boundaries adjacent to this component: {', '.join(sorted(adjacent)) or 'none'})"
+                if not collect:
+                    raise Rejection(
+                        f"Finding {finding.get('id')} refers to a boundary absent from its validated neighborhood "
+                        + where,
+                        diagnostics,
+                    )
+                problems.append(
+                    (index, f"{findings_label}[{index}] refers to a boundary outside its neighborhood {where}")
                 )
+    if problems:
+        raise Rejection(
+            "Findings violate the evidence, trace or rating rules",
+            [message for _, message in problems],
+            reads,
+            findings=[index for index, _ in problems] if all(index is not None for index, _ in problems) else (),
+        )
     validate_executable_evidence(scope, artifact, "STRIDE evidence does not cite an executable implementation")
 
 

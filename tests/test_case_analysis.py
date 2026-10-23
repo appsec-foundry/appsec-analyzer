@@ -7,15 +7,18 @@ import hashlib
 import json
 
 import pytest
+import yaml
 from contexts import case_analysis as ca
 from contexts import multi_repo_analysis as stage
 from jsonschema import Draft202012Validator
 from model import case_postchecks as pc
+from model.case_outcomes import load_catalog
+from orchestrator.assessment_test_cases import INVESTIGATED_ASPECTS
 from orchestrator.orchestration_controller import SEMANTIC_ROLE_REGISTRY, _assessment_role_instructions
 from runtime.assessment_host import ExchangeError, Rejection, host_schema, response_schema
 from runtime.multi_repo_scope import AssessmentScope, RepositoryView
 
-from appsec_analyzer import resource_root
+from appsec_analyzer import profiles, resource_root
 
 REPO = "repo-" + "1" * 16
 FP = "sha256:" + "a" * 64
@@ -380,7 +383,7 @@ def test_a_model_candidate_stays_in_the_component(job):
     artifact = reply(job)
     artifact["test_cases"][0]["candidates"][1].update(anchor=job["at"]("admin/app.js", 1))
     artifact["test_cases"][0]["candidates"][1].pop("route_id")
-    with pytest.raises(Rejection, match="outside the component's own files"):
+    with pytest.raises(Rejection, match="candidate m-1 lies outside the component's own files and the shared files"):
         validate(
             job,
             artifact,
@@ -493,7 +496,7 @@ def test_more_than_fifteen_further_files_are_rejected(job):
 def test_findings_keep_the_stride_evidence_rules(job):
     artifact = reply(job)
     artifact["findings"][0].update(risk="Critical", impact="Critical", likelihood="High")
-    with pytest.raises(Rejection, match="Critical finding needs at least two attack_steps"):
+    with pytest.raises(Rejection, match=r"findings\[0\] is Critical: add two to five attack_steps"):
         validate(job, artifact)
     unread = reply(job)
     unread["findings"][0]["evidence"] = job["at"]("lib/f1.js", 1)
@@ -501,11 +504,182 @@ def test_findings_keep_the_stride_evidence_rules(job):
         validate(job, unread)
 
 
+def test_one_rejection_names_every_independent_class_within_the_feedback_limit(job):
+    from runtime.assessment_host import MAX_FEEDBACK_CHARS
+
+    # An unlisted further read, a finding in another component's file, and a trace that breaks its rule.
+    artifact = reply(job, findings=[_traced(job, 8), finding(job["at"], local_id="api-002", candidate_ids=["m-1"])])
+    artifact["findings"][1]["evidence"] = job["at"]("admin/app.js", 1)
+    artifact["test_cases"][0]["candidates"][1]["finding_ids"] = ["api-001", "api-002"]
+    ranges = [job["read"]("server.js"), job["read"]("admin/app.js"), job["read"]("lib/f1.js")]
+    with pytest.raises(Rejection) as error:
+        validate(job, artifact, ranges, starting={(REPO, "server.js"), (REPO, "admin/app.js")})
+    reason = str(error.value)[:MAX_FEEDBACK_CHARS]
+    assert "lib/f1.js was read beyond the starting files" in reason
+    assert "findings[1].evidence lies in admin/app.js, outside the component's own files" in reason
+    assert "findings[0].mechanism_trace.control.location must equal the sink" in reason
+    # The escape is no finding's violation, so no finding alone can be dropped for it.
+    assert error.value.findings == ()
+
+
+def test_a_rejection_of_findings_alone_lists_their_indices(job):
+    artifact = reply(job, findings=[_traced(job, 8), finding(job["at"], local_id="api-002", candidate_ids=["m-1"])])
+    artifact["findings"][1].update(risk="Critical", impact="Critical", likelihood="High")
+    artifact["test_cases"][0]["candidates"][1]["finding_ids"] = ["api-001", "api-002"]
+    with pytest.raises(Rejection) as error:
+        validate(job, artifact)
+    assert error.value.findings == (0, 1)
+
+
+def test_a_finding_may_anchor_in_a_shared_file_of_no_component_that_the_job_read(job):
+    # lib/f1.js belongs to no component, as a helper that handlers of several components call.
+    artifact = reply(job)
+    artifact["findings"][0]["evidence"] = job["at"]("lib/f1.js", 1)
+    artifact["test_cases"][0]["candidates"][1].update(
+        anchor=job["at"]("lib/f1.js", 1), evidence=[job["at"]("lib/f1.js", 1)]
+    )
+    artifact["test_cases"][0]["candidates"][1].pop("route_id")
+    escapes = [dict(reason="ambiguous-data-flow", test_case_id="TC-AUTHZ-01", search_paths=["lib/f1.js"])]
+    artifact["discovery_escapes"] = escapes
+    ranges = [job["read"]("server.js"), job["read"]("lib/f1.js")]
+    shared = frozenset({(REPO, f"lib/f{number}.js") for number in range(1, 17)})
+    validate(job, artifact, ranges, shared_files=shared)
+    # Without the shared file the anchor belongs to no component of the job.
+    with pytest.raises(Rejection, match=r"findings\[0\]\.evidence lies in lib/f1\.js"):
+        validate(job, artifact, ranges)
+    # A shared file the job did not read, or another component's file, stays out.
+    with pytest.raises(Rejection):
+        validate(job, artifact, [job["read"]("server.js")], shared_files=shared)
+    foreign = copy.deepcopy(artifact)
+    foreign["findings"][0]["evidence"] = job["at"]("admin/app.js", 1)
+    foreign["discovery_escapes"] = [{**escapes[0], "search_paths": ["lib/f1.js", "admin/app.js"]}]
+    with pytest.raises(Rejection, match=r"findings\[0\]\.evidence lies in admin/app\.js"):
+        validate(job, foreign, [*ranges, job["read"]("admin/app.js")], shared_files=shared)
+
+
+def test_salvage_drops_only_the_findings_a_final_rejection_concerns(job):
+    second = finding(job["at"], local_id="api-002", candidate_ids=["m-1"])
+    artifact = reply(job, findings=[_traced(job, 8), second])
+    artifact["test_cases"][0]["candidates"][1]["finding_ids"] = ["api-001", "api-002"]
+    artifact["findings"][1].update(risk="Critical", impact="Critical", likelihood="High")
+    with pytest.raises(Rejection) as error:
+        validate(job, artifact)
+    # The second finding breaks a rule, the first a rule the normalizer would have fixed; drop only the second.
+    kept = ca.investigation_salvage(copy.deepcopy(artifact), Rejection("x", ["findings[1]"], findings=[1]))
+    assert [row["local_id"] for row in kept["findings"]] == ["api-001"] and kept["dropped_findings"] == ["api-002"]
+    assert kept["test_cases"][0]["candidates"][1]["status"] == "weakness"
+    assert kept["test_cases"][0]["candidates"][1]["finding_ids"] == ["api-001"]
+    # Both dropped: the weakness has no finding left and becomes undecidable with the controller's reason.
+    both = ca.investigation_salvage(copy.deepcopy(artifact), error.value)
+    candidate = both["test_cases"][0]["candidates"][1]
+    assert both["findings"] == [] and both["dropped_findings"] == ["api-001", "api-002"]
+    assert (candidate["status"], candidate["undecidable_reason"], candidate["finding_ids"]) == (
+        "undecidable",
+        ca.DROPPED,
+        [],
+    )
+    assert Draft202012Validator(ca.contract(ca.INVESTIGATION)).is_valid(both)
+    validate(job, both)
+    # Any violation outside the findings keeps the whole reply rejected.
+    for other in (Rejection("x", ["escape"]), ExchangeError("x"), Rejection("x", ["f"], findings=[5])):
+        assert ca.investigation_salvage(copy.deepcopy(artifact), other) is None
+
+
+def test_only_the_controller_records_dropped_findings(job):
+    artifact = reply(job, dropped_findings=["api-001"])
+    row = artifact["test_cases"][0]["candidates"][0]
+    row.update(status="undecidable", undecidable_reason=ca.DROPPED, evidence=[])
+    row.pop("control_kind")
+    normalize = ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)
+    result = normalize(artifact)
+    assert "dropped_findings" not in result
+    assert result["test_cases"][0]["candidates"][0]["undecidable_reason"] == "missing-source"
+
+
+def test_combined_jobs_keep_the_findings_each_dropped(job):
+    first, second = reply(job), reply(job, findings=[])
+    second["test_cases"] = [{**second["test_cases"][1]}]
+    second["dropped_findings"] = ["api-007"]
+    combined = ca.combine_investigations([first, second])
+    (dropped,) = combined["dropped_findings"]
+    assert dropped.startswith("part-2-")
+    assert "dropped_findings" not in ca.combine_investigations([first, reply(job)])
+
+
 def test_identity_and_aspect_belong_to_the_job(job):
     with pytest.raises(ExchangeError, match="aspect"):
         validate(job, reply(job), aspect="IAM")
     with pytest.raises(ExchangeError, match="component identity"):
         validate(job, reply(job, component_id="admin"))
+
+
+def _traced(job, control_line):
+    at = job["at"]
+    return finding(
+        at,
+        cwe="CWE-89",
+        evidence_tier="confirmed-exploitable",
+        mechanism_trace=dict(
+            input=at("server.js", 9),
+            sink=at("server.js", 9),
+            connection="The identifier from the path reaches the invoice lookup unchanged.",
+            control=dict(
+                status="absent-at-sink",
+                location=at("server.js", control_line),
+                explanation="No parameter binding or validation guards the lookup.",
+            ),
+        ),
+    )
+
+
+def test_a_control_absent_at_the_sink_is_located_at_the_sink_by_the_normalizer(job):
+    # The model cited a line before the sink; the trace rule of the STRIDE step wants the sink itself.
+    artifact = reply(job, findings=[_traced(job, 8)])
+    with pytest.raises(Rejection, match="control.location must equal the sink for absent-at-sink"):
+        validate(job, artifact)
+    normalize = ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)
+    result = normalize(copy.deepcopy(artifact))
+    trace = result["findings"][0]["mechanism_trace"]
+    assert trace["control"]["location"] == trace["sink"]
+    validate(job, result)
+    # Another status keeps the model's location.
+    ineffective = reply(job, findings=[_traced(job, 8)])
+    ineffective["findings"][0]["mechanism_trace"]["control"]["status"] = "ineffective"
+    kept = normalize(copy.deepcopy(ineffective))["findings"][0]["mechanism_trace"]["control"]["location"]
+    assert kept == job["at"]("server.js", 8)
+
+
+@pytest.mark.parametrize("policy", ["test-case-investigation-policy.md", "open-review-policy.md"])
+def test_pilot_policies_state_the_trace_rules_the_shared_validator_enforces(policy):
+    # The pilot's findings pass the STRIDE validator, so they get the STRIDE step's trace paragraph unchanged.
+    stride = (resource_root() / "data" / "stride-analysis-policy.md").read_text(encoding="utf-8")
+    (paragraph,) = [line for line in stride.splitlines() if line.startswith("For confirmed `CWE-78`")]
+    assert "`absent-at-sink` cites the sink itself" in paragraph
+    assert paragraph in (resource_root() / "data" / policy).read_text(encoding="utf-8")
+
+
+def test_every_selectable_aspect_is_one_list_that_the_reply_contract_admits():
+    replies = set(ca.contract(ca.INVESTIGATION)["properties"]["aspect"]["enum"])
+    profile = yaml.safe_load((resource_root() / "schemas" / "scan-profile.schema.yaml").read_text(encoding="utf-8"))
+    selectable = profile["properties"]["test_cases"]["oneOf"][1]["properties"]["aspects"]["items"]["enum"]
+    assert replies == set(profiles.TEST_CASE_ASPECTS) == set(selectable)
+    assert replies <= {row["id"] for row in load_catalog()["aspects"]}
+    assert set(INVESTIGATED_ASPECTS) <= replies
+
+
+@pytest.mark.parametrize("aspect", INVESTIGATED_ASPECTS)
+def test_a_reply_of_every_investigated_aspect_passes_normalizer_contract_and_review(job, aspect):
+    # The controller sets the aspect, so its own value must pass the contract it checks the reply against.
+    cases = [row["id"] for row in ca._catalog_cases().values() if row["aspect"] == aspect and row["mode"] != "rules"]
+    artifact = reply(job, findings=[], aspect="AuthZ")
+    artifact["test_cases"] = [
+        dict(test_case_id=case_id, proposed_outcome="no_finding", reason="Nothing found.", candidates=[])
+        for case_id in cases
+    ]
+    normalize = ca.investigation_normalizer(job["scope"], job["api"], aspect, job["identity"], {})
+    result = normalize(artifact)
+    assert Draft202012Validator(ca.contract(ca.INVESTIGATION)).is_valid(result)
+    validate(job, result, aspect=aspect, candidates={case_id: [] for case_id in cases})
 
 
 def test_the_normalizer_sets_controller_fields_and_fixes_precheck_candidates(job):
