@@ -29,6 +29,19 @@ Analyzer enforcement points. Keep profile context documents and secrets out
 of the analyzed repository; any selected context sent to a model should be
 reviewed by the operator.
 
+## Depth defaults
+
+An organization profile can set its own defaults for single assessment depths under `depths`, with the keys and limits of the [depth settings](profiles.md#what-each-depth-does): `verify`, `abuse_cases`, `derived_abuse_cases`, `architect_review`, `actor_discovery`, and `budget`. A team's scan profile can still change each of them. Values the organization does not name keep the shipped default.
+
+```yaml
+depths:
+  standard:
+    architect_review: true
+    abuse_cases: 5
+```
+
+Defaults are not binding. To make a security aspect binding, use `test_cases.required_aspects`; to keep an abuse case from running, use `abuse_cases.disable`, which a scan profile's `check_abuse_cases` cannot override. Organization distributions do not carry these keys yet.
+
 ## Business abuse cases
 
 Business abuse cases express rules that source patterns cannot settle alone. Select a repository-owned YAML file with `--abuse-case-file PATH`, or save its repository-relative path in a scan profile's `abuse_case_files` list. No particular directory is required. The former `docs/security/abuse-cases/` and `.appsec/abuse-cases/` locations remain discoverable for compatibility. A case can name legitimate exceptions and questions that only an owner can answer. The verifier cites admitted source; an unresolved case is not reported as a pass. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for selection and limits.

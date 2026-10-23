@@ -471,6 +471,14 @@ def _resolve_actors(
 # ---------------------------------------------------------------------------
 
 
+def _actor_discovery(cfg: dict) -> bool:
+    """Whether this run identifies actors: its depth setting (REQ-018), else every depth but quick."""
+    settings = cfg.get("depth_settings")
+    if isinstance(settings, dict) and isinstance(settings.get("actor_discovery"), bool):
+        return settings["actor_discovery"]
+    return str(cfg.get("assessment_depth") or "standard") != "quick"
+
+
 def run(scope, names, workspace: Path, cfg: dict, *, progress=lambda s: None) -> list[str]:
     """Write the posture sidecars and the static actor set into the workspace.
 
@@ -561,7 +569,7 @@ def run(scope, names, workspace: Path, cfg: dict, *, progress=lambda s: None) ->
     )
 
     progress("Resolving actors")
-    receipts += _resolve_actors(scope, names, workspace, combined_root, quick=depth == "quick")
+    receipts += _resolve_actors(scope, names, workspace, combined_root, quick=not _actor_discovery(cfg))
     receipts.append("actors resolved without recon signals; conditional actors stay active with a warning")
     return receipts
 
@@ -724,8 +732,10 @@ def discover_actors(scope, jobs, names, workspace: Path, cfg: dict, instructions
     """Run the tool-less actor-discovery job and re-resolve with its output."""
     from contexts import multi_repo_analysis as analysis
 
-    if str(cfg.get("assessment_depth") or "standard") == "quick":
-        return ["actor discovery skipped: quick depth"]
+    if not _actor_discovery(cfg):
+        origin = (cfg.get("depth_settings_origins") or {}).get("actor_discovery", "analyzer default")
+        depth = str(cfg.get("assessment_depth") or "standard")
+        return [f"actor discovery skipped: {depth} depth" + ("" if origin == "analyzer default" else f" ({origin})")]
     if not _read(workspace / ".actors-resolved.json").get("discovery_enabled"):
         return ["actor discovery skipped: disabled by configuration"]
     context, cards = _discovery_context(names, workspace)

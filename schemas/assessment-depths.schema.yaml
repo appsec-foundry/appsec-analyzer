@@ -1,0 +1,57 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+description: >-
+  The shipped settings of every assessment depth (data/assessment-depths.yaml). The `depth_settings`
+  definition is the block an organization or scan profile uses under `depths.<depth>`, where every
+  key is optional; scan-profile.schema.yaml and org-profile.schema.yaml carry the same definition.
+type: object
+additionalProperties: false
+required: [schema_version, depths]
+properties:
+  schema_version:
+    const: 1
+  depths:
+    type: object
+    additionalProperties: false
+    required: [quick, standard, thorough]
+    properties:
+      quick: { $ref: "#/$defs/complete_depth_settings" }
+      standard: { $ref: "#/$defs/complete_depth_settings" }
+      thorough: { $ref: "#/$defs/complete_depth_settings" }
+$defs:
+  complete_depth_settings:
+    allOf:
+    - $ref: "#/$defs/depth_settings"
+    - required: [verify, abuse_cases, derived_abuse_cases, architect_review, actor_discovery, budget]
+  depth_settings:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      verify:
+        description: Security aspects that verification checks beside the survey; an empty list runs the survey only.
+        type: array
+        maxItems: 6
+        uniqueItems: true
+        items:
+          enum: [IAM, SessionMgmt, AuthZ, InputVal, DataProt, AI]
+      abuse_cases:
+        description: Optional business abuse cases checked; 0 checks only cases that are asked for.
+        type: integer
+        minimum: 0
+        maximum: 16
+      derived_abuse_cases:
+        description: Business abuse cases the model may add from the application's own rules.
+        type: integer
+        minimum: 0
+        maximum: 6
+      architect_review:
+        description: Whether a second model call reviews the findings.
+        type: boolean
+      actor_discovery:
+        description: Whether the assessment identifies the users and systems around the application.
+        type: boolean
+      budget:
+        description: USD of a run started through the Claude Code assessment dialogue without a budget.
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1000

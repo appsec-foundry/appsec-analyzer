@@ -770,6 +770,18 @@ def _host_prompt_capacity(run_profile, api_profile):
     return prompt_capacity(role_api_profile(settings) for settings in run_profile["models"].values())
 
 
+def _library_abuse_case_ids() -> set[str]:
+    """IDs of the shipped abuse case library."""
+    from model import resolve_abuse_cases
+
+    schema = resolve_abuse_cases._load_schema()
+    ids = set()
+    for name in resolve_abuse_cases.LIBRARY_FILES:
+        cases, _ = resolve_abuse_cases._load_case_file(PLUGIN_ROOT / "data" / "abuse-cases" / name, schema)
+        ids.update(str(case.get("id")) for case in cases)
+    return ids
+
+
 @contextmanager
 def _assessment_session(
     scope,
@@ -798,11 +810,13 @@ def _assessment_session(
         from appsec_analyzer.organization import effective_config
 
         organization_profile = effective_config(run_profile["organization_config"], run_profile["organization_preset"])
+    profile_settings = (run_profile or {}).get("settings") or {}
     cfg = resolve_config.resolve_assessment(
         scope,
         arguments,
         PLUGIN_ROOT,
         model=model,
+        scan_depths=profile_settings.get("depths"),
         **({"organization_profile": organization_profile} if organization_profile is not None else {}),
     )
     # The case matcher, renderer and deriver consume the retained flat path;
@@ -814,8 +828,19 @@ def _assessment_session(
     # False, or {"aspects": [...], "disable": [{"id", "reason"}]}; a bare True is the scanner-only form.
     cfg["test_cases"] = test_cases = {"aspects": [], "disable": []} if test_cases is True else test_cases
     try:
-        from appsec_analyzer.profiles import ProfileError, add_required_aspects, refuse_required_test_case_disable
+        from appsec_analyzer.profiles import (
+            ProfileError,
+            add_required_aspects,
+            refuse_required_test_case_disable,
+            verify_setting,
+        )
 
+        # REQ-018: the organization's verified aspects for this depth replace the shipped ones only.
+        origin = str(((run_profile or {}).get("origins") or {}).get("settings", {}).get("test_cases", ""))
+        org_verify = ((cfg.get("org_profile_depths") or {}).get(cfg["assessment_depth"]) or {}).get("verify")
+        if origin.startswith("analyzer default") and org_verify is not None:
+            disable = test_cases["disable"] if isinstance(test_cases, dict) else []
+            cfg["test_cases"] = test_cases = verify_setting(org_verify, disable)
         refuse_required_test_case_disable(test_cases, cfg.get("org_profile_test_cases_required"))
         # REQ-040: the organization's mandatory aspects join whatever the scan profile selects.
         cfg["test_cases"] = test_cases = add_required_aspects(
@@ -823,6 +848,19 @@ def _assessment_session(
         )
     except ProfileError as exc:
         raise CallError(str(exc)) from exc
+    # REQ-018: abuse cases the team always or never checks; a case the organization switched off stays off.
+    cfg["check_abuse_case_ids"] = list(profile_settings.get("check_abuse_cases") or [])
+    cfg["skip_abuse_case_ids"] = list(profile_settings.get("skip_abuse_cases") or [])
+    if blocked := sorted(set(cfg["check_abuse_case_ids"]) & set(cfg.get("org_profile_abuse_cases_disabled") or [])):
+        raise CallError(f"abuse case {blocked[0]} is switched off by the organization profile and cannot be checked")
+    if unknown := sorted(set(cfg["check_abuse_case_ids"]) - _library_abuse_case_ids()):
+        # Organization and repository cases are only known when the matcher loads them.
+        if unknown := [cid for cid in unknown if cid.startswith(("AC-T-", "AC-B-"))]:
+            raise CallError(f"abuse case {unknown[0]} is not in the shipped abuse case library")
+    if cfg["check_abuse_case_ids"] and cfg.get("skip_abuse_case_verification"):
+        if not str(cfg.get("abuse_case_label", "")).startswith("skipped (--no-abuse-cases"):
+            cfg["skip_abuse_case_verification"] = False
+            cfg["abuse_case_label"] = "enabled (scan profile cases to check)"
     if run_profile is not None and (api_profile is not None or run_profile["adapter"] in ("lite", "bedrock")):
         from appsec_analyzer.profiles import api_profile as resolved_api_profile
 

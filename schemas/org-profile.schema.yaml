@@ -112,6 +112,19 @@ properties:
         items:
           enum: [IAM, SessionMgmt, AuthZ, InputVal, DataProt, AI]
 
+  depths:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    description: |
+      The organization's defaults for single assessment depths. Each key
+      replaces the default from data/assessment-depths.yaml for that depth;
+      a team's scan profile can still change it.
+    properties:
+      quick: { $ref: "#/$defs/depth_settings" }
+      standard: { $ref: "#/$defs/depth_settings" }
+      thorough: { $ref: "#/$defs/depth_settings" }
+
   branding:
     type: object
     additionalProperties: false
@@ -636,6 +649,45 @@ properties:
       $ref: "#/$defs/org_hook"
 
 $defs:
+  depth_settings:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      verify:
+        description: Security aspects that verification checks beside the survey; an empty list runs the survey only.
+        type: array
+        maxItems: 6
+        uniqueItems: true
+        items:
+          enum:
+          - IAM
+          - SessionMgmt
+          - AuthZ
+          - InputVal
+          - DataProt
+          - AI
+      abuse_cases:
+        description: Optional business abuse cases checked; 0 checks only cases that are asked for.
+        type: integer
+        minimum: 0
+        maximum: 16
+      derived_abuse_cases:
+        description: Business abuse cases the model may add from the application's own rules.
+        type: integer
+        minimum: 0
+        maximum: 6
+      architect_review:
+        description: Whether a second model call reviews the findings.
+        type: boolean
+      actor_discovery:
+        description: Whether the assessment identifies the users and systems around the application.
+        type: boolean
+      budget:
+        description: USD of a run started through the Claude Code assessment dialogue without a budget.
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1000
   analyst_packages:
     type: array
     maxItems: 10

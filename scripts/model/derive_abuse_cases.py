@@ -69,6 +69,14 @@ def _config(output_dir: Path) -> dict:
     return _load_json(output_dir / ".skill-config.json")
 
 
+def _limit(cfg: dict) -> int:
+    """How many derived cases this run admits: its depth setting (REQ-018), else the shipped limit."""
+    settings = cfg.get("depth_settings")
+    if isinstance(settings, dict) and type(settings.get("derived_abuse_cases")) is int:
+        return settings["derived_abuse_cases"]
+    return rac.load_limits()["descriptive_candidates_derived"]
+
+
 def _active_cases(output_dir: Path, cfg: dict) -> list[dict]:
     """The cases this run loads before derivation, as the matcher resolves them."""
     profile_path = cfg.get("org_profile_path")
@@ -106,7 +114,7 @@ def build_context(output_dir: Path) -> dict:
     active = _active_cases(output_dir, cfg)
     return {
         "schema_version": 1,
-        "max_cases": rac.load_limits()["descriptive_candidates_derived"],
+        "max_cases": _limit(cfg),
         "use_case": _text(_use_case(output_dir, cfg), 600) or None,
         "components": [
             {
@@ -152,7 +160,7 @@ def admit(output_dir: Path) -> dict:
     Returns ``{"admitted": [...ids], "dropped": [{"title", "reason"}]}``. An
     absent or unreadable output admits nothing; derivation is optional work.
     """
-    limit = rac.load_limits()["descriptive_candidates_derived"]
+    limit = _limit(_config(output_dir))
     raw = _load_json(output_dir / OUTPUT_FILE).get("cases")
     proposals = raw if isinstance(raw, list) else []
     taken = {_title_key(c.get("title")) for c in _active_cases(output_dir, _config(output_dir))}

@@ -112,11 +112,46 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `max_parallel` limits how many components control analysis and STRIDE analysis each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
-`test_cases` controls [verification](security-assessment.md#survey-and-verification), the analysis method beside the survey. Without the setting, each depth uses its shipped default: quick runs the survey only, standard verifies `AuthZ`, and thorough verifies `AuthZ`, `InputVal`, `DataProt`, and `AI`. Each verified aspect adds model calls. `false` runs the survey only at every depth. `true` links scanner findings to the verification items of the catalog and records an outcome for each item that scanner results can decide, at every depth and without additional model calls.
+### What each depth does
 
-The object form has three optional fields. `depths` names the aspects for single depths, such as `depths: {standard: [AuthZ, InputVal], quick: false}`; an empty list keeps the rule-based items without a model investigation, and `false` runs the survey only at that depth. `aspects` names the aspects for every depth that `depths` does not name, a non-empty subset of `IAM`, `SessionMgmt`, `AuthZ`, `InputVal`, `DataProt`, and `AI`. A depth that neither field names keeps its shipped default. `IAM` and `SessionMgmt` are accepted but not investigated yet. `disable` lists verification items to leave out, each as `id` (a catalog ID such as `TC-CI-01`, listed once) and a `reason` of 1 to 300 printable characters. A disabled item reports the outcome `disabled` with the reason, and the scanner findings linked to it stay in the report. Any other value, an unknown depth or aspect, an ID that is not in the catalog, or a missing or overlong reason is rejected before the host check or any retrieval. `profiles show` names the effective setting and whether it is the default of the depth.
+Each assessment depth has default settings, which Analyzer ships in [data/assessment-depths.yaml](../data/assessment-depths.yaml):
 
-An organization profile can name verification items in `test_cases.required` and aspects in `test_cases.required_aspects`. A scan profile that disables a required item is refused before the run state is created and before any model call, with a message naming the ID. Required aspects are verified at every depth in addition to those the scan profile selects; a scan profile cannot remove them, even with `false`. Only the operator's profile files can change verification; a profile inside an assessed repository is rejected.
+| Setting | quick | standard | thorough | Meaning |
+| --- | --- | --- | --- | --- |
+| `verify` | `[]` | `[AuthZ]` | `[AuthZ, InputVal, DataProt, AI]` | Security aspects that [verification](security-assessment.md#survey-and-verification) checks beside the survey; `[]` runs the survey only. |
+| `abuse_cases` | 0 | 3 | 8 | Optional business abuse cases checked, that is, attack scenarios against the application's rules. With 0, a run checks abuse cases only when they are asked for. |
+| `derived_abuse_cases` | 0 | 0 | 3 | Business abuse cases the model may add from the application's own rules, at most 6. |
+| `architect_review` | false | false | true | A second model call reviews the findings. |
+| `actor_discovery` | false | true | true | The assessment identifies the users and systems that interact with the application. |
+| `budget` | 10 | 20 | 40 | USD of a run started through the Claude Code assessment dialogue without a budget. |
+
+Each verified aspect, abuse case, and the architect review add model calls. Which model each step uses is set in the model profiles; technical limits, such as how often a model may read more code before it answers, are not settings.
+
+A scan profile changes single values for single depths under `depths`. Values it does not name keep the default:
+
+```yaml
+schema_version: 1
+depths:
+  standard:
+    verify: [AuthZ, InputVal]
+    abuse_cases: 5
+  quick:
+    actor_discovery: true
+check_abuse_cases: [AC-B-002]
+skip_abuse_cases: [AC-T-004]
+```
+
+`check_abuse_cases` lists abuse cases that every run checks, within the limit of 16 requested cases per run, and `skip_abuse_cases` those that no run checks; a skipped case appears in the report as not performed with the reason. A case cannot be on both lists. A shipped `AC-T-` or `AC-B-` ID that does not exist is refused before the first model call; an organization or repository case that is not active is skipped with a warning when the cases are matched. `--architect-review`, `--no-architect-review`, `--abuse-cases`, `--no-abuse-cases`, `--only-abuse-case`, and an explicit `--hard-budget` win over the depth settings. `profiles show` lists the resulting `depth_settings` of the selected depth and where each value came from.
+
+An [organization profile](org-profiles.md) can set its own defaults under the same `depths` key, which a team's scan profile can still change. The order is the shipped file, the organization profile, the scan profile, and the command line.
+
+### Verification settings
+
+`test_cases` controls [verification](security-assessment.md#survey-and-verification) beyond the aspects of a depth. Without the setting, each depth verifies its `verify` aspects. `false` runs the survey only at every depth that does not set `verify`. `true` links scanner findings to the verification items of the catalog and records an outcome for each item that scanner results can decide, without additional model calls. A scan profile's `depths.<depth>.verify` wins over `test_cases`.
+
+The object form has two optional fields. `aspects` names the aspects for every depth whose `verify` the scan profile does not set, a non-empty subset of `IAM`, `SessionMgmt`, `AuthZ`, `InputVal`, `DataProt`, and `AI`; without it, each depth keeps its default aspects. `IAM` and `SessionMgmt` are accepted but not investigated yet. `disable` lists verification items to leave out, each as `id` (a catalog ID such as `TC-CI-01`, listed once) and a `reason` of 1 to 300 printable characters. A disabled item reports the outcome `disabled` with the reason, and the scanner findings linked to it stay in the report. Any other value, an unknown depth or aspect, an ID that is not in the catalog, or a missing or overlong reason is rejected before the host check or any retrieval.
+
+An organization profile can name verification items in `test_cases.required` and aspects in `test_cases.required_aspects`. A scan profile that disables a required item is refused before the run state is created and before any model call, with a message naming the ID. Required aspects are verified at every depth in addition to those the scan profile selects; a scan profile cannot remove them, even with `false`. Only the operator's profile files can change depth settings or verification; a profile inside an assessed repository is rejected.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
 
@@ -246,6 +281,6 @@ The private assessment state stores the resolved profile, including each role's 
 
 Runs created before profile snapshots were introduced cannot resume through the new profile path. Start a new assessment when Analyzer reports this incompatibility. Existing `--profile claude`, `--profile codex`, and compatible legacy `--host` commands remain supported for new runs.
 
-`test_cases` is part of the saved configuration as well, with the aspects in effect for the run's depth. Changing it, including its aspects or disabled items, requires a new run. Snapshots without it count as `false`, so a run started before the per-depth defaults existed resumes at quick depth but needs a new run at standard or thorough depth, whose default now verifies aspects.
+`test_cases` and the scan profile's `depths`, `check_abuse_cases`, and `skip_abuse_cases` are part of the saved configuration as well, with the aspects in effect for the run's depth. Changing it, including its aspects or disabled items, requires a new run. Snapshots without it count as `false`, so a run started before the per-depth defaults existed resumes at quick depth but needs a new run at standard or thorough depth, whose default now verifies aspects.
 
 `max_parallel` is part of the saved configuration. Changing it requires a new run. Snapshots created before this setting was recorded require a new run through the profile path; existing reports remain readable.

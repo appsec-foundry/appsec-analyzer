@@ -1578,3 +1578,51 @@ def test_a_business_case_without_a_locator_is_verified_only_on_request(tmp_path:
         assert "declares no path, route, or detector locator" in m["reason"]
     located = dict(open_case, scope_qualifier={"path_patterns": ["*role*"]})
     assert mac.match_case(located, [], None, repo_root=repo)["structural_verdict"] == "candidate"
+
+
+def test_depth_settings_set_the_business_case_limits(tmp_path: Path):
+    """REQ-018: the run's depth settings replace the limits file's per-depth counts."""
+    limits = {
+        "descriptive_candidates_standard": 3,
+        "descriptive_candidates_thorough": 8,
+        "descriptive_candidates_explicit": 16,
+        "descriptive_candidates_derived": 3,
+    }
+    matches = _candidates(4)
+    mac.apply_descriptive_limits(
+        matches, set(), "standard", limits, settings={"abuse_cases": 1, "derived_abuse_cases": 0}
+    )
+    assert [m["structural_verdict"] for m in matches].count("candidate") == 1
+    matches = _candidates(2)
+    mac.apply_descriptive_limits(
+        matches, set(), "standard", limits, settings={"abuse_cases": 0, "derived_abuse_cases": 0}
+    )
+    assert {m["reason"] for m in matches} == {"standard depth verifies business abuse cases only on explicit request"}
+
+
+def test_scan_profile_lists_check_and_skip_cases_and_warn_about_inactive_ones(tmp_path: Path, capsys):
+    repo = _repo(tmp_path)
+    case_dir = repo / ".appsec" / "abuse-cases"
+    case_dir.mkdir(parents=True)
+    cases = [_descriptive(), _descriptive("REPO-AC-021"), _descriptive("REPO-AC-022")]
+    (case_dir / "business.yaml").write_text(yaml.safe_dump({"schema_version": 2, "abuse_cases": cases}))
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / ".threats-merged.json").write_text(json.dumps({"threats": []}))
+    config = {
+        "repo_root": str(repo),
+        "assessment_depth": "standard",
+        # No optional case at this depth: only the listed one is checked.
+        "depth_settings": {"abuse_cases": 0, "derived_abuse_cases": 0},
+        "check_abuse_case_ids": ["REPO-AC-021", "ORG-AC-404"],
+        "skip_abuse_case_ids": ["REPO-AC-022", "AC-T-001"],
+    }
+    (out / ".skill-config.json").write_text(json.dumps(config))
+    assert mac.main(["match", "--output-dir", str(out), "--repo-root", str(repo)]) == 0
+    by_id = {m["abuse_case_id"]: m for m in json.loads((out / ".abuse-case-matches.json").read_text())["matches"]}
+    assert by_id["REPO-AC-021"]["structural_verdict"] == "candidate" and by_id["REPO-AC-021"]["requested"]
+    assert by_id["REPO-AC-020"]["structural_verdict"] == "not_performed"
+    for skipped in ("REPO-AC-022", "AC-T-001"):
+        assert by_id[skipped]["structural_verdict"] == "not_performed"
+        assert by_id[skipped]["reason"] == "the scan profile skips this abuse case"
+    assert "abuse case 'ORG-AC-404' to check is not active" in capsys.readouterr().err

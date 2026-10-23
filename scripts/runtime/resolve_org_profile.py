@@ -380,6 +380,8 @@ def resolve(
         "llm_policy": None,
         "test_cases_required": [],
         "test_cases_required_aspects": [],
+        "depths": {},
+        "abuse_cases_disabled": [],
         "analyst": None,
     }
     if not profile_path:
@@ -466,6 +468,9 @@ def resolve(
         "llm_policy": profile.get("llm_policy"),
         "test_cases_required": sorted((profile.get("test_cases") or {}).get("required") or []),
         "test_cases_required_aspects": sorted((profile.get("test_cases") or {}).get("required_aspects") or []),
+        # REQ-018: the organization's defaults per depth, and the abuse cases it switched off.
+        "depths": profile.get("depths") or {},
+        "abuse_cases_disabled": sorted((profile.get("abuse_cases") or {}).get("disable") or []),
         "analyst": analyst_packages(profile, profile_path.parent),
     }
     return base, []

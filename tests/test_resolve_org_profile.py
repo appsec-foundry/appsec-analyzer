@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "runtime/resolve_org_profile.py"
@@ -613,6 +614,28 @@ def test_required_test_cases_default_to_none(isolated_root):
     effective, errors = rop.resolve(str(FIXTURE_PATH), None, False, None, isolated_root, env={})
     assert errors == [] and effective["test_cases_required"] == []
     assert effective["test_cases_required_aspects"] == []
+
+
+def test_depth_defaults_and_disabled_abuse_cases_reach_the_effective_profile(isolated_root, tmp_path):
+    path = _profile_with_test_cases(tmp_path, {"required": ["TC-CI-01"]})
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["depths"] = {"standard": {"architect_review": True, "abuse_cases": 5}}
+    data["abuse_cases"] = {"disable": ["AC-B-002", "AC-B-001"]}
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    effective, errors = rop.resolve(str(path), None, False, None, isolated_root, env={})
+    assert errors == []
+    assert effective["depths"] == {"standard": {"architect_review": True, "abuse_cases": 5}}
+    assert effective["abuse_cases_disabled"] == ["AC-B-001", "AC-B-002"]
+
+
+@pytest.mark.parametrize("depths", [{"standard": {"turn_budget": 40}}, {"deep": {"budget": 5}}, {"standard": {}}])
+def test_invalid_organization_depth_defaults_are_rejected(isolated_root, tmp_path, depths):
+    path = _profile_with_test_cases(tmp_path, {"required": ["TC-CI-01"]})
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["depths"] = depths
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    _, errors = rop.resolve(str(path), None, False, None, isolated_root, env={})
+    assert errors
 
 
 def test_required_aspects_reach_the_effective_profile_sorted(isolated_root, tmp_path):

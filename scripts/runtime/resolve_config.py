@@ -526,7 +526,9 @@ def resolve_evidence_verifier_cap(ns: argparse.Namespace, depth: str) -> dict:
     }
 
 
-def resolve_abuse_case_verification(ns: argparse.Namespace, depth: str) -> dict:
+def resolve_abuse_case_verification(
+    ns: argparse.Namespace, depth: str, settings: dict | None = None, origin: str = "analyzer default"
+) -> dict:
     """Resolve ``skip_abuse_case_verification`` + a human-readable label.
 
     Default: abuse-case verification runs at standard/thorough and is SKIPPED
@@ -538,6 +540,10 @@ def resolve_abuse_case_verification(ns: argparse.Namespace, depth: str) -> dict:
     verify, so they force it on the same way — otherwise the named cases would
     be resolved into a stage that never runs. Conflicting combinations are
     rejected up front (see ``CONFLICT_PAIRS``).
+
+    With the run's depth ``settings`` (REQ-018), a depth that checks neither
+    optional nor model-derived business cases skips the stage unless cases are
+    named; ``origin`` names where those counts came from.
     """
     if getattr(ns, "no_abuse_cases", False):
         return {"skip_abuse_case_verification": True, "abuse_case_label": "skipped (--no-abuse-cases)"}
@@ -548,8 +554,10 @@ def resolve_abuse_case_verification(ns: argparse.Namespace, depth: str) -> dict:
             "skip_abuse_case_verification": False,
             "abuse_case_label": "enabled (per-scan case selection)",
         }
-    if depth == "quick":
-        return {"skip_abuse_case_verification": True, "abuse_case_label": "skipped (auto - quick depth)"}
+    off = depth == "quick" if settings is None else not (settings["abuse_cases"] or settings["derived_abuse_cases"])
+    if off:
+        label = "auto - quick depth" if origin == "analyzer default" else f"{origin}: no abuse cases at {depth} depth"
+        return {"skip_abuse_case_verification": True, "abuse_case_label": f"skipped ({label})"}
     return {"skip_abuse_case_verification": False, "abuse_case_label": "enabled"}
 
 
@@ -1092,8 +1100,25 @@ def resolve_enrich_arch_fragments(ns: argparse.Namespace, depth: str, dry_run: b
     return {"enrich_arch_fragments": True, "enrich_arch_label": "enabled (auto-thorough)"}
 
 
-def resolve_architect_review(ns: argparse.Namespace, depth: str, dry_run: bool) -> dict:
-    """Auto-enable at thorough, off at quick/standard. Dry-run force-off."""
+def resolve_depth_settings(ns: argparse.Namespace, cfg: dict, scan_depths: dict | None) -> dict:
+    """The run's depth settings and the switches they decide, after the organization profile is known."""
+    from appsec_analyzer import depth_settings
+
+    depth = cfg["assessment_depth"]
+    values, origins = depth_settings.effective(depth, organization=cfg.get("org_profile_depths"), scan=scan_depths)
+    out = {"depth_settings": values, "depth_settings_origins": origins}
+    out.update(resolve_architect_review(ns, depth, ns.dry_run, values["architect_review"], origins["architect_review"]))
+    counted = [origins[key] for key in ("abuse_cases", "derived_abuse_cases") if origins[key] != "analyzer default"]
+    out.update(resolve_abuse_case_verification(ns, depth, values, counted[0] if counted else "analyzer default"))
+    return out
+
+
+def resolve_architect_review(
+    ns: argparse.Namespace, depth: str, dry_run: bool, setting: bool | None = None, origin: str = "analyzer default"
+) -> dict:
+    """Auto-enable at thorough, off at quick/standard. Dry-run force-off.
+
+    ``setting`` is the run's depth setting (REQ-018) and ``origin`` where it came from; the flags win over it."""
     if dry_run:
         return {"architect_review": False, "architect_model": None, "architect_label": "disabled (dry-run)"}
     if ns.no_architect_review:
@@ -1102,7 +1127,10 @@ def resolve_architect_review(ns: argparse.Namespace, depth: str, dry_run: bool) 
     elif ns.architect_review:
         enabled = True
         trigger = "--architect-review"
-    elif depth == "thorough":
+    elif setting is not None and origin != "analyzer default":
+        enabled = setting
+        trigger = f"{origin}, {depth} depth"
+    elif setting if setting is not None else depth == "thorough":
         enabled = True
         trigger = "auto-thorough"
     else:
@@ -1657,6 +1685,7 @@ def resolve(
     create_output_dir: bool = True,
     source_count: int | None = None,
     organization_profile: dict | None = None,
+    scan_depths: dict | None = None,
 ) -> dict:
     if source_count is not None and (type(source_count) is not int or not 0 <= source_count <= 320_000):
         raise SystemExit("Error: invalid captured source count")
@@ -1833,6 +1862,10 @@ def resolve(
     # explicitly toggled by the user.
     cfg.update(_apply_org_profile(ns, cfg, plugin_root, effective=organization_profile))
 
+    # REQ-018: what this depth does, from the shipped file, then the organization's
+    # defaults, then the team's scan profile; the flags above still win.
+    cfg.update(resolve_depth_settings(ns, cfg, scan_depths))
+
     # There is one producer generation. The controller separately rejects
     # modes for which that runtime has no safe compact implementation.
     cfg.update(resolve_runtime_generation())
@@ -1871,7 +1904,13 @@ def resolve(
 
 
 def resolve_assessment(
-    scope, argv: list[str], plugin_root: Path, *, model: str | None = None, organization_profile: dict | None = None
+    scope,
+    argv: list[str],
+    plugin_root: Path,
+    *,
+    model: str | None = None,
+    organization_profile: dict | None = None,
+    scan_depths: dict | None = None,
 ) -> dict:
     """Resolve shared full-run settings without selecting a primary repository.
 
@@ -1902,6 +1941,7 @@ def resolve_assessment(
                 plugin_root,
                 create_output_dir=False,
                 source_count=source_count,
+                scan_depths=scan_depths,
                 **({"organization_profile": organization_profile} if organization_profile is not None else {}),
             )
         candidates.append({key: value for key, value in cfg.items() if key not in transient})
@@ -1983,6 +2023,8 @@ def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, 
                 "org_profile_llm_policy": None,
                 "org_profile_test_cases_required": [],
                 "org_profile_test_cases_required_aspects": [],
+                "org_profile_depths": {},
+                "org_profile_abuse_cases_disabled": [],
             }
         effective, errors = rop.resolve(
             ns.org_profile,
@@ -2007,6 +2049,8 @@ def _apply_org_profile(ns: argparse.Namespace, cfg: dict, plugin_root: Path, *, 
         "org_profile_llm_policy": effective.get("llm_policy"),
         "org_profile_test_cases_required": effective.get("test_cases_required") or [],
         "org_profile_test_cases_required_aspects": effective.get("test_cases_required_aspects") or [],
+        "org_profile_depths": effective.get("depths") or {},
+        "org_profile_abuse_cases_disabled": effective.get("abuse_cases_disabled") or [],
     }
     if not effective["org_profile"].get("active"):
         return org_block

@@ -395,6 +395,22 @@ Limits of this step:
 - A job replaced by a model failure, not the budget, makes its candidates undecidable but does not mark the aspect incomplete.
 - The budget statement estimates verification jobs from the survey's reserve per job, which is 1.5 times its average cost; the fourth run's verification jobs cost USD 0.40 each against USD 0.28 per survey job.
 
+### Depth settings (built 2026-10-23)
+
+Decided by the product owner on 2026-10-23, after asking which other settings could join the verified aspects in one configuration (proposal `specs/changes/assessment-depth-settings/proposal.md`, REQ-018):
+
+- One shipped file, `data/assessment-depths.yaml`, states what each depth does: `verify`, `abuse_cases`, `derived_abuse_cases`, `architect_review`, `actor_discovery`, and `budget` of a run started through the Claude Code assessment dialogue. It replaces `data/verification-depths.yaml` and reproduces the earlier behavior of every depth.
+- An organization profile sets its own defaults under `depths`; a team's scan profile changes single values for single depths under `depths` and wins over the organization; command-line flags win over both. The scan profile's verified aspects moved from `test_cases.depths` to `depths.<depth>.verify`.
+- The scan profile lists abuse cases to always check (`check_abuse_cases`) or never check (`skip_abuse_cases`); which cases fit an application stays out of the shipped file. A case the organization switched off cannot be checked.
+- Binding organization values exist only for what was binding before: required verification items and aspects, and switched-off abuse cases. Binding values for the other settings were left out until someone needs one.
+- `max_parallel` stays a scan profile setting without a per-depth default, because it depends on the provider and the machine. Model selection per role stays in the model profiles; technical limits are not settings.
+- The trust boundary crossings examined in detail (2, 4, and 6 per depth) were dropped from the requirement: only the plugin-era dispatch reads that limit, and the `assess` controller examines every crossing.
+- The requirement text was rewritten for users who do not know the product: each term is explained where it appears.
+
+Built on `feat/assessment-depth-settings`: `appsec_analyzer/depth_settings.py` layers the files, `resolve_config.resolve_depth_settings` applies them after the organization profile and decides the architect review and the abuse case stage, the matcher and the deriver take their counts from `.skill-config.json`, actor discovery reads its switch there, and the dialogue entry takes its budget from the same layers. The controller refuses, before the first model call, a checked case that the organization switched off or a shipped `AC-T`/`AC-B` ID that does not exist.
+
+Limits: organization distributions (REQ-039) do not carry `depths` yet, like `test_cases.required`; a checked organization or repository case that is not active is skipped with a warning only when the cases are matched; `derived_abuse_cases` is at most 6, the deriver's proposal limit; other depth-dependent behavior, such as the thorough-only database privilege check and the plugin-era STRIDE turn budgets, phase time budgets, and evidence verifier limit, is unchanged and not a setting.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
@@ -476,6 +492,7 @@ Stricter than the plan on purpose:
 
 ## Verification state
 
+- For the depth settings, only the tests of the changed modules ran: `tests/test_depth_settings.py`, `tests/test_profiles.py`, `tests/test_resolve_org_profile.py`, `tests/test_resolve_config.py`, `tests/test_assessment_posture.py`, `tests/test_derive_abuse_cases.py`, `tests/test_match_abuse_cases.py`, `tests/test_org_profile_schema.py`, and the dialogue budget tests of `tests/test_public_assessment_operations.py` and `tests/test_single_repo_controller.py`. `test_the_deprecated_org_guardrail_key_still_resolves` fails as on `main`, because no plugin version file exists.
 - For the survey and verify step after merging `main` (82e9de5e), only the tests of the changed modules ran, as the product owner asked: `tests/test_controller_fixture.py` (14 tests), the profile, case outcome, budget statement, and summary tests (238), the organization profile tests (155), the public CLI and state tests after the merge (356), and the console and header tests of `tests/test_multi_repo_assessment.py` whose texts changed (24); `scripts/check_specs.py` and Ruff on the changed files passed. `test_render_text_names_the_ask_and_review_lanes` fails as on `main`. The rest of `tests/test_multi_repo_assessment.py` and the offline gate `make check-analyzer` were not run.
 - The merge left two copies of one console test and an older branch test of the Preflight row that `main` replaced with its Preflight block (07317bde); the copy and the older test were removed.
 

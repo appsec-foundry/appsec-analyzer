@@ -140,37 +140,41 @@ def validate(document: dict, kind: str) -> None:
         raise ProfileError(f"invalid {kind} profile ({location})")
 
 
+def verify_setting(aspects, disable=()):
+    """The test_cases setting that verifies ``aspects``; an empty list runs the survey only."""
+    if not aspects:
+        return False
+    return {"aspects": [item for item in TEST_CASE_ASPECTS if item in aspects], "disable": list(disable)}
+
+
 def depth_test_cases(depth: str):
-    """The shipped verification setting of one assessment depth, from data/verification-depths.yaml."""
-    document = yaml.safe_load((resource_root() / "data/verification-depths.yaml").read_text())
-    return normalize_test_cases(document["depths"][depth])
+    """The shipped verification setting of one assessment depth, from data/assessment-depths.yaml."""
+    from appsec_analyzer import depth_settings
+
+    return verify_setting(depth_settings.shipped(depth)["verify"])
 
 
-def normalize_test_cases(value, depth: str | None = None):
+def normalize_test_cases(value, depth: str | None = None, verify=None):
     """The test_cases setting of one depth as false, true, or {"aspects": [...], "disable": [{"id", "reason"}]}.
 
-    No value takes the shipped setting of ``depth``. In the object form, ``depths`` names the aspects of
-    single depths, ``aspects`` those of every other depth, and a depth that neither names keeps its shipped
-    aspects; false at a depth runs the survey only. The result is sorted and unique so equal settings share
-    one identity. Every disabled ID must exist in the shipped test case catalog; the schema has already
-    bounded the other fields."""
+    ``verify`` is the scan profile's ``depths.<depth>.verify``, which wins over the rest; an empty list
+    runs the survey only. No value takes the shipped setting of ``depth``. In the object form,
+    ``aspects`` names the aspects of every depth, and without it a depth keeps its shipped aspects.
+    The result is sorted and unique so equal settings share one identity. Every disabled ID must exist
+    in the shipped test case catalog; the schema has already bounded the other fields."""
+    if verify is not None:
+        disable = normalize_test_cases(value)["disable"] if isinstance(value, dict) else []
+        return verify_setting(verify, disable)
     if value is None:
         return depth_test_cases(depth) if depth else False
     if type(value) is bool:
         return value
     if not isinstance(value, dict):
         raise ProfileError("test_cases must be true, false, or an object")
-    depths = value.get("depths", {})
-    for aspects in [value.get("aspects", []), *depths.values()]:
-        if aspects is not False and (
-            any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects)
-        ):
-            raise ProfileError("test_cases.aspects must be unique pilot aspects")
-    if depth in depths:
-        aspects = depths[depth]
-    elif "aspects" in value or depth is None:
-        aspects = value.get("aspects", [])
-    else:
+    aspects = value.get("aspects", [])
+    if any(item not in TEST_CASE_ASPECTS for item in aspects) or len(set(aspects)) != len(aspects):
+        raise ProfileError("test_cases.aspects must be unique pilot aspects")
+    if "aspects" not in value and depth is not None:
         shipped = depth_test_cases(depth)
         aspects = shipped["aspects"] if shipped else False
     disable = value.get("disable", [])
@@ -394,6 +398,10 @@ def resolve_scan(
         "test_cases": None,
         "outputs": ["markdown", "yaml"],
         "abuse_case_files": [],
+        # REQ-018: the team's values for single depths, and the abuse cases it always or never checks.
+        "depths": {},
+        "check_abuse_cases": [],
+        "skip_abuse_cases": [],
     }
     provenance = {key: "analyzer default" for key in settings}
     _assign(settings, provenance, {k: v for k, v in scan.items() if k in settings}, source)
@@ -409,9 +417,19 @@ def resolve_scan(
     settings["abuse_case_files"] = _case_files(settings["abuse_case_files"])
     if settings["assessment_depth"] not in DEPTHS:
         raise ProfileError("unsupported assessment depth")
-    if settings["test_cases"] is None:
-        provenance["test_cases"] = f"analyzer default for {settings['assessment_depth']} depth"
-    settings["test_cases"] = normalize_test_cases(settings["test_cases"], settings["assessment_depth"])
+    depth = settings["assessment_depth"]
+    verify = (settings["depths"].get(depth) or {}).get("verify")
+    if verify is not None:
+        provenance["test_cases"] = f"{provenance['depths']} (depths.{depth}.verify)"
+    elif settings["test_cases"] is None:
+        provenance["test_cases"] = f"analyzer default for {depth} depth"
+    settings["test_cases"] = normalize_test_cases(settings["test_cases"], depth, verify=verify)
+    if overlap := sorted(set(settings["check_abuse_cases"]) & set(settings["skip_abuse_cases"])):
+        raise ProfileError(f"abuse case {overlap[0]} is listed both to check and to skip")
+    from appsec_analyzer import depth_settings
+
+    # Without the organization's defaults, which the run adds before the first model call.
+    settings["depth_settings"], provenance["depth_settings"] = depth_settings.effective(depth, scan=settings["depths"])
     try:
         validate_max_parallel(settings["max_parallel"])
     except ValueError as exc:
@@ -453,8 +471,10 @@ def resolve_scan(
         )
     elif max_calls is not None or "max_calls" in scan:
         raise ProfileError("max_calls is available only with codex-cli")
-    # A false value is the default of older snapshots; omitting it keeps their identity.
-    identity = {key: value for key, value in settings.items() if key != "test_cases" or value}
+    # A false value is the default of older snapshots; omitting it keeps their identity. The scan
+    # profile's own depth values and abuse case lists are part of the identity through `scan`.
+    derived = ("depths", "depth_settings", "check_abuse_cases", "skip_abuse_cases")
+    identity = {key: value for key, value in settings.items() if key not in derived and (key != "test_cases" or value)}
     definition = {"scan": scan, "models": model["layers"], "settings": identity}
     if connection is not None:
         definition["provider_connection"] = connection

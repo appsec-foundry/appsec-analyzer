@@ -31,10 +31,11 @@ properties:
     maximum: 16
   test_cases:
     description: >-
-      The verification method beside the survey. Without the setting each depth uses its shipped default.
+      The verification method beside the survey. Without the setting each depth uses its default from
+      data/assessment-depths.yaml or the organization profile, and `depths.<depth>.verify` wins over it.
       A boolean enables or disables the verification items for every depth, without a model investigation
-      when true; the object selects the verified aspects for every depth or single depths and disables
-      named verification items with a reason.
+      when true; the object selects the verified aspects for every depth and disables named verification
+      items with a reason.
     oneOf:
     - type: boolean
     - type: object
@@ -42,21 +43,9 @@ properties:
       properties:
         aspects:
           description: >-
-            Aspects whose verification items a model investigates at every depth that `depths` does not
-            name; without it such a depth keeps its shipped aspects.
+            Aspects whose verification items a model investigates at every depth; without it each depth
+            keeps its default aspects.
           $ref: "#/$defs/test_case_aspects"
-        depths:
-          description: Aspects verified at single depths; false runs the survey only at that depth.
-          type: object
-          additionalProperties: false
-          minProperties: 1
-          properties:
-            quick:
-              $ref: "#/$defs/depth_aspects"
-            standard:
-              $ref: "#/$defs/depth_aspects"
-            thorough:
-              $ref: "#/$defs/depth_aspects"
         disable:
           description: Test cases to leave out of the assessment, each with the reason.
           type: array
@@ -76,6 +65,23 @@ properties:
                 minLength: 1
                 maxLength: 300
                 pattern: ^[^\x00-\x1f\x7f-\x9f]*$
+  depths:
+    description: >-
+      The team's values for single assessment depths. Each key changes the default from
+      data/assessment-depths.yaml or the organization profile for that depth only.
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      quick: { $ref: "#/$defs/depth_settings" }
+      standard: { $ref: "#/$defs/depth_settings" }
+      thorough: { $ref: "#/$defs/depth_settings" }
+  check_abuse_cases:
+    description: Abuse cases that every run checks, by ID, within the limit for requested cases.
+    $ref: "#/$defs/abuse_case_ids"
+  skip_abuse_cases:
+    description: Abuse cases that no run checks, by ID.
+    $ref: "#/$defs/abuse_case_ids"
   outputs:
     type: array
     maxItems: 7
@@ -125,17 +131,49 @@ $defs:
       - InputVal
       - DataProt
       - AI
-  depth_aspects:
-    oneOf:
-    - const: false
-    - type: array
-      maxItems: 6
-      uniqueItems: true
-      items:
-        enum:
-        - IAM
-        - SessionMgmt
-        - AuthZ
-        - InputVal
-        - DataProt
-        - AI
+  depth_settings:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      verify:
+        description: Security aspects that verification checks beside the survey; an empty list runs the survey only.
+        type: array
+        maxItems: 6
+        uniqueItems: true
+        items:
+          enum:
+          - IAM
+          - SessionMgmt
+          - AuthZ
+          - InputVal
+          - DataProt
+          - AI
+      abuse_cases:
+        description: Optional business abuse cases checked; 0 checks only cases that are asked for.
+        type: integer
+        minimum: 0
+        maximum: 16
+      derived_abuse_cases:
+        description: Business abuse cases the model may add from the application's own rules.
+        type: integer
+        minimum: 0
+        maximum: 6
+      architect_review:
+        description: Whether a second model call reviews the findings.
+        type: boolean
+      actor_discovery:
+        description: Whether the assessment identifies the users and systems around the application.
+        type: boolean
+      budget:
+        description: USD of a run started through the Claude Code assessment dialogue without a budget.
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1000
+  abuse_case_ids:
+    type: array
+    maxItems: 64
+    uniqueItems: true
+    items:
+      type: string
+      pattern: ^(AC-T|AC-B|AC|ORG-AC|REPO-AC)-[0-9]{3,}$
