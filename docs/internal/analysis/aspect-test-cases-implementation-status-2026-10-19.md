@@ -335,6 +335,29 @@ Prepared on 2026-10-23 for 612811f1. The product owner starts it with `bash /tmp
 | Goal test cases | Answers without a finding record no finding instead of undecidable. |
 | Cost | Pilot about USD 6 to 8, run about USD 19.50 to 21.50. |
 
+### Result of the fourth run (2026-10-23)
+
+The product owner ran the profile at 612811f1 on Juice Shop into `/home/mrohr/appsec-reports/juice-authz-pilot-4`, stopped it once at USD 7.00 and resumed it with `--resume`. The run completed in 48 minutes with 137 calls for USD 21.42 and no run issue.
+
+| Question | Result |
+| --- | --- |
+| Replaced jobs | None. The Express server's InputVal job 1/2 (2 calls) and its AI job (1 call) were accepted, the two jobs that were replaced in the third run. |
+| Product Tampering, editing any review, user list | Found: TCF-020 at `server.ts:501`, TCF-024 at `updateProductReviews.ts:18`, TCF-025 at `server.ts:363` and TCF-059. |
+| Authorization challenges | The pilot finds 8 of the 9 and misses only GDPR Data Theft. The STRIDE step finds 6 and misses Exposed Metrics, Forged Feedback, and GDPR Data Theft. |
+| Injection and parsing | The pilot finds the search SQL injection (TCF-027), all three NoSQL challenges (TCF-028, TCF-029, TCF-030), SSTi (TCF-033), the b2bOrder RCE (TCF-034), and XXE (TCF-036), plus the login SQL injection and SSRF. The STRIDE step finds the search and login injection, the user profile injection (T-012), NoSQL DoS (T-028), the b2bOrder RCE (T-052), and SSRF; it has no finding for XXE or for the NoSQL queries in order tracking and review update. |
+| Cross-site scripting | By title the pilot finds 7 of 9 (TCF-051 to TCF-057 in the Angular frontend: DOM, Bonus Payload, Reflected, HTTP-Header, API-only, Client-side and Server-side XSS Protection), the STRIDE step 3 (T-001, T-003, T-056). Neither reports Video XSS; both report the code evaluation in `userProfile.ts` for CSP Bypass, but as code injection. |
+| Data protection | Both find the password hash path (pilot: `saveLoginIp` returns hash and TOTP secret, TCF-062; STRIDE: `whoami` field selection, T-069), the directory listing and null byte downloads, and passwords in the query string. Pilot only: TOTP secrets in clear (TCF-049). STRIDE only: Email Leak and Exposed Credentials, the latter with TC-DATA-03 disabled. Neither finds GDPR Data Theft or NFT Takeover. |
+| AI | All three expected challenges: Chatbot Prompt Injection and Greedy Chatbot Manipulation through the coupon tool without a server-side limit (TCF-046), System Prompt Extraction through the discount policy in the system prompt (TCF-047). The STRIDE step finds them too (T-050, T-055, T-067). Neither finds AI Debugging. |
+| Corrections | Four rejected answers in four accepted jobs, each with exactly one violation: three unlisted further reads, one finding anchored in a file the model had not read. The cost per call is not recorded; at the pilot's average of USD 0.24 per call the corrections cost about USD 1.00, against USD 1.25 in the third run. The rejection that names every violation at once was therefore not exercised. |
+| Dropped findings | None; the pilot document records no dropped finding. |
+| Goal test cases | Ten answers: two findings (TCF-006, memories list without authentication, and TCF-047, both also reported by another aspect or the STRIDE step), eight `no_finding`, none undecidable, against seven undecidable in the third run. |
+| Pattern gaps | Three: TC-FILE-01 and TC-DATA-04 on the Express server (passwords in the query string, as in the third run), and TC-AI-05. |
+| Cost per aspect | Pilot USD 7.59 for 19 jobs and 31 calls, against USD 6 to 8 estimated: AuthZ 9 jobs, 16 calls, USD 4.45; InputVal 5 jobs, 9 calls, USD 2.08; DataProt 4 jobs, 5 calls, USD 0.84; AI 1 job, 1 call, USD 0.22. The run cost USD 21.42 against USD 19.50 to 21.50, so USD 13.83 without the pilot. |
+
+The comparison matched findings by file and title; the individual pilot findings were not checked against the code.
+
+Assessment by the implementing session, not yet a decision: the expectations of the fourth run are met except the correction cost, which could not be measured. The fixes of 612811f1 hold for the two replaced jobs. The pilot finds more than the STRIDE step on authorization (8 against 6), injection (XXE and two NoSQL challenges), and cross-site scripting (7 against 3); the STRIDE step finds Email Leak and Exposed Credentials, which the pilot does not, and both miss business logic. The AuthZ cost concentrates on the Express server (7 of 9 jobs, USD 3.81 of 4.45), the other two components cost USD 0.16 and 0.48 and produce findings as well, among them the user list. One cause stays open: three of four rejections are unlisted further reads, although the context lists the starting files; the same rejection occurred in every run.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
@@ -429,3 +452,5 @@ The second comparison repository, the pilot time box, the mapping of outcomes to
 The name "test case" has a provisional answer. On 2026-10-22 the product owner chose, for now, "STRIDE-based" and "verification-based" for the two analysis methods, and "verification catalog" with "verification items" for the catalog and its entries, with IDs such as `VI-AUTHZ-01`. "Test case", "security check", and "control objective" were rejected: the first collides with software tests, the second with scanner checks, and the third describes implementation rather than verification. Results must keep saying "verified by model review only" where no post-check confirms a control. The REQ-040 wording and the rename wait until the pilot is continued, at the latest until the branch is merged.
 
 The name "STRIDE-based" stays for now but should be improved, as decided by the product owner on 2026-10-23: it suggests threat modeling per data flow element, while the step is an open, evidence-based code review per component that uses the six STRIDE categories as a checklist and as the label of its findings. Names considered and not taken: "exploration", too weak and generic; "LLM exploration", because the verification-based method is model-backed as well and the product documents say "model", never "LLM"; "sweep", for the breadth the step shows across aspects; "open review", because the planned open review role uses it; "discovery", "audit", and "review", already taken by discovery phases, `audit-requirements`, and `review`.
+
+Decided by the product owner on 2026-10-23: the console and requirement texts say "Survey" for the first method and "Verify" for the second, both short enough for the progress grid. "STRIDE-based" remains a valid description of the survey (it uses the six STRIDE categories as its checklist and as the label of its findings). Nothing is renamed in code or documents before the requirement proposal is approved.
