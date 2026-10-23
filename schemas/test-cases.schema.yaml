@@ -67,13 +67,16 @@ properties:
           uniqueItems: true
           items:
             enum: [Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege]
+        # Empty only for goal test cases, whose findings each name their own CWE.
         cwe:
           type: array
-          minItems: 1
           uniqueItems: true
           items:
             type: string
             pattern: ^CWE-[0-9]+$
+        # A goal test case asks for an attacker goal by any path and names no CWE.
+        goal:
+          type: boolean
         mode:
           enum: [rules, seeded, model]
         objective:
@@ -160,9 +163,13 @@ properties:
             required: [check]
             properties:
               check:
-                enum: [route-registered, handler-chain-lacks-guard, variant-search]
+                enum: [route-registered, handler-chain-lacks-guard, variant-search, site-reached]
               guard:
                 type: string
+              # A code site kind of data/code-sites.yaml, or any, for site-reached.
+              site:
+                type: string
+                pattern: ^[a-z][a-z_]*$
               pattern:
                 type: string
         references:

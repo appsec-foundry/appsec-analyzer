@@ -162,14 +162,14 @@ def test_test_case_object_is_normalized_and_keeps_its_own_identity(home):
         {
             "schema_version": 1,
             "test_cases": {
-                "aspects": ["DataProt", "IAM"],
+                "aspects": ["AI", "DataProt", "IAM"],
                 "disable": [{"id": "TC-INFRA-01", "reason": "managed by platform"}, REASON],
             },
         },
     )
     resolved = profiles.resolve_scan("cases")
     assert resolved["settings"]["test_cases"] == {
-        "aspects": ["IAM", "DataProt"],
+        "aspects": ["IAM", "DataProt", "AI"],
         "disable": [REASON, {"id": "TC-INFRA-01", "reason": "managed by platform"}],
     }
     write(home, "scan", "plain", {"schema_version": 1, "test_cases": True})

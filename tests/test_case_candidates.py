@@ -378,6 +378,11 @@ def test_batches_keep_each_location_in_one_job_and_give_the_first_job_every_test
     }
     # Within the limit, one job answers everything, as before batching.
     assert cc.batches(precheck) == [precheck]
+    # A remainder under a quarter of the limit joins the job before it instead of paying a job's context.
+    many = {"TC-AUTHZ-01": [_at(f"m{line}", line) for line in range(1, 10)]}
+    assert [len(job["TC-AUTHZ-01"]) for job in cc.batches(many, limit=8)] == [9]
+    # A remainder of a quarter or more keeps its own job.
+    assert [len(job["TC-AUTHZ-01"]) for job in cc.batches(many, limit=4)] == [4, 4, 1]
     for limit in (0, -1, 2.5, True):
         with pytest.raises(ValueError):
             cc.batches(precheck, limit=limit)
@@ -558,3 +563,79 @@ def test_each_generated_route_is_its_own_candidate_at_the_shared_call(catalog, g
     # The routes of one call share their location, so batching keeps them in one job.
     jobs = cc.batches({"TC-AUTHZ-02": candidates}, limit=2)
     assert sum(any(row in job["TC-AUTHZ-02"] for row in at_call) for job in jobs) == 1
+
+
+# --- code sites ---------------------------------------------------------------
+
+
+def test_every_code_site_kind_marks_its_examples_and_only_those():
+    kinds, model_file = cc.site_kinds()
+    for kind, entry in kinds.items():
+        if entry["pattern"] is None:
+            assert entry["source"] == "egress_clients", kind
+            continue
+        for line in entry["matches"]:
+            assert entry["pattern"].search(line), (kind, line)
+        for line in entry["ignores"]:
+            assert not entry["pattern"].search(line), (kind, line)
+    assert model_file.search("const User = sequelize.define('User', {")
+
+
+# A search route whose handler builds SQL, a query helper no route reaches, a
+# route that fetches a URL from the body, a data model with a password field,
+# a form that only names a password, and a query written only in a comment.
+SITES = {
+    "server.js": "const express = require('express')\n"
+    "const { search } = require('./routes/search')\n"
+    "const { preview } = require('./routes/preview')\n"
+    "const app = express()\n"
+    "app.get('/rest/search', search())\n"
+    "app.post('/rest/preview', preview())\n"
+    "app.get('/rest/status', (req, res) => res.json({}))\n",
+    "routes/search.js": "module.exports.search = () => (req, res) => {\n"
+    "  models.sequelize.query(`SELECT * FROM Products WHERE name LIKE '%${req.query.q}%'`).then(r => res.json(r))\n"
+    "}\n",
+    "routes/preview.js": "module.exports.preview = () => async (req, res) => {\n"
+    "  const page = await fetch(req.body.url)\n"
+    "  res.json({ status: page.status })\n"
+    "}\n",
+    "lib/db.js": "module.exports.raw = (sql) => pool.query(sql)\n// pool.query('DROP TABLE users')\n",
+    "models/user.js": "const User = sequelize.define('User', {\n  email: DataTypes.STRING,\n  password: DataTypes.STRING,\n})\n",
+    "web/form.js": "const password = form.password\n",
+}
+
+
+@pytest.fixture(scope="module")
+def sites(tmp_path_factory):
+    root = write_repo(tmp_path_factory.mktemp("sites"), SITES)
+    return cc.route_facts(root, build_inventory(root), [], components={"api": list(SITES)})
+
+
+def test_code_sites_are_lines_of_code_their_patterns_mark(sites):
+    found = sites["sites"]
+    assert found["raw_query"] == [["lib/db.js", 1], ["routes/search.js", 2]]
+    # A data model's field counts; a form that only names a password does not.
+    assert found["sensitive_field"] == [["models/user.js", 3]]
+    # Only a destination the request chooses makes an outbound call a site.
+    assert found["outbound_request"] == [["routes/preview.js", 2]]
+    json.dumps(sites)
+
+
+def test_a_route_that_reaches_a_sink_is_the_candidate_and_names_the_sink(catalog, sites):
+    candidates = cc.starting_candidates(_case(catalog, "TC-INPUT-01"), "api", sites, [])["candidates"]
+    by_route = {row.get("route_id"): row for row in candidates}
+    search = by_route[route_id(sites, "GET", "/rest/search")]
+    assert search["anchor"] == {"file": "server.js", "line": 5}
+    assert search["sinks"] == [{"file": "routes/search.js", "line": 2}]
+    # The helper no route reaches is a candidate of its own; the status route reaches no sink.
+    assert [row["anchor"] for row in candidates if "route_id" not in row] == [{"file": "lib/db.js", "line": 1}]
+    assert route_id(sites, "GET", "/rest/status") not in by_route
+    outbound = cc.starting_candidates(_case(catalog, "TC-INPUT-05"), "api", sites, [])["candidates"]
+    assert [(row["route_id"], row["sinks"]) for row in outbound] == [
+        (route_id(sites, "POST", "/rest/preview"), [{"file": "routes/preview.js", "line": 2}])
+    ]
+
+
+def test_responses_start_from_reads_of_stored_data(catalog, sites):
+    candidates = cc.starting_candidates(_case(catalog, "TC-DATA-01"), "api", sites, [])["candidates"]
+    assert [row["route_id"] for row in candidates] == [route_id(sites, "GET", "/rest/search")]

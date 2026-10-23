@@ -109,7 +109,9 @@ def catalog_instructions(case_ids: Iterable[str]) -> str:
         )
         lines = [
             f"### {case['id']}: {case['title']}",
-            f"Aspect: {case['aspect']}. STRIDE: {', '.join(case['stride'])}. CWE: {', '.join(case['cwe'])}.",
+            # A goal test case names no CWE, so that none narrows the search.
+            f"Aspect: {case['aspect']}. STRIDE: {', '.join(case['stride'])}."
+            + (f" CWE: {', '.join(case['cwe'])}." if case["cwe"] else ""),
             f"Objective: {case['objective']}",
             f"Guidance: {case['guidance']}",
             f"Evidence for a finding: {case['evidence']['finding']}.",

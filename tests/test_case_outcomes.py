@@ -435,6 +435,35 @@ def tcr_owner_missing():
     return OWNER_MISSING
 
 
+def test_a_location_without_a_route_runs_only_the_site_check(catalog):
+    from model.case_postchecks import SITE_LINE
+
+    facts = {**_FACTS, "sites": {"raw_query": [["server.js", 20]]}}
+    location = [{"candidate_id": PC1, "origin": "pre-check", "anchor": {"file": "server.js", "line": 20}}]
+    weakness = {"status": "weakness", "evidence": [_EVIDENCE], "finding_ids": []}
+    answer = {
+        "test_case_id": "TC-INPUT-01",
+        "proposed_outcome": "finding",
+        "reason": "text",
+        "candidates": [{"candidate_id": PC1, "origin": "pre-check", **weakness}],
+    }
+    records, checks = tcr.assess_candidates(_case(catalog, "TC-INPUT-01"), answer, location, facts)
+    assert checks == [
+        {
+            "candidate_id": PC1,
+            "check": "site-reached",
+            "site": "raw_query",
+            "claim": "weakness",
+            "result": "confirmed",
+            "reason": SITE_LINE,
+        }
+    ]
+    assert records[0]["confirmed"]
+    # The route checks of an owner test case still need a route.
+    owner = {**answer, "test_case_id": "TC-AUTHZ-01"}
+    assert tcr.assess_candidates(_case(catalog, "TC-AUTHZ-01"), owner, location, facts)[1] == []
+
+
 def test_a_documentation_control_is_undecidable_and_runs_no_check(catalog):
     case = _case(catalog, "TC-AUTHZ-01")
     doc = {"status": "control", "control_kind": "code", "evidence": [{**_EVIDENCE, "file": "docs/authz.md"}]}

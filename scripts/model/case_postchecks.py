@@ -18,6 +18,11 @@ recorded from the scanner snapshot, and returns ``confirmed``,
   predicate and object access of the comment-blanked handler code
   (``authz_confirm.has_ownership_predicate`` and ``_object_access``), so a
   check written only in a comment never confirms a control.
+* ``site-reached`` with a ``site`` kind of data/code-sites.yaml, or ``any``:
+  the route's resolved handler or the cited line holds a site of that kind.
+  It confirms the mechanism a weakness needs and nothing else, so it never
+  contradicts and never decides a control. Its "no pattern marks" result
+  shows where the fixed patterns miss what the model found.
 
 The check name and guard come from the catalog's ``post[]``; a catalog
 ``pattern`` is never interpreted. The model supplies only a route ID and an
@@ -44,7 +49,7 @@ CONFIRMED = "confirmed"
 CONTRADICTED = "contradicted"
 NOT_VERIFIABLE = "not_verifiable"
 
-CHECKS = ("route-registered", "handler-chain-lacks-guard", "variant-search")
+CHECKS = ("route-registered", "handler-chain-lacks-guard", "variant-search", "site-reached")
 CLAIMS = ("weakness", "control")
 #: Route IDs listed per variant search; ``count`` stays complete.
 MAX_VARIANTS = 40
@@ -78,6 +83,11 @@ OWNER_GENERATED = "the route's handler is library code that a REST resource gene
 OWNER_PREDICATE = "the handler code compares the object's owner with the caller and rejects a mismatch"
 OWNER_MISSING = "the handler code accesses an object by identifier without an ownership comparison"
 OWNER_NO_ACCESS = "the handler code shows no object access by identifier"
+UNKNOWN_SITE = "the site is not a code site kind"
+SITE_NO_CONTROL = "a code site shows the mechanism of a weakness, never a control"
+SITE_ROUTE = "the route's resolved handler reaches a code site of the kind the test case names"
+SITE_LINE = "a fixed pattern marks the cited line as a code site of the kind the test case names"
+SITE_UNKNOWN = "no fixed pattern marks the cited line or the route's handler as a code site of that kind"
 
 
 def run_check(
@@ -95,6 +105,8 @@ def run_check(
         return _result(NOT_VERIFIABLE, UNKNOWN_CLAIM)
     if name == "variant-search":
         return _result(NOT_VERIFIABLE, NO_VERDICT)
+    if name == "site-reached":
+        return _site_reached(check.get("site"), claim == "weakness", params, facts)
     guard = check.get("guard")
     evaluate = _GUARDS.get(guard) if isinstance(guard, str) else None
     if name == "handler-chain-lacks-guard" and evaluate is None:
@@ -218,3 +230,29 @@ def _ownership(row: Mapping[str, Any], weakness: bool) -> dict[str, str]:
 
 
 _GUARDS = {"authentication": _authentication, "authorization": _authorization, "ownership": _ownership}
+
+
+# --- code sites -----------------------------------------------------------------
+
+
+def _site_reached(site: Any, weakness: bool, params: Any, facts: Mapping[str, Any]) -> dict[str, str]:
+    """Whether the cited route's handler or the cited line holds a code site of the named kind.
+
+    A route is used only when it matches its anchor; otherwise the cited line alone decides."""
+    sites = facts.get("sites") if isinstance(facts.get("sites"), Mapping) else {}
+    if not isinstance(site, str) or (site != "any" and site not in sites):
+        return _result(NOT_VERIFIABLE, UNKNOWN_SITE)
+    if not weakness:
+        return _result(NOT_VERIFIABLE, SITE_NO_CONTROL)
+    anchor = _anchor(params.get("anchor"), facts) if isinstance(params, Mapping) else None
+    if anchor is None:
+        return _result(NOT_VERIFIABLE, BAD_ANCHOR)
+    known = {tuple(row) for kind, rows in sites.items() if site in ("any", kind) for row in rows}
+    row, _ = _route(params, facts)
+    if row is not None and any(
+        file == rel and first <= line <= last for file, line in known for rel, first, last in row["chain"]
+    ):
+        return _result(CONFIRMED, SITE_ROUTE)
+    if anchor in known:
+        return _result(CONFIRMED, SITE_LINE)
+    return _result(NOT_VERIFIABLE, SITE_UNKNOWN)

@@ -84,6 +84,31 @@ def test_controls_and_abuse_cases_exist(catalog):
         assert set(case["starting_points"].get("abuse_cases", [])) <= abuse, case["id"]
 
 
+def test_each_investigated_aspect_has_one_goal_test_case_without_a_cwe(catalog):
+    goals = [case for case in catalog["test_cases"] if case.get("goal")]
+    assert [case["id"] for case in goals] == ["TC-AUTHZ-06", "TC-INPUT-07", "TC-DATA-05", "TC-AI-05"]
+    for case in catalog["test_cases"]:
+        # A goal starts from no rule or fact, and a CWE would narrow its search.
+        if case.get("goal"):
+            assert case["mode"] == "model" and not case["cwe"], case["id"]
+            assert not case["starting_points"]["rules"] and not case["starting_points"].get("facts"), case["id"]
+        else:
+            assert case["cwe"], case["id"]
+
+
+def test_every_route_and_site_fact_and_site_check_has_an_evaluator(catalog):
+    from model import case_candidates
+
+    # A misspelled fact or site would silently select or confirm nothing.
+    kinds, _ = case_candidates.site_kinds()
+    known = set(case_candidates._ROUTE_FACTS) | {f"code_sites.{kind}" for kind in kinds}
+    for case in catalog["test_cases"]:
+        facts = case["starting_points"].get("facts") or []
+        assert {fact for fact in facts if fact.startswith(("route_inventory.", "code_sites."))} <= known, case["id"]
+        sites = {entry.get("site") for entry in case["post"] if entry["check"] == "site-reached"}
+        assert None not in sites and sites <= {*kinds, "any"}, case["id"]
+
+
 def test_rules_mode_cases_are_driven_by_rules_alone(catalog):
     for case in catalog["test_cases"]:
         if case["mode"] == "rules":

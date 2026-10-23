@@ -42,7 +42,7 @@ properties:
           description: Pilot aspects whose test cases a model investigates; none when omitted.
           type: array
           minItems: 1
-          maxItems: 5
+          maxItems: 6
           uniqueItems: true
           items:
             enum:
@@ -51,6 +51,7 @@ properties:
             - AuthZ
             - InputVal
             - DataProt
+            - AI
         disable:
           description: Test cases to leave out of the assessment, each with the reason.
           type: array

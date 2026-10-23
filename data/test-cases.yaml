@@ -11,7 +11,7 @@
 #
 # unmapped_rules lists scanner rules that are deliberately not a starting point.
 version: 1
-catalog_version: '3'
+catalog_version: '4'
 aspects:
 - id: IAM
   title: Identity and authentication
@@ -390,6 +390,37 @@ test_cases:
   post: []
   references: []
   fixtures: tests/fixtures/test-cases/TC-AUTHZ-05/
+- id: TC-AUTHZ-06
+  title: Callers cannot read or change data beyond their rights
+  aspect: AuthZ
+  stride:
+  - Information Disclosure
+  - Tampering
+  - Elevation of Privilege
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether a caller can read, change, or delete records of other users, or records that only privileged roles may change, by any path in this component.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. List the component's data objects that belong to users or that only privileged roles may change, such as accounts, orders, baskets, balances, prices, and reviews, and check every way a request reaches each of them, including routes the candidates do not list, generated routes, bulk operations, and indirect writes. Add a candidate for each path that achieves the goal. A finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - Object-Level Authorization
+  - Role-Based Access Control
+  evidence:
+    finding: the data object, the request path that reaches it, and the missing check
+    control: location of the check that keeps the object out of reach
+  post:
+  - check: route-registered
+  - check: handler-chain-lacks-guard
+    guard: ownership
+  - check: handler-chain-lacks-guard
+    guard: authorization
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHZ-06/
 - id: TC-INPUT-01
   title: Database queries are parameterized
   aspect: InputVal
@@ -415,14 +446,18 @@ test_cases:
     - ARCH-SQLI-001
     abuse_cases:
     - AC-T-001
-  guidance: 'Trace persisted input to its sink: a value stored earlier and used in a query later is request-derived. Give input, sink, and connection for injection findings.'
+    facts:
+    - code_sites.raw_query
+  guidance: 'Trace persisted input to its sink: a value stored earlier and used in a query later is request-derived. Give input, sink, and connection for injection findings. The candidates are code sites that fixed patterns found; examine other sites of the component too.'
   scope: component
   controls:
   - Parameterized Database Access
   evidence:
     finding: input source, the query construction, and the database connection
     control: location of the parameter binding or query builder
-  post: []
+  post:
+  - check: site-reached
+    site: raw_query
   references: []
   fixtures: tests/fixtures/test-cases/TC-INPUT-01/
 - id: TC-INPUT-02
@@ -439,7 +474,9 @@ test_cases:
   starting_points:
     rules:
     - INJ-NODE-006
-  guidance: Check queries that pass a request object or string as the predicate and operators such as $where or $ne reachable from input.
+    facts:
+    - code_sites.nosql_query
+  guidance: Check queries that pass a request object or string as the predicate and operators such as $where or $ne reachable from input. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Parameterized Database Access
@@ -447,7 +484,9 @@ test_cases:
   evidence:
     finding: input source and the query predicate it controls
     control: location of the schema validation or fixed predicate
-  post: []
+  post:
+  - check: site-reached
+    site: nosql_query
   references: []
   fixtures: tests/fixtures/test-cases/TC-INPUT-02/
 - id: TC-INPUT-03
@@ -478,7 +517,9 @@ test_cases:
     - ARCH-INPUT-001
     abuse_cases:
     - AC-T-001
-  guidance: Trace persisted input to its sink. Give input, sink, and connection. A sandbox counts only where the repository enforces it and the payload cannot leave it.
+    facts:
+    - code_sites.command
+  guidance: Trace persisted input to its sink. Give input, sink, and connection. A sandbox counts only where the repository enforces it and the payload cannot leave it. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Input Schema Validation
@@ -486,7 +527,9 @@ test_cases:
   evidence:
     finding: input source and the command, evaluator, or compiler it reaches
     control: location of the fixed command, argument array, or sandbox
-  post: []
+  post:
+  - check: site-reached
+    site: command
   references: []
   fixtures: tests/fixtures/test-cases/TC-INPUT-03/
 - id: TC-INPUT-04
@@ -505,7 +548,9 @@ test_cases:
     rules:
     - ARCH-XSS-001
     - ARCH-XSS-002
-  guidance: Check template bypasses, raw HTML insertion, DOM sinks such as innerHTML, and values that are stored and rendered later.
+    facts:
+    - code_sites.html_output
+  guidance: Check template bypasses, raw HTML insertion, DOM sinks such as innerHTML, and values that are stored and rendered later. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Output Encoding
@@ -513,7 +558,9 @@ test_cases:
   evidence:
     finding: untrusted value, the rendering sink, and the missing encoding
     control: location of the context-aware encoding or sanitizer
-  post: []
+  post:
+  - check: site-reached
+    site: html_output
   references: []
   fixtures: tests/fixtures/test-cases/TC-INPUT-04/
 - id: TC-INPUT-05
@@ -537,7 +584,9 @@ test_cases:
     - INJ-CS-003
     - INJ-PHP-003
     - INJ-RB-003
-  guidance: Check URL allow-lists, redirects followed by the client, and image or webhook fetchers.
+    facts:
+    - code_sites.outbound_request
+  guidance: Check URL allow-lists, redirects followed by the client, and image or webhook fetchers. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Network Segmentation
@@ -545,7 +594,9 @@ test_cases:
   evidence:
     finding: input source and the outbound request it controls
     control: location of the destination allow-list
-  post: []
+  post:
+  - check: site-reached
+    site: outbound_request
   references: []
   fixtures: tests/fixtures/test-cases/TC-INPUT-05/
 - id: TC-INPUT-06
@@ -566,14 +617,18 @@ test_cases:
     rules:
     - INJ-005
     - ARCH-INPUT-001
-  guidance: Check parser configuration and the origin of the bytes that are deserialized.
+    facts:
+    - code_sites.parser
+  guidance: Check parser configuration and the origin of the bytes that are deserialized. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Input Schema Validation
   evidence:
     finding: parser or deserializer call, the untrusted input, and the unsafe configuration
     control: location of the hardened parser configuration or type allow-list
-  post: []
+  post:
+  - check: site-reached
+    site: parser
   references: []
   fixtures: tests/fixtures/test-cases/TC-INPUT-06/
 - id: TC-FILE-01
@@ -597,14 +652,18 @@ test_cases:
     - INJ-CS-004
     - INJ-PHP-004
     - INJ-RB-004
-  guidance: Check path joins with request input, directory listings, and static roots that include source, configuration, or backups.
+    facts:
+    - code_sites.file_path
+  guidance: Check path joins with request input, directory listings, and static roots that include source, configuration, or backups. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Input Schema Validation
   evidence:
     finding: input source and the file access it controls
     control: location of the path normalization and containment check
-  post: []
+  post:
+  - check: site-reached
+    site: file_path
   references: []
   fixtures: tests/fixtures/test-cases/TC-FILE-01/
 - id: TC-FILE-02
@@ -623,16 +682,49 @@ test_cases:
   - signal: uploads_or_archives
   starting_points:
     rules: []
-  guidance: Check storage location, served content type, file name handling, and archive entry paths.
+    facts:
+    - code_sites.upload
+  guidance: Check storage location, served content type, file name handling, and archive entry paths. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Input Schema Validation
   evidence:
     finding: upload or extraction code and the missing check
     control: location of the type, size, and path checks
-  post: []
+  post:
+  - check: site-reached
+    site: upload
   references: []
   fixtures: tests/fixtures/test-cases/TC-FILE-02/
+- id: TC-INPUT-07
+  title: Input cannot take control of what the server executes, stores, or reaches
+  aspect: InputVal
+  stride:
+  - Tampering
+  - Elevation of Privilege
+  - Information Disclosure
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether untrusted input can make this component run code or commands of the attacker's choice, read or change stored data outside the intended query, or reach files, hosts, or resources it should not, by any interpreter, parser, or library.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. For each goal, look for any path from request data, uploaded content, or stored values to the mechanism that would achieve it, including interpreters and libraries no other test case names, such as LDAP, XPath, expression languages, query builder fragments, template helpers, or prototype pollution. Give input, sink, and connection, and add a candidate for each path that achieves a goal. A finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - Input Schema Validation
+  - Parameterized Database Access
+  - Sandbox Isolation
+  evidence:
+    finding: input source, the mechanism it reaches, and what the attacker achieves
+    control: location of the validation, binding, or isolation that stops it
+  post:
+  - check: site-reached
+    site: any
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-INPUT-07/
 - id: TC-DATA-01
   title: Responses contain only intended fields
   aspect: DataProt
@@ -647,14 +739,17 @@ test_cases:
   - signal: routes
   starting_points:
     rules: []
-  guidance: Check handlers that serialize whole database records, expose password hashes or tokens, or return internal fields to non-owners.
+    facts:
+    - route_inventory.reads_data
+  guidance: Check handlers that serialize whole database records, expose password hashes or tokens, or return internal fields to non-owners. The candidates are read routes whose handlers read stored data; examine other responses too.
   scope: component
   controls:
   - Input Schema Validation
   evidence:
     finding: handler, the serialized object, and the sensitive field it exposes
     control: location of the field selection or response mapping
-  post: []
+  post:
+  - check: route-registered
   references: []
   fixtures: tests/fixtures/test-cases/TC-DATA-01/
 - id: TC-DATA-02
@@ -676,7 +771,9 @@ test_cases:
     - MOBILE-DART-002
     - MOBILE-IOS-001
     - MOBILE-RN-001
-  guidance: Check databases, files, volumes, and client-side storage. Encryption outside the examined sources is not evidence.
+    facts:
+    - code_sites.sensitive_field
+  guidance: Check databases, files, volumes, and client-side storage. Encryption outside the examined sources is not evidence. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Data at Rest Encryption
@@ -684,7 +781,9 @@ test_cases:
   evidence:
     finding: storage location and the sensitive data stored unprotected
     control: location of the encryption or protected storage configuration
-  post: []
+  post:
+  - check: site-reached
+    site: sensitive_field
   references: []
   fixtures: tests/fixtures/test-cases/TC-DATA-02/
 - id: TC-DATA-03
@@ -734,7 +833,9 @@ test_cases:
     - IAC-084
     - IAC-086
     - IAC-094
-  guidance: Check listener, client, and database connection settings and secrets or tokens in query strings.
+    facts:
+    - code_sites.transport
+  guidance: Check listener, client, and database connection settings and secrets or tokens in query strings. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Transport Layer Security
@@ -742,9 +843,36 @@ test_cases:
   evidence:
     finding: connection or URL carrying sensitive data without encryption
     control: location of the TLS configuration or header
-  post: []
+  post:
+  - check: site-reached
+    site: transport
   references: []
   fixtures: tests/fixtures/test-cases/TC-DATA-04/
+- id: TC-DATA-05
+  title: Sensitive data cannot reach anyone not entitled to it
+  aspect: DataProt
+  stride:
+  - Information Disclosure
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether credentials, personal data, or payment data that this component handles can reach a person or system not entitled to it, through responses, errors, logs, exports, files, caches, or outbound calls.
+  applies_when:
+  - signal: routes
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. List the sensitive data the component holds or passes on, follow each item to every place it leaves the component, and check who can receive it there. Add a candidate for each place where someone not entitled receives it. Secrets embedded in code belong to TC-DATA-03, and a finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - Production Error Handler
+  - Transport Layer Security
+  evidence:
+    finding: the sensitive data, the place where it leaves the component, and who receives it there
+    control: location of the field selection, masking, or access check
+  post:
+  - check: route-registered
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-DATA-05/
 - id: TC-CRYPTO-01
   title: Cryptographic primitives are current and not hand-rolled
   aspect: Crypto
@@ -978,14 +1106,18 @@ test_cases:
     rules: []
     abuse_cases:
     - AC-T-007
-  guidance: Follow documents, web content, and user input into prompts and check which tools or data the model can then use.
+    facts:
+    - code_sites.llm_call
+  guidance: Follow documents, web content, and user input into prompts and check which tools or data the model can then use. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - LLM Output Filtering
   evidence:
     finding: untrusted content path into a prompt and the privileged action it can cause
     control: location of the control that limits the action regardless of model output
-  post: []
+  post:
+  - check: site-reached
+    site: llm_call
   references: []
   fixtures: tests/fixtures/test-cases/TC-AI-01/
 - id: TC-AI-02
@@ -1007,14 +1139,18 @@ test_cases:
     - INJ-LLM-001
     - INJ-LLM-002
     - INJ-LLM-003
-  guidance: Treat model output as untrusted input.
+    facts:
+    - code_sites.llm_call
+  guidance: Treat model output as untrusted input. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - LLM Output Filtering
   evidence:
     finding: model output and the sink it reaches without validation
     control: location of the output validation or schema check
-  post: []
+  post:
+  - check: site-reached
+    site: llm_call
   references: []
   fixtures: tests/fixtures/test-cases/TC-AI-02/
 - id: TC-AI-03
@@ -1034,14 +1170,18 @@ test_cases:
     rules:
     - AUTHZ-LLM-001
     - INJ-LLM-004
-  guidance: Check MCP servers and tool registries together with the authorization of each tool call.
+    facts:
+    - code_sites.llm_call
+  guidance: Check MCP servers and tool registries together with the authorization of each tool call. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - LLM Output Filtering
   evidence:
     finding: model-selected tool, object, or destination and the missing authorization
     control: location of the authorization or allow-list
-  post: []
+  post:
+  - check: site-reached
+    site: llm_call
   references: []
   fixtures: tests/fixtures/test-cases/TC-AI-03/
 - id: TC-AI-04
@@ -1058,16 +1198,48 @@ test_cases:
   - signal: llm_features
   starting_points:
     rules: []
-  guidance: Check access filters on vector queries and shared caches or memories across users.
+    facts:
+    - code_sites.llm_call
+  guidance: Check access filters on vector queries and shared caches or memories across users. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - LLM Output Filtering
   evidence:
     finding: retrieval or memory access without a caller filter
     control: location of the access filter
-  post: []
+  post:
+  - check: site-reached
+    site: llm_call
   references: []
   fixtures: tests/fixtures/test-cases/TC-AI-04/
+- id: TC-AI-05
+  title: The model cannot be made to act or disclose beyond what the caller may
+  aspect: AI
+  stride:
+  - Tampering
+  - Information Disclosure
+  - Elevation of Privilege
+  cwe: []
+  mode: model
+  goal: true
+  objective: Determine whether a caller, or content the model reads, can make this component's language model features perform actions, reveal data or instructions, or grant benefits beyond what the caller may receive, by any path.
+  applies_when:
+  - signal: llm_features
+  starting_points:
+    rules: []
+  guidance: Start from the attacker's goal, not from a weakness class. List what the model can do or reveal in this component, such as the tools it may call, the data and system instructions in its context, and the decisions it makes for the caller, and check every way a caller or the content the model reads can steer it there. Add a candidate for each path that achieves a goal. A finding that another test case of this aspect covers belongs to that test case.
+  scope: component
+  controls:
+  - LLM Output Filtering
+  - Role-Based Access Control
+  evidence:
+    finding: the path from the caller or the content to what the model does or reveals
+    control: location of the check that limits the model's actions or output
+  post:
+  - check: site-reached
+    site: llm_call
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AI-05/
 - id: TC-INFRA-01
   title: Containers and pods run with least privilege
   aspect: Infra

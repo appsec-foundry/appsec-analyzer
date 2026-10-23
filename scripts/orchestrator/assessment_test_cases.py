@@ -31,8 +31,9 @@ from shared.assessment_sources import source_rows
 from orchestrator import assessment_workspace as ws
 
 #: Aspects this step investigates; a profile may select further pilot aspects.
-INVESTIGATED_ASPECTS = ("AuthZ",)
+INVESTIGATED_ASPECTS = ("AuthZ", "InputVal", "DataProt", "AI")
 MULTI_REPOSITORY_REASON = "the pilot investigates only components of a single repository"
+NO_CANDIDATE_REASON = "no test case of the aspect has a starting candidate in the component, so no model job ran"
 _ADAPTATION = (
     "Answer the supplied test cases for the selected component and aspect. The context's "
     "test_case_candidates lists each test case's pre-check candidates; the controller serves each "
@@ -40,8 +41,9 @@ _ADAPTATION = (
     "boundaries cite, in source_slices. readable_sources maps each repository_id to its permitted paths: "
     "read only exact pairs from it, in one read action. A route marked generated is registered by a REST resource "
     "generator at its anchor and handled by library code: judge it by the generator call, the data model it names, "
-    "and the registrations for the same path among its handler lines. When the context has candidate_jobs, other "
-    "jobs answer the "
+    "and the registrations for the same path among its handler lines. A candidate's sinks are the lines in its "
+    "handler where fixed patterns found the mechanism its test case asks about; they are hints, and other paths "
+    "count as well. When the context has candidate_jobs, other jobs answer the "
     "rest of the component's candidates: add model candidates only when adds_candidates is true, and never at a "
     "location that answered_elsewhere lists for the same test case."
 )
@@ -106,6 +108,15 @@ def run_pilot(
                     case, component["id"], facts[rid], findings_by_repository[rid]
                 )
                 entry["precheck"][case["id"]] = found["candidates"]
+            # A job without any candidate costs its full context; only a goal test case explores without one.
+            if entry["precheck"] and not any(
+                rows or cases[case_id].get("goal") for case_id, rows in entry["precheck"].items()
+            ):
+                for case_id in entry["precheck"]:
+                    entry["fixed"][case_id] = _fixed(
+                        cases[case_id], component["id"], "undecidable", NO_CANDIDATE_REASON
+                    )
+                entry["precheck"] = {}
             if entry["precheck"]:
                 entry["jobs"] = case_candidates.batches(entry["precheck"])
             entries.append(entry)
@@ -350,6 +361,8 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
         anchors.append(anchor)
         route = facts["routes"].get(row.get("route_id")) or {}
         lines += [{"repository_id": rid, "file": path, "line": first} for path, first, _ in route.get("chain", [])]
+        # A sink can lie far into a long handler.
+        lines += [{"repository_id": rid, **sink} for sink in row.get("sinks", [])]
         guards += [
             {"repository_id": rid, "file": path, "line": start} for path, start, _ in wares.get(row.get("route_id"), [])
         ]

@@ -301,13 +301,15 @@ def assess_candidates(
         if candidate["status"] == "control" and all(is_documentation(row["file"]) for row in candidate["evidence"]):
             record.update(status="undecidable", reason=DOCUMENTATION_REASON)
             continue
-        if candidate["status"] not in ("weakness", "control") or not (record["route_id"] and anchor and checks):
+        if candidate["status"] not in ("weakness", "control") or not (anchor and checks) or facts is None:
             continue
-        if facts is None:
+        # Only site-reached judges a location without a route.
+        usable = checks if record["route_id"] else [entry for entry in checks if entry.get("check") == "site-reached"]
+        if not usable:
             continue
         params = {"route_id": record["route_id"], "anchor": {"file": anchor["file"], "line": anchor["line"]}}
         results = []
-        for entry in checks:
+        for entry in usable:
             result = run_check(entry, candidate["status"], params, facts)
             results.append(result)
             rows.append(
@@ -315,6 +317,7 @@ def assess_candidates(
                     "candidate_id": candidate["candidate_id"],
                     "check": entry["check"],
                     **({"guard": entry["guard"]} if entry.get("guard") else {}),
+                    **({"site": entry["site"]} if entry.get("site") else {}),
                     "claim": candidate["status"],
                     "result": result["result"],
                     "reason": result["reason"],

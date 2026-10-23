@@ -383,7 +383,7 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
     # The definition of the guard the order route runs arrives with the first packet, as for STRIDE.
     assert any(path == "lib/auth.js" and start <= 2 <= end for path, start, end in host.served[0])
 
-    authz = {"TC-AUTHZ-01", "TC-AUTHZ-02", "TC-AUTHZ-03", "TC-AUTHZ-04", "TC-AUTHZ-05"}
+    authz = {"TC-AUTHZ-01", "TC-AUTHZ-02", "TC-AUTHZ-03", "TC-AUTHZ-04", "TC-AUTHZ-05", "TC-AUTHZ-06"}
     assert {(row["component_id"], row["test_case_id"]) for row in _component_rows(model)} == {
         (component["id"], case_id) for component in model["components"] for case_id in authz
     }
@@ -495,6 +495,46 @@ def test_generated_routes_reach_only_the_pilot_marked_and_with_their_generator_c
     # STRIDE, the report and the other commands keep the inventory without generated routes.
     (inventory,) = out.rglob(".route-inventory.json")
     assert not any(row["path"].startswith("/api/Products") for row in json.loads(inventory.read_text())["routes"])
+
+
+def test_each_aspect_gets_its_own_jobs_and_an_aspect_without_candidates_gets_none(tmp_path, monkeypatch):
+    def seed(roots):
+        _seed(roots)
+        # The reports handler now builds SQL from the query string.
+        (roots[0] / "lib/reports.js").write_text(
+            "module.exports.list = () => (req, res) =>\n"
+            "  db.query('SELECT * FROM reports WHERE q = ' + req.query.q).then(rows => res.json(rows))\n"
+        )
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    aspects = ("--no-pdf", "--test-case-aspects", "AuthZ,InputVal,DataProt,AI")
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), aspects, seed=seed, host=host)
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    service = _service(model)
+    # One job per component and aspect; no language model is called, so AI applies nowhere.
+    assert sorted(host.investigations) == [(service, "AuthZ"), (service, "DataProt"), (service, "InputVal")]
+    listed = {
+        case["test_case_id"]: case["candidates"]
+        for share in host.listed
+        for case in share
+        if case["test_case_id"].startswith(("TC-INPUT", "TC-DATA"))
+    }
+    (reports,) = listed["TC-INPUT-01"]
+    assert reports["route"] == {"method": "GET", "path": "/rest/reports"}
+    assert reports["sinks"] == [{"file": "lib/reports.js", "line": 2}]
+    # The goal test cases ride along in the first job without candidates of their own.
+    assert listed["TC-INPUT-07"] == [] and listed["TC-DATA-05"] == []
+    # The browser client has data protection test cases but no candidate, so no job ran for them.
+    client = next(row["id"] for row in model["components"] if row["id"] != service)
+    skipped = [
+        row for row in _component_rows(model) if row["component_id"] == client and row["outcome"] == "undecidable"
+    ]
+    assert skipped and {row["reason"] for row in skipped} == {
+        "no test case of the aspect has a starting candidate in the component, so no model job ran"
+    }
 
 
 def _service(model):

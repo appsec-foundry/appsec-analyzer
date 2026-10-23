@@ -11,7 +11,7 @@ from model import case_candidates as cc
 from model import case_postchecks as pc
 from model.case_outcomes import load_catalog
 
-from tests.test_case_candidates import GENERATED, route_id, shop_facts, write_repo
+from tests.test_case_candidates import GENERATED, SITES, route_id, shop_facts, write_repo
 
 REGISTERED = {"check": "route-registered"}
 AUTHN = {"check": "handler-chain-lacks-guard", "guard": "authentication"}
@@ -339,3 +339,36 @@ def test_variant_search_needs_the_catalog_check_and_valid_reviewed_routes(shop, 
     assert pc.variant_search(authn, "api", shop, [show]) == empty
     for reviewed in (None, show, [None, 5, "R-999"], {"route_id": show}):
         assert pc.variant_search(object_case, "api", shop, reviewed) == empty
+
+
+# --- code sites -------------------------------------------------------------------
+
+SITE = {"check": "site-reached", "site": "raw_query"}
+
+
+@pytest.fixture(scope="module")
+def sites(tmp_path_factory):
+    root = write_repo(tmp_path_factory.mktemp("site-checks"), SITES)
+    return cc.route_facts(root, build_inventory(root), [], components={"api": list(SITES)})
+
+
+def test_a_route_whose_handler_reaches_the_sink_confirms_the_mechanism(sites):
+    search = _at(sites, "GET", "/rest/search")
+    assert pc.run_check(SITE, "weakness", search, sites) == {"result": "confirmed", "reason": pc.SITE_ROUTE}
+    # Without a route, the cited line alone decides.
+    helper = {"route_id": None, "anchor": {"file": "lib/db.js", "line": 1}}
+    assert pc.run_check(SITE, "weakness", helper, sites) == {"result": "confirmed", "reason": pc.SITE_LINE}
+    assert pc.run_check({**SITE, "site": "any"}, "weakness", helper, sites)["result"] == "confirmed"
+
+
+def test_a_site_check_never_contradicts_and_never_decides_a_control(sites):
+    status = _at(sites, "GET", "/rest/status")
+    assert pc.run_check(SITE, "weakness", status, sites) == {"result": "not_verifiable", "reason": pc.SITE_UNKNOWN}
+    search = _at(sites, "GET", "/rest/search")
+    assert pc.run_check(SITE, "control", search, sites) == {"result": "not_verifiable", "reason": pc.SITE_NO_CONTROL}
+    for site in ("sql", None, 3):
+        unknown = pc.run_check({"check": "site-reached", "site": site}, "weakness", search, sites)
+        assert unknown == {"result": "not_verifiable", "reason": pc.UNKNOWN_SITE}
+    # A query written only in a comment is no site.
+    comment = {"route_id": None, "anchor": {"file": "lib/db.js", "line": 2}}
+    assert pc.run_check(SITE, "weakness", comment, sites)["reason"] == pc.SITE_UNKNOWN
