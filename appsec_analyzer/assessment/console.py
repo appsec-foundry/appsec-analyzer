@@ -151,12 +151,15 @@ class _AssessmentConsole:
     Each line reads ``TIME  PHASE  EVENT  PROGRESS  ELAPSED  LEFT  DETAIL``.
     PHASE is numbered within this run, so a skipped phase (abuse cases)
     shortens N. EVENT is ``start`` and ``done`` for a phase's bounds, ``✓``
-    for a finished component, ``·`` for progress, and ``⚠`` (stalled or
-    stopped model call, plugin change) or
+    for a finished component or verification job, ``·`` for progress, and
+    ``⚠`` (stalled or stopped model call, plugin change, verification job
+    without a result) or
     ``↻`` (rejected answer) for lines that need attention. PROGRESS, ELAPSED
     and LEFT always describe the whole run. DETAIL describes the phase and
     comes last, so its length never shifts a column; a ``done`` line's
-    detail starts with the phase's duration.
+    detail starts with the phase's duration. With verification, the threat
+    analysis has two steps, Survey and Verify; DETAIL starts with the step's
+    name, and each step has its own start and done lines.
 
     PROGRESS counts finished work. Once the component count is known
     (``plan_components``), Controls and STRIDE weigh per component. LEFT
@@ -175,7 +178,9 @@ class _AssessmentConsole:
     writer is a log and stays plain. Each STRIDE component and each
     verified abuse case gets its own line in both. ``--verbose`` adds every
     step and model call as progress lines and keeps the terminal's status
-    line; ``--quiet`` prints nothing. Cost is never shown mid-run.
+    line; ``--quiet`` prints nothing. Mid-run, USD amounts appear only where
+    the budget decides what runs: before verification and when optional jobs
+    are skipped.
     """
 
     # Off a terminal: a changed subject or share is shown after this quiet
@@ -303,8 +308,11 @@ class _AssessmentConsole:
     # three survey jobs (Juice Shop, 2026-10-23: 27 survey jobs took 21 minutes
     # and 19 verification jobs 18), so it adds that share to threat analysis.
     VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 3
-    _VERIFY_PLAN = re.compile(r"Verify: (\d+) jobs? for ")
-    _VERIFY_JOB = re.compile(r"Verifying \S+ (\d+)/(\d+): ")
+    # The plan comes before the survey, the start after it; both name the job count.
+    _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) jobs? for ")
+    _VERIFY_START = "Verify start · "
+    _VERIFY_DONE = "Verify done · "
+    _VERIFY_JOB = re.compile(r"(Verifying|Finished verifying) (\S+ \d+/\d+): (.*?)(?: · no result \((\w+)\))?$")
     # Wall clock of the nine-component, all-phases run those weights describe
     # (Juice Shop, 33m), for the remaining time before this run has a speed of
     # its own. It is a prior: the measured speed replaces it.
@@ -339,8 +347,13 @@ class _AssessmentConsole:
         # survey jobs and the current stage; and the components finished.
         self.units: dict[str, dict] = {}
         self.units_done = 0
-        # Verification jobs after the survey, known once the survey has finished (REQ-040).
-        self.verify_jobs = 0
+        # Verification jobs after the survey, planned before it (REQ-040), the
+        # finished ones, and the start time of each running one by its slot.
+        self.verify_jobs, self.verify_done = 0, 0
+        self.verify_running: dict[str, float] = {}
+        # Start times and durations of the threat analysis steps, Survey and Verify.
+        self.steps: dict[str, float] = {}
+        self.step_times: dict[str, float] = {}
         # Corrected answers per role in the current phase (MR-17).
         self.corrections: Counter = Counter()
         self.results: dict[str, str] = {}
@@ -573,21 +586,74 @@ class _AssessmentConsole:
             weight += self.verify_jobs * self.VERIFY_JOB_WEIGHT
         return weight
 
-    def _verify_step(self, text: str) -> None:
-        """Count verification jobs into the threat analysis share (REQ-040).
+    def _survey_share(self) -> float:
+        """The survey's part of the threat analysis; the verification jobs take the rest."""
+        return 1 - self.verify_jobs * self.VERIFY_JOB_WEIGHT / self._weight("Threat analysis")
 
-        The plan line arrives after the survey, so the phase grows by its jobs and the
-        run's share is recomputed once, as when the component count becomes known."""
-        if plan := self._VERIFY_PLAN.match(text):
-            self.verify_jobs = int(plan[1])
-            weight = self._weight(self.phase)
-            self.fraction = (weight - self.verify_jobs * self.VERIFY_JOB_WEIGHT) / weight
-            self.done = 0.0
-            self._advance(self.fraction)
-        elif (job := self._VERIFY_JOB.match(text)) and self.verify_jobs:
-            weight = self._weight(self.phase)
-            survey = weight - self.verify_jobs * self.VERIFY_JOB_WEIGHT
-            self._advance((survey + (int(job[1]) - 1) * self.VERIFY_JOB_WEIGHT) / weight)
+    def _verify_step(self, text: str, now: float) -> bool:
+        """Show verification as the second step of the threat analysis (REQ-040); False for other lines.
+
+        The plan arrives before the survey, so the phase weighs the jobs from the
+        start and the run's share never falls. Jobs run concurrently, so a job's
+        start only names it, and its end is the row that advances the share.
+        """
+        with _AssessmentConsole._lock:
+            if plan := self._VERIFY_PLAN.match(text):
+                jobs = int(plan[1])
+                if jobs != self.verify_jobs:
+                    # The finished part keeps its weight in the larger phase.
+                    weight = self._weight(self.phase)
+                    self.verify_jobs = jobs
+                    self.fraction *= weight / self._weight(self.phase)
+                    self._advance(self.fraction)
+                if text.startswith(self._VERIFY_START):
+                    if "Survey" in self.steps:
+                        self.step_times["Survey"] = now - self.steps["Survey"]
+                        survey = f"Survey done · {_duration(self.step_times['Survey'])}"
+                        self.record("·", f"{survey} · {_count_noun(self.units_done, 'component')}", now)
+                    self.steps["Verify"] = now
+                    self.current = f"Verify: 0/{jobs} jobs done"
+                self.record("·", text, now)
+                self.shown = (self.current, round(100 * self.done))
+                return True
+            if text.startswith(self._VERIFY_DONE):
+                if "Verify" in self.steps:
+                    self.step_times["Verify"] = now - self.steps["Verify"]
+                    took = _duration(self.step_times["Verify"])
+                    text = f"{self._VERIFY_DONE}{took} · {text[len(self._VERIFY_DONE) :]}"
+                self.current = ""
+                self.record("·", text, now)
+                return True
+            job = self._VERIFY_JOB.match(text)
+            if not job:
+                return False
+            started, slot, name, cause = job[1] == "Verifying", job[2], job[3], job[4]
+            # Names come from repository files and model output.
+            name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
+            if started:
+                self.verify_running[slot] = now
+                began = None
+            else:
+                began = self.verify_running.pop(slot, None)
+                self.verify_done += 1
+                weight = self._weight(self.phase)
+                self._advance(self._survey_share() + self.verify_done * self.VERIFY_JOB_WEIGHT / weight)
+            done = f"Verify: {self.verify_done}/{max(self.verify_jobs, self.verify_done)} jobs done"
+            running = len(self.verify_running)
+            self.current = done + (f" · {running} running" if running else "")
+            if started:
+                # The terminal shows running jobs on its status line; a log gets a row.
+                if not self.live:
+                    self.record("·", f"Verify job {slot} started · {name}", now)
+                return True
+            parts = [done, f"{slot.partition(' ')[0]} · {name}"]
+            if cause:
+                parts.append(f"no result ({cause})")
+            if began is not None:
+                parts.append(_duration(now - began))
+            self.record("⚠" if cause else "✓", " · ".join(parts), now)
+            self.shown = (self.current, round(100 * self.done))
+            return True
 
     def _advance(self, fraction: float) -> None:
         """Record ``fraction`` of the current phase as finished."""
@@ -861,12 +927,10 @@ class _AssessmentConsole:
         prefix, phase = next(((p, name) for p, name in self.PHASES if text.startswith(p)), (None, None))
         if phase is None:
             # Before the first phase a plain line; inside a phase a progress line of it.
-            if self.phase:
-                if self.phase == "Threat analysis":
-                    self._verify_step(text)
-                self.record("·", text)
-            else:
+            if not self.phase:
                 self.write(text)
+            elif not (self.phase == "Threat analysis" and self._verify_step(text, self.clock())):
+                self.record("·", text)
             return
         now = self.clock()
         position = self._POSITION.search(text)
@@ -877,6 +941,7 @@ class _AssessmentConsole:
                 self.phase, self.started, self.finished_jobs = phase, now, 0
                 self.current, self.count, self.positioned, self.parts = "", None, False, {}
                 self.units, self.units_done = {}, 0
+                self.verify_done, self.verify_running, self.steps, self.step_times = 0, {}, {}, {}
                 self.corrections = Counter()
                 self.fraction = 0.0
                 self._advance(0.0)
@@ -934,6 +999,11 @@ class _AssessmentConsole:
         with _AssessmentConsole._lock:
             if prefix == "Surveying component":
                 self.positioned = True
+                if "Survey" not in self.steps:
+                    self.steps["Survey"] = now
+                    # With verification planned, the survey is the first of two steps (REQ-040).
+                    if self.verify_jobs and position:
+                        self.record("·", f"Survey start · {_count_noun(int(position[2]), 'component')}", now)
                 if position:
                     self.count = (max(int(position[2]), self.count[0] if self.count else 0), "component")
                 self.units[name] = {"done": 0, "total": None, "stage": "STRIDE", "started": now}
@@ -955,7 +1025,7 @@ class _AssessmentConsole:
             total = self.count[0] if self.count else 0
             if total:
                 running = sum(self._unit_progress(unit) / 100 for unit in self.units.values())
-                self._advance((self.units_done + running) / total)
+                self._advance(self._survey_share() * (self.units_done + running) / total)
                 # Under concurrency no single component is current; the bars name the running ones.
                 self.current = f"Survey: {self.units_done}/{total} components done"
             if finished is not None:
@@ -1051,6 +1121,7 @@ class _AssessmentConsole:
         if self.phase:
             now = self.clock() if now is None else now
             produced = [_duration(now - self.started)]
+            produced.extend(f"{step} {_duration(seconds)}" for step, seconds in self.step_times.items())
             coverage = self.review_coverage.get(self.phase, {})
             if self.count and "abuse-case verification" not in coverage:
                 produced.append(_count_noun(*self.count))

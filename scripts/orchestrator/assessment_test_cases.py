@@ -1,7 +1,8 @@
 """orchestrator/assessment_test_cases.py: the model-backed test case pilot of a full assessment (REQ-040).
 
-When the scan profile selects pilot aspects, ``_assessment_stride`` runs this
-phase after every STRIDE job is accepted and before the merge. For each
+When the scan profile selects pilot aspects, ``_assessment_stride`` decides
+this phase's jobs before the survey (``plan_pilot``) and runs them after every
+survey job is accepted and before the merge (``run_pilot``). For each
 component and investigated aspect, the enabled test cases that apply get
 their starting candidates from the deterministic facts of the component's
 repository (``model/case_candidates.py``), and one optional
@@ -49,40 +50,20 @@ _ADAPTATION = (
 )
 
 
-def run_pilot(
-    scope,
-    jobs,
-    architecture,
-    scanned,
-    test_cases,
-    envelopes,
-    *,
-    requirement_ids,
-    instructions,
-    concurrently,
-    label,
-    progress,
-) -> dict:
-    """Investigate the selected aspects per component; return the pilot's sidecar document.
+def plan_pilot(scope, architecture, scanned, test_cases, *, progress) -> dict:
+    """Decide the verification jobs before the survey runs, from deterministic inputs only.
 
-    ``scanned`` holds the scanner findings per component and ``envelopes`` the
-    STRIDE context envelope per component. ``instructions(role, adaptation)``
-    and ``concurrently(jobs, items, work)`` are the controller's. The document
-    holds the component results, the findings of accepted replies with
-    ``TCF-`` IDs, and each component's candidates for its context artifact.
+    ``scanned`` holds the scanner findings per component. The jobs depend on
+    the catalog, the architecture and the scanner findings, never on survey
+    results, so the run names them before the survey and the live progress
+    weighs them from the start instead of growing the phase afterwards.
     """
     catalog = case_outcomes.load_catalog()
     cases = {case["id"]: case for case in catalog["test_cases"]}
     disabled = {row["id"]: row["reason"] for row in test_cases["disable"]}
     aspects = [aspect for aspect in test_cases["aspects"] if aspect in INVESTIGATED_ASPECTS]
     deferred = [aspect for aspect in test_cases["aspects"] if aspect not in INVESTIGATED_ASPECTS]
-    if deferred:
-        jobs.notes.append(
-            f"test case aspects {', '.join(deferred)} are selected but not investigated yet; "
-            f"this pilot investigates {', '.join(INVESTIGATED_ASPECTS)} only"
-        )
     components = architecture["components"]["components"]
-    owned = analysis.source_selection(components)
     findings_by_repository = _repository_findings(scope, scanned)
     facts = _repository_facts(scope, architecture, components, findings_by_repository) if aspects else {}
 
@@ -122,8 +103,53 @@ def run_pilot(
                 entry["jobs"] = case_candidates.batches(entry["precheck"])
             entries.append(entry)
     work = [(entry, number) for entry in entries if entry["precheck"] for number in range(1, len(entry["jobs"]) + 1)]
+    worked = sorted({entry["aspect"] for entry, _ in work}, key=aspects.index)
     if work:
-        progress(_budget_statement(jobs, len(work), sorted({entry["aspect"] for entry, _ in work}, key=aspects.index)))
+        progress(f"Verify planned · {_count_jobs(len(work))} for {', '.join(worked)} after the survey")
+    return {
+        "catalog": catalog,
+        "cases": cases,
+        "aspects": aspects,
+        "deferred": deferred,
+        "facts": facts,
+        "entries": entries,
+        "work": work,
+        "worked": worked,
+    }
+
+
+def run_pilot(
+    scope,
+    jobs,
+    architecture,
+    planned,
+    envelopes,
+    *,
+    requirement_ids,
+    instructions,
+    concurrently,
+    label,
+    progress,
+) -> dict:
+    """Run the jobs ``plan_pilot`` decided; return the pilot's sidecar document.
+
+    ``envelopes`` holds the STRIDE context envelope per component.
+    ``instructions(role, adaptation)`` and ``concurrently(jobs, items, work)``
+    are the controller's. The document holds the component results, the
+    findings of accepted replies with ``TCF-`` IDs, and each component's
+    candidates for its context artifact.
+    """
+    catalog, cases, aspects, facts = planned["catalog"], planned["cases"], planned["aspects"], planned["facts"]
+    entries, work = planned["entries"], planned["work"]
+    if planned["deferred"]:
+        jobs.notes.append(
+            f"test case aspects {', '.join(planned['deferred'])} are selected but not investigated yet; "
+            f"this pilot investigates {', '.join(INVESTIGATED_ASPECTS)} only"
+        )
+    components = architecture["components"]["components"]
+    owned = analysis.source_selection(components)
+    if work:
+        progress(_budget_statement(jobs, len(work), planned["worked"]))
 
     def investigate(position, item, view):
         entry, number = item
@@ -132,7 +158,8 @@ def run_pilot(
         share, count = entry["jobs"][number - 1], len(entry["jobs"])
         part = f" (part {number} of {count})" if count > 1 else ""
         envelope = envelopes[component["id"]]
-        progress(f"Verifying {aspect} {position}/{len(work)}: {label(component)}{part}")
+        job = f"{aspect} {position}/{len(work)}: {label(component)}{part}"
+        progress(f"Verifying {job}")
         context = {
             **envelope["context"],
             "aspect": aspect,
@@ -193,12 +220,15 @@ def run_pilot(
         )
         if artifact.get("replaced"):
             gap = next(row for row in view.gaps if row["selector"] == selector)
-            return {"cause": "budget" if gap.get("budget") else "failure"}
+            cause = "budget" if gap.get("budget") else "failure"
+            progress(f"Finished verifying {job} · no result ({cause})")
+            return {"cause": cause}
         if artifact.get("dropped_findings"):
             view.notes.append(
                 f"verification job {selector} dropped {len(artifact['dropped_findings'])} findings that still broke "
                 "an evidence, trace or rating rule after the last correction; their candidates are undecidable"
             )
+        progress(f"Finished verifying {job}")
         return {"reply": artifact}
 
     answered = {}
@@ -261,9 +291,10 @@ def run_pilot(
             for _, answer in answered.get(id(entry), [])
         )
     ]
-    subject = f"{', '.join(aspects)} verification" if aspects else "Verification"
     progress(
-        f"{subject}: {len(results)} results, {len(findings)} findings"
+        "Verify done · "
+        + (f"{', '.join(aspects)} · " if aspects else "")
+        + f"{len(results)} results, {len(findings)} findings"
         + (f"; incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
     )
     return {
@@ -282,22 +313,26 @@ def _budget_statement(jobs, count: int, aspects: list[str]) -> str:
     Until a verification job is accepted, the reserve of a survey job stands in for one: both carry the
     component's context. A run that cannot cover them all keeps going; the budget stops the jobs it cannot
     pay, and their aspects are marked incomplete."""
-    subject = f"Verify: {count} {'job' if count == 1 else 'jobs'} for {', '.join(aspects)}"
+    subject = f"Verify start · {_count_jobs(count)} for {', '.join(aspects)}"
     budget = jobs.budget
     if budget.subscription:
-        return f"{subject}; the run's call and time limits apply"
+        return f"{subject} · the run's call and time limits apply"
     needed = count * budget.job_usd("test_case_investigator", "stride_analyzer")
     available = budget.available_usd()
     if needed <= available:
-        return f"{subject}, about USD {needed:.2f}; the remaining USD {available:.2f} covers them"
+        return f"{subject} · about USD {needed:.2f}, USD {available:.2f} of the budget left"
     jobs.notes.append(
         f"verification needs about USD {needed:.2f} for {count} jobs, but USD {available:.2f} remained; "
         "aspects whose jobs the budget stops are marked incomplete"
     )
     return (
-        f"{subject}, about USD {needed:.2f}; the remaining USD {available:.2f} may not cover them, "
-        "and an aspect that cannot finish is marked incomplete"
+        f"{subject} · about USD {needed:.2f}, but only USD {available:.2f} of the budget left; "
+        "an aspect that cannot finish is marked incomplete"
     )
+
+
+def _count_jobs(count: int) -> str:
+    return f"{count} {'job' if count == 1 else 'jobs'}"
 
 
 def write_workspace(document: dict, workspace, names) -> None:

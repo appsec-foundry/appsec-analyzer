@@ -602,15 +602,21 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert count > 1 and host.investigations == [(service, "AuthZ")] * count
     # The progress counts the step's jobs and names a component's part only when it has several.
     name = next(row["name"] for row in model["components"] if row["id"] == service)
-    # REQ-040: before the first job the run says whether the remaining budget covers them all.
-    (plan,) = [text for text in said if text.startswith("Verify: ")]
-    assert plan.startswith(f"Verify: {count} jobs for AuthZ, about USD ") and " the remaining USD " in plan
-    assert said.index(plan) < min(said.index(text) for text in said if text.startswith("Verifying AuthZ "))
-    assert {text for text in said if text.startswith("Verifying AuthZ ")} == {
-        f"Verifying AuthZ {number}/{count}: {name} (part {number} of {count})" for number in range(1, count + 1)
-    }
-    summary = f"AuthZ verification: {len(_component_rows(model))} results, {len(model['test_case_findings'])} findings"
-    assert summary in said
+    # REQ-040: the jobs are named before the survey, so the live progress weighs them from the start.
+    planned = said.index(f"Verify planned · {count} jobs for AuthZ after the survey")
+    assert planned < min(said.index(text) for text in said if text.startswith("Surveying component"))
+    # Before the first job the run says whether the remaining budget covers them all.
+    (start,) = [text for text in said if text.startswith("Verify start · ")]
+    assert start.startswith(f"Verify start · {count} jobs for AuthZ · about USD ") and " of the budget left" in start
+    assert said.index(start) < min(said.index(text) for text in said if text.startswith("Verifying AuthZ "))
+    jobs = [f"AuthZ {number}/{count}: {name} (part {number} of {count})" for number in range(1, count + 1)]
+    assert {text for text in said if text.startswith("Verifying AuthZ ")} == {f"Verifying {job}" for job in jobs}
+    # Each job reports its end after its start, so the console counts finished jobs.
+    assert all(said.index(f"Verifying {job}") < said.index(f"Finished verifying {job}") for job in jobs)
+    summary = (
+        f"Verify done · AuthZ · {len(_component_rows(model))} results, {len(model['test_case_findings'])} findings"
+    )
+    assert said.index(summary) > max(said.index(f"Finished verifying {job}") for job in jobs)
 
     # Each pre-check candidate is answered in exactly one job; together the jobs answer all of them.
     answered = [cid for _, share in calls.values() for ids in share.values() for cid in ids]

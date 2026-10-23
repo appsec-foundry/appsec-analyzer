@@ -1835,6 +1835,13 @@ def _assessment_stride(
         )
     progress("Running deterministic source scanners")
     scanned = assessment_scanner_findings.scan(scope, components, depth=depth)
+    # REQ-040 pilot: its jobs reuse each component's STRIDE context envelope.
+    envelopes = {} if pilot is not None and isinstance(test_cases, dict) and test_cases["aspects"] else None
+    if envelopes is not None:
+        from orchestrator import assessment_test_cases
+
+        # Decided before the survey, so the live progress weighs the verification from the start.
+        planned = assessment_test_cases.plan_pilot(scope, architecture, scanned, test_cases, progress=progress)
 
     # Completion order, which differs from component order under MR-16.
     import itertools
@@ -1850,9 +1857,6 @@ def _assessment_stride(
 
     def label(component):
         return component["name"] + (f" [{component['id'][-6:]}]" if names[component["name"]] > 1 else "")
-
-    # REQ-040 pilot: its jobs reuse each component's STRIDE context envelope.
-    envelopes = {} if pilot is not None and isinstance(test_cases, dict) and test_cases["aspects"] else None
 
     def analyze(position, component, jobs):
         """Analyze and review one component; `jobs` is its own view (MR-16)."""
@@ -2146,15 +2150,12 @@ def _assessment_stride(
     found = sum(len(document["threats"]) for document in documents) + sum(len(rows) for rows in scanned.values())
     _phase_result(progress, "Threat analysis", _count_noun(found, "finding"))
     if envelopes is not None:
-        from orchestrator import assessment_test_cases
-
         pilot.update(
             assessment_test_cases.run_pilot(
                 scope,
                 jobs,
                 architecture,
-                scanned,
-                test_cases,
+                planned,
                 envelopes,
                 requirement_ids=assessment_context.requirement_ids(captured) if captured else frozenset(),
                 instructions=_assessment_role_instructions,
