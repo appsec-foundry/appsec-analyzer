@@ -38,7 +38,7 @@ Each finding needs a specific attacker action and consequence, a base or variant
 
 ## Reading beyond the starting points
 
-The context's `starting_files` lists the starting files: the candidates' files and the files of the source the controller served with the first packet. Every other file you read is a further file; another range of a starting file is not. Read further files only where the objective needs them, at most 15 per job. List every further file you read in `discovery_escapes`, once, with its repository-relative path, the test case it served, and the reason: `missing-control-proof`, `ambiguous-data-flow`, `other-entry-point` or `variant-check`. The controller rejects a reply that leaves a further read unlisted or lists a file it did not serve.
+The context's `starting_files` lists the starting files: the candidates' files and the files of the source the controller served with the first packet. Every other file you read is a further file; another range of a starting file is not. Read further files only where the objective needs them, at most 15 per job. List every further file you read in `discovery_escapes`, once, with its repository-relative path, the test case it served, and the reason: `missing-control-proof`, `ambiguous-data-flow`, `other-entry-point` or `variant-check`. The controller rejects a reply that lists a file it did not serve.
 
 ## Output
 

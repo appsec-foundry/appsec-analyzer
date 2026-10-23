@@ -517,13 +517,13 @@ requirements:
       - tests/test_case_analysis.py::test_a_documentation_control_is_accepted_for_the_outcome_to_downgrade
       - tests/test_case_analysis.py::test_a_model_route_must_exist_at_its_anchor_and_the_rejection_repeats_no_model_text
       - tests/test_case_analysis.py::test_a_model_candidate_stays_in_the_component
-      - tests/test_case_analysis.py::test_every_further_read_is_listed_and_only_those
+      - tests/test_case_analysis.py::test_escapes_list_only_served_further_reads
       - tests/test_case_analysis.py::test_more_than_fifteen_further_files_are_rejected
       - tests/test_case_analysis.py::test_findings_keep_the_stride_evidence_rules
       - tests/test_case_analysis.py::test_identity_and_aspect_belong_to_the_job
       - tests/test_case_analysis.py::test_the_normalizer_sets_controller_fields_and_fixes_precheck_candidates
       - tests/test_case_analysis.py::test_an_open_review_keeps_findings_outside_every_test_case
-      - tests/test_case_analysis.py::test_an_open_review_lists_its_further_reads
+      - tests/test_case_analysis.py::test_an_open_review_lists_only_served_further_reads
       - tests/test_case_analysis.py::test_the_schema_files_reference_the_stride_contract_by_id
       - tests/test_assessment_budget_holds.py::test_other_optional_groups_see_the_available_budget_minus_the_hold
       - tests/test_assessment_budget_holds.py::test_required_work_and_calls_outside_a_job_ignore_holds

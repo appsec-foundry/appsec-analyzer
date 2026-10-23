@@ -22,7 +22,7 @@ No finding is a valid result. Never invent a finding to fill the review.
 
 ## Reading beyond the starting points
 
-The context names the starting files. Read further files only where a workflow or invariant needs them, at most 15 per job. List every further file you read in `discovery_escapes`, once, with its repository-relative path and the reason: `missing-control-proof`, `ambiguous-data-flow`, `other-entry-point` or `variant-check`. The controller rejects a reply that leaves a further read unlisted or lists a file it did not serve.
+The context names the starting files. Read further files only where a workflow or invariant needs them, at most 15 per job. List every further file you read in `discovery_escapes`, once, with its repository-relative path and the reason: `missing-control-proof`, `ambiguous-data-flow`, `other-entry-point` or `variant-check`. The controller rejects a reply that lists a file it did not serve.
 
 ## Output
 

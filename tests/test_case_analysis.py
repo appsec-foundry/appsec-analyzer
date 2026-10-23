@@ -461,10 +461,10 @@ def test_combined_proposals_follow_the_outcome_rules(job, proposals, combined):
     assert ca.combine_investigations(parts)["test_cases"][0]["proposed_outcome"] == combined
 
 
-def test_every_further_read_is_listed_and_only_those(job):
+def test_escapes_list_only_served_further_reads(job):
     ranges = [job["read"]("server.js"), job["read"]("lib/f1.js")]
-    with pytest.raises(Rejection, match="lib/f1.js was read beyond the starting files"):
-        validate(job, reply(job), ranges)
+    # The receipt records every served range, so an unlisted further read costs no correction.
+    validate(job, reply(job), ranges)
     listed = [dict(reason="other-entry-point", test_case_id="TC-AUTHZ-01", search_paths=["lib/f1.js"])]
     validate(job, reply(job, discovery_escapes=listed), ranges)
     # A listed file the controller never served.
@@ -507,15 +507,18 @@ def test_findings_keep_the_stride_evidence_rules(job):
 def test_one_rejection_names_every_independent_class_within_the_feedback_limit(job):
     from runtime.assessment_host import MAX_FEEDBACK_CHARS
 
-    # An unlisted further read, a finding in another component's file, and a trace that breaks its rule.
+    # An escape the job did not serve, a finding in another component's file, and a trace that breaks its rule.
     artifact = reply(job, findings=[_traced(job, 8), finding(job["at"], local_id="api-002", candidate_ids=["m-1"])])
     artifact["findings"][1]["evidence"] = job["at"]("admin/app.js", 1)
     artifact["test_cases"][0]["candidates"][1]["finding_ids"] = ["api-001", "api-002"]
+    artifact["discovery_escapes"] = [
+        dict(reason="variant-check", test_case_id="TC-AUTHZ-01", search_paths=["lib/f2.js"])
+    ]
     ranges = [job["read"]("server.js"), job["read"]("admin/app.js"), job["read"]("lib/f1.js")]
     with pytest.raises(Rejection) as error:
         validate(job, artifact, ranges, starting={(REPO, "server.js"), (REPO, "admin/app.js")})
     reason = str(error.value)[:MAX_FEEDBACK_CHARS]
-    assert "lib/f1.js was read beyond the starting files" in reason
+    assert "discovery_escapes[0] lists a file this job did not read beyond its starting files" in reason
     assert "findings[1].evidence lies in admin/app.js, outside the component's own files" in reason
     assert "findings[0].mechanism_trace.control.location must equal the sink" in reason
     # The escape is no finding's violation, so no finding alone can be dropped for it.
@@ -741,12 +744,13 @@ def test_an_open_review_keeps_findings_outside_every_test_case(job):
     assert normalize(copy.deepcopy(linked))["findings"][0]["test_case_ids"] == []
 
 
-def test_an_open_review_lists_its_further_reads(job):
+def test_an_open_review_lists_only_served_further_reads(job):
     ranges = [job["read"]("server.js"), job["read"]("lib/f2.js")]
-    with pytest.raises(Rejection, match="lib/f2.js was read beyond the starting files"):
-        validate_open(job, open_review(job), ranges)
+    validate_open(job, open_review(job), ranges)
     escapes = [dict(reason="ambiguous-data-flow", search_paths=["lib/f2.js"])]
     validate_open(job, open_review(job, discovery_escapes=escapes), ranges)
+    with pytest.raises(Rejection, match=r"discovery_escapes\[0\] lists a file this job did not read"):
+        validate_open(job, open_review(job, discovery_escapes=escapes), ranges[:1])
 
 
 def test_the_schema_files_reference_the_stride_contract_by_id():

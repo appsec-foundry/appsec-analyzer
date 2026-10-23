@@ -554,7 +554,11 @@ def _link_errors(artifact) -> list[str]:
 
 
 def _validate_escapes(artifact, ranges, starting_sources, cases: set[str] | None) -> None:
-    """Every file served beyond the starting files is listed once, and only those, at most 15."""
+    """Escapes list only files served beyond the starting files, each once, and at most 15 such files are read.
+
+    A further read the reply leaves unlisted costs no correction: the job's
+    receipt records every served range, so the list adds only the model's reasons.
+    """
     starting = set(starting_sources)
     further = sorted({row["path"] for row in ranges if (row["repository_id"], row["path"]) not in starting})
     errors, listed = [], {}
@@ -571,11 +575,6 @@ def _validate_escapes(artifact, ranges, starting_sources, cases: set[str] | None
         f"discovery_escapes[{index}] lists a file this job did not read beyond its starting files"
         for path, index in listed.items()
         if path not in further
-    ]
-    errors += [
-        f"{path} was read beyond the starting files; list it in discovery_escapes"
-        for path in further
-        if path not in listed
     ]
     if errors:
         raise Rejection(
