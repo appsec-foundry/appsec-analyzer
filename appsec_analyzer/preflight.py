@@ -15,6 +15,36 @@ from urllib.parse import urlsplit
 from appsec_analyzer.terminal import field
 
 _LABEL = 12
+# Before an assessment: low-cost models that share the account's login, quota and billing.
+# Analyzer knows none for LiteLLM, Bedrock and Copilot, which therefore get no model test.
+_TEST_MODELS = {"claude-cli": "haiku", "openai": "gpt-luna", "codex-cli": "gpt-luna"}
+TEST_LIMIT_USD = 0.05
+# Only these failures prove a setup problem; any other outcome leaves the setup unknown.
+_SETUP_FAILURES = {"authentication_failed", "billing_error", "quota_exhausted"}
+_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["ok"],
+    "properties": {"ok": {"type": "boolean", "const": True}},
+}
+_REASONS = {
+    "authentication_failed",
+    "rate_limit",
+    "quota_exhausted",
+    "billing_error",
+    "budget_exhausted",
+    "error_max_budget_usd",
+    "timeout",
+    "output_token_limit",
+    "invalid_response",
+    "invalid_response_stream",
+    "invalid_response_envelope",
+    "invalid_response_payload",
+    "unexpected_host_item",
+    "incomplete_response",
+    "invalid_request",
+    "response_too_large",
+}
 
 
 def _say(ns, label, message, *, status="muted", always=False):
@@ -153,8 +183,12 @@ def run(ns, *, api_profile=None, runtime=None):
         result["limitations"] = [
             "Only the survey's model, the primary model, was tested for generation; other roles and live assessment quality remain unverified."
         ]
+    elif getattr(ns, "command", "preflight") != "preflight" and host in _TEST_MODELS:
+        result["generation_test"] = _test_low_cost_model(ns, api_profile=api_profile, runtime=runtime)
     for limitation in result["limitations"]:
-        if not test_model:
+        if result["generation_test"] == "test_model_passed":
+            limitation = "only the test model answered; the run's own models answer for the first time in the run"
+        elif not test_model:
             if result["provider_check"] == "local_configuration":
                 limitation = (
                     "not tested; no model call before the assessment"
@@ -169,18 +203,10 @@ def run(ns, *, api_profile=None, runtime=None):
 
 
 def _test_model(ns, *, api_profile, runtime):
-    from runtime.analyst_host import ClaudeCliTransport, TransportError
-
-    from appsec_analyzer.profiles import reject_source_paths
+    from runtime.analyst_host import TransportError
 
     host = ns.run_profile["adapter"]
     settings = ns.run_profile["models"]["stride_analyzer"]
-    schema = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["ok"],
-        "properties": {"ok": {"type": "boolean", "const": True}},
-    }
     destination = urlsplit(api_profile.endpoint).hostname if api_profile else host
     selected_model = (ns.stride_model or ns.model or settings["model"]) if host == "claude-cli" else settings["model"]
     _say(
@@ -195,15 +221,78 @@ def _test_model(ns, *, api_profile, runtime):
         _say(ns, "", "one CLI session uses a minimum 30-credit soft limit; a response may exceed it", always=True)
     else:
         _say(ns, "", f"separate generation-test budget: USD {ns.hard_budget:g}", always=True)
+    try:
+        reply = _exchange(ns, settings, selected_model, ns.hard_budget, runtime, api=api_profile is not None)
+    except TransportError as exc:
+        raise ValueError(
+            f"Preflight generation test failed ({_reason(exc)}); check credentials, model access and limits"
+        ) from None
+    if not _valid(reply):
+        raise ValueError("Preflight generation test returned an invalid response")
+    _say(ns, "Model test", "primary model generation passed", status="ok")
+
+
+def _test_low_cost_model(ns, *, api_profile, runtime):
+    """Before an assessment: one exchange with a low-cost model, outside the run's limit.
+
+    Only a failure that proves a setup problem stops the run; any other outcome
+    warns, and the run's own first model call checks the setup again.
+    """
+    from runtime.analyst_host import HostCancelled, TransportError
+
+    from appsec_analyzer.profiles import api_profile as role_profile
+    from appsec_analyzer.profiles import resolve_model
+
+    host = ns.run_profile["adapter"]
+    if host == "claude-cli":
+        settings = {"model": _TEST_MODELS[host]}
+    else:
+        settings = resolve_model({"model": _TEST_MODELS[host], "reasoning_effort": "low"}, host)
+    model = settings["model"]
+    destination = urlsplit(role_profile(settings).endpoint).hostname if api_profile else host
+    cost = (
+        "one exchange from ChatGPT plan allowance"
+        if host == "codex-cli"
+        else f"own limit USD {TEST_LIMIT_USD:.2f} outside the run budget"
+    )
+    _notice(f"{field(model)} at {field(destination)}: fixed synthetic prompt only, no repository content; {cost}")
+    try:
+        reply = _exchange(ns, settings, model, TEST_LIMIT_USD, runtime, api=api_profile is not None)
+    except TransportError as exc:
+        outcome = _reason(exc)
+        if outcome in _SETUP_FAILURES:
+            _say(ns, "Model test", f"{field(model)}: {outcome}", status="critical")
+            raise ValueError(
+                f"Preflight model test failed ({outcome}); check the login or API key, billing and quota"
+            ) from None
+    except (HostCancelled, OSError):
+        outcome = "no answer"
+    else:
+        if _valid(reply):
+            usd = f" · USD {reply.usd:.4f}" if reply.usd is not None else ""
+            _say(ns, "Model test", f"{field(model)} answered{usd}", status="ok")
+            return "test_model_passed"
+        outcome = "invalid_response"
+    _say(ns, "Model test", f"{field(model)}: inconclusive ({outcome}); the run continues", status="warn")
+    return "test_model_inconclusive"
+
+
+def _exchange(ns, settings, model, ceiling, runtime, *, api):
+    """One synthetic exchange from a private temporary directory outside every source."""
+    from runtime.analyst_host import ClaudeCliTransport
+
+    from appsec_analyzer.profiles import reject_source_paths
+
+    host = ns.run_profile["adapter"]
     with tempfile.TemporaryDirectory(prefix="appsec-model-check-") as work:
         reject_source_paths([work], ns.repo or [str(Path.cwd())])
-        if api_profile is not None:
+        if api:
             from appsec_analyzer.api_hosts import ResponsesTransport
             from appsec_analyzer.profiles import api_profile as role_profile
 
-            api_profile = role_profile(settings)
+            profile = role_profile(settings)
             transport = ResponsesTransport(
-                replace(api_profile, max_output_tokens=min(1024, api_profile.output_token_bound)), ns.hard_budget
+                replace(profile, max_output_tokens=min(1024, profile.output_token_bound)), ceiling
             )
         elif host == "codex-cli":
             from appsec_analyzer.codex_cli import CodexCliTransport
@@ -216,45 +305,34 @@ def _test_model(ns, *, api_profile, runtime):
         else:
             transport = ClaudeCliTransport(
                 Path(work) / "work",
-                model=selected_model,
-                max_budget_usd=math.floor(ns.hard_budget) + math.floor((ns.hard_budget % 1) * 100) / 100,
+                model=model,
+                max_budget_usd=math.floor(ceiling) + math.floor((ceiling % 1) * 100) / 100,
                 executable=os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude",
                 effort=settings.get("reasoning_effort"),
             )
-        try:
-            reply = transport.invoke(
-                "Connectivity test. Return the requested JSON object.",
-                'Return {"ok": true}.',
-                schema,
-                30,
-                lambda: False,
-            )
-        except TransportError as exc:
-            # Only host-defined classifications, never provider prose or model output.
-            allowed = {
-                "authentication_failed",
-                "rate_limit",
-                "quota_exhausted",
-                "billing_error",
-                "budget_exhausted",
-                "timeout",
-                "output_token_limit",
-                "invalid_response",
-                "invalid_response_stream",
-                "invalid_response_envelope",
-                "invalid_response_payload",
-                "unexpected_host_item",
-                "incomplete_response",
-                "invalid_request",
-                "response_too_large",
-            }
-            reason = exc.reason if exc.reason in allowed else "host_failure"
-            raise ValueError(
-                f"Preflight generation test failed ({reason}); check credentials, model access and limits"
-            ) from None
-        if type(reply.payload) is not dict or reply.payload != {"ok": True} or type(reply.payload["ok"]) is not bool:
-            raise ValueError("Preflight generation test returned an invalid response")
-        _say(ns, "Model test", "primary model generation passed", status="ok")
+        return transport.invoke(
+            "Connectivity test. Return the requested JSON object.",
+            'Return {"ok": true}.',
+            _SCHEMA,
+            30,
+            lambda: False,
+        )
+
+
+def _reason(exc):
+    # Only host-defined classifications, never provider prose or model output.
+    return exc.reason if exc.reason in _REASONS else "host_failure"
+
+
+def _valid(reply):
+    return type(reply.payload) is dict and reply.payload == {"ok": True} and type(reply.payload["ok"]) is bool
+
+
+def _notice(message):
+    """Shown before the call, even with --quiet; the result joins the Preflight block."""
+    from renderers.term_style import Style
+
+    print(Style.for_stream(sys.stderr)(f"Model test: {message}", "muted"), file=sys.stderr, flush=True)
 
 
 def print_result(result, *, as_json=False):

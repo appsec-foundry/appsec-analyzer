@@ -609,6 +609,11 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         help="Show full startup details, correlated model calls and sanitized correction details",
     )
     control_group.add_argument("--progress-file", metavar="PATH")
+    control_group.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip the repository access, provider and model test checks before the run; such errors show up later",
+    )
     provider_group.add_argument(
         "--model",
         metavar="MODEL",
@@ -1263,7 +1268,14 @@ def _assess(ns: argparse.Namespace) -> int:
                 )
         elif "hard_budget" not in getattr(ns, "explicit", ()) or ns.hard_budget < 0.01:
             raise ValueError("preflight --test-model requires an explicit --budget of at least USD 0.01")
-    result = run_preflight(ns, api_profile=api_profile, runtime=runtime)
+    if getattr(ns, "skip_preflight", False):
+        # Source admission, clone controls and the host CLI checks above still apply.
+        result = None
+        ns.preflight_checks = (
+            ("⚠", "Checks", "skipped (--skip-preflight); access, provider and model errors show up later"),
+        )
+    else:
+        result = run_preflight(ns, api_profile=api_profile, runtime=runtime)
     if ns.command == "preflight":
         print_result(result, as_json=ns.json)
         return 0

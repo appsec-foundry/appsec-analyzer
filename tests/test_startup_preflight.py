@@ -413,3 +413,199 @@ def test_opt_in_probe_has_only_synthetic_content_and_bounded_budget(repository, 
     assert cli.main(["preflight", "--repo", str(repository), "--test-model", "--budget", "0.1", "--json"]) == 0
     assert len(seen) == 1
     assert json.loads(capsys.readouterr().out)["generation_test"] == "primary_model_passed"
+
+
+def _record_assessment(monkeypatch, events):
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    def assess(request, **kw):
+        events.append(("assess", request.namespace().preflight_checks))
+        return 0
+
+    monkeypatch.setattr(orchestration_controller, "assess_main", assess)
+
+
+def test_assess_tests_haiku_before_the_run_with_its_own_limit(repository, model_test, monkeypatch, capsys):
+    cli._engine_imports()
+    from runtime.analyst_host import ClaudeCliTransport, HostReply
+
+    events = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+
+    def invoke(self, system, prompt, schema, timeout_s, should_stop):
+        assert self.model == "haiku" and self.max_budget_usd == 0.05 and self.effort is None
+        assert prompt == 'Return {"ok": true}.' and "tools" not in schema and timeout_s == 30
+        assert self.read_root is None and str(repository) not in str(self.work_dir)
+        events.append(("test", self.model))
+        return HostReply(payload={"ok": True}, usd=0.0004)
+
+    monkeypatch.setattr(ClaudeCliTransport, "invoke", invoke)
+    _record_assessment(monkeypatch, events)
+    # Thorough depth analyzes with Opus; the test still uses the low-cost model.
+    assert cli.main(["assess", "--repo", str(repository), "--assessment-depth", "thorough"]) == 0
+    assert [kind for kind, _ in events] == ["test", "assess"]
+    checks = events[1][1]
+    assert ("✓", "Model test", "haiku answered · USD 0.0004") in checks
+    assert (
+        "·",
+        "Provider",
+        "only the test model answered; the run's own models answer for the first time in the run",
+    ) in checks
+    err = capsys.readouterr().err
+    assert "Model test: haiku at claude-cli: fixed synthetic prompt only, no repository content" in err
+    assert "own limit USD 0.05 outside the run budget" in err
+
+
+def test_assess_tests_luna_through_the_api_after_every_role_model_check(repository, metadata, model_test, monkeypatch):
+    cli._engine_imports()
+    from runtime.analyst_host import HostReply
+
+    from appsec_analyzer import profiles
+
+    def read(self, limit):
+        return json.dumps({"id": self.requests[0][0][1].rsplit("/", 1)[-1]}).encode()
+
+    metadata.read = read
+    events = []
+
+    def invoke(self, system, prompt, schema, timeout_s, should_stop):
+        assert self.profile.model == "gpt-6-luna" and self.profile.reasoning_effort == "low"
+        assert self.profile.max_output_tokens == 1024 and self.ceiling == 0.05
+        events.append(("test", self.profile.model))
+        return HostReply(payload={"ok": True}, usd=0.0002)
+
+    monkeypatch.setattr(api_hosts.ResponsesTransport, "invoke", invoke)
+    _record_assessment(monkeypatch, events)
+    assert cli.main(["assess", "--repo", str(repository), "--profile", "codex"]) == 0
+    expected = {row["model"] for row in profiles.resolve_scan("codex")["models"].values()}
+    assert {connection.requests[0][0][1].rsplit("/", 1)[-1] for connection in metadata.instances} == expected
+    assert [kind for kind, _ in events] == ["test", "assess"]
+
+
+def test_codex_assess_tests_luna_with_one_plan_exchange(repository, model_test, monkeypatch, capsys):
+    cli._engine_imports()
+    from runtime.analyst_host import HostReply
+
+    from appsec_analyzer import codex_cli
+
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    events = []
+
+    def invoke(self, system, prompt, schema, timeout_s, should_stop):
+        events.append(("test", self.model, self.effort))
+        return HostReply(payload={"ok": True})
+
+    monkeypatch.setattr(codex_cli.CodexCliTransport, "invoke", invoke)
+    _record_assessment(monkeypatch, events)
+    assert cli.main(["assess", "--repo", str(repository), "--profile", "codex-cli"]) == 0
+    assert events[0] == ("test", "gpt-6-luna", "low") and events[1][0] == "assess"
+    assert ("✓", "Model test", "gpt-6-luna answered") in events[1][1]
+    assert "one exchange from ChatGPT plan allowance" in capsys.readouterr().err
+
+
+def test_copilot_assess_has_no_model_test(repository, model_test, monkeypatch, tmp_path):
+    cli._engine_imports()
+    from appsec_analyzer import copilot_cli
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(copilot_cli, "preflight", lambda **kw: {"executable": "/fixture/copilot", "version": "1.0.101"})
+    monkeypatch.setattr(copilot_cli.CopilotCliTransport, "invoke", lambda *a, **kw: pytest.fail("no Copilot session"))
+    events = []
+    _record_assessment(monkeypatch, events)
+    assert cli.main(["assess", "--repo", str(repository), "--profile", "copilot-cli"]) == 0
+    assert [label for _, label, _ in events[0][1]] == ["Repository", "Copilot CLI", "Provider"]
+
+
+@pytest.mark.parametrize(
+    ("reason", "status"),
+    [
+        ("authentication_failed", 401),
+        ("authentication_failed", 403),
+        ("authentication_failed", None),
+        ("billing_error", 402),
+        ("quota_exhausted", None),
+    ],
+)
+def test_definite_setup_failure_stops_assess_before_checkout(
+    repository, model_test, monkeypatch, capsys, reason, status
+):
+    cli._engine_imports()
+    from runtime import remote_repositories
+    from runtime.analyst_host import ClaudeCliTransport, TransportError
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+
+    def invoke(self, *args):
+        raise TransportError("provider detail sk-synthetic", reason=reason, http_status=status)
+
+    monkeypatch.setattr(ClaudeCliTransport, "invoke", invoke)
+    monkeypatch.setattr(remote_repositories, "checkout_arguments", lambda *a, **kw: pytest.fail("no checkout"))
+    assert cli.main(["assess", "--repo", str(repository)]) == 2
+    err = capsys.readouterr().err
+    assert f"Preflight model test failed ({reason})" in err
+    assert "sk-synthetic" not in err and "provider detail" not in err
+
+
+@pytest.mark.parametrize(
+    ("outcome", "label"),
+    [
+        (("rate_limit", None), "rate_limit"),
+        (("timeout", None), "timeout"),
+        (("budget_exhausted", None), "budget_exhausted"),
+        (("error_max_budget_usd", None), "error_max_budget_usd"),
+        (("provider prose", None), "host_failure"),
+        ("host_timeout", "no answer"),
+        ("invalid_payload", "invalid_response"),
+    ],
+)
+def test_inconclusive_model_test_warns_and_the_assessment_continues(
+    repository, model_test, monkeypatch, outcome, label
+):
+    cli._engine_imports()
+    from runtime.analyst_host import ClaudeCliTransport, HostReply, HostTimeout, TransportError
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+
+    def invoke(self, *args):
+        if outcome == "host_timeout":
+            raise HostTimeout("no answer within the limit")
+        if outcome == "invalid_payload":
+            return HostReply(payload={"ok": False})
+        raise TransportError("detail", reason=outcome[0], http_status=outcome[1])
+
+    monkeypatch.setattr(ClaudeCliTransport, "invoke", invoke)
+    events = []
+    _record_assessment(monkeypatch, events)
+    assert cli.main(["assess", "--repo", str(repository)]) == 0
+    assert [kind for kind, _ in events] == ["assess"]
+    assert ("⚠", "Model test", f"haiku: inconclusive ({label}); the run continues") in events[0][1]
+
+
+def test_skip_preflight_starts_the_assessment_without_access_provider_or_model_checks(
+    model_test, monkeypatch, tmp_path
+):
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+    from runtime import remote_repositories
+    from runtime.analyst_host import ClaudeCliTransport
+
+    url = "https://git.example/team/source.git"
+    seen = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(remote_repositories, "check_access", lambda remote: pytest.fail("no access check"))
+    monkeypatch.setattr(ClaudeCliTransport, "invoke", lambda *a, **kw: pytest.fail("no model test"))
+    monkeypatch.setattr(remote_repositories.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(remote_repositories, "clone", lambda remote, root: seen.append("clone") or root.mkdir())
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda request, **kw: seen.append(request) or 0)
+    output = tmp_path / "output"
+    assert cli.main(["assess", "--repo", url, "--output", str(output), "--skip-preflight"]) == 0
+    # The clone and the controller's admission checks still run; the controller never sees the option.
+    assert seen[0] == "clone"
+    request = seen[1]
+    assert request.options.preflight_checks[-1] == (
+        "⚠",
+        "Checks",
+        "skipped (--skip-preflight); access, provider and model errors show up later",
+    )
+    assert "--skip-preflight" not in request.arguments

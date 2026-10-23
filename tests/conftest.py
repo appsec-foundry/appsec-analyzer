@@ -13,6 +13,23 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
 
+@pytest.fixture(autouse=True)
+def _no_live_model_test(request, monkeypatch):
+    """`assess` tests a model before every run; without this, an installed CLI or API key would be called.
+
+    Tests of that check request the `model_test` fixture and mock the transports themselves.
+    """
+    if "model_test" not in request.fixturenames:
+        from appsec_analyzer import preflight
+
+        monkeypatch.setattr(preflight, "_test_low_cost_model", lambda ns, **kw: "test_model_inconclusive")
+
+
+@pytest.fixture
+def model_test():
+    """Run the real model test before an assessment; the test must mock every transport it reaches."""
+
+
 @pytest.fixture
 def run_plugin_script():
     """Run one repository-owned engine script without a shell."""

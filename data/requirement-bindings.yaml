@@ -1277,6 +1277,13 @@ requirements:
       - tests/test_codex_cli.py::test_reconnect_activity_is_visible_and_contains_no_provider_text
       - tests/test_codex_cli.py::test_response_failure_classification_is_safe_and_never_uses_earlier_answer
       - tests/test_startup_preflight.py::test_failed_remote_stops_before_any_clone_or_assessment
+      - tests/test_startup_preflight.py::test_assess_tests_haiku_before_the_run_with_its_own_limit
+      - tests/test_startup_preflight.py::test_assess_tests_luna_through_the_api_after_every_role_model_check
+      - tests/test_startup_preflight.py::test_codex_assess_tests_luna_with_one_plan_exchange
+      - tests/test_startup_preflight.py::test_copilot_assess_has_no_model_test
+      - tests/test_startup_preflight.py::test_definite_setup_failure_stops_assess_before_checkout
+      - tests/test_startup_preflight.py::test_inconclusive_model_test_warns_and_the_assessment_continues
+      - tests/test_startup_preflight.py::test_skip_preflight_starts_the_assessment_without_access_provider_or_model_checks
       - tests/test_assessment_jobs.py::test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_receipted
       - tests/test_assessment_diagnostics.py::test_required_failure_retains_selector_role_and_long_rejection
       - tests/test_multi_repo_discovery.py::test_two_rejected_discoveries_complete_within_the_original_exchange_limit
