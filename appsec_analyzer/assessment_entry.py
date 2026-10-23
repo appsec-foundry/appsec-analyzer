@@ -154,13 +154,25 @@ def apply_launch_defaults(ns, profile: dict, explicit) -> None:
     if ns.launch_defaults == "advisor":
         if profile["adapter"] != "claude-cli" or ns.host not in (None, "claude-cli"):
             raise ValueError("the Claude-host assessment entry requires the Claude CLI adapter")
-        if "hard_budget" not in explicit:
-            profile["settings"]["budget"] = (
-                round(ns.soft_budget * 1.25, 2)
-                if ns.soft_budget is not None
-                else {"quick": 10.0, "standard": 20.0, "thorough": 40.0}[profile["settings"]["assessment_depth"]]
+        if "hard_budget" not in explicit and ns.soft_budget is not None:
+            profile["settings"]["budget"] = round(ns.soft_budget * 1.25, 2)
+            profile["origins"]["settings"]["budget"] = "deprecated soft budget"
+        elif "hard_budget" not in explicit:
+            # REQ-018: the depth's budget from the shipped file, the organization, then the scan profile.
+            from appsec_analyzer import depth_settings
+
+            organization = depth_settings.organization_depths(
+                getattr(ns, "org_profile", None),
+                bool(getattr(ns, "no_org_profile", False)),
+                getattr(ns, "preset", None),
             )
-            profile["origins"]["settings"]["budget"] = "Claude-host depth budget or deprecated soft budget"
+            values, origins = depth_settings.effective(
+                profile["settings"]["assessment_depth"],
+                organization=organization,
+                scan=profile["settings"].get("depths"),
+            )
+            profile["settings"]["budget"] = float(values["budget"])
+            profile["origins"]["settings"]["budget"] = f"Claude-host depth budget ({origins['budget']})"
         if ns.max_parallel is None:
             profile["settings"]["max_parallel"] = 3
             profile["origins"]["settings"]["max_parallel"] = "Claude-host default"

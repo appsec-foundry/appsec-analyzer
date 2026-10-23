@@ -323,7 +323,10 @@ def run_abuse_cases(
     workspace, root = Path(workspace), Path(root)
     receipts: list[str] = []
     progress("Matching abuse cases")
-    if cfg.get("assessment_depth") == "thorough" and not cfg.get("only_abuse_case_ids"):
+    settings = cfg.get("depth_settings")
+    # REQ-018: the depth setting decides whether the model derives cases; without one, thorough depth does.
+    derive = settings["derived_abuse_cases"] > 0 if settings else cfg.get("assessment_depth") == "thorough"
+    if derive and not cfg.get("only_abuse_case_ids"):
         progress("Deriving application-specific business abuse cases")
         receipts += _derive(jobs, workspace, instructions=instructions)
     org = ["--org-profile", str(cfg["org_profile_path"])] if cfg.get("org_profile_path") else []

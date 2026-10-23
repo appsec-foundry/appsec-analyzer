@@ -8,7 +8,7 @@ import subprocess
 import pytest
 import yaml
 
-from appsec_analyzer import cli, profiles, resource_root
+from appsec_analyzer import cli, depth_settings, profiles, resource_root
 from tests.test_public_assessment_operations import openai_metadata as openai_metadata
 
 REASON = {"id": "TC-CI-01", "reason": "legacy pipeline"}
@@ -150,32 +150,61 @@ def test_test_cases_default_follows_the_depth(home):
     assert enabled["definition_sha256"] != plain["definition_sha256"]
 
 
-def test_test_case_depths_override_single_depths_and_keep_the_others(home):
-    setting = {"depths": {"standard": ["InputVal", "AuthZ"], "quick": False, "thorough": []}}
-    write(home, "scan", "cases", {"schema_version": 1, "test_cases": setting})
-    assert profiles.resolve_scan("cases")["settings"]["test_cases"] == {"aspects": ["AuthZ", "InputVal"], "disable": []}
-    assert profiles.resolve_scan("cases", depth="quick")["settings"]["test_cases"] is False
-    # An empty list keeps the scanner-based verification items without a model investigation.
-    assert profiles.resolve_scan("cases", depth="thorough")["settings"]["test_cases"] == {"aspects": [], "disable": []}
+def test_depth_values_override_single_depths_and_keep_the_others(home):
+    depths = {"standard": {"verify": ["InputVal", "AuthZ"], "abuse_cases": 5}, "quick": {"verify": []}}
+    write(home, "scan", "team", {"schema_version": 1, "depths": depths, "test_cases": {"disable": [REASON]}})
+    standard = profiles.resolve_scan("team")["settings"]
+    assert standard["test_cases"] == {"aspects": ["AuthZ", "InputVal"], "disable": [REASON]}
+    assert standard["depth_settings"]["abuse_cases"] == 5
+    assert profiles.resolve_scan("team", depth="quick")["settings"]["test_cases"] is False
+    thorough = profiles.resolve_scan("team", depth="thorough")["settings"]
+    assert thorough["test_cases"]["aspects"] == ["AuthZ", "InputVal", "DataProt", "AI"]
+    assert thorough["depth_settings"] == depth_settings.shipped("thorough")
     write(
         home,
         "scan",
         "some",
-        {"schema_version": 1, "test_cases": {"depths": {"quick": ["AI"]}, "aspects": ["DataProt"]}},
+        {"schema_version": 1, "depths": {"quick": {"verify": ["AI"]}}, "test_cases": {"aspects": ["DataProt"]}},
     )
     assert profiles.resolve_scan("some", depth="quick")["settings"]["test_cases"]["aspects"] == ["AI"]
-    # `aspects` covers every depth that `depths` does not name.
+    # `aspects` covers every depth whose `verify` the scan profile does not set.
     assert profiles.resolve_scan("some")["settings"]["test_cases"]["aspects"] == ["DataProt"]
 
 
 @pytest.mark.parametrize(
-    "setting",
-    [{"depths": {"deep": ["AuthZ"]}}, {"depths": {}}, {"depths": {"standard": ["Infra"]}}, {"depths": {"quick": True}}],
+    "document",
+    [
+        {"depths": {"deep": {"verify": ["AuthZ"]}}},
+        {"depths": {}},
+        {"depths": {"standard": {}}},
+        {"depths": {"standard": {"verify": ["Infra"]}}},
+        {"depths": {"standard": {"abuse_cases": 17}}},
+        {"depths": {"standard": {"turn_budget": 40}}},
+        {"test_cases": {"depths": {"standard": ["AuthZ"]}}},
+        {"check_abuse_cases": ["ac-b-001"]},
+    ],
 )
-def test_invalid_test_case_depths_are_rejected(home, setting):
-    write(home, "scan", "bad", {"schema_version": 1, "test_cases": setting})
+def test_invalid_depth_values_are_rejected(home, document):
+    write(home, "scan", "bad", {"schema_version": 1, **document})
     with pytest.raises(profiles.ProfileError, match="invalid scan profile"):
         profiles.resolve_scan("bad")
+
+
+def test_a_case_cannot_be_both_checked_and_skipped(home):
+    write(
+        home, "scan", "bad", {"schema_version": 1, "check_abuse_cases": ["AC-B-001"], "skip_abuse_cases": ["AC-B-001"]}
+    )
+    with pytest.raises(profiles.ProfileError, match="AC-B-001 is listed both to check and to skip"):
+        profiles.resolve_scan("bad")
+
+
+def test_the_resolved_depth_values_stay_out_of_the_identity(home, monkeypatch):
+    # The scan profile's own values count through the profile document; shipped values do not.
+    before = profiles.resolve_scan("claude")["definition_sha256"]
+    monkeypatch.setattr(depth_settings, "effective", lambda depth, **_: ({"budget": 99}, {"budget": "x"}))
+    assert profiles.resolve_scan("claude")["definition_sha256"] == before
+    write(home, "scan", "team", {"schema_version": 1, "depths": {"standard": {"abuse_cases": 4}}})
+    assert profiles.resolve_scan("team")["definition_sha256"] != before
 
 
 def test_required_aspects_join_the_selected_aspects_and_cannot_be_removed():

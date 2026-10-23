@@ -1,0 +1,42 @@
+# What each assessment depth does by default (REQ-018, REQ-040).
+#
+# An organization profile can set its own defaults under `depths`, and a team's scan profile can
+# change single values for single depths under `depths` again; the command line wins over both.
+# Model selection per role is set in the model profiles, and technical limits are not settings.
+#
+#   verify               security aspects that verification checks beside the survey; [] runs the
+#                        survey only
+#   abuse_cases          optional business abuse cases checked; 0 checks abuse cases only when a
+#                        scan profile, a file, or the command line asks for them
+#   derived_abuse_cases  business abuse cases the model may add from the application's own rules
+#   architect_review     a second model call reviews the findings
+#   actor_discovery      the assessment identifies the users and systems around the application
+#   budget               USD of a run started through the Claude Code assessment dialogue without
+#                        a budget
+#
+# The verified aspects follow the four Juice Shop pilot runs of 2026-10-22 and 2026-10-23
+# (docs/internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md). The other
+# values are the behavior of each depth before this file existed.
+schema_version: 1
+depths:
+  quick:
+    verify: []
+    abuse_cases: 0
+    derived_abuse_cases: 0
+    architect_review: false
+    actor_discovery: false
+    budget: 10
+  standard:
+    verify: [AuthZ]
+    abuse_cases: 3
+    derived_abuse_cases: 0
+    architect_review: false
+    actor_discovery: true
+    budget: 20
+  thorough:
+    verify: [AuthZ, InputVal, DataProt, AI]
+    abuse_cases: 8
+    derived_abuse_cases: 3
+    architect_review: true
+    actor_discovery: true
+    budget: 40

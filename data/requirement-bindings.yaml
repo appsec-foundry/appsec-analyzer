@@ -410,7 +410,7 @@ requirements:
       - scripts/renderers/summarize_threat_model.py
       - scripts/exporters/export_sarif.py
       - appsec_analyzer/profiles.py
-      - data/verification-depths.yaml
+      - data/assessment-depths.yaml
       - schemas/scan-profile.schema.yaml
       - schemas/org-profile.schema.yaml
       - scripts/runtime/resolve_org_profile.py
@@ -537,8 +537,6 @@ requirements:
       - tests/test_assessment_budget_holds.py::test_an_invalid_hold_is_refused
       - tests/test_assessment_budget_holds.py::test_a_held_job_writes_only_the_receipt_contract
       - tests/test_profiles.py::test_test_cases_default_follows_the_depth
-      - tests/test_profiles.py::test_test_case_depths_override_single_depths_and_keep_the_others
-      - tests/test_profiles.py::test_invalid_test_case_depths_are_rejected
       - tests/test_profiles.py::test_required_aspects_join_the_selected_aspects_and_cannot_be_removed
       - tests/test_resolve_org_profile.py::test_required_aspects_reach_the_effective_profile_sorted
       - tests/test_case_outcomes.py::test_a_verification_finding_at_a_survey_location_with_the_same_cwe_is_shown_once
@@ -1390,6 +1388,15 @@ requirements:
       - scripts/runtime/resolve_org_profile.py
       - appsec_analyzer/cli.py
       - appsec_analyzer/codex_profiles.py
+      - appsec_analyzer/depth_settings.py
+      - appsec_analyzer/assessment_entry.py
+      - data/assessment-depths.yaml
+      - schemas/assessment-depths.schema.yaml
+      - scripts/runtime/resolve_config.py
+      - scripts/model/match_abuse_cases.py
+      - scripts/model/derive_abuse_cases.py
+      - scripts/model/assessment_posture.py
+      - scripts/orchestrator/assessment_review.py
       - docs/internal/contracts/requirement-acceptance.md
       - README.md
       - skills/appsec-analyzer/SKILL.md
@@ -1408,9 +1415,25 @@ requirements:
       - docs/configuration.md
       - docs/model-selection.md
       - specs/changes/model-profile-depth/proposal.md
+      - specs/changes/assessment-depth-settings/proposal.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_depth_settings.py::test_the_shipped_file_reproduces_each_depth_before_it_existed
+      - tests/test_depth_settings.py::test_the_resolver_decides_as_before_with_the_shipped_values
+      - tests/test_depth_settings.py::test_profiles_carry_the_same_depth_block_as_the_shipped_schema
+      - tests/test_depth_settings.py::test_the_scan_profile_wins_over_the_organization_which_wins_over_the_file
+      - tests/test_depth_settings.py::test_organization_and_team_values_decide_the_switches_and_flags_still_win
+      - tests/test_depth_settings.py::test_the_dialogue_budget_follows_the_organization_and_then_the_scan_profile
+      - tests/test_depth_settings.py::test_the_library_ids_that_a_scan_profile_can_check_are_known_before_any_model_call
+      - tests/test_profiles.py::test_depth_values_override_single_depths_and_keep_the_others
+      - tests/test_profiles.py::test_invalid_depth_values_are_rejected
+      - tests/test_profiles.py::test_a_case_cannot_be_both_checked_and_skipped
+      - tests/test_profiles.py::test_the_resolved_depth_values_stay_out_of_the_identity
+      - tests/test_resolve_org_profile.py::test_depth_defaults_and_disabled_abuse_cases_reach_the_effective_profile
+      - tests/test_resolve_org_profile.py::test_invalid_organization_depth_defaults_are_rejected
+      - tests/test_match_abuse_cases.py::test_depth_settings_set_the_business_case_limits
+      - tests/test_match_abuse_cases.py::test_scan_profile_lists_check_and_skip_cases_and_warn_about_inactive_ones
       - tests/test_provider_backends.py::test_provider_profiles_resolve_offline_at_all_depths
       - tests/test_provider_backends.py::test_custom_profile_can_select_provider_models_per_role
       - tests/test_provider_backends.py::test_cli_prefix_reaches_controller
