@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `appsec-analyzer assess` is removed; use `scan`. `scan --non-interactive` now requires `--repo` and an explicit `--profile` (or legacy `--host`) so unattended runs never start on the default provider.
+- `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`) so unattended runs never start on the default provider.
 - The Management Summary groups remediation priorities by root cause and severity, and Critical Findings by Root Cause replaces the Critical Attack Tree with links to weakness records and structural fixes.
 - Headless controller assessments analyze up to four components concurrently within the same cost budget, reserve resources for required completion, and retain a clearly incomplete snapshot when required work cannot finish.
 - Headless findings count as confirmed exploitable when source evidence establishes insecure code, attacker reachability, and no stopping control; reports identify unresolved checks and source coverage gaps.

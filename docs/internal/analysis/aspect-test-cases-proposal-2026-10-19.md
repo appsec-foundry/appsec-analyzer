@@ -1,6 +1,6 @@
 # Aspect test cases for full assessments
 
-Status: draft proposal, not implemented. Nothing in this document describes current behavior unless it says so. The decisions of 2026-10-19 are recorded under [Decisions](#decisions). REQ-040 was approved on the same day and added to `requirements.md`; implementation needs a separate explicit request.
+Status: draft proposal, not implemented. Nothing in this document describes current behavior unless it says so. The decisions of 2026-10-19 are recorded under [Decisions](#decisions). REQ-040 was approved on the same day and added to `requirements.md`. The implementation has started on a separate branch; see the [implementation status](aspect-test-cases-implementation-status-2026-10-19.md).
 
 ## Problem
 
@@ -242,7 +242,7 @@ The largest gaps without any deterministic rule are cross-site scripting, the mo
 
 ## Catalog structure
 
-The catalog has 45 test cases in 14 aspects: 9 in `rules` mode, 23 in `seeded` mode, and 13 in `model` mode. Each entry carries its CWE and STRIDE tags in the YAML definition.
+The catalog has 45 test cases in 14 aspects: 9 in `rules` mode, 23 in `seeded` mode, and 13 in `model` mode. Each entry carries its CWE and STRIDE tags in the YAML definition. The implemented catalog has since grown by one goal test case per investigated aspect; the [implementation status](aspect-test-cases-implementation-status-2026-10-19.md) records the changes.
 
 | Aspect | ID | Question | Mode | Starting points today |
 | --- | --- | --- | --- | --- |

@@ -103,7 +103,7 @@ def test_max_parallel_defaults_profile_cli_and_provenance(home):
     assert configured["definition_sha256"] != override["definition_sha256"]
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize("override, expected", [(None, 4), (1, 1), (16, 16)])
 def test_public_max_parallel_reaches_controller_from_profile_or_cli(
     home, tmp_path, monkeypatch, command, override, expected
@@ -150,7 +150,7 @@ def test_non_boolean_test_cases_is_rejected_before_host_or_checkout(home, monkey
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not start"))
     write(home, "scan", "bad", {"schema_version": 1, "test_cases": value})
-    assert cli.main(["scan", "--repo", "https://example.invalid/repo.git", "--profile", "bad"]) == 2
+    assert cli.main(["assess", "--repo", "https://example.invalid/repo.git", "--profile", "bad"]) == 2
     assert "invalid scan profile (test_cases." in capsys.readouterr().err
 
 
@@ -258,7 +258,7 @@ def test_object_test_cases_reach_the_controller_as_aspects_and_profile(home, tmp
     monkeypatch.setattr(controller, "assess_main", assess)
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    assert cli.main(["scan", "--repo", str(repo), "--profile", "cases"]) == 0
+    assert cli.main(["assess", "--repo", str(repo), "--profile", "cases"]) == 0
     assert "--test-cases" in seen["args"]
     assert seen["args"][seen["args"].index("--test-case-aspects") + 1] == "IAM,AuthZ"
     from appsec_analyzer.profiles import session_test_cases
@@ -289,7 +289,7 @@ def test_public_test_cases_reaches_controller_from_profile(home, tmp_path, monke
     monkeypatch.setattr(controller, "assess_main", assess)
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    assert cli.main(["scan", "--repo", str(repo), "--profile", "cases"]) == 0
+    assert cli.main(["assess", "--repo", str(repo), "--profile", "cases"]) == 0
     assert ("--test-cases" in seen["args"]) is enabled
     assert seen["profile"]["settings"]["test_cases"] is enabled
 
@@ -310,7 +310,7 @@ def test_test_cases_change_requires_new_run_and_older_snapshot_means_false(home,
         profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
 
 
-@pytest.mark.parametrize("command", ["scan", "profiles show", "profiles validate"])
+@pytest.mark.parametrize("command", ["assess", "profiles show", "profiles validate"])
 @pytest.mark.parametrize("value", ["0", "-1", "17", "2.5", "true", "many"])
 def test_invalid_max_parallel_is_rejected_before_host_or_checkout(home, monkeypatch, command, value):
     from appsec_analyzer import hosts
@@ -385,7 +385,7 @@ def test_invalid_scan_profiles_fail_before_host_or_checkout(home, monkeypatch, p
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("no host"))
     monkeypatch.setattr(remote_repositories, "checkout_arguments", lambda *a: pytest.fail("no checkout"))
-    assert cli.main(["scan", "--profile", "bad"]) == 2
+    assert cli.main(["assess", "--profile", "bad"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -416,7 +416,7 @@ def test_abuse_case_profile_selection_and_cli_replacement(home):
     assert profiles.resolve_scan("release", abuse_case_files=[])["settings"]["abuse_case_files"] == []
 
 
-@pytest.mark.parametrize("command", ["scan"])
+@pytest.mark.parametrize("command", ["assess"])
 @pytest.mark.parametrize("override", [False, True])
 def test_abuse_case_files_reach_controller_from_profile_or_cli(home, tmp_path, monkeypatch, command, override):
     from appsec_analyzer import hosts
@@ -454,7 +454,7 @@ def test_invalid_cli_abuse_case_path_stops_before_host(home, monkeypatch, value)
     from appsec_analyzer import hosts
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("no host"))
-    assert cli.main(["scan", "--abuse-case-file", value]) == 2
+    assert cli.main(["assess", "--abuse-case-file", value]) == 2
 
 
 def test_error_never_echoes_unknown_field_value(home, capsys):
@@ -551,7 +551,7 @@ def test_public_cli_passes_effective_budget_exports_and_role_settings(home, tmp_
     assert (
         cli.main(
             [
-                "scan",
+                "assess",
                 "--repo",
                 str(tmp_path / "repo"),
                 "--profile",

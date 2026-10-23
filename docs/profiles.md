@@ -7,15 +7,15 @@ A scan profile saves the settings you reuse: model selection, analysis depth, bu
 ## Start with the defaults
 
 ```sh
-appsec-analyzer scan --profile claude
-appsec-analyzer scan --profile codex
+appsec-analyzer assess --profile claude
+appsec-analyzer assess --profile codex
 ```
 
 `claude` and `codex` use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
 
 The built-in `codex` and `codex-cli` model profiles use Luna for `recon_scanner` with low reasoning effort at every depth. All other roles use Sol with low effort at quick depth, medium at standard, and high at thorough. The model aliases resolve through the installed [model catalog](../data/model-catalog.yaml). This split has offline routing coverage; assessment quality with Luna has not passed live qualification. Operator model defaults and role overrides still take precedence.
 
-Profiles apply to `scan`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
+Profiles apply to `assess`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
 
 Additional built-ins are `lite` for LiteLLM Responses and `bedrock` for native Bedrock Converse. They require a separate operator-owned connection file and external credentials. The model prefix `lite claude` selects a configured gateway model; `bedrock claude` selects a configured Bedrock model. See [provider setup and limits](providers.md). Both remain unqualified for live assessment quality.
 
@@ -36,7 +36,7 @@ Prerequisites: Linux or macOS, Codex CLI **0.163.0** installed on your `PATH` ou
 2. Run an assessment, replacing `/path/to/project` with your Git repository:
 
    ```sh
-   appsec-analyzer scan --repo /path/to/project --profile codex-cli \
+   appsec-analyzer assess --repo /path/to/project --profile codex-cli \
      --max-calls 1000 --max-duration 14400
    ```
 
@@ -68,6 +68,25 @@ outputs: [markdown, yaml]
 ```
 
 Custom model profiles can use `base: codex-cli` and the existing model/role/depth settings. The built-in model and reasoning defaults match `codex`; model names must be in Analyzer's installed catalog and available to your ChatGPT account. `max_output_tokens` is not supported by this adapter. The separate requirements audit and focused analyst do not gain Codex CLI support.
+
+## Use GitHub Copilot CLI
+
+Select `copilot-cli` for full assessments through the GitHub Copilot CLI. This experimental provider uses a fixed model identifier from the Analyzer model profile and remains unqualified for live assessment quality. Focused analysis and requirements audits do not gain Copilot support.
+
+Prerequisites: Linux or macOS, GitHub Copilot CLI **1.0.101** on your `PATH` outside the analyzed repositories, and a working Copilot CLI login. Analyzer checks the CLI version but does not read credentials or claim to verify login or model access during ordinary preflight. Sign in using the [official Copilot CLI setup](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
+
+```sh
+copilot login
+appsec-analyzer preflight --repo /path/to/project --profile copilot-cli
+appsec-analyzer assess --repo /path/to/project --profile copilot-cli \
+  --max-calls 1000 --max-duration 14400
+```
+
+The profile defaults to 1,000 Analyzer CLI exchanges, four hours, one component at a time, and the explicit model `gpt-5.4`. Override model and reasoning settings in an operator-owned model profile; `auto` is rejected so the chosen model remains visible and organization model restrictions can be enforced. Copilot availability for a selected account is checked only when a model call is explicitly made.
+
+Each exchange uses `--max-ai-credits 30`, Copilot CLI's minimum supported session limit. It is a soft per-session limit: a response already in progress can exceed it, and it does not cap cumulative or account-wide usage across exchanges. Analyzer also counts dispatched exchanges, including retries and corrections, and enforces the assessment deadline. Neither limit guarantees completion within the account's allowance. USD budget fields and output-token caps are unavailable; reports show monetary cost as null.
+
+Analyzer sends selected source excerpts, analysis context, and intermediate answers to GitHub Copilot through the signed-in CLI. It launches the CLI from a fresh private temporary directory, supplies no tools, disables custom instructions, built-in MCPs, and remote sharing, and validates the complete JSON response against the requested schema. Analyzer does not copy credentials. Copilot CLI may retain local session data according to its own behavior; neither the temporary work directory nor the CLI's soft credit limit establishes provider retention or an exact spend ceiling.
 
 ## Create a scan profile
 
@@ -108,10 +127,10 @@ Report attributes are text values, with up to 32 keys and 256 characters per val
 Select the profile and override individual settings when needed:
 
 ```sh
-appsec-analyzer scan --profile release
-appsec-analyzer scan --profile release --budget 30
-appsec-analyzer scan --profile release --max-parallel 4
-appsec-analyzer scan --profile release --assessment-depth quick --outputs markdown sarif
+appsec-analyzer assess --profile release
+appsec-analyzer assess --profile release --budget 30
+appsec-analyzer assess --profile release --max-parallel 4
+appsec-analyzer assess --profile release --assessment-depth quick --outputs markdown sarif
 ```
 
 Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
@@ -214,7 +233,7 @@ team-settings/
 Select its scan file explicitly:
 
 ```sh
-appsec-analyzer scan --profile /private/team-settings/profiles/release.yaml
+appsec-analyzer assess --profile /private/team-settings/profiles/release.yaml
 ```
 
 For an explicit scan path, model names resolve from the sibling `model-profiles` directory or the built-ins. Analyzer does not silently substitute a same-named model file from the user's configuration directory. The built-in names `claude`, `codex`, and `codex-cli` are reserved in both directories.

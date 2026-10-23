@@ -30,7 +30,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 2. **Run a full assessment.** Analyzer creates the output directory, readable only by you, and writes the report to `security-assessment.md` there:
 
    ```sh
-   appsec-analyzer scan --repo https://github.com/juice-shop/juice-shop.git \
+   appsec-analyzer assess --repo https://github.com/juice-shop/juice-shop.git \
      --output ~/assessments/juice-shop
    ```
 
@@ -51,7 +51,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 
 | Command | Purpose | Model calls |
 | --- | --- | --- |
-| [`scan`](#scan-full-security-assessment) | Full security assessment of a repository or a system of repositories. | Yes, up to USD 20 |
+| [`assess`](#assess-full-security-assessment) | Full security assessment of a repository or a system of repositories. | Yes, up to USD 20 |
 | [`review`](#review-discuss-an-assessment-with-your-coding-agent) | Discuss a finished assessment and plan fixes with an AI coding assistant. | Through the assistant's own account |
 | [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. | Yes, up to USD 1 per call |
 | [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. | Yes, up to USD 5 |
@@ -64,26 +64,26 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 | [`distribution`](#distribution-start-your-organizations-own-command) | Create the files for your organization's own command, and align its engine pins after an engine update. | No |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. | No |
 
-### `scan`: full security assessment
+### `assess`: full security assessment
 
-`scan` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
+`assess` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
 
 ```sh
 # Assess a local checkout
-appsec-analyzer scan --repo /path/to/project
+appsec-analyzer assess --repo /path/to/project
 
 # Assess a remote repository; Analyzer clones it into a temporary directory
-appsec-analyzer scan --repo https://github.com/your-org/your-project.git
+appsec-analyzer assess --repo https://github.com/your-org/your-project.git
 
 # Assess a backend and its web frontend together as one system
-appsec-analyzer scan --repo /path/to/backend --repo /path/to/frontend
+appsec-analyzer assess --repo /path/to/backend --repo /path/to/frontend
 ```
 
-With `--non-interactive`, `scan` requires `--repo` and an explicit `--profile`, so a script or CI job never starts on a default provider. See [Hosts and models](docs/model-selection.md).
+With `--non-interactive`, `assess` requires `--repo` and an explicit `--profile`, so a script or CI job never starts on a default provider. See [Hosts and models](docs/model-selection.md).
 
 ```sh
 # Run in CI with a fixed provider profile and without questions
-appsec-analyzer scan --repo /path/to/project --profile claude --non-interactive
+appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
 ```
 
 ### `review`: discuss an assessment with your coding agent
@@ -147,7 +147,7 @@ appsec-analyzer audit-requirements --repo /path/to/project \
 
 ### `score`: deterministic security rating
 
-`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `scan`. See [Security score](docs/security-score.md).
+`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
 
 ```sh
 # Rate a local checkout
@@ -159,11 +159,11 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 
 ### `scan-sources`: raw scanner observations
 
-`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `scan`.
+`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `assess`.
 
 ```sh
 # Show what the scanners found, without a rating
-appsec-analyzer scan-sources --repo /path/to/project
+appsec-analyzer assess-sources --repo /path/to/project
 ```
 
 ### `abuse-cases`: list the defined cases
@@ -197,7 +197,7 @@ appsec-analyzer platform-settings https://github.com/your-org/your-project
 appsec-analyzer platform-settings https://github.com/your-org/your-project --token-env GITHUB_READ_TOKEN --json
 ```
 
-`scan` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context, and the report shows it in a Platform Security Settings section.
+`assess` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Controls and STRIDE use the result as context, and the report shows it in a Platform Security Settings section.
 
 ### `distribution`: start your organization's own command
 
@@ -284,13 +284,14 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples 
 
 ### Model provider
 
-`score` and `scan-sources` need no provider. `scan` select their provider with `--profile`; without it, `scan` uses `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
+`score` and `scan-sources` need no provider. `assess` selects its provider with `--profile`; without it, `assess` uses `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
 
 | `--profile` | Provider | Requirement |
 | --- | --- | --- |
 | `claude` (default) | Claude CLI | `claude` on your `PATH` with a working login or externally configured Anthropic API credentials. |
 | `codex` (experimental) | OpenAI API | `OPENAI_API_KEY`. |
 | `codex-cli` (experimental) | Codex CLI with your ChatGPT plan | Codex CLI 0.163.0, signed in with `codex login`. See [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). |
+| `copilot-cli` (experimental) | GitHub Copilot CLI | Copilot CLI 1.0.101 and its separately configured login. See [Copilot CLI setup and limits](docs/profiles.md#use-github-copilot-cli). |
 | `lite` (experimental) | LiteLLM gateway | `LITELLM_API_KEY` and a gateway entry in `providers.yaml` with verified prices. See [LiteLLM setup](docs/providers.md#use-litellm). |
 | `bedrock` (experimental) | Amazon Bedrock Converse API | `AWS_BEARER_TOKEN_BEDROCK` and a Bedrock entry in `providers.yaml` with verified prices. See [Bedrock setup](docs/providers.md#use-amazon-bedrock). |
 
@@ -301,20 +302,24 @@ The experimental profiles have not yet been qualified in live assessments. `apps
 appsec-analyzer preflight --repo /path/to/project --profile codex
 
 # OpenAI API
-appsec-analyzer scan --repo /path/to/project --profile codex
+appsec-analyzer assess --repo /path/to/project --profile codex
 
 # Codex CLI with a ChatGPT plan: counts model exchanges instead of USD
 codex login
-appsec-analyzer scan --repo /path/to/project --profile codex-cli --max-calls 1000
+appsec-analyzer assess --repo /path/to/project --profile codex-cli --max-calls 1000
+
+# GitHub Copilot CLI: model use is limited by calls/time and a per-session soft credit limit
+copilot login
+appsec-analyzer assess --repo /path/to/project --profile copilot-cli --max-calls 1000
 
 # LiteLLM gateway: "claude" names the model entry in providers.yaml
-appsec-analyzer scan --repo /path/to/project --profile "lite claude" --budget 20
+appsec-analyzer assess --repo /path/to/project --profile "lite claude" --budget 20
 
 # Amazon Bedrock
-appsec-analyzer scan --repo /path/to/project --profile bedrock --budget 20
+appsec-analyzer assess --repo /path/to/project --profile bedrock --budget 20
 ```
 
-`codex-cli` rejects USD budget options; limit it with `--max-calls` and optionally `--max-duration SECONDS`. All other profiles use the USD budget from `--budget`.
+`codex-cli` and `copilot-cli` reject USD budget options; limit them with `--max-calls` and optionally `--max-duration SECONDS`. Copilot also applies a per-session 30-AI-credit soft limit that can be exceeded by an in-progress response and is not an account-wide cap. All other profiles use the USD budget from `--budget`.
 
 [Configuration](docs/configuration.md) describes provider setup in detail. Organizations can ship preconfigured profiles; see the [organization packaging guide](docs/organization-distributions.md).
 
@@ -339,12 +344,12 @@ Command-line options override the defaults from a scan profile.
 
 An abuse case is something an attacker or a user must not be able to do. Analyzer comes with two sets. [business.yaml](data/abuse-cases/business.yaml) has seven business rules: a user must not, for example, see other users' data, give themselves a higher role, approve their own request, or redeem a coupon twice. [technical.yaml](data/abuse-cases/technical.yaml) has attack chains such as account takeover through XSS or admin access through a forged JWT.
 
-`scan` checks the cases that fit the code, except at `quick` depth. A standard run checks up to three business rules, a thorough run up to eight. If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
+`assess` checks the cases that fit the code, except at `quick` depth. A standard run checks up to three business rules, a thorough run up to eight. If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
 
-To add your own rules, put them in a YAML file in the repository and pass it to `scan`:
+To add your own rules, put them in a YAML file in the repository and pass it to `assess`:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project \
+appsec-analyzer assess --repo /path/to/project \
   --abuse-case-file abuse-cases.yaml
 ```
 
@@ -384,7 +389,7 @@ The build pipeline and the most severe supply-chain attacks on it:
 </picture>
 </a>
 
-Request more formats when you start the scan, for example `scan --repo /path/to/project --sarif --html`:
+Request more formats when you start the scan, for example `assess --repo /path/to/project --sarif --html`:
 
 | Flag | Output |
 | --- | --- |

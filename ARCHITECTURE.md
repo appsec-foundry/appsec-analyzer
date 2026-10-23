@@ -12,7 +12,7 @@ The main execution paths are:
 flowchart TD
     CLI[appsec-analyzer CLI] --> Score[score: application workflow]
     CLI --> Analyst[analyze-threats: terminal adapter and preparation]
-    CLI --> Request[scan: AssessmentRequest]
+    CLI --> Request[assess: AssessmentRequest]
     CLI --> Scanners[scan-sources: deterministic scanners]
     CLI --> Export[export: validated saved artifacts and deterministic converters]
     CLI --> Review[review: saved assessment and interactive assistant handoff]
@@ -22,7 +22,7 @@ flowchart TD
     AssessmentController --> Console[Assessment console]
 ```
 
-This diagram shows workflow ownership rather than every Python import. `scan-sources` and `score` run without model calls. `scan` use the same model-backed assessment pipeline; focused analysis uses its own analyst lifecycle.
+This diagram shows workflow ownership rather than every Python import. `scan-sources` and `score` run without model calls. `assess` uses the same model-backed assessment pipeline; focused analysis uses its own analyst lifecycle.
 
 ## Workflow ownership
 
@@ -44,6 +44,7 @@ Keep orchestration, computation, and presentation separate within each workflow.
 | Organization distribution scaffolding | [distribution.py](appsec_analyzer/distribution.py) creates the files of an organization distribution from the packaged example and sets its engine pins. It reads and writes only the named directory; [organization.py](appsec_analyzer/organization.py) remains the runtime loader of an installed distribution. |
 | Saved assessment export | [exports.py](appsec_analyzer/exports.py) validates completed state and artifact digests, invokes retained converters with finite deadlines, and publishes exclusively into a new private directory; [export_assets.py](appsec_analyzer/export_assets.py) confines document resources and rejects active markup before embedding. No model host is created. |
 | Assessment review | [review.py](appsec_analyzer/review.py) selects and starts an interactive assistant with the bundled review skill and existing report paths. [review_context.py](appsec_analyzer/review_context.py) reuses the engine facts builder for validated, read-only queries. The native assistant owns its dialogue, permissions, account, and usage; this does not resume an Analyzer model job. |
+| Copilot CLI transport | [copilot_cli.py](appsec_analyzer/copilot_cli.py) runs bounded, tool-less Copilot CLI exchanges in private temporary directories and validates canonical JSON before controller admission. |
 
 ## Shared services and dependency direction
 

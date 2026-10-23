@@ -222,7 +222,7 @@ def test_assessment_preflight_hands_completed_checks_to_the_console(repository, 
         "assess_main",
         lambda request, **kw: seen.append(request.namespace().preflight_checks) or 0,
     )
-    assert cli.main(["scan", "--repo", str(repository), "--profile", "codex-cli"]) == 0
+    assert cli.main(["assess", "--repo", str(repository), "--profile", "codex-cli"]) == 0
     # Shown by the console under the run summary, not as a block before it.
     assert "Preflight" not in capsys.readouterr().err
     assert seen == [
@@ -277,7 +277,7 @@ def test_rejected_api_credential_stops_before_checkout(repository, metadata, mon
 
     metadata.status = 401
     monkeypatch.setattr(remote_repositories, "checkout_arguments", lambda *a: pytest.fail("no checkout"))
-    assert cli.main(["scan", "--repo", str(repository), "--profile", "codex"]) == 2
+    assert cli.main(["assess", "--repo", str(repository), "--profile", "codex"]) == 2
     captured = capsys.readouterr()
     assert "authentication_failed" in captured.err
     assert "synthetic-preflight-key" not in captured.err + captured.out
@@ -291,7 +291,7 @@ def test_cancelled_preflight_returns_130(repository, monkeypatch):
     assert cli.main(["preflight", "--repo", str(repository)]) == 130
 
 
-@pytest.mark.parametrize("command", ["scan", "preflight"])
+@pytest.mark.parametrize("command", ["assess", "preflight"])
 def test_invalid_local_source_stops_before_controller(tmp_path, monkeypatch, command):
     cli._engine_imports()
     from orchestrator import orchestration_controller
@@ -313,7 +313,7 @@ def test_failed_remote_stops_before_any_clone_or_assessment(monkeypatch, tmp_pat
     monkeypatch.setattr(remote_repositories, "check_access", fail)
     monkeypatch.setattr(remote_repositories, "clone", lambda *a: pytest.fail("no clone"))
     assert (
-        cli.main(["scan", "--repo", "https://git.example/team/source.git", "--output", str(tmp_path / "output")]) == 2
+        cli.main(["assess", "--repo", "https://git.example/team/source.git", "--output", str(tmp_path / "output")]) == 2
     )
     assert not (tmp_path / "output").exists()
 
@@ -333,7 +333,7 @@ def test_remote_checkout_is_a_preflight_row_and_the_summary_names_the_url(monkey
     monkeypatch.setattr(remote_repositories, "clone", lambda remote, root: root.mkdir())
     monkeypatch.setattr(orchestration_controller, "assess_main", lambda request, **kw: seen.append(request) or 0)
     output = tmp_path / "output"
-    assert cli.main(["scan", "--repo", url, "--profile", "codex-cli", "--output", str(output)]) == 0
+    assert cli.main(["assess", "--repo", url, "--profile", "codex-cli", "--output", str(output)]) == 0
     options = seen[0].options
     assert [label for _, label, _ in options.preflight_checks] == ["Repository", "Checkout", "Codex CLI", "Provider"]
     assert options.preflight_checks[1] == (

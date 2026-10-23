@@ -57,7 +57,7 @@ LOG="$WORK/run.log"
 
 echo "Work directory: $WORK"
 echo "Log:            $LOG"
-APPSEC_SINGLE_REPO_CONTROLLER=1 appsec-analyzer scan --host claude-cli \
+APPSEC_SINGLE_REPO_CONTROLLER=1 appsec-analyzer assess --host claude-cli \
     --repo "$REPO" --output "$OUT" --assessment-depth "$DEPTH" --hard-budget "$BUDGET" 2>&1 | tee "$LOG" || true
 # Plain sh has no pipefail, so the runner's verdict line and the model file decide.
 if ! grep -q "^✓ " "$LOG" || [ ! -f "$OUT/security-assessment.yaml" ]; then

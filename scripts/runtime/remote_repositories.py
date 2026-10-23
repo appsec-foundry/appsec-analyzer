@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if args[:1] == ["--credential"]:
         return _credential()
-    print("Remote repository provisioning is internal; use appsec-analyzer scan or assess --repo URL", file=sys.stderr)
+    print("Remote repository provisioning is internal; use appsec-analyzer assess --repo URL", file=sys.stderr)
     return 2
 
 

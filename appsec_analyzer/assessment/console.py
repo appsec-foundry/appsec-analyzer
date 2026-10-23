@@ -338,6 +338,8 @@ class _AssessmentConsole:
         self.results: dict[str, str] = {}
         self.review_coverage: dict[str, dict[str, str]] = {}
         self.headed, self.shown = False, None
+        # Whether the Preflight block stands open above the grid.
+        self.checked = False
         # Called once a phase has started, e.g. to report a plugin change at once.
         self.on_phase = None
         self.run_started = self.last = self.clock()
@@ -670,6 +672,8 @@ class _AssessmentConsole:
         if not self.headed:
             self.headed = True
             self.clear_status()
+            if self.checked:
+                self._out("")
             self._out(
                 self.st(
                     f"{'TIME':<8}  {'PHASE':<{self._PHASE_WIDTH}}  {'EVENT':<{self._EVENT_WIDTH}}  "
@@ -754,26 +758,31 @@ class _AssessmentConsole:
                     self._unstamped(f"{indent}{'':<{width}}  {line}")
         self.write("")
 
+    # "Platform settings", the longest start-check label.
+    _CHECK_WIDTH = 17
+
     def preflight(self, checks) -> None:
-        """Completed start checks as a Preflight phase in the grid, before the first phase.
+        """Completed start checks as a Preflight block under the run summary, above the grid.
 
         Console only: the checks finished before the run, so no progress event follows.
+        A later call, such as the platform settings check, continues the same block.
         """
         if not checks:
             return
-        self._header()
-        now = self.clock()
-        name = f"{'Preflight':<{self._PHASE_WIDTH}}"
-        blank = f"{'':>8}  {'':>7}  {'':>6}"  # The empty PROGRESS, ELAPSED and LEFT columns.
+        st = self.st
+        if not self.checked:
+            self.checked = True
+            self._unstamped(st("  Preflight", "bold"))
+        # Like the facts: a long message wraps flush under its own column on a terminal or under --width.
+        indent = 4 + 2 + self._CHECK_WIDTH + 2
+        fit = self.columns() - 1 - indent if st.enabled or self.max_columns else 0
         for symbol, label, message in checks:
-            detail = f"{label}: {message}"
-            event = f"{symbol:<{self._EVENT_WIDTH}}"
-            head = f"{self.st(name, 'accent')}  {self.st(event, self.EVENT_ROLES.get(symbol) or 'muted')}  {blank}  "
-            if not self.st.enabled and self.max_columns is None:
-                indent, pieces = 0, [detail]
-            else:
-                indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), detail, now, False)
-            self.write(self._join(head, indent, pieces), now)
+            pieces = textwrap.wrap(message, fit, break_on_hyphens=False) if fit > 20 and len(message) > fit else []
+            first, *more = pieces or [message]
+            mark = st(symbol, self.EVENT_ROLES.get(symbol) or "muted")
+            self._unstamped(f"    {mark} {st(f'{label:<{self._CHECK_WIDTH}}', 'muted')}  {first}")
+            for piece in more:
+                self._unstamped(" " * indent + piece)
 
     def _unstamped(self, text: str) -> None:
         """A permanent line without the time column, for the run header."""

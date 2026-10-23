@@ -1,6 +1,6 @@
 # Package Analyzer for your organization
 
-Your organization can ship its own command with its profiles already included. Users run `nordlicht-appsec scan`; they do not need to find a profile file or set a configuration environment variable. The Analyzer engine remains a separate dependency, so an engine update does not overwrite your organization's files.
+Your organization can ship its own command with its profiles already included. Users run `nordlicht-appsec assess`; they do not need to find a profile file or set a configuration environment variable. The Analyzer engine remains a separate dependency, so an engine update does not overwrite your organization's files.
 
 This guide builds the fictional Nordlicht distribution from the [complete example](../examples/organization-distribution/README.md). All example names, addresses and business rules are fictional. The steps cover a local installation, an internal release and CI use. Nothing is uploaded or published by these commands.
 
@@ -120,12 +120,12 @@ The org profile supplies the organization identity, report branding, context and
 
 The sample `requirements/orders.yaml` is for the separate [requirements audit](security-requirements-audit-skill.md). Shipping that file does not automatically enable it in a full assessment. There is no new remote catalog download in this example.
 
-The installed launcher applies its defaults to `scan`. Other commands keep their documented behavior. The defaults are explicitly overridable:
+The installed launcher applies its defaults to `assess`. Other commands keep their documented behavior. The defaults are explicitly overridable:
 
 ```sh
-nordlicht-appsec scan --repo /work/orders-service --budget 10
-nordlicht-appsec scan --repo /work/orders-service --profile claude
-nordlicht-appsec scan --repo /work/orders-service --no-org-profile
+nordlicht-appsec assess --repo /work/orders-service --budget 10
+nordlicht-appsec assess --repo /work/orders-service --profile claude
+nordlicht-appsec assess --repo /work/orders-service --no-org-profile
 ```
 
 These are full assessments and may make model calls. A packaged org default takes precedence over `APPSEC_ADVISOR_ORG_PROFILE`; an explicit `--org-profile` or `--no-org-profile` takes precedence over the package. Existing engine controls remain enforced. This distribution mechanism does not make your defaults mandatory across every machine or prevent users from invoking the upstream command separately.
@@ -226,7 +226,7 @@ To check a real project without a model, run:
 A full run needs approved provider use. The default example uses Claude and a USD 20 maximum:
 
 ```sh
-"$RELEASE_DIR/runtime-env/bin/nordlicht-appsec" scan \
+"$RELEASE_DIR/runtime-env/bin/nordlicht-appsec" assess \
   --repo /work/orders-service \
   --output /private/assessments/orders-service \
   --non-interactive
@@ -308,13 +308,13 @@ The public `organization-config` command accepts a schema-versioned engine proje
 
 Use `organization-config validate --config /installed/plugin/org-profile/analyzer-config.yaml` or `organization-config show --config /installed/plugin/org-profile/analyzer-config.yaml --preset release` for model-free inspection. An explicit inspection `--assessment-depth quick` overrides the selected preset default without changing profile-wide policy. Missing or invalid profiles, unsupported fields, incompatible versions, source-owned configuration and unknown presets fail without upstream fallback. Files use the existing bounded, data-only YAML reader without links, duplicate keys or aliases.
 
-Execute the declared workflow with `organization-config run --config /installed/plugin/org-profile/analyzer-config.yaml -- score /source/repository --json`. The version-1 capability declares `score`, `scan`, with `profile_source_validation: true`. The projection accepts base-mode presets and `policy.disable_opus` / `policy.url_allowlist`. Score has no model calls, assessment depth, assessment exports or report branding: the Opus restriction cannot cause a model call, and preset depth remains an inspectable assessment default. A nonempty URL allowlist restricts remote Git targets to an exact hostname or dotted subdomain before Git, credentials or source retrieval; the existing destination pinning, redirect and network-address checks still apply. Direct score arguments cannot weaken this policy. The command preserves score output and exit status.
+Execute the declared workflow with `organization-config run --config /installed/plugin/org-profile/analyzer-config.yaml -- score /source/repository --json`. The version-1 capability declares `score` and `assess`, with `profile_source_validation: true`. The projection accepts base-mode presets and `policy.disable_opus` / `policy.url_allowlist`. Score has no model calls, assessment depth, assessment exports or report branding: the Opus restriction cannot cause a model call, and preset depth remains an inspectable assessment default. A nonempty URL allowlist restricts remote Git targets to an exact hostname or dotted subdomain before Git, credentials or source retrieval; the existing destination pinning, redirect and network-address checks still apply. Direct score arguments cannot weaken this policy. The command preserves score output and exit status.
 
 Other profile fields and workflows remain explicitly unsupported through this version of the composition API. The admitted assessment handoff does not turn soft spend guidance into a hard budget, accept agent policy as executable enforcement, or claim that organization restrictions apply to a plain CLI invocation without the explicitly selected configuration. Use the existing assessment/distribution path for profiles with fields that are not admitted by this interface. No model-backed or native-platform qualification follows from these offline configuration checks.
 
-For full assessments, use the same public envelope with `organization-config run --config /installed/plugin/org-profile/analyzer-config.yaml -- scan --repo /source/repository`. Running either command may use models and requires separate authorization. Only the existing base-mode presets and the two policy fields are admitted. A selected preset supplies depth unless the inner CLI explicitly sets `--assessment-depth`; scan/model profiles and direct CLI budget/export options keep their existing behavior. Opus selections on the Claude path are clamped before host preflight and again by the existing controller; unknown or Opus-family provider models fail the restriction before credentials are used.
+For full assessments, use the same public envelope with `organization-config run --config /installed/plugin/org-profile/analyzer-config.yaml -- assess --repo /source/repository`. Running it may use models and requires separate authorization. Only the existing base-mode presets and the two policy fields are admitted. A selected preset supplies depth unless the inner CLI explicitly sets `--assessment-depth`; scan/model profiles and direct CLI budget/export options keep their existing behavior. Opus selections on the Claude path are clamped before host preflight and again by the existing controller; unknown or Opus-family provider models fail the restriction before credentials are used.
 
-Inspect the same invocation without source access, credentials or models with `organization-config show --config /installed/plugin/org-profile/analyzer-config.yaml -- scan --repo /source/repository --assessment-depth quick`. Inspection resolves supported profile settings, checks policy and reports the effective `assessment_profile`; it does not execute an assessment. `validate` accepts the same optional workflow arguments. Invalid arguments and disallowed destinations fail instead of selecting a default workflow. Control option names must be exact; abbreviations are refused.
+Inspect the same invocation without source access, credentials or models with `organization-config show --config /installed/plugin/org-profile/analyzer-config.yaml -- assess --repo /source/repository --assessment-depth quick`. Inspection resolves supported profile settings, checks policy and reports the effective `assessment_profile`; it does not execute an assessment. `validate` accepts the same optional workflow arguments. Invalid arguments and disallowed destinations fail instead of selecting a default workflow. Control option names must be exact; abbreviations are refused.
 
 Hosts that snapshot an external Advisor profile pass its canonical original path with outer `--profile-source FILE`, before the `--` separator. Analyzer checks that path and the engine envelope against every repository selected by its public parser, including repeated, equals-form and abbreviated repository options. Inner profile, preset or no-profile switches cannot replace the outer selection. Advisor handles its established explicit no-profile choice before dispatch. Context and requirements destinations supplied directly on the CLI are checked against the same URL policy before model/provider setup. Later remote context consumers receive the existing effective-profile artifact; for composition records its mandatory URL allowlist cannot be widened through `APPSEC_URL_ALLOWLIST`. Other organization-profile paths retain their prior behavior.
 

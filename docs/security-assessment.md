@@ -2,9 +2,9 @@
 
 ## Preflight checks
 
-`scan` check selected local Git roots, remote repository read access and provider setup before cloning repositories or starting analysis. Failures return exit 2 without starting the assessment. Checks run again on resume; a previous success does not guarantee continued access. `--quiet` suppresses progress; failures and generation-test data-use and spending notices remain visible.
+`assess` checks selected local Git roots, remote repository read access and provider setup before cloning repositories or starting analysis. Failures return exit 2 without starting the assessment. Checks run again on resume; a previous success does not guarantee continued access. `--quiet` suppresses progress; failures and generation-test data-use and spending notices remain visible.
 
-The `preflight` command groups completed checks under one heading and uses the shared terminal colors. Before an assessment, completed checks appear as a `Preflight` phase in the progress grid, under the run summary and before the first analysis phase; a failed check prints at once and stops the run. Each repository and provider check appears once; the provider note states when model access was not tested. Long lines wrap; `--json` keeps the machine-readable result on stdout and progress on stderr.
+The `preflight` command groups completed checks under one heading and uses the shared terminal colors. Before an assessment, completed checks appear as a `Preflight` block under the run summary, above the progress grid; a failed check prints at once and stops the run. Each repository and provider check appears once; the provider note states when model access was not tested. Long lines wrap; `--json` keeps the machine-readable result on stdout and progress on stderr.
 
 Run the same checks independently without an assessment or output directory:
 
@@ -30,7 +30,7 @@ appsec-analyzer preflight --repo /path/to/project --profile codex-cli --test-mod
 
 ## Run an assessment
 
-`appsec-analyzer scan` analyzes one or several local Git checkouts or explicitly selected Git URLs as one
+`appsec-analyzer assess` analyzes one or several local Git checkouts or explicitly selected Git URLs as one
 system. It uses Claude CLI by default, freezes admitted source, runs
 semantic roles, checks their output against canonical contracts, verifies
 evidence, and publishes a report only after validation. The report covers
@@ -39,9 +39,9 @@ prioritized findings, and remediation. Repository evidence is a bounded
 snapshot; production behavior and business intent require human review.
 
 ```sh
-appsec-analyzer scan --repo /path/to/project \
+appsec-analyzer assess --repo /path/to/project \
   --budget 20 --assessment-depth standard
-appsec-analyzer scan --repo /path/to/service --repo /path/to/client \
+appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
   --profile claude --budget 30 --output /private/system-assessment
 ```
 
@@ -64,9 +64,9 @@ Supply-chain and secret-handling weaknesses can still be found in source and con
 
 Use `standard` as a starting point, including for business logic analysis. `thorough` can find additional problems, but more expensive early analysis can leave less budget for verification and combining related findings. More findings or abuse cases do not by themselves establish better coverage. See [the measured standard and thorough comparison](model-selection.md#choosing-standard-or-thorough) for costs and limits, and check the run summary for skipped model work.
 
-For `claude` and `codex`, the spending limit defaults to USD 20 for both `scan`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
+For `claude` and `codex`, the spending limit defaults to USD 20 for `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 
-Control analysis and STRIDE analysis each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `scan`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
+Control analysis and STRIDE analysis each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
 
 On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
 
@@ -98,7 +98,7 @@ Trust-boundary classification groups related crossing signals into bounded batch
 
 For OpenAI Responses, choose `--profile codex` and a separate `--assessment-depth`. The profile supplies the connection, model, reasoning, and output cap for that depth, so no `--host` is needed. Claude role overrides do not apply. Existing host and depth-profile calls remain compatible as described in [model selection](model-selection.md).
 
-`scan` also accepts the headless export options `--pentest-tasks`,
+`assess` also accepts the headless export options `--pentest-tasks`,
 `--pentest-format strix`, `--pentest-target URL`, and `--slug NAME`.
 `--keep-runtime-files` retains intermediate files for debugging; an explicit
 `--output` must already be a private directory (mode 0700).
@@ -130,7 +130,7 @@ The source guide, retained in [history](history/advisor/security-assessment.md),
 explains domain concepts and earlier plugin behavior in detail. Its commands
 and provider statements are historical.
 
-With Codex CLI 0.163.0 installed on Linux/macOS and signed in using `codex login`, use `appsec-analyzer scan --profile codex-cli --max-calls 1000 --max-duration 14400` to use ChatGPT plan allowance. This experimental profile defaults to at most two components at a time, rejects USD budgets, and reports monetary cost as unavailable. A plan limit stops the run and preserves accepted work; wait for allowance and resume the original output. See [Codex CLI setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli) for model access, data use, local limits, and qualification status.
+With Codex CLI 0.163.0 installed on Linux/macOS and signed in using `codex login`, use `appsec-analyzer assess --profile codex-cli --max-calls 1000 --max-duration 14400` to use ChatGPT plan allowance. This experimental profile defaults to at most two components at a time, rejects USD budgets, and reports monetary cost as unavailable. A plan limit stops the run and preserves accepted work; wait for allowance and resume the original output. See [Codex CLI setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli) for model access, data use, local limits, and qualification status.
 
 ### Source-read failures
 
@@ -189,7 +189,7 @@ abuse_cases:
 Run a model-backed assessment with an authorized budget:
 
 ```sh
-appsec-analyzer scan --repo /path/to/project --budget 20 \
+appsec-analyzer assess --repo /path/to/project --budget 20 \
   --abuse-case-file review/abuse-cases.yaml
 ```
 
@@ -225,7 +225,7 @@ Launch arguments follow the [official OpenAI CLI reference](https://developers.o
 
 ## Exports and compatibility
 
-Exports can be requested on `scan`, or generated later without model calls:
+Exports can be requested on `assess`, or generated later without model calls:
 
 ```sh
 appsec-analyzer export --assessment /path/to/assessment \

@@ -751,8 +751,11 @@ def _assessment_runtime_fingerprint() -> str:
 
 def _host_prompt_capacity(run_profile, api_profile):
     """The selected host's prompt bound; None leaves the shared packet limit alone."""
-    if (run_profile or {}).get("adapter") == "codex-cli":
-        from appsec_analyzer.codex_cli import prompt_capacity
+    if (run_profile or {}).get("adapter") in ("codex-cli", "copilot-cli"):
+        if run_profile["adapter"] == "codex-cli":
+            from appsec_analyzer.codex_cli import prompt_capacity
+        else:
+            from appsec_analyzer.copilot_cli import prompt_capacity
 
         return prompt_capacity
     if api_profile is None:
@@ -846,11 +849,12 @@ def _assessment_session(
         from appsec_analyzer.profiles import apply_runtime_profile
 
         apply_runtime_profile(run_profile, cfg, arguments, model=model)
-    if (run_profile or {}).get("adapter") == "codex-cli":
+    if (run_profile or {}).get("adapter") in ("codex-cli", "copilot-cli"):
+        adapter = run_profile["adapter"]
         cfg["host_profile"] = {
-            "kind": "codex-cli",
+            "kind": adapter,
             "cli_version": run_profile["cli_version"],
-            "billing": "chatgpt-subscription",
+            "billing": "chatgpt-subscription" if adapter == "codex-cli" else "github-copilot-subscription",
         }
     # Invocation spelling, argument order, and the deliverable postfix (random for a
     # bare --slug) do not change assessment policy.
@@ -2500,14 +2504,14 @@ def _requested_depth(rest: list[str]) -> str:
     return depth
 
 
-def _assessment_budget(ns, rest: list[str] = (), *, subscription=False):
+def _assessment_budget(ns, rest: list[str] = (), *, subscription=False, subscription_label="ChatGPT subscription"):
     from runtime.assessment_jobs import MAX_ASSESSMENT_CALLS, MAX_ASSESSMENT_SECONDS, AssessmentBudget
 
     from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL
 
     if subscription:
         if ns.hard_budget is not None or ns.soft_budget is not None:
-            raise CallError("codex-cli does not accept a USD budget; use --max-calls and --max-duration")
+            raise CallError("CLI subscription profiles do not accept a USD budget; use --max-calls and --max-duration")
         return AssessmentBudget(
             None,
             None,
@@ -2516,9 +2520,10 @@ def _assessment_budget(ns, rest: list[str] = (), *, subscription=False):
             spent_usd=None,
             subscription=True,
             max_parallel=ns.max_parallel if ns.max_parallel is not None else DEFAULT_MAX_PARALLEL,
+            subscription_label=subscription_label,
         )
     if ns.max_calls is not None:
-        raise CallError("--max-calls requires the codex-cli profile")
+        raise CallError("--max-calls requires a CLI subscription profile")
     limit = ns.hard_budget
     if limit is None and ns.soft_budget is not None:
         limit = round(ns.soft_budget * 1.25, 2)
@@ -2611,7 +2616,7 @@ def _budget_skip_info(gaps: list[dict], components: list[dict], budget) -> str:
             listed.append(name)
     jobs = "; ".join(f"{role} ({', '.join(listed)})" if listed else role for role, listed in roles.items())
     accounting = (
-        f"{budget.calls} model calls; ChatGPT subscription"
+        f"{budget.calls} model calls; {budget.subscription_label}"
         if budget.subscription
         else f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} spent"
     )
@@ -2866,7 +2871,10 @@ def _assessment_intro(
     profile = (cfg or {}).get("operator_profile") or {}
     budget_origin = profile.get("origins", {}).get("settings", {}).get("budget", "")
     if budget.subscription:
-        cut = f"{budget.max_calls} model calls including retries; ChatGPT allowance applies; USD cost unavailable"
+        cut = (
+            f"{budget.max_calls} model calls including retries; {budget.subscription_label} applies; "
+            "USD cost unavailable"
+        )
     elif ns.hard_budget is None and ns.soft_budget is not None:
         cut += f" (1.25 × deprecated --soft-budget ${ns.soft_budget:g}; use --hard-budget)"
     elif (
@@ -2895,12 +2903,21 @@ def _assessment_intro(
                 f"{host['kind']}: {host['endpoint']}\nselected excerpts, context and answers leave this machine; live quality unqualified",
             )
         )
+    elif host.get("kind") == "copilot-cli":
+        plan.append(
+            (
+                "Model host",
+                "GitHub Copilot CLI; selected excerpts, context and answers leave this machine; "
+                "per-session 30-credit cap is soft; live quality unqualified",
+            )
+        )
     rows = [
         ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(getattr(ns, "repo_sources", ()) or ns.repo)),
         ("Output", output),
         (
             "Billing",
-            "ChatGPT subscription via Codex CLI"
+            f"{budget.subscription_label} via "
+            f"{'Codex CLI' if host.get('kind') == 'codex-cli' else 'GitHub Copilot CLI'}"
             if budget.subscription
             else "api"
             if (cfg or {}).get("host_profile") or os.environ.get("ANTHROPIC_API_KEY")
@@ -2923,7 +2940,10 @@ def _assessment_intro(
     for key, value in rows:
         if key == "Budget":
             if budget.subscription:
-                key, value = "Call limit", f"{budget.max_calls}, including retries; ChatGPT allowance applies"
+                key, value = (
+                    "Call limit",
+                    (f"{budget.max_calls}, including retries; {budget.subscription_label} applies"),
+                )
             else:
                 value = f"USD {budget.max_usd:.2f}"
                 if ns.hard_budget is None and ns.soft_budget is not None:
@@ -3000,17 +3020,22 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
 
     from runtime.analyst_host import ClaudeCliTransport
 
-    if (run_profile or {}).get("adapter") == "codex-cli":
-        from appsec_analyzer.codex_cli import CodexCliTransport, preflight
+    if (run_profile or {}).get("adapter") in ("codex-cli", "copilot-cli"):
+        if run_profile["adapter"] == "codex-cli":
+            from appsec_analyzer.codex_cli import CodexCliTransport as CliTransport
+            from appsec_analyzer.codex_cli import preflight
+        else:
+            from appsec_analyzer.copilot_cli import CopilotCliTransport as CliTransport
+            from appsec_analyzer.copilot_cli import preflight
 
         runtime = preflight(repositories=repositories)
 
-        def codex_factory(role, model, ceiling):
-            return CodexCliTransport(
+        def cli_factory(role, model, ceiling):
+            return CliTransport(
                 work_root, model, run_profile["models"][profile_role(role)]["reasoning_effort"], runtime
             )
 
-        return codex_factory
+        return cli_factory
     executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
     sequence = itertools.count(1)
     event_attempt = None
@@ -3674,7 +3699,7 @@ def assess_repositories(
             ns.max_parallel = run_profile["settings"]["max_parallel"]
         # Snapshots saved before the setting existed carry no value: false.
         ns.test_cases = ns.test_cases or bool(run_profile["settings"].get("test_cases", False))
-        if ns.max_calls is None and run_profile["adapter"] == "codex-cli":
+        if ns.max_calls is None and run_profile["adapter"] in ("codex-cli", "copilot-cli"):
             ns.max_calls = run_profile["settings"]["max_calls"]
     # Opened first, so every refusal after this still ends the file with its `end` record.
     _AssessmentProgress.open(ns.progress_file)
@@ -3705,7 +3730,13 @@ def assess_repositories(
         raise CallError("--rebuild starts the assessment again and cannot be combined with --resume")
     if not ns.repo:
         raise CallError("an assessment requires at least one --repo selection")
-    budget = _assessment_budget(ns, rest, subscription=(run_profile or {}).get("adapter") == "codex-cli")
+    adapter = (run_profile or {}).get("adapter")
+    budget = _assessment_budget(
+        ns,
+        rest,
+        subscription=adapter in ("codex-cli", "copilot-cli"),
+        subscription_label="GitHub Copilot account allowance" if adapter == "copilot-cli" else "ChatGPT subscription",
+    )
     if run_profile is not None and run_profile["adapter"] in ("openai", "lite", "bedrock"):
         from appsec_analyzer.profiles import call_reservation
 
@@ -3870,7 +3901,7 @@ def assess_repositories(
                     # One header after the output directory, scope and configuration
                     # were accepted, so a refused start prints only its reason.
                     console.facts(
-                        "appsec-analyzer — LLM-backed code-based security assessment (alpha)",
+                        "appsec-analyzer — agentic, evidence-grounded LLM analysis (alpha)",
                         _assessment_intro(
                             ns,
                             budget,
@@ -3925,7 +3956,7 @@ def assess_repositories(
                     state.directory,
                     token_env=getattr(ns, "platform_token_env", None),
                     resume=ns.resume,
-                    # A start check, so the console shows it as a Preflight row that wraps in its column.
+                    # A start check, so the console continues the Preflight block with it.
                     say=(lambda symbol, text: console.preflight([(symbol, "Platform settings", text)]))
                     if console
                     else (lambda symbol, text: say(f"Platform settings: {text}")),
@@ -4102,6 +4133,7 @@ def assess_repositories(
         **({"runtime_files": str(workspace)} if workspace.is_dir() and ns.verbose else {}),
         "spent_usd": None if budget.subscription else round(budget.spent_usd, 2),
         "calls": budget.calls,
+        "subscription_label": budget.subscription_label if budget.subscription else None,
         **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
     }
 
@@ -4432,7 +4464,7 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     kind = "Combined security assessment" if len(outcome["repositories"]) > 1 else "Security assessment"
     head = f"✓ {kind} of {', '.join(outcome['repositories'])} written in {elapsed}"
     cost = (
-        f"({outcome['calls']} model calls, ChatGPT subscription; USD cost unavailable)"
+        f"({outcome['calls']} model calls, {outcome.get('subscription_label') or 'subscription'}; USD cost unavailable)"
         if outcome["spent_usd"] is None
         else f"({outcome['calls']} model calls, ≈ USD {outcome['spent_usd']:.2f})"
     )

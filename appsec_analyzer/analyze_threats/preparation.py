@@ -130,7 +130,7 @@ def select_scope(ns, repo, interactive, origin, *, ask, announce):
             with_threat_model=model is not None or any(d["role"] == "threat_model" for d in documents),
             threat_model_path=model,
         )
-        summary = summary.replace("/appsec-advisor:appsec-analyzer", "appsec-analyzer scan")
+        summary = summary.replace("/appsec-advisor:appsec-analyzer", "appsec-analyzer assess")
         announce(summary)
     else:
         paths = ns.path

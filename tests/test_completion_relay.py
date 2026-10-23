@@ -162,7 +162,7 @@ class TestTheHeadlessWrapper:
 
     def test_the_legacy_wrapper_delegates_to_the_public_assessment_command(self):
         script = (REPO_ROOT / "scripts" / "run-headless.sh").read_text(encoding="utf-8")
-        assert 'exec appsec-analyzer scan "$@"' in script
+        assert 'exec appsec-analyzer assess "$@"' in script
 
 
 class TestTheSummaryScriptRecordsWhatItPrinted:

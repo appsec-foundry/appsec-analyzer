@@ -34,8 +34,8 @@ No push, tag, package upload, or release publication is part of this step.
 
 ## Qualification and compatibility limits
 
-- `scan` runs the full assessment and makes model calls; `scan-sources` and `score REPO` are deterministic commands without a model provider. The separate [score](security-score.md) is a limited indication and does not establish security approval.
-- `scan --host claude-cli` is a compatibility adapter with offline fake-host
+- `assess` runs the full assessment and makes model calls; `scan-sources` and `score REPO` are deterministic commands without a model provider. The separate [score](security-score.md) is a limited indication and does not establish security approval.
+- `assess --host claude-cli` is a compatibility adapter with offline fake-host
   end-to-end coverage. A real CLI session, model selection, and run cost have
   not been qualified here.
 - Direct OpenAI Responses profiles are explicitly selectable with `--host openai`

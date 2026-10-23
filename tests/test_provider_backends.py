@@ -142,7 +142,7 @@ def test_cli_prefix_reaches_controller(connections, wire, tmp_path, monkeypatch,
     monkeypatch.setattr(controller, "assess_main", lambda args, **kw: seen.append(kw) or 0)
     repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    assert cli.main(["scan", "--repo", str(repo), *arguments]) == 0
+    assert cli.main(["assess", "--repo", str(repo), *arguments]) == 0
     expected = "bedrock" if any("bedrock" in arg for arg in arguments) else "lite"
     assert seen[0]["run_profile"]["adapter"] == expected
     assert seen[0]["api_profile"].kind == expected
@@ -168,7 +168,7 @@ def test_invalid_credentials_stop_before_checkout(connections, provider, env, va
         monkeypatch.delenv(env, raising=False)
     else:
         monkeypatch.setenv(env, value)
-    assert cli.main(["scan", "--profile", provider]) == 2
+    assert cli.main(["assess", "--profile", provider]) == 2
     assert env in capsys.readouterr().err
 
 
@@ -525,7 +525,7 @@ def test_conflicting_cli_model_cannot_be_silently_ignored(connections, monkeypat
     (home / "profiles").mkdir()
     (home / "profiles/custom.yaml").write_text("schema_version: 1\nmodel_profile: lite\n")
     monkeypatch.setattr(remote_repositories, "checkout_arguments", lambda *a: pytest.fail("no checkout"))
-    assert cli.main(["scan", "--profile", "custom", "--model", "unrelated-model"]) == 2
+    assert cli.main(["assess", "--profile", "custom", "--model", "unrelated-model"]) == 2
 
 
 @pytest.mark.parametrize("mode", [0o666, 0o664])

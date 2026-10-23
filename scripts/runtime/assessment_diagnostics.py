@@ -164,12 +164,12 @@ def transport_summary(error: TransportError) -> str:
     if reason == "request_too_large":
         return "request_too_large; the request must be reduced before retrying; --resume alone does not fix it"
     hints = {
-        "connection_timeout": "Codex's provider stream timed out; check connectivity and provider availability",
-        "connection_failed": "Codex could not maintain the provider connection; check connectivity",
-        "stream_disconnected": "Codex's provider stream ended before completion; no answer was accepted",
-        "tls_error": "Codex could not verify the secure provider connection; check the certificate configuration",
+        "connection_timeout": "the selected CLI provider timed out; check connectivity and provider availability",
+        "connection_failed": "the selected CLI provider could not maintain its connection; check connectivity",
+        "stream_disconnected": "the selected CLI provider ended before completion; no answer was accepted",
+        "tls_error": "the selected CLI provider could not verify its secure connection; check certificates",
         "model_unavailable": "check that the selected model is supported for this account and host",
-        "authentication_failed": "check external credentials or sign in again (/login for Claude; codex login for Codex CLI)",
+        "authentication_failed": "check external credentials or sign in again (Claude, Codex CLI, or Copilot CLI)",
         "billing_error": "the account has no usage left; check provider billing",
         "quota_exhausted": "wait for the subscription allowance to reset",
         "host_arguments": "check that the installed host CLI supports Analyzer's required options",
@@ -177,7 +177,7 @@ def transport_summary(error: TransportError) -> str:
         "no_result": "check the host installation and login; no structured result was returned",
         "rate_limit": "wait for provider capacity",
         "invalid_response": "the host returned an invalid structured answer; check the private diagnostic feed",
-        "invalid_response_stream": "Codex returned malformed JSON events; check the supported CLI version",
+        "invalid_response_stream": "the selected CLI returned malformed structured output; check its supported version",
         "invalid_response_envelope": "Codex's final message did not match the required JSON envelope",
         "invalid_response_payload": "Codex's final envelope contained an invalid or ambiguous structured payload",
         "unexpected_host_item": "Codex emitted a tool or unsupported item; check CLI isolation before retrying",

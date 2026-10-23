@@ -23,7 +23,7 @@ from yaml.tokens import AliasToken, AnchorToken
 from appsec_analyzer import resource_root
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
 
-BUILTINS = ("claude", "codex", "codex-cli", "lite", "bedrock")
+BUILTINS = ("claude", "codex", "codex-cli", "copilot-cli", "lite", "bedrock")
 DEPTHS = ("quick", "standard", "thorough")
 OUTPUTS = ("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks")
 ROLES = (
@@ -298,6 +298,15 @@ def resolve_model(settings: dict, adapter: str, *, saved_model: str | None = Non
                 raise ProfileError("Codex CLI does not expose max_output_tokens; use call and time limits")
             for key in ("price_revision", "input_usd_per_million", "output_usd_per_million", "model_output_limit"):
                 result.pop(key, None)
+    elif adapter == "copilot-cli":
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", requested) or requested.lower() == "auto":
+            raise ProfileError("Copilot CLI profiles require a fixed model identifier")
+        if "max_output_tokens" in result:
+            raise ProfileError("Copilot CLI does not expose max_output_tokens; use call and time limits")
+        result["model"] = requested
+        result.setdefault("reasoning_effort", "medium")
+        if result["reasoning_effort"] not in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+            raise ProfileError("unsupported Copilot CLI reasoning effort")
     else:
         if not re.fullmatch(r"(?:sonnet|haiku|opus|claude-[a-z0-9][a-z0-9.-]{0,100})", requested):
             raise ProfileError("Claude model must be sonnet, haiku, opus, or a claude- model ID")
@@ -395,16 +404,17 @@ def resolve_scan(
                 model["origins"][role]["model"] = "CLI"
     elif model_override is not None:
         raise ProfileError("model selection prefix conflicts with the selected provider")
-    if model["adapter"] == "codex-cli":
+    if model["adapter"] in ("codex-cli", "copilot-cli"):
         if budget is not None or "budget" in scan:
             raise ProfileError(
-                "codex-cli uses ChatGPT plan allowance; --budget and profile budget are unavailable; use --max-calls and --max-duration"
+                f"{model['adapter']} uses subscription allowance; USD --budget and profile budget are unavailable; "
+                "use --max-calls and --max-duration"
             )
         settings["budget"] = None
         settings["max_calls"] = max_calls if max_calls is not None else scan.get("max_calls", 1000)
         if type(settings["max_calls"]) is not int or not 1 <= settings["max_calls"] <= 47256:
             raise ProfileError("max_calls must be between 1 and 47256")
-        provenance["budget"] = "not applicable: ChatGPT subscription"
+        provenance["budget"] = f"not applicable: {model['adapter']} subscription"
         provenance["max_calls"] = (
             "CLI" if max_calls is not None else source if "max_calls" in scan else "analyzer default"
         )
@@ -490,7 +500,7 @@ def restore_profile(profile: dict, output: Path, *, resume: bool) -> dict:
     saved = _read_state(path).get("operator_profile")
     if not saved or saved.get("definition_sha256") != profile["definition_sha256"]:
         raise ProfileError("profile settings changed or predate profile snapshots; start a new run")
-    if result["adapter"] not in ("openai", "codex-cli"):
+    if result["adapter"] not in ("openai", "codex-cli", "copilot-cli"):
         return result
     for role, settings in result["models"].items():
         previous = saved.get("models", {}).get(role, {})
@@ -512,9 +522,11 @@ def apply_runtime_profile(profile: dict, cfg: dict, arguments: list[str], *, mod
     keys = {**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}
     legacy = dict(cfg)
     for role, settings in profile["models"].items():
-        if profile["adapter"] in ("lite", "bedrock") and cfg.get("opus_disabled"):
+        if cfg.get("opus_disabled") and profile["adapter"] in ("lite", "bedrock"):
             if settings.get("model_family") != "non-opus" or "opus" in settings["model"].lower():
                 raise ProfileError("provider model is not approved under the organization Opus restriction")
+        if cfg.get("opus_disabled") and profile["adapter"] == "copilot-cli" and "opus" in settings["model"].lower():
+            raise ProfileError("provider model is not approved under the organization Opus restriction")
         if profile["adapter"] == "claude-cli":
             # Preserve the existing environment/CLI/depth routing where the
             # operator did not select their own model value.
