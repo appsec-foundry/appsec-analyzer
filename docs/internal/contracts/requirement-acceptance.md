@@ -189,17 +189,17 @@ Full-assessment scan profiles may set `max_parallel`, an integer from 1 to 16 wi
 Each assessment depth has default settings, which Analyzer ships in one documented file. For each depth they state:
 
 - which security aspects verification checks, such as authorization;
-- how many abuse cases are checked, and whether the model may add cases of its own;
-- whether an additional model review of the findings runs, the architect review;
+- how many abuse cases are checked, that is, attack scenarios against the application's rules, such as ordering without paying, and whether the model may add cases of its own;
+- whether a second model call reviews the findings, called the architect review;
 - whether the assessment identifies the users and systems that interact with the application;
-- how many trust boundary crossings are examined in detail;
-- the default budget when a run is started interactively.
+- how many places per component are examined in detail where data passes from a less trusted to a more trusted part of the system;
+- the budget of a run that is started through the Claude Code assessment dialogue without a budget.
 
-A team can change each of these for a single depth in its scan profile. It can also list abuse cases that are always checked or never checked.
+A team can change each of these for a single depth in its scan profile, the file with the team's saved run settings. It can also list abuse cases that are always checked or never checked.
 
-An organization profile can set its own defaults for each depth, which a team's scan profile can still change. It can also switch off abuse cases, add its own, and make aspects mandatory. A scan profile cannot bring back a case that the organization switched off, and it cannot drop a mandatory aspect.
+An organization profile, the file with an organization's settings for all its teams, can set its own defaults for each depth, which a team's scan profile can still change. It can also switch off abuse cases, add its own, and make security aspects mandatory for verification. A scan profile cannot bring back a case that the organization switched off, and it cannot drop a mandatory aspect.
 
-Which model each step uses is set in the model profiles. Technical limits, such as how many turns a model call may take, are not settings.
+Which model each step uses is set in the model profiles. Technical limits, such as how often a model may read more code before it answers, are not settings.
 
 For full assessments, support `lite` and `bedrock` adapters through operator-owned `providers.yaml` with schema version 1, outside every analyzed repository. This separate connection file may specify bounded model aliases, output maxima, conservative USD rates, price and route revisions, an HTTPS LiteLLM endpoint and deployment IDs, or a standard-partition AWS Region and exact model/profile IDs. It cannot contain credentials, commands or tool permissions. Keep scan/model profiles unable to supply endpoints or prices. Require `lite MODEL` and `bedrock MODEL` in the corresponding role profiles; accept those strings as CLI model selections or built-in profile shorthands. Preserve explicit provider selection, role configuration, organization model restrictions and offline inspection. Unknown model families must fail an organization Opus restriction. Reject unsupported reasoning settings and cross-provider role choices. The new adapters apply only to full assessments, not the separate audit or focused analyst.
 

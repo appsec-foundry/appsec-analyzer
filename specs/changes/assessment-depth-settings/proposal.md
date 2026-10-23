@@ -21,6 +21,8 @@ The product owner approved the wording on 2026-10-23 in the conversation that dr
 - `max_parallel` stays a scan profile setting without a per-depth default, because it depends on the provider's rate limits and the machine, not on how thorough a run is.
 - Model selection per role stays in the model profiles, because it depends on the provider. Internal limits such as turn budgets and quality-gate repairs stay out of the settings, as the context routing contract requires for implementation limits.
 
+After a review for readers who do not know the product, the product owner approved a plainer wording on 2026-10-23: abuse cases, the architect review, the trust boundary crossings, the scan profile, and the organization profile are explained where they appear, the budget names the Claude Code assessment dialogue, and REQ-040's example says "request" instead of "route". The rules did not change.
+
 ## Risks raised
 
 - **Refactoring without a behavior change:** values move out of several modules. A test must show that the shipped file yields today's behavior at every depth.
