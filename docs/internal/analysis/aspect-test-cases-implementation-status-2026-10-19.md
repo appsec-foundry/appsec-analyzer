@@ -374,6 +374,8 @@ Conditions:
 - The data come from one intentionally vulnerable repository, three runs, and standard depth only. Quick depth has no measured cost in this pilot.
 - The change alters REQ-040 and the behavior of the depths, so it needs its own requirement proposal and the product owner's approval.
 
+Decided by the product owner on 2026-10-23: what each depth runs is configuration, not code. The table above is the shipped default. A configuration states per depth which aspects get the verification-based method beside the STRIDE step, and whether the open review runs, in the way the model profiles already state per depth which model each role uses (`depths` in `data/model-profiles/*.yaml`). An operator's scan profile can override the default, and an organization profile can require aspects, as `test_cases.required` does today. The exact place and schema are part of the requirement proposal.
+
 ## Decisions taken during the implementation
 
 Decided by the product owner:
@@ -425,3 +427,5 @@ Stricter than the plan on purpose:
 The second comparison repository, the pilot time box, the mapping of outcomes to the control effectiveness scale, the reserved budget share per depth, and the score integration. See the proposal's open questions.
 
 The name "test case" has a provisional answer. On 2026-10-22 the product owner chose, for now, "STRIDE-based" and "verification-based" for the two analysis methods, and "verification catalog" with "verification items" for the catalog and its entries, with IDs such as `VI-AUTHZ-01`. "Test case", "security check", and "control objective" were rejected: the first collides with software tests, the second with scanner checks, and the third describes implementation rather than verification. Results must keep saying "verified by model review only" where no post-check confirms a control. The REQ-040 wording and the rename wait until the pilot is continued, at the latest until the branch is merged.
+
+The name "STRIDE-based" stays for now but should be improved, as decided by the product owner on 2026-10-23: it suggests threat modeling per data flow element, while the step is an open, evidence-based code review per component that uses the six STRIDE categories as a checklist and as the label of its findings. Names considered and not taken: "exploration", too weak and generic; "LLM exploration", because the verification-based method is model-backed as well and the product documents say "model", never "LLM"; "sweep", for the breadth the step shows across aspects; "open review", because the planned open review role uses it; "discovery", "audit", and "review", already taken by discovery phases, `audit-requirements`, and `review`.
