@@ -220,18 +220,17 @@ def pilot_findings(workspace: Path) -> list[dict[str, Any]]:
     return list((_read_json(workspace / PILOT_SIDECAR) or {}).get("findings") or [])
 
 
-#: Lines apart at which a survey and a verification finding in one file count as the same code location.
-SAME_LOCATION_LINES = 3
-
-
 def _survey_locations(threat: Mapping[str, Any]) -> list[tuple[str, int]]:
     rows = [row for row in threat.get("evidence") or [] if isinstance(row, dict)]
     rows += [row for row in threat.get("instances") or [] if isinstance(row, dict)]
     return [(row["file"], row["line"]) for row in rows if row.get("file") and isinstance(row.get("line"), int)]
 
 
-def _near(location: tuple[str, int], file: str, line: int) -> bool:
-    return location[0] == file and abs(location[1] - line) <= SAME_LOCATION_LINES
+def _identity(file: Any, line: Any, cwe: Any) -> tuple | None:
+    """The survey merge's identity of a weakness: file, line, and CWE family."""
+    from model.merge_threats import _evidence_identity_key
+
+    return _evidence_identity_key({"evidence": {"file": file, "line": line}, "cwe": cwe})
 
 
 def combine_methods(
@@ -242,23 +241,25 @@ def combine_methods(
 ) -> dict[str, int]:
     """Link the survey's findings with verification's at the same code location (REQ-040).
 
-    A verification finding with the same CWE as a survey finding at one of its locations names it in
-    ``survey_finding_ids``, and the survey finding names the verification finding and items in
-    ``verification``, so the report shows the weakness once. A survey finding at a location where a
-    verification item evidenced a control for its CWE records the item and location in
+    A verification finding names a survey finding in ``survey_finding_ids`` when one of the survey
+    finding's locations is the same weakness by the survey merge's own identity: the same file and
+    line and the same CWE family. The survey finding names the verification finding and items in
+    ``verification``, so the report shows the weakness once. Neighbouring lines stay apart, because
+    they are often other routes of one route table. A survey finding at a line where a verification
+    item evidenced a control for its CWE records the item and location in
     ``verification_contradicted`` and stays in the report. Survey findings at locations verification
     did not examine stay unchanged. Returns how many findings were linked and contradicted."""
     survey = [threat for threat in threats if threat.get("source") == "stride" and threat.get("id")]
     linked = 0
     for finding in findings:
         evidence = finding.get("evidence") or {}
-        if not evidence.get("file") or not isinstance(evidence.get("line"), int):
+        identity = _identity(evidence.get("file"), evidence.get("line"), finding.get("cwe"))
+        if identity is None:
             continue
         matches = [
             threat
             for threat in survey
-            if threat.get("cwe") == finding.get("cwe")
-            and any(_near(location, evidence["file"], evidence["line"]) for location in _survey_locations(threat))
+            if any(_identity(file, line, threat.get("cwe")) == identity for file, line in _survey_locations(threat))
         ]
         if not matches:
             continue
@@ -283,7 +284,7 @@ def combine_methods(
             if threat.get("cwe") in cwes.get(result.get("test_case_id"), ())
             for spot in result.get("control_locations") or []
             for file, line in _survey_locations(threat)
-            if _near((file, line), spot["file"], spot["line"])
+            if (file, line) == (spot["file"], spot["line"])
         ]
         if rows:
             unique = {(row["test_case_id"], row["file"], row["line"]): row for row in rows}

@@ -98,7 +98,7 @@ Operator-owned scan profiles can disable a verification item only with a reason.
 
 Which security aspects are verified is one of the depth settings that REQ-018 describes. As soon as the number of verification jobs is known, and before the first of them runs, the assessment says whether the remaining budget covers them all. An aspect that could not be verified completely is marked as incomplete.
 
-The survey keeps running for all aspects. If the survey and verification find the same weakness at the same code location and with the same CWE, the report shows one finding and names both methods. If verification shows that a location reported by the survey is protected, the survey finding stays in the report and is marked as contradicted, so that a reader can check it.
+The survey keeps running for all aspects. If the survey and verification find the same weakness on the same code line, with the same CWE or a CWE of the same weakness family, the report shows one finding and names both methods. Findings on neighbouring lines stay separate, because neighbouring lines often register different routes. If verification shows that a location reported by the survey is protected, the survey finding stays in the report and is marked as contradicted, so that a reader can check it.
 
 ## REQ-005: Understand the architecture
 

@@ -539,7 +539,8 @@ requirements:
       - tests/test_profiles.py::test_test_cases_default_follows_the_depth
       - tests/test_profiles.py::test_required_aspects_join_the_selected_aspects_and_cannot_be_removed
       - tests/test_resolve_org_profile.py::test_required_aspects_reach_the_effective_profile_sorted
-      - tests/test_case_outcomes.py::test_a_verification_finding_at_a_survey_location_with_the_same_cwe_is_shown_once
+      - tests/test_case_outcomes.py::test_a_verification_finding_at_a_survey_location_with_the_same_weakness_is_shown_once
+      - tests/test_case_outcomes.py::test_unclassified_cwes_link_only_when_they_are_identical
       - tests/test_case_outcomes.py::test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_keeps_it
       - tests/test_case_outcomes.py::test_investigation_results_name_the_locations_of_evidenced_controls
       - tests/test_case_outcomes.py::test_build_block_keeps_the_aspects_the_budget_left_incomplete

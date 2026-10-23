@@ -169,14 +169,16 @@ In a pilot run on Juice Shop, the survey reported that a user can change another
 
 ### How the results come together
 
-While they run, the two methods do not see each other's results. Verification starts from the routes and scanner hits, not from survey findings, because a weakness that two methods find independently is better supported than one a model was asked to confirm. After both have finished, Analyzer compares their findings by location and CWE:
+While they run, the two methods do not see each other's results. Verification starts from the routes and scanner hits, not from survey findings, because a weakness that two methods find independently is better supported than one a model was asked to confirm. After both have finished, Analyzer compares their findings by code line and CWE:
 
 | Case | What the report shows |
 | --- | --- |
-| Both found the weakness: same CWE, at the same location or within three lines. | One finding. Its card says "Found by: survey and verification" and names the verification items. |
-| Verification found a protecting control where the survey reported a weakness with the same CWE. | The survey finding stays and is marked "Contradicted by verification". Check the code before you close it. |
+| Both found the weakness on the same line, with the same CWE or a CWE of the same weakness family, such as CWE-639 and CWE-862 for missing authorization. | One finding. Its card says "Found by: survey and verification" and names the verification items. |
+| Verification found a protecting control on the line where the survey reported a weakness with the same CWE. | The survey finding stays and is marked "Contradicted by verification". Check the code before you close it. |
 | Only verification found the weakness. | The finding is listed in the section Verification Findings. These findings do not count in the totals of the findings register yet. |
 | Only the survey found the weakness, or verification did not examine the location. | The survey finding stays unchanged. |
+
+Findings on neighbouring lines stay separate, because a route table often registers a different route on the next line. The same weakness therefore appears twice when the two methods anchor it on different lines or label it with CWEs of different families, for example missing authorization in verification and information disclosure in the survey.
 
 ### What each depth verifies
 

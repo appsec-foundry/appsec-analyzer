@@ -593,28 +593,58 @@ def _verified(finding_id, cwe, file, line, case="TC-AUTHZ-01"):
     return {"id": finding_id, "cwe": cwe, "evidence": {"file": file, "line": line}, "test_case_ids": [case]}
 
 
-def test_a_verification_finding_at_a_survey_location_with_the_same_cwe_is_shown_once(catalog):
+def test_a_verification_finding_at_a_survey_location_with_the_same_weakness_is_shown_once(catalog):
     threats = [
         _survey("T-001", "CWE-639", "routes/basket.ts", 19, ("server.ts", 426)),
         _survey("T-002", "CWE-79", "routes/basket.ts", 20),
         _survey("T-003", "CWE-639", "routes/order.ts", 35, source="source-scan"),
+        _survey("T-004", "CWE-95", "routes/profile.ts", 61),
     ]
     findings = [
-        _verified("TCF-001", "CWE-639", "routes/basket.ts", 21),
+        _verified("TCF-001", "CWE-639", "routes/basket.ts", 19),
         _verified("TCF-002", "CWE-639", "server.ts", 426, case="TC-AUTHZ-02"),
-        # Another CWE, a location four lines away, and a scanner finding stay apart.
-        _verified("TCF-003", "CWE-862", "routes/basket.ts", 19),
-        _verified("TCF-004", "CWE-639", "routes/basket.ts", 23),
-        _verified("TCF-005", "CWE-639", "routes/order.ts", 35),
+        # Another CWE of the same family at the same line is the same weakness.
+        _verified("TCF-003", "CWE-862", "routes/basket.ts", 19, case="TC-AUTHZ-02"),
+        _verified("TCF-004", "CWE-94", "routes/profile.ts", 61, case="TC-INPUT-03"),
+        # A neighbouring line, another family at the same line, and a scanner finding stay apart.
+        _verified("TCF-005", "CWE-639", "routes/basket.ts", 20),
+        _verified("TCF-006", "CWE-943", "routes/basket.ts", 19, case="TC-INPUT-02"),
+        _verified("TCF-007", "CWE-639", "routes/order.ts", 35),
     ]
-    assert tcr.combine_methods(threats, findings, [], catalog) == {"linked": 2, "contradicted": 0}
+    assert tcr.combine_methods(threats, findings, [], catalog) == {"linked": 4, "contradicted": 0}
     assert threats[0]["verification"] == {
-        "finding_ids": ["TCF-001", "TCF-002"],
+        "finding_ids": ["TCF-001", "TCF-002", "TCF-003"],
         "test_case_ids": ["TC-AUTHZ-01", "TC-AUTHZ-02"],
     }
     assert threats[0]["test_case_ids"] == ["TC-AUTHZ-01", "TC-AUTHZ-02"]
-    assert [row.get("survey_finding_ids") for row in findings] == [["T-001"], ["T-001"], None, None, None]
+    assert [row.get("survey_finding_ids") for row in findings] == [
+        ["T-001"],
+        ["T-001"],
+        ["T-001"],
+        ["T-004"],
+        None,
+        None,
+        None,
+    ]
     assert "verification" not in threats[1] and "verification" not in threats[2]
+
+
+def test_unclassified_cwes_link_only_when_they_are_identical(catalog):
+    threats = [_survey("T-001", "CWE-359", "routes/memory.ts", 24)]
+    findings = [
+        _verified("TCF-001", "CWE-200", "routes/memory.ts", 24, case="TC-DATA-01"),
+        _verified("TCF-002", "CWE-359", "routes/memory.ts", 24, case="TC-DATA-01"),
+        # Neither a verification nor a survey finding without a CWE matches anything.
+        _verified("TCF-003", None, "routes/memory.ts", 24, case="TC-DATA-01"),
+    ]
+    assert tcr.combine_methods(threats, findings, [], catalog) == {"linked": 1, "contradicted": 0}
+    assert [row.get("survey_finding_ids") for row in findings] == [None, ["T-001"], None]
+    assert tcr.combine_methods(
+        [_survey("T-002", None, "a.ts", 1)], [_verified("TCF-004", None, "a.ts", 1)], [], catalog
+    ) == {
+        "linked": 0,
+        "contradicted": 0,
+    }
 
 
 def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_keeps_it(catalog):
@@ -622,10 +652,14 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
         _survey("T-001", "CWE-639", "routes/payment.ts", 30),
         _survey("T-002", "CWE-79", "routes/payment.ts", 30),
         _survey("T-003", "CWE-639", "routes/wallet.ts", 12),
+        _survey("T-004", "CWE-862", "routes/payment.ts", 30),
+        _survey("T-005", "CWE-639", "routes/refund.ts", 40),
     ]
     results = [
-        {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 31}]},
+        {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 30}]},
         {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/wallet.ts", "line": 12}]},
+        # A control on a neighbouring line belongs to another statement and contradicts nothing.
+        {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/refund.ts", "line": 41}]},
     ]
     # A weakness that verification found at the same place outweighs its control elsewhere.
     findings = [_verified("TCF-001", "CWE-639", "routes/wallet.ts", 12)]
@@ -633,8 +667,9 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
     assert threats[0]["verification_contradicted"] == [
         {"test_case_id": "TC-AUTHZ-01", "file": "routes/payment.ts", "line": 30}
     ]
-    # Only a CWE of the verification item is contradicted.
-    assert "verification_contradicted" not in threats[1] and "verification_contradicted" not in threats[2]
+    # Only a CWE of the verification item is contradicted, not another CWE of its family:
+    # an ownership check does not show that a role check exists.
+    assert all("verification_contradicted" not in threat for threat in threats[1:])
 
 
 def test_investigation_results_name_the_locations_of_evidenced_controls(catalog):

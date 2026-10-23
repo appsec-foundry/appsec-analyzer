@@ -128,7 +128,7 @@ When the jobs are known and before the first one runs, the controller states the
 
 `AssessmentBudget.hold` and `release` keep a share of the optional budget for one group, such as the planned open review. Required work outranks a hold, and other optional jobs see less while it is active. Holds are never persisted; a resumed run recomputes them.
 
-After the model is built, `case_outcomes.combine_methods` links a verification finding with a survey threat of the same CWE at one of its locations, within three lines, and marks a survey threat at a location where a verification item with its CWE evidenced a control as contradicted. Neither step removes or rescores a survey threat.
+After the model is built, `case_outcomes.combine_methods` links a verification finding with a survey threat when one of the threat's locations has the same file, line, and CWE family by the survey merge's identity (`merge_threats._evidence_identity_key`), and marks a survey threat as contradicted on a line where a verification item with its CWE evidenced a control. Neither step removes or rescores a survey threat.
 
 ### Depth settings
 
