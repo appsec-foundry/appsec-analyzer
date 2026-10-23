@@ -168,7 +168,7 @@ def test_invalid_credentials_stop_before_checkout(connections, provider, env, va
         monkeypatch.delenv(env, raising=False)
     else:
         monkeypatch.setenv(env, value)
-    assert cli.main(["assess", "--profile", provider]) == 2
+    assert cli.main(["assess", "--repo", "https://git.example.invalid/app.git", "--profile", provider]) == 2
     assert env in capsys.readouterr().err
 
 
