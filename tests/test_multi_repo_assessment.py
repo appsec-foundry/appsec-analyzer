@@ -437,6 +437,37 @@ def test_a_resumed_console_counts_elapsed_on_from_the_earlier_attempts():
     assert [row[3] for row in _rows(lines)[:2]] == ["30m", "32m"]
 
 
+def test_components_reporting_together_start_a_phase_once(monkeypatch):
+    """Controls run one component per worker thread; the first reports arrive together."""
+    import threading
+    import time
+
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.step("Reviewing trust crossing: signal-external-ingress-0123abcd (1/1)")
+    close = console.close
+
+    def slow_close(now=None):
+        time.sleep(0.05)
+        close(now)
+
+    monkeypatch.setattr(console, "close", slow_close)
+    barrier = threading.Barrier(2)
+
+    def report(name):
+        barrier.wait()
+        console.step(f"Assessing controls: {name} (1/2)")
+
+    threads = [threading.Thread(target=report, args=(name,)) for name in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    events = [(row[0], row[1]) for row in _rows(lines)]
+    assert events.count(("3/8 Trust boundaries", "done")) == 1
+    assert events.count(("4/8 Controls", "start")) == 1
+
+
 def test_a_long_preflight_check_wraps_under_its_message_column(monkeypatch):
     monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 60)
     lines, clock = [], _Clock()

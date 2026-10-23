@@ -870,20 +870,22 @@ class _AssessmentConsole:
             return
         now = self.clock()
         position = self._POSITION.search(text)
-        if phase != self.phase:
-            self.close(now)
-            self.phase, self.started, self.finished_jobs = phase, now, 0
-            self.current, self.count, self.positioned, self.parts = "", None, False, {}
-            self.units, self.units_done = {}, 0
-            self.corrections = Counter()
-            self.fraction = 0.0
-            self._advance(0.0)
-            scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
-            self._header()
-            self.record("start", scope, now)
-            self.shown = (self.current, round(100 * self.done))
-            if self.on_phase:
-                self.on_phase()
+        # Components analyzed in parallel report together; only the first starts the phase.
+        with _AssessmentConsole._lock:
+            if phase != self.phase:
+                self.close(now)
+                self.phase, self.started, self.finished_jobs = phase, now, 0
+                self.current, self.count, self.positioned, self.parts = "", None, False, {}
+                self.units, self.units_done = {}, 0
+                self.corrections = Counter()
+                self.fraction = 0.0
+                self._advance(0.0)
+                scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
+                self._header()
+                self.record("start", scope, now)
+                self.shown = (self.current, round(100 * self.done))
+                if self.on_phase:
+                    self.on_phase()
         if prefix in self.UNIT_STEPS:
             self._unit_step(prefix, text, position, now)
             return
