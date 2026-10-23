@@ -518,7 +518,7 @@ def test_default_console_writes_every_line_in_one_column_grid():
         ("5/8 Threat analysis", "✓", "~46%", "4m", "~5m", "Survey: 1/2 components done · API · 2m00s"),
         ("5/8 Threat analysis", "·", "~46%", "4m", "~5m", "component 2/2 · Store"),
         # MR-17: a successful correction is counted on the done line, its reason only under --verbose.
-        ("5/8 Threat analysis", "done", "~56%", "7m", "~5m", "4m30s · 2 components · 1 answer corrected (STRIDE 1)"),
+        ("5/8 Threat analysis", "done", "~56%", "7m", "~5m", "4m30s · 2 components · 1 answer corrected (survey 1)"),
         ("8/8 Finalization", "start", "~79%", "7m", "~1m", ""),
         ("8/8 Finalization", "done", "100%", "7m", "", "30s"),
     ]
@@ -2360,7 +2360,8 @@ def test_diagnostic_ids_are_visible_only_in_verbose_progress(capsys, monkeypatch
     console.call(f"[{identity}] 2 min: no progress update for 120 s; model call is still running", "recon_scanner")
     console.call(f"[{identity}] model call stopped after 300 s: it exceeded its time limit", "recon_scanner")
     text = "\n".join(lines)
-    assert "no progress update" in text and "exceeded its time limit" in text
+    # On a terminal the status line shows a silent call; only the stopped call becomes a permanent line.
+    assert "no progress update" not in text and "exceeded its time limit" in text
     assert (identity in text) is verbose
     controller._AssessmentConsole.clear_status()
 
@@ -2916,6 +2917,68 @@ def test_a_status_redraw_overwrites_in_place_in_one_flush(monkeypatch, component
     assert not body.startswith("\033[") and all(not line.startswith("\033[") for line in body.split("\n"))
     assert redraw.count("\n") == components and "Running deterministic source scanners" in redraw
     assert cleared == "\r\033[K" + "\033[1A\033[K" * components
+
+
+def _screen(stream: str, width: int) -> list[str]:
+    """The rows a terminal ``width`` columns wide shows for ``stream``: autowrap, CR, LF, cursor up and clears."""
+    rows, row, col = [[]], 0, 0
+    for token in re.findall(r"\033\[\??\d*[A-Za-z]|.", stream, re.S):
+        if token.startswith("\033["):
+            kind, count = token[-1], int(re.sub(r"\D", "", token) or 1)
+            if token.startswith("\033[?"):
+                continue
+            if kind == "A":
+                row = max(row - count, 0)
+            elif kind in "KJ":
+                del rows[row][col:]
+                if kind == "J":
+                    del rows[row + 1 :]
+        elif token == "\r":
+            col = 0
+        elif token == "\n":
+            row, col = row + 1, 0
+        else:
+            if col == width:
+                row, col = row + 1, 0
+            while len(rows) <= row:
+                rows.append([])
+            rows[row].extend(" " * (col + 1 - len(rows[row])))
+            rows[row][col] = token
+            col += 1
+        while len(rows) <= row:
+            rows.append([])
+    return ["".join(cells).rstrip() for cells in rows]
+
+
+@pytest.mark.parametrize("components", [0, 2])
+@pytest.mark.parametrize("echo", ["", "ab"], ids=["no input", "echoed input"])
+def test_input_echoed_between_redraws_leaves_no_stale_status_line(monkeypatch, components, echo):
+    """A key press the terminal echoes after a full-width status line must not push the next redraw a row lower."""
+    import time as clock
+
+    written: list[str] = []
+
+    class _Terminal(io.StringIO):
+        def write(self, text):
+            written.append(text)
+            return len(text)
+
+    monkeypatch.setenv("COLUMNS", "120")
+    monkeypatch.setattr(sys, "stderr", _Terminal())
+    console = controller._AssessmentConsole(False, [].append, live=True)
+    console.plan_components(4)
+    console.step("Running deterministic source scanners")
+    for index in range(components):
+        console.step(f"Surveying component: Part{index} ({index + 1}/4)")
+    # Long enough to be cut at the terminal width, so the line ends one column before the edge.
+    console.running[1] = _Call("survey", clock.monotonic(), "model is writing its result " + "x" * 200)
+    console.tick()
+    written.append(echo)
+    console.tick()
+    controller._AssessmentConsole.status_shown = False
+    screen = [row for row in _screen("".join(written), 120) if row]
+    # The component bars above the status line and the status line itself, each once.
+    assert len(screen) == components + 1 and "5/8 Threat analysis" in screen[-1] and screen[-1].endswith("…")
 
 
 def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):

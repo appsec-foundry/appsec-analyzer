@@ -536,10 +536,14 @@ class _AssessmentConsole:
     status_shown = False
     status_lines = 0
     # A status redraw: begin a synchronized update, hide the cursor, return to
-    # the line start; then show the cursor and end the update. Terminals
-    # without synchronized updates ignore the mode.
+    # the line start; then return to the line start again, show the cursor and
+    # end the update. Terminals without synchronized updates ignore the mode.
+    # Left at the line end, the cursor took input the terminal echoes, such as
+    # a key press, into the last column, and the terminal wrapped there: the
+    # next redraw started a row lower and left the previous line behind. At
+    # the line start an echoed character is overwritten by the next redraw.
     FRAME_OPEN = "\033[?2026h\033[?25l\r"
-    FRAME_CLOSE = "\033[?25h\033[?2026l"
+    FRAME_CLOSE = "\r\033[?25h\033[?2026l"
     _lock = threading.RLock()
     _stopped = threading.Event()
 
