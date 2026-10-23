@@ -818,6 +818,20 @@ def test_runtime_identity_binds_plugin_bytes_without_local_path_dependence(tmp_p
     assert controller._assessment_runtime_fingerprint() != before
 
 
+def test_runtime_identity_ignores_requirement_bindings_but_not_other_data(tmp_path, monkeypatch):
+    plugin = tmp_path / "plugin"
+    for path in ("data/policy.yaml", "data/requirement-bindings.yaml", "engine.json"):
+        target = plugin / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("original")
+    monkeypatch.setattr(controller, "PLUGIN_ROOT", plugin)
+    before = controller._assessment_runtime_fingerprint()
+    (plugin / "data/requirement-bindings.yaml").write_text("changed")
+    assert controller._assessment_runtime_fingerprint() == before
+    (plugin / "data/policy.yaml").write_text("changed")
+    assert controller._assessment_runtime_fingerprint() != before
+
+
 def test_runtime_identity_rejects_linked_code(tmp_path, monkeypatch):
     plugin = tmp_path / "plugin"
     (plugin / "scripts").mkdir(parents=True)

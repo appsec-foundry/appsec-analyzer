@@ -709,6 +709,11 @@ def _export_pentest_tasks_if_configured(output_dir: Path, cfg: dict[str, Any]) -
 # ---------------------------------------------------------------------------
 
 
+# Development metadata under data/ that no assessment reads (check_specs.py and the
+# development hook do); editing it must not mark a running assessment as changed.
+_RUNTIME_FINGERPRINT_EXCLUDED = frozenset({"data/requirement-bindings.yaml"})
+
+
 def _assessment_runtime_fingerprint() -> str:
     """Bind resumable jobs to the actual plugin implementation and contracts."""
     rows, total = [], 0
@@ -730,10 +735,13 @@ def _assessment_runtime_fingerprint() -> str:
                 metadata = path.lstat()
                 if not stat.S_ISREG(metadata.st_mode):
                     raise ControllerError("assessment runtime must contain only regular files")
+                relative = path.relative_to(PLUGIN_ROOT).as_posix()
+                if relative in _RUNTIME_FINGERPRINT_EXCLUDED:
+                    continue
                 total += metadata.st_size
                 if len(rows) >= 10_000 or metadata.st_size > 2_097_152 or total > 67_108_864:
                     raise ControllerError("assessment runtime exceeds its fingerprint bounds")
-                rows.append((path.relative_to(PLUGIN_ROOT).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest()))
+                rows.append((relative, hashlib.sha256(path.read_bytes()).hexdigest()))
     from appsec_analyzer.engine import implementation_files
 
     for relative, path in implementation_files():
