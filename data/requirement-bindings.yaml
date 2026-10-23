@@ -394,6 +394,7 @@ requirements:
     documents:
       - docs/internal/contracts/requirement-acceptance.md
       - docs/internal/analysis/aspect-test-cases-proposal-2026-10-19.md
+      - docs/internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md
     coverage: advisory
     guards: []
 
