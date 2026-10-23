@@ -76,6 +76,8 @@ Record source revisions, captured source state, context sources, exclusions, and
 
 The survey examines every assessed component for all six STRIDE threat categories at every depth. Include applicable identity, authorization, input, cryptography, secrets, browser, deployment, supply-chain, and AI security concerns; make incomplete coverage visible. Cover implementation weaknesses and insecure design assumptions; explain that source analysis cannot prove production behavior or approve a release.
 
+Run the deterministic source, configuration, and architecture-coverage rules on every assessed repository before the evidence review of the threat analysis. Pass each rule hit that cites a source location to the same evidence review as survey findings and report it only when that review confirms it; a rejected hit never becomes a finding. Treat application-wide hits, such as high-confidence architecture anti-patterns and confirmed architecture hypotheses, like hits at a single code location. A finding from a rule hit names its rule. Make no review call for this purpose when no rule hits.
+
 ## REQ-040: Verify security aspects item by item
 
 Define each catalog verification item in versioned YAML that Analyzer owns and packages, with a stable ID, aspect, STRIDE tag, CWE, mode, objective, deterministic applicability, starting points from scanner rules and facts, guidance, matching control catalog entries, required evidence, deterministic post-checks, and fixtures. Repository content cannot define, select, or disable catalog verification items.

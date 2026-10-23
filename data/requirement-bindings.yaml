@@ -361,6 +361,9 @@ requirements:
       - scripts/orchestrator/orchestration_controller.py
       - appsec_analyzer/assessment/**
       - docs/internal/contracts/requirement-acceptance.md
+      - scripts/model/assessment_scanner_findings.py
+      - scripts/model/assessment_posture.py
+      - scripts/analyzers/arch_coverage_to_threats.py
     decisions: []
     documents:
       - docs/security-assessment.md
@@ -369,6 +372,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_scanner_findings.py::test_an_absence_is_reviewed_by_reading_its_file_and_merged
       - tests/test_active_stride_policy.py::test_active_stride_prompt_has_evidence_rules_and_no_removed_tool_procedure
       - tests/test_stride_quick_profile.py::test_profile_does_not_skip_stride_categories
       - tests/test_aggregate_run_issues.py::test_stride_ceiling_lift_is_surfaced
