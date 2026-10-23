@@ -197,7 +197,7 @@ Each assessment depth has default settings, which Analyzer ships in one document
 
 A team can change each of these for a single depth in its scan profile. It can also list abuse cases that are always checked or never checked.
 
-An organization profile can switch off abuse cases, add its own, and make aspects mandatory. A scan profile cannot bring back a case that the organization switched off, and it cannot drop a mandatory aspect.
+An organization profile can set its own defaults for each depth, which a team's scan profile can still change. It can also switch off abuse cases, add its own, and make aspects mandatory. A scan profile cannot bring back a case that the organization switched off, and it cannot drop a mandatory aspect.
 
 Which model each step uses is set in the model profiles. Technical limits, such as how many turns a model call may take, are not settings.
 
