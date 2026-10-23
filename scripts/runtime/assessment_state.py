@@ -165,7 +165,7 @@ class AssessmentState:
         }
         self.operator_profile = copy.deepcopy(configuration.get("operator_profile"))
         self.state = None
-        # Retained console compatibility; runtime changes now reject resume.
+        # Set when --resume continues an unfinished run after only the plugin changed (REQ-016).
         self.runtime_changed = False
         self.cancelled = False
         self._held = False
@@ -235,7 +235,15 @@ class AssessmentState:
                 )
             self.state = _read_state(self.path)
         if self.resume:
-            if self.state["identity"] != self.identity:
+            earlier = self.state["identity"]
+            # REQ-016: a changed plugin alone continues an unfinished run with its
+            # deadline, limits and accounting; the job layer rechecks each accepted job.
+            self.runtime_changed = (
+                earlier != self.identity
+                and self.state["status"] != "complete"
+                and {**earlier, "runtime_sha256": self.identity["runtime_sha256"]} == self.identity
+            )
+            if earlier != self.identity and not self.runtime_changed:
                 again = (
                     "A new scan is required: run again without --resume"
                     if self.state["status"] == "complete"
@@ -270,6 +278,9 @@ class AssessmentState:
             for name, expected in self.state["deliverables"].items():
                 if _deliverable(self.output, name) != expected:
                     raise ExchangeError("Assessment deliverable changed after completion")
+            if self.runtime_changed:
+                # Only after every check passed, so a refused resume leaves the state as it was.
+                self.state["identity"]["runtime_sha256"] = self.identity["runtime_sha256"]
             if self.state["status"] != "complete":
                 self.state["status"] = "running"
         else:
@@ -838,13 +849,13 @@ class AssessmentState:
         return path
 
 
-def unfinished_run(output: Path, budget: AssessmentBudget, runtime_sha256: str) -> dict | None:
+def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
     """What a start without --resume or --rebuild can offer for an unfinished run in `output`.
 
     None when the directory holds no readable unfinished run or another live
     run owns it. `resume_blocked` names why continuing cannot succeed from
-    what the state records and the current plugin version, or is None;
-    changed source or settings are still checked when the resume opens.
+    what the state records, or is None; changed source or settings are still
+    checked when the resume opens, and a changed plugin alone does not block it.
     """
     path = output / STATE_NAME
     if not path.is_file() or path.is_symlink():
@@ -868,8 +879,6 @@ def unfinished_run(output: Path, budget: AssessmentBudget, runtime_sha256: str) 
         max_usd = None
     if accounting["unavailable"]:
         blocked = "an unfinished cost reservation cannot be reconciled"
-    elif state["identity"]["runtime_sha256"] != runtime_sha256:
-        blocked = "the plugin version changed since it started"
     elif state["identity"]["limits"] != limits:
         blocked = "the budget or time limits differ from its original limits"
     elif state["expires_at"] <= time.time():

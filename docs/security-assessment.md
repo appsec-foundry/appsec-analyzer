@@ -113,13 +113,12 @@ enables requirements checking within this full assessment; it does not invoke
 the independent Requirements Audit.
 
 Interrupted runs retain accepted steps. `--resume` requires compatible source,
-settings, engine, and limits; `--rebuild` discards earlier model work. A source
-or runtime change may require a fresh assessment. Without either flag, a new
+settings, and limits; `--rebuild` discards earlier model work. A source change
+may require a fresh assessment. Without either flag, a new
 scan reuses compatible accepted steps of an unfinished run in the same output.
 In an interactive terminal it first asks whether to continue that run, start
 such a new scan (the default for Enter or end of input), or rebuild; continuing
-is offered only while the run's limits, deadline, and accounting allow it and
-the Analyzer version is unchanged.
+is offered only while the run's limits, deadline, and accounting allow it.
 `--non-interactive`, `--quiet`, `--json`, and CI runs never ask. Earlier results
 stay in the output until a new run completes; that run removes the ones it did
 not replace. Inspect `status` or `progress`
@@ -301,7 +300,7 @@ The default formats are `markdown yaml`. Markdown, HTML and PDF require the reco
 
 `results` checks the hashes of already published files. Internal names such as `threat-model.yaml` remain in intermediate processing and historical fixtures; the current published model is `security-assessment.yaml`.
 
-`--resume` never starts a fresh run when the Analyzer runtime changes: it rejects the incompatible state and preserves its accounting and original deadline. To start a new attempt with newly authorized limits, rerun explicitly without `--resume`; compatible accepted jobs may be reused.
+When only the Analyzer runtime changed since an unfinished run started, `--resume` continues that run with its original deadline, limits, recorded costs, and elapsed time; the run header says so. Accepted jobs whose model request is unchanged are reused without a new call or charge. The others run again at additional cost, and the cost of their earlier answers stays counted. `--resume` never starts a fresh run: a completed run, or changed source, settings, or limits, still need a run without `--resume`, which may reuse compatible accepted jobs.
 
 Interactive triage, automated code fixes, baseline installation, and plugin hooks are not part of the public Analyzer CLI. The separate [security score](security-score.md) gives a limited deterministic indication without model calls. The focused analyst can preview and check selected abuse cases with `hypothesis --abuse-case`; see the [analyst guide](threat-analyst.md). The independent [AuthNZ review](authnz-review.md) checks authentication and authorization through Claude CLI and supports JSON/YAML reports and legacy pentest plans without a prior assessment.
 

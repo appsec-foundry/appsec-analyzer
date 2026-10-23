@@ -312,7 +312,8 @@ def test_changed_settings_reject_resume_and_name_the_change(scope, field, value,
 
 
 def _plugin_change_jobs(state, host_factory):
-    # As the controller does: every session may adopt cached jobs of an earlier unfinished run.
+    # As the controller does: every session may adopt cached jobs of an earlier unfinished run,
+    # and a resume after a plugin change redoes its own stale jobs.
     return AssessmentJobs(
         state.scope,
         state.directory / "jobs",
@@ -321,23 +322,24 @@ def _plugin_change_jobs(state, host_factory):
         state.should_stop,
         state.checkpoint,
         cache=state.directory / CACHE_NAME,
+        redo_stale=state.runtime_changed,
     )
 
 
-def test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchanged_jobs(scope):
-    schema = {"type": "object", "required": ["ok"], "properties": {"ok": {"const": True}}}
+def _plugin_change_job(selector, instructions):
+    return dict(
+        role="recon_scanner",
+        selector=selector,
+        instructions=instructions,
+        context={},
+        schema={"type": "object", "required": ["ok"], "properties": {"ok": {"const": True}}},
+        allowed_sources=frozenset(),
+        validate=lambda a, r: None,
+    )
 
-    def job(selector, instructions):
-        return dict(
-            role="recon_scanner",
-            selector=selector,
-            instructions=instructions,
-            context={},
-            schema=schema,
-            allowed_sources=frozenset(),
-            validate=lambda a, r: None,
-        )
 
+def _interrupted_with_two_jobs(scope):
+    """An interrupted run that accepted two jobs at USD 0.01 each, its dispatch log and host factory."""
     dispatched = []
 
     class Host:
@@ -348,34 +350,78 @@ def test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchange
             dispatched.append(self.role)
             return HostReply({"action": "complete", "reads": [], "artifact": {"ok": True}}, 0.01)
 
+    def factory(role, ceiling):
+        return Host(role)
+
     first = lifecycle(scope)
     with first.hold():
-        jobs = _plugin_change_jobs(first, lambda role, ceiling: Host(role))
-        jobs.execute(**job("kept", "same prompt"))
-        jobs.execute(**job("changed", "old prompt"))
+        jobs = _plugin_change_jobs(first, factory)
+        jobs.execute(**_plugin_change_job("kept", "same prompt"))
+        jobs.execute(**_plugin_change_job("changed", "old prompt"))
     assert stored(scope)["status"] == "interrupted" and len(dispatched) == 2
+    return first, dispatched, factory
 
-    before = {p.relative_to(scope.output): p.read_bytes() for p in scope.output.rglob("*") if p.is_file()}
-    with pytest.raises(
-        ExchangeError,
-        match=r"plugin version changed since it started\. Run the same command without --resume: a new run .* "
-        r"reuses every accepted step whose inputs are unchanged \(2 accepted so far\)",
-    ):
-        with lifecycle(scope, resume=True, runtime_sha256="b" * 64).hold():
-            pytest.fail("Resume cannot authorize a new run or another budget")
-    assert before == {p.relative_to(scope.output): p.read_bytes() for p in scope.output.rglob("*") if p.is_file()}
+
+def test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_jobs(scope):
+    first, dispatched, factory = _interrupted_with_two_jobs(scope)
+    earlier = stored(scope)
+    earlier["worked_seconds"] = 780
+    (scope.output / ".assessment-state.json").write_text(json.dumps(earlier))
+
+    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
+    with resumed.hold():
+        assert resumed.resume and resumed.runtime_changed
+        # REQ-016: the same run goes on with its deadline, accounting and elapsed time.
+        assert resumed.state["run_id"] == first.state["run_id"]
+        assert resumed.state["started_at"] == earlier["started_at"]
+        assert resumed.state["expires_at"] == earlier["expires_at"]
+        assert resumed.worked_before == 780
+        jobs = _plugin_change_jobs(resumed, factory)
+        jobs.execute(**_plugin_change_job("kept", "same prompt"))
+        assert len(dispatched) == 2  # reused without a call or a second charge
+        assert resumed.budget.calls == 2 and resumed.budget.spent_usd == pytest.approx(0.02)
+        jobs.execute(**_plugin_change_job("changed", "new prompt"))
+        assert len(dispatched) == 3  # only the job whose request changed ran again
+        # The replaced answer's cost stays counted; the repeated job adds its own.
+        assert resumed.budget.calls == 3 and resumed.budget.spent_usd == pytest.approx(0.03)
+    assert stored(scope)["identity"]["runtime_sha256"] == "b" * 64
+    assert stored(scope)["worked_seconds"] >= 780
+
+
+def test_resume_after_a_plugin_change_still_stops_on_a_changed_artifact(scope):
+    _, dispatched, factory = _interrupted_with_two_jobs(scope)
+    for artifact in (scope.output / ".assessment-work" / "jobs").glob("job-*.json"):
+        if not artifact.name.endswith(".receipt.json"):
+            artifact.write_text(json.dumps({"ok": True, "added": 1}))
+    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
+    with pytest.raises(ExchangeError, match="artifact changed after acceptance"):
+        with resumed.hold():
+            _plugin_change_jobs(resumed, factory).execute(**_plugin_change_job("kept", "same prompt"))
     assert len(dispatched) == 2
 
-    resumed = lifecycle(scope, runtime_sha256="b" * 64)
-    with resumed.hold():
-        assert not resumed.resume
-        assert resumed.state["run_id"] != first.state["run_id"]
-        assert resumed.state["identity"]["runtime_sha256"] == "b" * 64
-        jobs = _plugin_change_jobs(resumed, lambda role, ceiling: Host(role))
-        jobs.execute(**job("kept", "same prompt"))
-        jobs.execute(**job("changed", "new prompt"))
+
+def test_resume_refuses_a_plugin_change_together_with_changed_settings(scope):
+    with lifecycle(scope).hold():
+        pass
+    previous = stored(scope)
+    with pytest.raises(ExchangeError, match="cannot resume: the assessment settings and the plugin version changed"):
+        with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}, runtime_sha256="b" * 64).hold():
+            pytest.fail("Changed settings must not resume, whatever else changed")
+    assert stored(scope) == previous
+
+
+def test_a_new_run_after_a_plugin_change_reuses_only_unchanged_jobs(scope):
+    first, dispatched, factory = _interrupted_with_two_jobs(scope)
+    renewed = lifecycle(scope, runtime_sha256="b" * 64)
+    with renewed.hold():
+        assert not renewed.resume and not renewed.runtime_changed
+        assert renewed.state["run_id"] != first.state["run_id"]
+        assert renewed.state["identity"]["runtime_sha256"] == "b" * 64
+        jobs = _plugin_change_jobs(renewed, factory)
+        jobs.execute(**_plugin_change_job("kept", "same prompt"))
+        jobs.execute(**_plugin_change_job("changed", "new prompt"))
         assert len(dispatched) == 3  # only the job whose request changed ran again
-        assert resumed.budget.calls == 2 and resumed.budget.spent_usd == pytest.approx(0.02)
+        assert renewed.budget.calls == 2 and renewed.budget.spent_usd == pytest.approx(0.02)
 
 
 @pytest.mark.parametrize("subscription", [False, True])
@@ -402,7 +448,7 @@ def test_runtime_change_cannot_reset_exhausted_resume_limits(scope, subscription
     previous["expires_at"] -= 120
     path = scope.output / ".assessment-state.json"
     path.write_text(json.dumps(previous))
-    with pytest.raises(ExchangeError, match="plugin version changed"):
+    with pytest.raises(ExchangeError, match="resume budget is exhausted"):
         with lifecycle(
             scope, budget=budget(), configuration=configuration, resume=True, runtime_sha256="b" * 64
         ).hold():
@@ -428,9 +474,10 @@ def test_resume_after_a_plugin_change_keeps_unknown_cost_blocking(scope):
     recorded = stored(scope)
     recorded["accounting"]["unavailable"] = True
     (scope.output / ".assessment-state.json").write_text(json.dumps(recorded))
-    with pytest.raises(ExchangeError, match="the plugin version changed"):
+    with pytest.raises(ExchangeError, match="cannot reconcile an unfinished cost reservation"):
         with lifecycle(scope, resume=True, runtime_sha256="b" * 64).hold():
             pytest.fail("Unknown costs must not be refunded by a plugin change")
+    assert stored(scope) == recorded
 
 
 def test_changed_source_cannot_resume_or_complete(scope):
@@ -1015,7 +1062,7 @@ def test_resume_without_an_assessment_says_so(scope):
     assert not (scope.output / ".assessment-state.json").exists()
 
 
-def _restart_choice(scope, answers, budget=None, runtime_sha256="a" * 64):
+def _restart_choice(scope, answers, budget=None):
     from types import SimpleNamespace
 
     from orchestrator.orchestration_controller import _assessment_restart_choice
@@ -1024,7 +1071,6 @@ def _restart_choice(scope, answers, budget=None, runtime_sha256="a" * 64):
     choice = _assessment_restart_choice(
         SimpleNamespace(output=str(scope.output)),
         budget or AssessmentBudget(1.0, 0.05, 10, 60),
-        runtime_sha256=runtime_sha256,
         readline=lambda: next(replies, ""),  # "" is end of input
         write=shown.append,
     )
@@ -1045,19 +1091,12 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
     assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
 
 
-@pytest.mark.parametrize(
-    ("change", "reason"),
-    [
-        ({"budget": AssessmentBudget(2.0, 0.05, 10, 60)}, "the budget or time limits differ"),
-        ({"runtime_sha256": "b" * 64}, "the plugin version changed since it started"),
-    ],
-)
-def test_the_question_omits_a_resume_that_cannot_succeed(scope, change, reason):
+def test_the_question_omits_a_resume_that_cannot_succeed(scope):
     with lifecycle(scope).hold():
         pass
-    choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], **change)
+    choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], budget=AssessmentBudget(2.0, 0.05, 10, 60))
     assert choice is None
-    assert f"1  Continue it: not available, {reason}" in shown
+    assert "1  Continue it: not available, the budget or time limits differ" in shown
     assert "--resume)" not in shown and "Choose 2 or 3 [2]:" in shown
 
 

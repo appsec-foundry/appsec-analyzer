@@ -1244,6 +1244,9 @@ requirements:
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_assessment_state.py::test_runtime_change_cannot_reset_exhausted_resume_limits
+      - tests/test_assessment_state.py::test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_jobs
+      - tests/test_assessment_state.py::test_resume_after_a_plugin_change_still_stops_on_a_changed_artifact
+      - tests/test_assessment_state.py::test_resume_refuses_a_plugin_change_together_with_changed_settings
       - tests/test_assessment_state.py::test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds
       - tests/test_assessment_state.py::test_the_question_omits_a_resume_that_cannot_succeed
       - tests/test_assessment_state.py::test_no_question_without_an_unfinished_run
@@ -1687,7 +1690,8 @@ requirements:
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
       - tests/test_copilot_cli.py::test_bounded_process_execution
-      - tests/test_assessment_state.py::test_runtime_change_refuses_resume_and_explicit_new_run_reuses_only_unchanged_jobs
+      - tests/test_assessment_state.py::test_a_new_run_after_a_plugin_change_reuses_only_unchanged_jobs
+      - tests/test_assessment_state.py::test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_jobs
       - tests/test_startup_preflight.py::test_live_probe_requires_explicit_budget
       - tests/test_startup_preflight.py::test_opt_in_probe_has_only_synthetic_content_and_bounded_budget
       - tests/test_provider_backends.py::test_lite_wire_checks_deployment_and_uses_gateway_charge

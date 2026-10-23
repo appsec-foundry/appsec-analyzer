@@ -305,6 +305,7 @@ class AssessmentJobs:
         cache=None,
         prompt_capacity=None,
         diagnostics=None,
+        redo_stale=False,
     ):
         """`cache` holds an earlier, unfinished run's accepted jobs (see assessment_state.CACHE_NAME).
 
@@ -312,10 +313,14 @@ class AssessmentJobs:
         passes today's acceptance checks: its calls and cost are charged to
         this run before it moves into `directory`, so every receipt there is
         covered by the run's accounting. A cached job that no longer fits is
-        discarded and redone. A receipt in `directory` stays strict.
+        discarded and redone. A receipt in `directory` stays strict, unless
+        `redo_stale` says the run resumed after a plugin change (REQ-016): a
+        receipt that no longer fits is then redone as well, and the cost it
+        recorded stays in the run's accounting. A changed artifact still stops.
         """
         self.scope = scope
         self.directory = Path(directory)
+        self.redo_stale = redo_stale
         self.budget = budget
         self.host_factory = host_factory
         self.prompt_capacity = prompt_capacity
@@ -545,7 +550,9 @@ class AssessmentJobs:
                 and receipt["request_sha256"] == request_sha256
                 and receipt["scope_sha256"] == self.scope_sha256
             )
-            if not current and not inherited:
+            # A stale cached job is redone; a stale receipt of this run only after a plugin change.
+            redo = inherited or self.redo_stale
+            if not current and not redo:
                 raise ExchangeError("Assessment job receipt is stale or belongs to another request")
             if current and inherited and not found_artifact.is_file():
                 current = False
@@ -557,7 +564,7 @@ class AssessmentJobs:
                 try:
                     accept(artifact, receipt["source_ranges"])
                 except ValueError:
-                    if not inherited:
+                    if not redo:
                         raise
                     current = False
             if current:
