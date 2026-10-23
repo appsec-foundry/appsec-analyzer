@@ -661,7 +661,10 @@ def test_pilot_policies_state_the_trace_rules_the_shared_validator_enforces(poli
 def test_every_selectable_aspect_is_one_list_that_the_reply_contract_admits():
     replies = set(ca.contract(ca.INVESTIGATION)["properties"]["aspect"]["enum"])
     profile = yaml.safe_load((resource_root() / "schemas" / "scan-profile.schema.yaml").read_text(encoding="utf-8"))
-    selectable = profile["properties"]["test_cases"]["oneOf"][1]["properties"]["aspects"]["items"]["enum"]
+    assert (
+        profile["properties"]["test_cases"]["oneOf"][1]["properties"]["aspects"]["$ref"] == "#/$defs/test_case_aspects"
+    )
+    selectable = profile["$defs"]["test_case_aspects"]["items"]["enum"]
     assert replies == set(profiles.TEST_CASE_ASPECTS) == set(selectable)
     assert replies <= {row["id"] for row in load_catalog()["aspects"]}
     assert set(INVESTIGATED_ASPECTS) <= replies
