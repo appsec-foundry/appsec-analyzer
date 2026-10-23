@@ -22,6 +22,8 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 | 80064794 | Changes after the first Juice Shop run: guard definitions in the preload, all state-changing routes for TC-AUTHZ-02 and -03, undecidable without an examined location, model-only controls named, catalog version 2. |
 | 998b0b13 | Batching: a component and aspect with more than 40 candidates gets several investigator jobs, shared by location, and their replies are combined into one row per test case and component. |
 | ec424ef9 | The pilot's console progress follows the provisional name: "Verifying AuthZ 1/7: component (part 1 of 4)", the result line "AuthZ verification: …", and the role label "verification" in status, correction, and warning lines. |
+| e824f194, cfa30c2b, 676e68d7, 8f16254f | The commits of `fix/console-and-usage-limit` (3e4f6c9c, c45e1135, 1f42a5cd, 445d2079), applied to this branch: an immediate stop at a rejected usage window, the platform settings Preflight row, elapsed time on resume, and the Codex timeout test that counts a reaped descendant as ended. |
+| cf0fbdc2 | Starting points after the second run: routes that finale-rest and epilogue resources generate, only in the pilot's facts; TC-AUTHZ-01 from every route that takes a request body; TC-AUTHZ-02 from authenticated reads without an object identifier. Catalog version 3. |
 
 ## What works today
 
@@ -186,14 +188,47 @@ Causes of the pilot's misses:
 
 Assessment by the implementing session, not yet a decision: for authorization the pilot matches the STRIDE step in hits on the reference list, with different misses, and is more traceable, with a verdict per route and counted coverage, and in the payment case more precise. Exit criterion 1 is not met, but the causes are specific. Combined, the two find nine of the challenges. The cost is the main risk: authorization alone costs about 40% of the STRIDE step, which covers all aspects, so five pilot aspects investigated separately would add about USD 10 to 15 per run. Recommended next: keep the STRIDE step, add the inventory of generated routes, let TC-AUTHZ-01 start from routes that take an object ID in the body, build the open review, and measure with a third run, since the first two runs already differ noticeably.
 
+### Changes after the second run
+
+Decided by the product owner on 2026-10-22 and built in cf0fbdc2:
+
+- Routes that finale-rest and epilogue resources generate from data models become candidates, but only in the pilot's facts (`case_candidates.route_facts`). The route inventory, the STRIDE requests, the report, and the other commands stay unchanged, so the next run measures only the pilot. Adding them to the shared inventory was rejected for now: it would change default runs, `score`, `authnz-review`, and the STRIDE input, and the next run would mix two changes.
+- A generated route anchors at its generator call and gets an ID after the inventory's highest. Its chain holds the call and the registrations of the same file that run for its path, such as an `app.use` mount or an `app.route` chain. An inventory row with the same file, method, and path keeps its anchor and gains the call in its chain. The context marks generated routes, and the routes of one call are one candidate each.
+- Post-checks confirm a generated route's registration with their own reason and leave its guards and ownership not verifiable, because its handler is library code.
+- TC-AUTHZ-01 also starts from every route that takes a request body, because the body can carry the object identifier, as in `PATCH /rest/products/reviews`. Chosen over a pattern for identifiers that the handler reads, which recognizes only Express code; both give nine jobs on Juice Shop.
+- TC-AUTHZ-02 also starts from authenticated reads without an object identifier (`route_inventory.authenticated_read_without_id`), such as `GET /rest/user/authentication-details`. Chosen over unfiltered collection queries, which depend on ORM method names, and over every read without an identifier, which gives 43 candidates on Juice Shop.
+- Detection of generated routes has fixed bounds on files, calls, loops, and spans, and accepts only plain absolute paths, because the parsed code is repository content.
+
+The branch `fix/console-and-usage-limit` was merged into `main` (a9390915), and its commits were applied to this branch, so the next run stops at once at a rejected usage window.
+
+An offline count with the second run's components gives nine investigator jobs instead of seven. The Express server gets six jobs with 39, 38, 39, 36, 59, and 24 candidates, 235 against 134; the 59 lie at the generator call, which as one location stays in one job. Authentication & Session Surface gets one job with 26 candidates, Web3 / Wallet / NFT Surface one with 9, and the Angular frontend one without candidates. 37 generated routes reach the Express server, among them `PUT /api/Products/:id` for TC-AUTHZ-01 to -03. `PATCH /rest/products/reviews` is a TC-AUTHZ-01 candidate, and `GET /rest/user/authentication-details` a TC-AUTHZ-02 candidate on Authentication & Session Surface. The pilot should cost about USD 3.80 to 4.50 instead of USD 3.05.
+
+### Next run: AuthZ, InputVal, and DataProt together
+
+Decided by the product owner on 2026-10-22: the third run waits until InputVal and DataProt have starting points of their own, and then tests AuthZ, InputVal, and DataProt in one run. DataProt is taken as a whole, with responses (TC-DATA-01), data at rest (TC-DATA-02), secrets (TC-DATA-03), and transport (TC-DATA-04), rather than only the output side; the last three need starting points from configuration and secret detection. A run costs about USD 16 to 18, of which the pilot is USD 3 to 4, so every run saved saves about USD 13. A resumed run cannot reuse an earlier run's STRIDE jobs, because a runtime change rejects `--resume`.
+
+An offline count for the other pilot aspects with the second run's components and scanner findings shows why InputVal needs starting points first:
+
+| Aspect | Jobs | Candidates |
+| --- | --- | --- |
+| InputVal | 6 | 5 on the Express server for 7 test cases, 1 on Authentication & Session Surface, none elsewhere; TC-INPUT-04 (output encoding) on the frontend has none |
+| IAM | 8 | 139 on the Express server, because TC-AUTHN-01 starts from every route |
+| SessionMgmt | 3 | none |
+| DataProt | 9 | none |
+
+InputVal and DataProt test cases start only from scanner hits, and the second run had six injection hits and none of the DataProt starting rules. The model added one candidate in each of the first two runs, so a test case without candidates would mostly record undecidable. The STRIDE step of the second run reported 5 cross-site scripting, 5 hard-coded credential, 2 SQL injection, 2 NoSQL injection, and 2 path traversal findings.
+
+`bash /tmp/authz-pilot/run.sh` already writes into `/home/mrohr/appsec-reports/juice-authz-pilot-3`; the profile there still selects only `AuthZ`.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
 | --- | --- |
 | Open review role with the 20% reserve (`AssessmentBudget.hold` and `release` exist) | Shown by the second run: GDPR Data Theft and other business logic reach no test case. |
-| Shared jobs for the test cases of all investigated aspects of a component | A second aspect is investigated. Batching by location exists since 998b0b13. |
-| Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by both runs: the product update route reached no test case. |
-| TC-AUTHZ-01 candidates for routes that take an object ID in the body, and a starting point for sensitive listings without a path parameter | Shown by the second run: editing any review and the user list reached no fitting test case. |
+| Shared jobs for the test cases of all investigated aspects of a component | A second aspect is investigated, planned with InputVal. Batching by location exists since 998b0b13. |
+| Starting points for InputVal and DataProt beyond scanner hits, such as query, command, file, outbound request, and HTML output sinks, response serialization, stored sensitive fields, secrets, and transport settings | Shown by the offline count of 2026-10-22: InputVal has five candidates on the Express server and none for output encoding, DataProt none. Needed before the next run. |
+| Route inventory entries for routes that frameworks generate from data models, such as finale REST resources | Shown by both runs. Built for the pilot's facts in cf0fbdc2; the shared inventory follows only when the pilot is continued. |
+| TC-AUTHZ-01 candidates for routes that take an object ID in the body, and a starting point for sensitive listings without a path parameter | Shown by the second run. Built in cf0fbdc2. |
 | Merge into `merge_assessment` (`pilot_documents`), union of `test_case_ids`, mapping of reply-local finding IDs | The pilot finds weaknesses STRIDE misses and is continued. |
 | Removal rule: a confirmed post-check removes a scanner finding unless the evidence verifier marked it verified, otherwise the finding records `test_case_disagreement` | The merge exists. |
 | Comparison file `security-assessment.test-case-comparison.json` with a schema | The comparison format is settled and the exit criteria are measured. |
@@ -233,12 +268,15 @@ Stricter than the plan on purpose:
 - The scan pipeline reviews every finding and never reviews controls, so "prioritized in the evidence verifier's sample" reduces to the `model` label.
 - The model lineup skips the alias roles, because the investigator and open reviewer run on the STRIDE model (`PROFILE_ROLE_ALIASES`). They are not in `profiles.ROLES`, so existing run snapshots stay resumable.
 - Control posture feeding and application-specific `TC-APP` test cases from the acceptance rules are not built.
-- `route_facts` takes about 12 seconds on Juice Shop (1,207 files, 250 routes).
+- `route_facts` takes about 12 seconds on Juice Shop (1,207 files, 250 routes), and 15 to 20 seconds with generated routes.
+- Generated routes come only from finale-rest and epilogue, with literal endpoints or endpoints built in a `for (const {...} of list)` loop over an array literal of the same file. Other generators, such as Rails `resources`, Django REST Framework routers, or Spring Data REST, reach a job only when the model adds them. finale-rest is not installed in the Juice Shop checkout, so the routes per call follow the library's documented actions, with PUT for update unless `updateMethod` names another method, and were not compared with its code.
+- The shared comment blanking (`shared/_source_lex.without_comments`) loses track after a regex literal that contains quotes. In Juice Shop's `server.ts` that happens at line 249, so later comments stay in the code that applicability signals and handler checks read. Generated routes skip registrations after `//` on the same line; the shared lexer is unchanged.
 - A distribution-run organization profile does not carry `test_cases.required`, because the distribution projection schema does not include it.
 
 ## Verification state
 
 - Offline gate `make check-analyzer BASE=main` passed at commit 7d949134. At 5e3f39bb, 90d27a7d, and 80064794, `make check-analyzer BASE=356f0cfc` passed: the specs check, Ruff, 954 and 168 tests. At 80064794, `make test-controller` passed as well (8 tests). At 998b0b13, `make check-analyzer BASE=356f0cfc` passed with 954 and 168 tests, and the tests of the changed modules passed with the pilot tests of `tests/test_controller_fixture.py`, including the new tests for shared jobs, a failed job, and a resumed run with shared jobs (156 tests). The three controller fixture tests that never start the pilot were not rerun. The base is the merge base, because `main` has moved on and a comparison with it would count its newer commits as changes of the branch.
+- At ec424ef9, `make check-analyzer BASE=356f0cfc` passed the specs check, Ruff, and 168 tests; of 954 analyzer tests one failed, the Codex timeout test, whose race 8f16254f removes, and it passed three times alone. At cf0fbdc2, the gate passed with 954 and 168 tests, `make test-controller` with 12 tests, and the tests of the changed modules passed. The seven failing progress-header and budget tests of `test_multi_repo_assessment.py` fail at ec424ef9 as well, before the applied fixes.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
 - No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
