@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from appsec_analyzer import cli
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _registered(parser) -> set[str]:
@@ -84,8 +91,30 @@ def test_preflight_without_repo_keeps_its_default(monkeypatch):
     assert seen == [None]
 
 
-def test_missing_command_still_fails(capsys):
-    with pytest.raises(SystemExit) as stop:
-        cli.main([])
-    assert stop.value.code == 2
-    assert "required: <command>" in capsys.readouterr().err
+def test_missing_command_still_fails_and_shows_examples(capsys):
+    assert cli.main([]) == 2
+    err = capsys.readouterr().err
+    assert "name a command" in err
+    assert "appsec-analyzer assess --repo /path/to/project" in err and "appsec-analyzer score " in err
+    assert "All commands: appsec-analyzer --help" in err
+
+
+def test_package_module_starts_the_same_command(tmp_path):
+    def run(module: str, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", module, *args],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    short, long = run("appsec_analyzer", "--help"), run("appsec_analyzer.cli", "--help")
+    assert short.returncode == long.returncode == 0, short.stderr
+    assert short.stdout == long.stdout
+    assert short.stdout.startswith("usage: appsec-analyzer [-h] <command> [options]")
+    # A failure that main() returns instead of raising must still reach the exit code.
+    failed = run("appsec_analyzer", "assess")
+    assert failed.returncode == 2
+    assert "assess needs --repo" in failed.stderr

@@ -4,7 +4,7 @@ AppSec Analyzer is a standalone Python CLI with an analysis engine extracted fro
 
 ## Application and engine
 
-The supported user entry is `appsec-analyzer`, implemented in [appsec_analyzer/cli.py](appsec_analyzer/cli.py). The application package owns command adaptation, scoring and focused-analysis workflows, assessment requests and presentation, and shared application services. The retained engine under `scripts/` owns assessment orchestration, analysis, source admission, state, model execution, validation, and report generation. See the [script layout](scripts/README.md) for its domains.
+The supported user entry is `appsec-analyzer`, implemented in [appsec_analyzer/cli.py](appsec_analyzer/cli.py); `python -m appsec_analyzer` starts the same entry through [appsec_analyzer/__main__.py](appsec_analyzer/__main__.py). The application package owns command adaptation, scoring and focused-analysis workflows, assessment requests and presentation, and shared application services. The retained engine under `scripts/` owns assessment orchestration, analysis, source admission, state, model execution, validation, and report generation. See the [script layout](scripts/README.md) for its domains.
 
 The main execution paths are:
 

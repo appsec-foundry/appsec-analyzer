@@ -103,6 +103,13 @@ _COMMAND_GROUPS = (
 )
 
 
+_EXAMPLES = (
+    "assess --repo /path/to/project --output ~/assessments/project",
+    "review ~/assessments/project",
+    "score /path/to/project",
+)
+
+
 def _command_overview(registered) -> str:
     lines = []
     for title, entries in _COMMAND_GROUPS:
@@ -111,9 +118,7 @@ def _command_overview(registered) -> str:
             lines += [f"{title}:", *rows, ""]
     lines += [
         "Examples:",
-        "  %(prog)s assess --repo /path/to/project --output ~/assessments/project",
-        "  %(prog)s review ~/assessments/project",
-        "  %(prog)s score /path/to/project",
+        *(f"  %(prog)s {example}" for example in _EXAMPLES),
         "",
         "Run '%(prog)s <command> --help' for the options of a command.",
     ]
@@ -127,9 +132,9 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # The grouped overview in the description replaces the flat command list. An explicit prog keeps the
-    # custom usage line out of the subcommands' own usage.
+    # custom usage line out of the subcommands' own usage. main() answers a missing command with examples.
     commands = parser.add_subparsers(
-        dest="command", required=True, metavar="<command>", help=argparse.SUPPRESS, prog=parser.prog
+        dest="command", required=False, metavar="<command>", help=argparse.SUPPRESS, prog=parser.prog
     )
     if organization is not None:
         org = commands.add_parser("organization", help="Inspect or validate the bundled defaults without model calls")
@@ -1465,6 +1470,13 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
         ns = _parser(organization=organization).parse_args(["assess"])
         vars(ns).update(supplied)
     try:
+        if ns.command is None:
+            command = organization.command if organization else "appsec-analyzer"
+            raise ValueError(
+                "name a command, for example:\n"
+                + "".join(f"  {command} {example}\n" for example in _EXAMPLES)
+                + f"All commands: {command} --help"
+            )
         if ns.command == "assessment-entry":
             from appsec_analyzer.assessment_entry import run
 

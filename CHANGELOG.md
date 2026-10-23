@@ -23,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Experimental: `/appsec-advisor:create-threat-model2` runs a single-repository assessment in the background with business-context questions, depth-based cost limits, live progress, and `--stop`.
 - Headless assessments accept HTTPS and SSH Git URLs with token or SSH authentication and automatic temporary checkout cleanup.
 - Rerunning `/appsec-advisor:create-threat-model`, or passing `--incremental`, re-analyzes changed components and reuses unchanged STRIDE results, refusing the run before any change if the previous model cannot be carried forward.
+- `python -m appsec_analyzer` starts the same command as `appsec-analyzer`, for example from a checkout or when the command is not on the `PATH`. `python -m appsec_analyzer.cli` keeps working.
 
 ### Changed
 
+- Started without a command, `appsec-analyzer` shows three example calls and points to `--help` instead of printing only the usage line. The exit code stays 2.
 - `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`) so unattended runs never start on the default provider.
 - The Management Summary groups remediation priorities by root cause and severity, and Critical Findings by Root Cause replaces the Critical Attack Tree with links to weakness records and structural fixes.
 - Headless controller assessments analyze up to four components concurrently within the same cost budget, reserve resources for required completion, and retain a clearly incomplete snapshot when required work cannot finish.

@@ -264,6 +264,8 @@ python -m pip install .
 appsec-analyzer version
 ```
 
+If the `appsec-analyzer` command is not on your `PATH`, `python -m appsec_analyzer` starts the same command from the environment where you installed the package.
+
 `pipx install .` from the checkout works as well. [Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
 
 </details>
@@ -275,10 +277,10 @@ Install the runtime dependencies listed in [setup.py](setup.py) first (PyYAML, j
 
 ```sh
 cd /path/to/appsec-analyzer
-python3 -m appsec_analyzer.cli scan-sources --repo /path/to/project
+python3 -m appsec_analyzer scan-sources --repo /path/to/project
 ```
 
-Replace `appsec-analyzer` with `python3 -m appsec_analyzer.cli` in all examples. `assess` and `scan-sources` need `--repo`; pass `--repo .` for the current directory.
+Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `assess` and `scan-sources` need `--repo`; pass `--repo .` for the current directory.
 
 </details>
 
