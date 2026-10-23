@@ -96,7 +96,7 @@ Show verification progress in the live progress and outcome counts in the comple
 
 Operator-owned scan profiles can disable a verification item only with a reason. Organization profiles can mark verification items as required; a conflicting disable refuses the run before any model call. Disabling never suppresses a finding that another source supports, including the rule findings of a disabled rules verification item; such a finding notes the disabled verification item and its reason.
 
-Which security aspects are verified is a setting for each assessment depth. Analyzer ships default settings for every depth and documents them. A scan profile can change the aspects for each depth. An organization profile can make aspects mandatory, and a scan profile cannot remove them. As soon as the number of verification jobs is known, and before the first of them runs, the assessment says whether the remaining budget covers them all. An aspect that could not be verified completely is marked as incomplete.
+Which security aspects are verified is one of the depth settings that REQ-018 describes. As soon as the number of verification jobs is known, and before the first of them runs, the assessment says whether the remaining budget covers them all. An aspect that could not be verified completely is marked as incomplete.
 
 The survey keeps running for all aspects. If the survey and verification find the same weakness at the same code location and with the same CWE, the report shows one finding and names both methods. If verification shows that a location reported by the survey is protected, the survey finding stays in the report and is marked as contradicted, so that a reader can check it.
 
@@ -185,6 +185,21 @@ Accept documented and validated operator settings and organization profiles. Rep
 For full assessments, accept built-in or operator-owned scan profiles and model profiles in schema-versioned YAML. Scan profiles define model-profile selection, depth, USD budget, outputs, and bounded literal report attributes. Model profiles define a provider adapter or one built-in base, defaults, and role/depth overrides. Explicit CLI values override scan defaults. Provide offline listing, resolution with provenance, and validation. Resolve user files from the documented XDG configuration directories or an explicitly selected external scan path, never from analyzed repositories. `assess` defaults to the Claude profile and standard depth; with `--non-interactive` it requires `--repo` and an explicit profile or compatible legacy host selection, except where an organization distribution supplies the profile. The former `scan` command is removed. Preserve documented legacy host and depth-profile calls, reject conflicting selections before host preflight or repository retrieval, and keep model profiles separate from organization settings. Repository content cannot define or select a model profile. Reject unknown fields, unsupported models/options, links, unsafe YAML, and conflicting reserved names. Profiles cannot supply credentials, endpoints, prices, tools, or permission grants. Preserve organization restrictions. Record actual role settings in the result; report attributes cannot become analysis instructions or evidence references.
 
 Full-assessment scan profiles may set `max_parallel`, an integer from 1 to 16 with a default of 2. `--max-parallel N` on `assess` and offline profile inspection or validation overrides the profile value. Reject malformed and out-of-range values before host preflight or source retrieval. Show the effective limit in the run header and retain it in the saved configuration and profile snapshot; changing it requires a new run. Older snapshots without this setting receive an explicit incompatibility explanation.
+
+Each assessment depth has default settings, which Analyzer ships in one documented file. For each depth they state:
+
+- which security aspects verification checks, such as authorization;
+- how many abuse cases are checked, and whether the model may add cases of its own;
+- whether an additional model review of the findings runs, the architect review;
+- whether the assessment identifies the users and systems that interact with the application;
+- how many trust boundary crossings are examined in detail;
+- the default budget when a run is started interactively.
+
+A team can change each of these for a single depth in its scan profile. It can also list abuse cases that are always checked or never checked.
+
+An organization profile can switch off abuse cases, add its own, and make aspects mandatory. A scan profile cannot bring back a case that the organization switched off, and it cannot drop a mandatory aspect.
+
+Which model each step uses is set in the model profiles. Technical limits, such as how many turns a model call may take, are not settings.
 
 For full assessments, support `lite` and `bedrock` adapters through operator-owned `providers.yaml` with schema version 1, outside every analyzed repository. This separate connection file may specify bounded model aliases, output maxima, conservative USD rates, price and route revisions, an HTTPS LiteLLM endpoint and deployment IDs, or a standard-partition AWS Region and exact model/profile IDs. It cannot contain credentials, commands or tool permissions. Keep scan/model profiles unable to supply endpoints or prices. Require `lite MODEL` and `bedrock MODEL` in the corresponding role profiles; accept those strings as CLI model selections or built-in profile shorthands. Preserve explicit provider selection, role configuration, organization model restrictions and offline inspection. Unknown model families must fail an organization Opus restriction. Reject unsupported reasoning settings and cross-provider role choices. The new adapters apply only to full assessments, not the separate audit or focused analyst.
 
