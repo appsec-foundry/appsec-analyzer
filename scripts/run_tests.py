@@ -509,6 +509,7 @@ GROUPS = {
         profiles
         public_abuse_cases_cli
         public_assessment_operations
+        public_cli_help
         public_export_cli
         public_repo_profile_cli
         public_review_cli
