@@ -13,7 +13,15 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from analyzers import authz_confirm, config_iac_scanner, mass_assignment_scanner, source_auth_scanner
+from analyzers import (
+    architecture_coverage_checks,
+    authz_confirm,
+    config_iac_scanner,
+    database_privilege_separation,
+    mass_assignment_scanner,
+    source_auth_scanner,
+)
+from analyzers.arch_coverage_to_threats import select_and_build
 from analyzers.route_inventory import build_inventory
 from jsonschema import Draft202012Validator
 from runtime.assessment_diagnostics import ScannerFailure
@@ -25,6 +33,7 @@ from model.merge_threats import _config_finding_to_threat, _source_auth_finding_
 from model.reclassify_components import resolve_owner
 
 SCHEMA = Path(__file__).resolve().parents[2] / "schemas" / "source-auth-findings.schema.yaml"
+COVERAGE_SCHEMA = Path(__file__).resolve().parents[2] / "schemas" / "architecture-coverage.schema.json"
 # All three scanners write the source-auth sidecar shape single-repository
 # merging ingests; authz_confirm reads the route inventory first.
 SIDECARS = (".source-auth-findings.json", ".authz-confirm-findings.json", ".mass-assignment-findings.json")
@@ -75,17 +84,82 @@ def config_scan(root: Path, depth: str) -> dict | None:
     return document
 
 
-def _scanner_outputs(scope, rid: str, depth: str) -> tuple[list[dict], dict | None]:
-    """Run every deterministic scanner on one frozen repository snapshot."""
+def architecture_scan(root: Path, output: Path, depth: str) -> dict:
+    """Run the architecture coverage on one snapshot whose route inventory ``output`` holds.
+
+    At thorough depth the database privilege separation runs first; the
+    coverage reads its sidecar only at that depth.
+    """
+    argv = ["--repo-root", str(root), "--output-dir", str(output), "--assessment-depth", depth]
+    if depth == "thorough":
+        _scanner_call("database-privilege-separation", lambda: database_privilege_separation._main(argv))
+    _scanner_call("architecture-coverage", lambda: architecture_coverage_checks._main(argv))
+    path = output / ".architecture-coverage.json"
+    if not path.is_file():
+        raise ScannerFailure("architecture-coverage", "missing_sidecar")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not Draft202012Validator(json.loads(COVERAGE_SCHEMA.read_text(encoding="utf-8"))).is_valid(document):
+        raise ValueError("The architecture coverage wrote an invalid sidecar")
+    return document
+
+
+def _snapshot_outputs(
+    scope, rid: str, depth: str, *, architecture: str | None
+) -> tuple[list[dict], dict | None, dict | None]:
+    """Run the deterministic scanners on one frozen repository snapshot.
+
+    ``architecture`` names the depth of the architecture coverage; None skips it.
+    """
     with scope.scanner_snapshot(rid) as root, tempfile.TemporaryDirectory(prefix="appsec-scan-") as directory:
         output = Path(directory)
         try:
             _run_scanners(root, output)
             documents = [json.loads((output / name).read_text(encoding="utf-8")) for name in SIDECARS]
             config = config_scan(root, depth)
+            coverage = None if architecture is None else architecture_scan(root, output, architecture)
         except ScannerFailure as error:
             raise ScannerFailure(error.scanner, error.reason, error.exit_code, repository_id=rid) from None
+    return documents, config, coverage
+
+
+def _scanner_outputs(scope, rid: str, depth: str) -> tuple[list[dict], dict | None]:
+    """Run every deterministic source and config scanner on one frozen repository snapshot."""
+    documents, config, _ = _snapshot_outputs(scope, rid, depth, architecture=None)
     return documents, config
+
+
+def renumber_hypotheses(document: dict, counters: dict[str, int]) -> None:
+    """Number one repository's hypotheses after those of the repositories before it.
+
+    A coverage document numbers its hypotheses per prefix. The posture sidecar
+    and the scanner findings number them across repositories in repository
+    order, so a promoted hypothesis keeps the ID the sidecar lists.
+    """
+    renamed = {}
+    for hypothesis in document["threat_hypotheses"]:
+        prefix = hypothesis["hypothesis_id"].rsplit("-", 1)[0]
+        counters[prefix] = counters.get(prefix, 0) + 1
+        renamed[hypothesis["hypothesis_id"]] = f"{prefix}-{counters[prefix]:03d}"
+        hypothesis["hypothesis_id"] = renamed[hypothesis["hypothesis_id"]]
+    for assessment in document["control_assessments"]:
+        if "hypothesis_ids" in assessment:
+            assessment["hypothesis_ids"] = [renamed[key] for key in assessment["hypothesis_ids"]]
+
+
+def _architecture_threats(coverage: dict) -> list[dict]:
+    """Threats of the high-confidence anti-patterns and confirmed hypotheses that cite a source line.
+
+    A hit without a source line gives the evidence review nothing to read; the
+    posture sidecar keeps it.
+    """
+    threats, _ = select_and_build(coverage)
+    anchored = []
+    for threat in threats:
+        evidence = threat.get("evidence") or {}
+        if type(evidence.get("line")) is int and evidence["line"] >= 1:
+            threat.pop("t_id", None)
+            anchored.append(threat)
+    return anchored
 
 
 def _config_anchor(finding: dict) -> str | None:
@@ -98,18 +172,21 @@ def _config_anchor(finding: dict) -> str | None:
     return finding["file"] if finding["file"] in searched else searched[0]
 
 
-def _anchor_files(scope, repo) -> set[str]:
+def _anchor_files(scope, repo, depth: str) -> set[str]:
     """Files of one repository that a deterministic scanner finding can cite.
 
-    Standard depth selects a superset of the files quick depth scans.
+    Standard depth selects a superset of the files quick depth scans. The
+    architecture coverage runs at the assessment's depth, because only
+    thorough depth adds database privilege separation hits.
     """
-    documents, config = _scanner_outputs(scope, repo.repository_id, "standard")
+    documents, config, coverage = _snapshot_outputs(scope, repo.repository_id, "standard", architecture=depth)
     files = {finding["file"] for document in documents for finding in document.get("findings") or []}
     files.update(anchor for finding in (config or {}).get("findings", []) if (anchor := _config_anchor(finding)))
+    files.update(threat["evidence"]["file"] for threat in _architecture_threats(coverage))
     return {path for path in files if path in repo.files}
 
 
-def own_scanner_anchors(scope, components: list[dict]) -> int:
+def own_scanner_anchors(scope, components: list[dict], depth: str = "standard") -> int:
     """Give every file a scanner finding can cite an owner that lists it; return how many were added.
 
     The combined model accepts a finding only when its component lists the
@@ -133,7 +210,7 @@ def own_scanner_anchors(scope, components: list[dict]) -> int:
             for row in rows
         ]
         by_id = {row["id"]: row for row in rows}
-        for path in sorted(_anchor_files(scope, repo) - listed):
+        for path in sorted(_anchor_files(scope, repo, depth) - listed):
             owner = resolve_owner(path, registry)
             if owner is None:
                 continue  # No component in this repository; scanner intake refuses its findings.
@@ -167,10 +244,13 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
     file. An absence that searched no file (a missing file or a repository
     capability without a candidate file) has no captured anchor; the posture
     sidecar keeps it and its receipt records that it was not merged.
+    High-confidence architecture anti-patterns and confirmed architecture
+    hypotheses join them as well, anchored at their first evidence line.
     """
     validator = Draft202012Validator(yaml.safe_load(SCHEMA.read_text(encoding="utf-8")))
     scope.verify_unchanged()
     result: dict[str, list[dict]] = {row["id"]: [] for row in components["components"]}
+    hypotheses: dict[str, int] = {}
     for repo in sorted(scope.repositories, key=lambda row: row.repository_id):
         rid = repo.repository_id
         # The repository-local view keeps the existing owner rule: the most
@@ -185,7 +265,7 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
             for row in components["components"]
             if rid in row["repository_ids"]
         ]
-        documents, config = _scanner_outputs(scope, rid, depth)
+        documents, config, coverage = _snapshot_outputs(scope, rid, depth, architecture=depth)
         threats = []
         for document in documents:
             errors = sorted(validator.iter_errors(document), key=lambda error: list(error.path))
@@ -210,6 +290,17 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
             if threat["evidence"].get("kind") == "absence":
                 threat["evidence"].update(file=anchor, line=1)
             # A config finding names no owner; resolve it like a source scan.
+            owner = resolve_owner(anchor, local)
+            if owner is None:
+                raise ValueError("A deterministic scanner finding has no owner in its repository")
+            apply_intake(threat, dispatch_component=owner[0], component_name=owner[1])
+            threats.append(threat)
+        renumber_hypotheses(coverage, hypotheses)
+        for threat in _architecture_threats(coverage):
+            anchor = threat["evidence"]["file"]
+            if anchor not in repo.files:
+                raise ValueError("An architecture rule hit cites a file outside its repository")
+            # The bridge names a coarse owner; resolve it like a config finding.
             owner = resolve_owner(anchor, local)
             if owner is None:
                 raise ValueError("A deterministic scanner finding has no owner in its repository")

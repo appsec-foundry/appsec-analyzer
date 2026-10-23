@@ -373,6 +373,11 @@ requirements:
     coverage: partial
     guards:
       - tests/test_assessment_scanner_findings.py::test_an_absence_is_reviewed_by_reading_its_file_and_merged
+      - tests/test_assessment_scanner_findings.py::test_an_architecture_hit_is_reviewed_with_its_component_and_kept_only_when_confirmed
+      - tests/test_assessment_scanner_findings.py::test_a_high_confidence_architecture_anti_pattern_becomes_an_owned_scanner_finding
+      - tests/test_assessment_scanner_findings.py::test_only_anchored_high_confidence_architecture_hits_become_findings
+      - tests/test_assessment_scanner_findings.py::test_architecture_anchors_and_findings_use_the_assessment_depth
+      - tests/test_assessment_scanner_findings.py::test_a_full_assessment_publishes_a_confirmed_architecture_finding_without_a_score
       - tests/test_active_stride_policy.py::test_active_stride_prompt_has_evidence_rules_and_no_removed_tool_procedure
       - tests/test_stride_quick_profile.py::test_profile_does_not_skip_stride_categories
       - tests/test_aggregate_run_issues.py::test_stride_ceiling_lift_is_surfaced
@@ -444,6 +449,7 @@ requirements:
       - tests/test_case_outcomes.py::test_a_missing_scanner_result_is_never_read_as_a_control
       - tests/test_case_outcomes.py::test_a_disabled_test_case_reports_disabled_and_keeps_its_findings_linked
       - tests/test_case_outcomes.py::test_annotation_links_rules_and_instances_and_leaves_other_threats_alone
+      - tests/test_assessment_scanner_findings.py::test_an_architecture_finding_names_its_rule_and_items_but_adds_no_verification_candidate
       - tests/test_case_outcomes.py::test_statuses_follow_the_recorded_scanner_results
       - tests/test_case_outcomes.py::test_a_skipped_config_scan_makes_iac_rules_not_applicable_not_satisfied
       - tests/test_case_outcomes.py::test_build_block_reads_sidecars_and_tolerates_missing_or_broken_ones
