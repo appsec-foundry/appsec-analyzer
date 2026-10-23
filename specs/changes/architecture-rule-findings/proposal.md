@@ -27,7 +27,7 @@ The product owner approved the wording on 2026-10-23.
 
 ## Related requirements
 
-These requirements keep their wording.
+These requirements keep their wording. The open points and their options are in [architecture coverage: open points](../../../docs/internal/analysis/architecture-coverage-open-points-2026-10-23.md).
 
 - **REQ-040:** a finding names the verification items and scanner rules behind it. The report now links an architecture finding to its rule and to the verification items that list the rule. Verification starting points are unchanged: architecture hits add no candidate, so verification job counts and costs stay as they were. Whether architecture hits should become starting points is a separate decision.
 - **REQ-006:** the architecture coverage records a status per control (partial, weak, missing, anti-pattern). The earlier pipeline used it for the security controls and checked its visibility with `scripts/validators/qa_arch_coverage.py`. The current controller merges these statuses but no step reads them, and the completeness gate is not called. This change leaves that open. Adding a control row for every status the model did not cover failed review for three reasons. Rule control names such as `Schema / Allowlist Input Validation` do not match the model's control names reliably. On Juice Shop all three statuses were `partial` with low confidence and no evidence. And the controls sidecar schema documents that the model's rating wins on conflict.
