@@ -2227,27 +2227,86 @@ def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path,
     monkeypatch.setattr(controller, "assess_repositories", lambda argv: {**outcome, "deliverables": delivered})
     assert controller.assess_main(["--repo", "edge"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert re.fullmatch(r"✓ Security assessment of edge written in \S+ \(3 model calls, ≈ USD 1\.00\)", out[0])
+    assert re.fullmatch(r"✓ Security assessment of edge written in \S+", out[0])
     assert out[1:] == [
         "  Findings    1 · High 1",
         "  Mitigations 1 · 1 fix first (P1)",
-        # The report first; embedded figures are omitted, other exports stay listed.
-        f"  Report      {tmp_path / 'security-assessment.md'}",
-        f"              {tmp_path / 'security-assessment.yaml'}",
-        f"              {tmp_path / 'security-assessment.pdf'}",
-        "  Next        Triage the findings with the owning team and assign remediation owners",
-        "              Inspect source citations and coverage before accepting or fixing findings",
-        f"  Review      appsec-analyzer review {tmp_path}",
+        "  Cost        ≈ USD 1.00 · 3 model calls",
+        # The report first, other exports named beside it; embedded figures are omitted.
+        f"  Report      {tmp_path / 'security-assessment.md'} (also security-assessment.yaml, security-assessment.pdf)",
+        # The generic advice to triage is left out; the review starts the user's own assistant.
+        f"  Next steps  appsec-analyzer review {tmp_path}",
+        "              starts your coding assistant; its own account and usage limits apply",
     ]
-    # Jobs reused from an earlier run count at their original cost, and the line says how much of it that is.
+    # Jobs reused from an earlier run count at their original cost, and the rows say how much of it that is.
     monkeypatch.setattr(
         controller,
         "assess_repositories",
         lambda argv: {**outcome, "deliverables": delivered, "reused_calls": 2, "reused_usd": 0.4},
     )
     assert controller.assess_main(["--repo", "edge"]) == 0
-    head = capsys.readouterr().out.splitlines()[0]
-    assert head.endswith("(3 model calls, ≈ USD 1.00, of which USD 0.40 for 2 calls reused from an earlier run)")
+    out = capsys.readouterr().out.splitlines()
+    assert "              2 calls reused from an earlier run (USD 0.40 of the total)" in out
+
+
+def _outcome_lines(tmp_path, monkeypatch, capsys, **fields):
+    (tmp_path / "security-assessment.yaml").write_text("threats: []\n")
+    outcome = {
+        "repositories": ["edge"],
+        "output": str(tmp_path),
+        "calls": 5,
+        "spent_usd": 2.0,
+        "deliverables": ["security-assessment.md"],
+        **fields,
+    }
+    monkeypatch.setattr(controller, "assess_repositories", lambda argv: outcome)
+    assert controller.assess_main(["--repo", "edge"]) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+_SONNET = {"calls": 4, "input": 1000, "output": 2000, "cache_read": 500_000, "cache_write": 100_000, "usd": 1.5}
+_HAIKU = {"calls": 1, "input": 100, "output": 200, "cache_read": 0, "cache_write": 0, "usd": 0.2}
+
+
+def test_a_run_with_one_model_names_it_in_the_head_and_has_one_cost_row(tmp_path, monkeypatch, capsys):
+    usage = {"models": {"claude-sonnet-5-5": {**_SONNET, "calls": 5, "usd": 2.0}}, "unitemised_calls": 0}
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, depth="standard", trust_mode="untrusted")
+    assert re.fullmatch(r"✓ Security assessment of edge written in \S+ · standard · claude-sonnet-5-5", out[0])
+    # The default trust mode and the model's own row say nothing new.
+    assert not any("Trust mode" in line or "claude-sonnet-5-5  " in line for line in out)
+    assert "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens" in out
+
+
+def test_a_run_with_several_models_lists_each_and_what_no_host_itemised(tmp_path, monkeypatch, capsys):
+    usage = {
+        "models": {"claude-haiku-5-5": _HAIKU, "claude-sonnet-5-5": _SONNET},
+        "unitemised_calls": 2,
+        "unitemised_usd": 0.3,
+    }
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, trust_mode="trusted")
+    assert "written in" in out[0] and "claude-" not in out[0]
+    cost = out.index("  Cost        ≈ USD 2.00 · 5 model calls · ≥ 603k tokens")
+    # Dearest model first; the calls no host itemised close the rows, so the rows add up to the total.
+    assert out[cost + 1 : cost + 4] == [
+        "              claude-sonnet-5-5  4 calls · ≈ USD 1.50 · 603k tokens",
+        "              claude-haiku-5-5  1 call · ≈ USD 0.20 · 300 tokens",
+        "              not itemised  2 calls · ≈ USD 0.30",
+    ]
+    assert "  Trust mode  trusted" in out
+
+
+def test_a_subscription_run_shows_calls_and_no_amount_or_tokens(tmp_path, monkeypatch, capsys):
+    out = _outcome_lines(
+        tmp_path, monkeypatch, capsys, spent_usd=None, subscription_label="ChatGPT subscription", usage={"models": {}}
+    )
+    assert "  Cost        5 model calls · ChatGPT subscription; USD cost unavailable" in out
+
+
+def test_the_diagnostics_path_is_named_only_when_the_run_needs_a_look(tmp_path, monkeypatch, capsys):
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, diagnostics="/work/events.jsonl")
+    assert not any("Diagnostics" in line for line in out)
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, diagnostics="/work/events.jsonl", warnings=["a job failed"])
+    assert "  Diagnostics /work/events.jsonl" in out
 
 
 def _closing_lines(tmp_path, monkeypatch, capsys, yaml_text, deliverables):
@@ -2315,7 +2374,7 @@ def test_the_whole_closing_block_is_kept_as_plain_text_in_the_work_directory(tmp
     saved = (tmp_path / ".assessment-work" / controller.ASSESSMENT_SUMMARY_NAME).read_text()
     # The head, which a tail of the log loses first, and every line after it, without colour codes.
     assert saved.startswith("✓ Security assessment of edge written in ")
-    assert "  Next        " in saved and "⚠ one optional job was replaced" in saved
+    assert "  Next steps  " in saved and "⚠ one optional job was replaced" in saved
     assert saved.rstrip().endswith("✗ PR gate: 1 new threat(s) at or above 'high': T-001(high)")
     assert "\033[" not in saved
     from renderers.term_style import ANSI_RE
@@ -3400,6 +3459,66 @@ def test_a_phase_done_line_says_whether_its_jobs_were_reused():
     console.close()
     done = [detail for _, event, _, _, _, detail in _rows(lines) if event == "done"]
     assert done == ["0s · reused, no model calls", "0s · 1 repository · partly reused", "0s", "0s · 1 component"]
+
+
+def test_usage_text_shows_tokens_only_when_every_call_was_itemised():
+    from appsec_analyzer.assessment.console import usage_text
+
+    before = {"calls": 1, "usd": 1.0, "itemised": 1, "tokens": 100}
+    assert usage_text(before, {"calls": 3, "usd": 1.5, "itemised": 3, "tokens": 2_100}) == "≈ USD 0.50 · 2k tokens"
+    # A partial token sum would read as the whole step.
+    assert usage_text(before, {"calls": 3, "usd": 1.5, "itemised": 2, "tokens": 2_100}) == "≈ USD 0.50"
+    # A step that made no paid call, such as a reused or deterministic one, states no cost.
+    assert usage_text(before, dict(before)) == ""
+    # A subscription run has no amount to state.
+    assert usage_text({**before, "usd": None}, {"calls": 3, "usd": None, "itemised": 3, "tokens": 5}) == ""
+
+
+def test_a_phase_and_the_survey_and_verify_steps_end_with_what_they_cost():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    mark = {"calls": 0, "usd": 0.0, "itemised": 0, "tokens": 0}
+    console.usage_mark = lambda: dict(mark)
+
+    def spend(calls, usd, tokens):
+        mark["calls"] += calls
+        mark["usd"] += usd
+        mark["itemised"] += calls
+        mark["tokens"] += tokens
+
+    console.plan_components(1)
+    console.step("Surveying component: API (1/1)")
+    spend(2, 0.5, 42_000)
+    console.step("Analyzed component: API (1/1)")
+    console.step("Survey done · 3 findings")
+    console.step("Verify start · 1 component for AuthZ · the run's call and time limits apply · 1 job")
+    console.step("Verifying component 1/1, part 1/1, AuthZ: API")
+    spend(1, 0.25, 8_000)
+    console.step("Finished verifying component 1/1, part 1/1, AuthZ: API")
+    console.step("Verify done · 1 finding")
+    console.close()
+    details = [row[-1] for row in _rows(lines)]
+    assert next(d for d in details if d.startswith("Survey done")).startswith(
+        "Survey done · 0s · ≈ USD 0.50 · 42k tokens"
+    )
+    assert next(d for d in details if d.startswith("Verify done")).startswith(
+        "Verify done · 0s · ≈ USD 0.25 · 8k tokens"
+    )
+    # The phase's own line carries the sum of its steps.
+    done = [row[-1] for row in _rows(lines) if row[1] == "done"]
+    assert done[-1].endswith("≈ USD 0.75 · 50k tokens")
+
+
+def test_the_abuse_case_phase_line_carries_the_verdicts():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.step("Matching abuse cases")
+    console.step("Verifying abuse case: AC-T-004 — Replay a signed callback (1/1)")
+    console.step("Review coverage: abuse-case verification: 1 checked, 0 partial, 0 unchecked")
+    console.step(console.RESULT + "Abuse cases: 1 confirmed · 4 not checked (limit)")
+    console.close()
+    done = [row[-1] for row in _rows(lines) if row[1] == "done"]
+    assert "1 confirmed · 4 not checked (limit)" in done[-1] and "1 checked, 0 partial, 0 unchecked" in done[-1]
 
 
 def test_without_verification_the_threat_analysis_has_no_steps():

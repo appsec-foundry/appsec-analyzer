@@ -733,15 +733,17 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
     rows.append(
         ("Findings", " · ".join([str(sum(counts.values())), *(f"{sev} {n}" for sev, n in counts.items() if n)]))
     )
-    # The overview's own note on why §8 can list more cards than the headline.
-    if summary["totals"]["threats"] != sum(counts.values()):
-        rows.append(("", f"§8 register lists {summary['totals']['threats']}; practice sites fold into weaknesses"))
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
     if summary.get("test_case_counts"):
         rows.append(
-            ("Verification", test_case_line(summary["test_case_counts"], summary.get("test_case_unexamined", 0)))
+            (
+                "Verification",
+                closing_test_case_line(summary["test_case_counts"], summary.get("test_case_unexamined", 0)),
+            )
         )
+    if summary.get("abuse_case_line"):
+        rows.append(("Abuse cases", summary["abuse_case_line"]))
     if summary.get("incomplete_aspects"):
         aspects = ", ".join(summary["incomplete_aspects"])
         rows.append(("", f"incomplete for {aspects}: the budget ended before every verification job ran"))
@@ -773,6 +775,56 @@ def test_case_line(counts: dict[str, int], unexamined: int = 0) -> str:
     return " · ".join(parts)
 
 
+# What a verification run turned up leads the closing line; the outcomes that need no action follow in brackets.
+_CLOSING_LEAD = ("finding", "control", "partial", "undecidable")
+
+
+def closing_test_case_line(counts: dict[str, int], unexamined: int = 0) -> str:
+    """The closing console's line of verification outcomes (REQ-040): what needs a look first, the rest in brackets.
+
+    Every outcome still appears; only the order and the grouping differ from ``test_case_line``.
+    """
+    lead, rest = [], []
+    for key, singular, plural in _TEST_CASE_WORDS:
+        if not counts.get(key):
+            continue
+        text = f"{counts[key]} {singular if counts[key] == 1 else plural}"
+        if key == "undecidable" and unexamined:
+            text += f" ({unexamined} without a location to examine)"
+        (lead if key in _CLOSING_LEAD else rest).append(text)
+    if not lead:
+        return ", ".join(rest)
+    return " · ".join(lead) + (f" ({', '.join(rest)})" if rest else "")
+
+
+# Chain verdict -> the word the closing lines use, in the order the report groups its cases.
+_CHAIN_WORDS = (
+    ("fully_viable", "confirmed"),
+    ("partially_blocked", "partially blocked"),
+    ("inconclusive", "unresolved"),
+    ("mitigated", "mitigated"),
+)
+
+
+def abuse_case_line(analysis: object) -> str:
+    """The abuse-case verdicts as the report groups them, then the cases that were not checked (REQ-011).
+
+    Empty when the analysis names no case and no case left out. The wording of a left-out case's reason is
+    not parsed; ``(limit)`` is added only when every one of them says it exceeded a limit.
+    """
+    if not isinstance(analysis, dict):
+        return ""
+    verdicts = collections.Counter(
+        case.get("chain_verdict") for case in analysis.get("cases") or [] if isinstance(case, dict)
+    )
+    parts = [f"{verdicts[key]} {word}" for key, word in _CHAIN_WORDS if verdicts.get(key)]
+    left = [row for row in analysis.get("not_performed") or [] if isinstance(row, dict)]
+    if left:
+        limited = all(str(row.get("reason", "")).startswith("exceeds the limit") for row in left)
+        parts.append(f"{len(left)} not checked" + (" (limit)" if limited else ""))
+    return " · ".join(parts)
+
+
 def completion_severity_counts(output_dir: Path) -> dict[str, int]:
     """Findings per severity, counted as the closing Findings row counts them; empty without a model."""
     summary = _completion_summary(output_dir)
@@ -793,6 +845,8 @@ def _completion_summary(output_dir: Path) -> dict | None:
     if not isinstance(data, dict):
         return None
     summary = build_summary(data, Path(output_dir))
+    if line := abuse_case_line(data.get("abuse_case_analysis")):
+        summary["abuse_case_line"] = line
     block = data.get("test_case_results")
     results = block.get("results") if isinstance(block, dict) else None
     if isinstance(results, list) and results:

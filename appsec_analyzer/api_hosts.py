@@ -562,4 +562,9 @@ class ResponsesTransport:
                 raise ValueError("cost ceiling exceeded")
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
             raise ApiTransportError("invalid_response") from None
-        return HostReply(payload=payload, usd=measured)
+        # This host reports no cache split, so only the counters it measured are named.
+        return HostReply(
+            payload=payload,
+            usd=measured,
+            usage={self.profile.model: {"input": input_tokens, "output": output_tokens, "usd": measured}},
+        )

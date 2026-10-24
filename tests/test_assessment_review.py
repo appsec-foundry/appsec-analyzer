@@ -279,6 +279,14 @@ def test_abuse_coverage_distinguishes_checked_partial_and_missing_results(tmp_pa
     )
 
 
+def test_abuse_result_states_the_verdicts_the_phase_line_carries(tmp_path):
+    cases = [{"id": "AC-B-001", "chain_verdict": "fully_viable"}, {"id": "AC-B-002", "chain_verdict": "inconclusive"}]
+    (tmp_path / "threat-model.yaml").write_text(yaml.safe_dump({"abuse_case_analysis": {"cases": cases}}))
+    assert review._abuse_result(tmp_path) == "1 confirmed · 1 unresolved"
+    (tmp_path / "threat-model.yaml").write_text(yaml.safe_dump({"meta": {}}))
+    assert review._abuse_result(tmp_path) == ""
+
+
 @pytest.mark.parametrize("read", [(1, 5), (17, 17)], ids=["unread-line", "read-line"])
 def test_a_verdict_must_cite_a_line_its_job_read(abuse, read):
     jobs = Jobs(_verifier(read=read))

@@ -43,6 +43,29 @@ def _count_noun(count: int, noun: str) -> str:
     return f"{count} {noun}"
 
 
+def _tokens(count: int) -> str:
+    """A token count for a result line: ``850``, ``42k``, ``1.3M``."""
+    if count < 1000:
+        return str(count)
+    return f"{count / 1000:.0f}k" if count < 1_000_000 else f"{count / 1_000_000:.1f}M"
+
+
+def usage_text(before: dict, after: dict) -> str:
+    """What the model calls between two budget marks cost, or "" when none was paid for.
+
+    The tokens come only when the hosts itemised every call of the step; a partial sum would read as the
+    whole. A subscription run has no USD amount, so it shows nothing.
+    """
+    calls = after["calls"] - before["calls"]
+    if calls <= 0 or after["usd"] is None or before["usd"] is None:
+        return ""
+    text = f"≈ USD {after['usd'] - before['usd']:.2f}"
+    tokens = after["tokens"] - before["tokens"]
+    if tokens > 0 and after["itemised"] - before["itemised"] == calls:
+        text += f" · {_tokens(tokens)} tokens"
+    return text
+
+
 def model_failure_lines(error) -> list[str]:
     """Present a rejected analysis using job context, keeping technical IDs in diagnostics."""
     from runtime.assessment_diagnostics import safe_reason
@@ -390,6 +413,11 @@ class _AssessmentConsole:
         # counts when the current phase started.
         self.job_counts = None
         self.phase_jobs = (0, 0)
+        # The budget's usage mark (AssessmentBudget.usage_mark), and its value when the current phase and
+        # each of its steps started; what a step cost is the difference of two marks.
+        self.usage_mark = None
+        self.phase_usage = None
+        self.step_usage = {}
         self.run_started = self.last = self.clock()
         # Working seconds of the earlier attempts a resumed run continues.
         self.worked_before = 0
@@ -637,7 +665,7 @@ class _AssessmentConsole:
         with _AssessmentConsole._lock:
             if text.startswith(self._SURVEY_DONE) and "Survey" in self.steps:
                 self.step_times["Survey"] = now - self.steps["Survey"]
-                survey = f"{self._SURVEY_DONE}{_duration(self.step_times['Survey'])}"
+                survey = f"{self._SURVEY_DONE}{_duration(self.step_times['Survey'])}{self._step_cost('Survey')}"
                 found = text[len(self._SURVEY_DONE) :]
                 self.record("·", f"{survey} · {_count_noun(self.units_done, 'component')} · {found}", now)
                 return True
@@ -656,9 +684,10 @@ class _AssessmentConsole:
                     # The survey's own line, when it came, already ended its step.
                     if "Survey" in self.steps and "Survey" not in self.step_times:
                         self.step_times["Survey"] = now - self.steps["Survey"]
-                        survey = f"Survey done · {_duration(self.step_times['Survey'])}"
+                        survey = f"Survey done · {_duration(self.step_times['Survey'])}{self._step_cost('Survey')}"
                         self.record("·", f"{survey} · {_count_noun(self.units_done, 'component')}", now)
                     self.steps["Verify"] = now
+                    self._mark_step("Verify")
                     self.current = f"Verify: 0/{components} components done"
                 self.record("·", text, now)
                 self.shown = (self.current, round(100 * self.done))
@@ -666,7 +695,7 @@ class _AssessmentConsole:
             if text.startswith(self._VERIFY_DONE):
                 if "Verify" in self.steps:
                     self.step_times["Verify"] = now - self.steps["Verify"]
-                    took = _duration(self.step_times["Verify"])
+                    took = _duration(self.step_times["Verify"]) + self._step_cost("Verify")
                     text = f"{self._VERIFY_DONE}{took} · {text[len(self._VERIFY_DONE) :]}"
                 self.current = ""
                 self.record("·", text, now)
@@ -727,6 +756,16 @@ class _AssessmentConsole:
             self.record("⚠" if gaps else "✓", " · ".join(parts), now)
             self.shown = (self.current, round(100 * self.done))
             return True
+
+    def _mark_step(self, step: str) -> None:
+        if self.usage_mark:
+            self.step_usage[step] = self.usage_mark()
+
+    def _step_cost(self, step: str) -> str:
+        """`` · ≈ USD 1.20 · 0.5M tokens`` for a step that ended, once; "" when it cost nothing or had no mark."""
+        before = self.step_usage.pop(step, None)
+        cost = usage_text(before, self.usage_mark()) if before and self.usage_mark else ""
+        return f" · {cost}" if cost else ""
 
     def _advance(self, fraction: float) -> None:
         """Record ``fraction`` of the current phase as finished."""
@@ -1040,6 +1079,8 @@ class _AssessmentConsole:
                 self.verify_components_done = 0
                 self.corrections, self.budget_skips = Counter(), Counter()
                 self.phase_jobs = self.job_counts() if self.job_counts else (0, 0)
+                self.phase_usage = self.usage_mark() if self.usage_mark else None
+                self.step_usage = {}
                 self.fraction = 0.0
                 self._advance(0.0)
                 scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
@@ -1101,6 +1142,7 @@ class _AssessmentConsole:
                 self.positioned = True
                 if "Survey" not in self.steps:
                     self.steps["Survey"] = now
+                    self._mark_step("Survey")
                     # With verification planned, the survey is the first of two steps (REQ-040).
                     if self.verify_jobs and position:
                         self.record("·", f"Survey start · {_count_noun(int(position[2]), 'component')}", now)
@@ -1242,6 +1284,8 @@ class _AssessmentConsole:
                 reused, ran = (count - before for count, before in zip(self.job_counts(), self.phase_jobs, strict=True))
                 if reused:
                     produced.append("partly reused" if ran else "reused, no model calls")
+            if self.phase_usage and self.usage_mark and (cost := usage_text(self.phase_usage, self.usage_mark())):
+                produced.append(cost)
             self._advance(1.0)
             if self.phase == self.plan[-1]:
                 self.done = 1.0

@@ -185,6 +185,20 @@ class AssessmentBudget(DiscoveryBudget):
                 planned_role, count = self.required[group]
                 self.plan_required(group, planned_role, count - 1)
 
+    def usage_mark(self) -> dict:
+        """Calls run and money spent so far by this session, and how much of it the hosts itemised.
+
+        Jobs reused from an earlier run are not part of it. The console takes the difference of two
+        marks to say what a step cost.
+        """
+        with self._lock:
+            return {
+                "calls": self.calls - self.reused_calls,
+                "usd": None if self.subscription else self.spent_usd - self.reused_usd,
+                "itemised": sum(row["calls"] for row in self.ledger.values()),
+                "tokens": sum(self.tokens(row) for row in self.ledger.values()),
+            }
+
     def job_usd(self, role, fallback_role):
         """The reserved cost of one more job of ``role``, measured on ``fallback_role`` while ``role`` has none."""
         if not self.observed.get(role, (0.0, 0, 0.0))[1]:

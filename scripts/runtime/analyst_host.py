@@ -35,6 +35,7 @@ if not __package__:
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -156,6 +157,43 @@ def _reported_usd(outcome: object) -> float | None:
     return float(usd) if type(usd) in (int, float) and math.isfinite(usd) and usd >= 0 else None
 
 
+# A model id the host reports; anything else never reaches the run's accounting.
+_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@\-]{0,99}")
+# modelUsage field of the host's result -> the counter's name in a reply's usage.
+_USAGE_COUNTERS = (
+    ("inputTokens", "input"),
+    ("outputTokens", "output"),
+    ("cacheReadInputTokens", "cache_read"),
+    ("cacheCreationInputTokens", "cache_write"),
+)
+
+
+def _reported_usage(outcome: object) -> dict[str, dict[str, float]] | None:
+    """Tokens and cost per model of a finished call, or None when the host does not report them completely.
+
+    A model whose counters or cost are missing or implausible is left out as a whole; the call then
+    counts as not itemised rather than as zero.
+    """
+    raw = outcome.get("modelUsage") if isinstance(outcome, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    usage: dict[str, dict[str, float]] = {}
+    for model, entry in raw.items():
+        if not isinstance(model, str) or not _MODEL_ID_RE.fullmatch(model) or not isinstance(entry, dict):
+            continue
+        row: dict[str, float] = {}
+        for field, key in _USAGE_COUNTERS:
+            value = entry.get(field)
+            if type(value) is not int or value < 0:
+                break
+            row[key] = value
+        else:
+            usd = entry.get("costUSD")
+            if type(usd) in (int, float) and math.isfinite(usd) and usd >= 0:
+                usage[model] = {**row, "usd": float(usd)}
+    return usage or None
+
+
 class HostCancelled(Exception):
     """The call was stopped because the job was cancelled or ran out of time."""
 
@@ -168,6 +206,8 @@ class HostTimeout(HostCancelled):
 class HostReply:
     payload: object
     usd: float | None = None
+    # Tokens and cost per model id (`_reported_usage`); None when the host does not report them.
+    usage: dict[str, dict[str, float]] | None = None
 
 
 class Transport(Protocol):
@@ -478,7 +518,9 @@ class ClaudeCliTransport:
                 exit_code=proc.returncode,
             )
         usd = outcome.get("total_cost_usd")
-        return HostReply(outcome["structured_output"], usd if isinstance(usd, (int, float)) else None)
+        return HostReply(
+            outcome["structured_output"], usd if isinstance(usd, (int, float)) else None, _reported_usage(outcome)
+        )
 
 
 def _feed(pipe, data: bytes) -> None:

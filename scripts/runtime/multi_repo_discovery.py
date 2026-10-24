@@ -203,6 +203,8 @@ FATAL_FAILURES = frozenset(
 TRANSIENT_RETRY_DELAYS = (15, 60, 180)
 # A failed call that reported at most this cost is free to repeat.
 FREE_FAILURE_USD = 0.001
+# Counters of a reply's usage that are token counts.
+TOKEN_COUNTERS = ("input", "output", "cache_read", "cache_write")
 # A failed call that cost money, such as a text answer, is repeated at most once,
 # and at most this often per run: repeated paid failures point to a systematic
 # cause that further calls would only pay for again.
@@ -271,6 +273,9 @@ class DiscoveryBudget:
         # stopped call is charged.
         self._lock = threading.Condition()
         self._inflight = 0
+        # What hosts reported per finished call, summed by (job group, role, model id). A call without a
+        # report (failed, stopped, or a host that reports none) is only in `calls` and `spent_usd`.
+        self.ledger: dict[tuple[str | None, str | None, str], dict[str, float]] = {}
         self._local = threading.local()
         # All roles share admission, including profiles using several hosts.
         self._rate_until = 0.0
@@ -498,12 +503,62 @@ class DiscoveryBudget:
             if cost is not None:
                 self.failed = True
                 raise TransportError("Subscription host returned unexpected monetary accounting")
+            self._record_usage(reply.usage)
             return reply
         if type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
             self._settle(ceiling, None)
             raise TransportError("Model call cost is unavailable")
         self._settle(ceiling, cost)
+        self._record_usage(reply.usage)
         return reply
+
+    def _record_usage(self, usage: dict[str, dict[str, float]] | None) -> None:
+        """Add a finished call's reported usage to the ledger under the calling job's group and role."""
+        group, role, _optional = getattr(self._local, "job", (None, None, False))
+        with self._lock:
+            for model, counters in (usage or {}).items():
+                row = self.ledger.setdefault((group, role, model), {"calls": 0})
+                row["calls"] += 1
+                for key, value in counters.items():
+                    row[key] = row.get(key, 0) + value
+
+    @staticmethod
+    def tokens(row: dict[str, float]) -> int:
+        """All tokens a ledger row counts: fresh input, cache reads and writes, and output."""
+        return int(sum(row.get(key, 0) for key in TOKEN_COUNTERS))
+
+    def usage_report(self) -> dict:
+        """Reported usage per model and what is not itemised, for the closing summary.
+
+        ``models`` maps each model id to its summed counters. ``unitemised_calls`` and ``unitemised_usd`` are what
+        the budget accounted beyond the reports: reused, failed and stopped calls, and calls of hosts that report
+        nothing. ``unitemised_usd`` is None in a subscription run.
+        """
+        models: dict[str, dict[str, float]] = {}
+        with self._lock:
+            for (_group, _role, model), row in self.ledger.items():
+                total = models.setdefault(model, {})
+                for key, value in row.items():
+                    total[key] = total.get(key, 0) + value
+            calls = self.calls
+            spent = self.spent_usd
+        itemised = sum(row["calls"] for row in models.values())
+        usd = sum(row.get("usd", 0.0) for row in models.values())
+        return {
+            "models": models,
+            "unitemised_calls": max(0, calls - itemised),
+            "unitemised_usd": None if self.subscription or spent is None else max(0.0, spent - usd),
+        }
+
+    def usage_of(self, *groups: str) -> dict[str, float]:
+        """Summed reported counters of the jobs whose group is one of ``groups`` or starts with ``<group>:``."""
+        total: dict[str, float] = {}
+        with self._lock:
+            for (group, _role, _model), row in self.ledger.items():
+                if group is not None and any(group == name or group.startswith(name + ":") for name in groups):
+                    for key, value in row.items():
+                        total[key] = total.get(key, 0) + value
+        return total
 
     def request_more_budget(self, should_stop) -> bool:
         """Discovery and unattended callers never authorize extra spending."""

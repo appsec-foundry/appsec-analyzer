@@ -1053,3 +1053,32 @@ def test_corrected_source_proposal_is_accounted_and_only_served_ranges_are_recei
     assert [(row["repository_id"], row["path"]) for row in receipt["source_ranges"]] == [(RID, "app.py")]
     assert jobs.execute(**kwargs) == {"result": "accepted"}
     assert host.calls == 3
+
+
+def test_the_budget_itemises_reported_usage_per_model_and_names_what_no_host_reported():
+    budget = AssessmentBudget(1.0, 0.05, 10, 60)
+
+    def transport(reply):
+        class Host:
+            def __init__(self, ceiling):
+                pass
+
+            def invoke(self, *args):
+                return reply
+
+        return Host
+
+    sonnet = {"input": 10, "output": 20, "cache_read": 300, "cache_write": 40, "usd": 0.02}
+    with budget.job("stride:api", "stride_analyzer", False):
+        budget.invoke(transport(HostReply({}, 0.02, {"claude-sonnet-5-5": sonnet})), "s", "p", {}, 30, lambda: False)
+        # A host that reports no usage still costs and counts; only the itemisation lacks it.
+        budget.invoke(transport(HostReply({}, 0.03)), "s", "p", {}, 30, lambda: False)
+    report = budget.usage_report()
+    assert report["models"] == {"claude-sonnet-5-5": {"calls": 1, **sonnet}}
+    assert report["unitemised_calls"] == 1 and report["unitemised_usd"] == pytest.approx(0.03)
+    # A group matches itself and its sub-jobs, never another group that merely starts with its name.
+    assert budget.usage_of("stride:api")["output"] == 20 and budget.usage_of("stride:ap") == {}
+    assert budget.usage_mark() == {"calls": 2, "usd": pytest.approx(0.05), "itemised": 1, "tokens": 370}
+    # A job reused from an earlier run made no call in this one: its charge is not a step's cost.
+    budget.reused_calls, budget.reused_usd = 1, 0.03
+    assert budget.usage_mark()["calls"] == 1 and budget.usage_mark()["usd"] == pytest.approx(0.02)

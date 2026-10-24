@@ -86,6 +86,10 @@ def test_wire_decoder_preserves_absent_and_null_and_requests_no_tools(fake_host)
     response = transport.invoke("system", "source", {"type": "object"}, 5, lambda: False)
     assert response.payload == {"action": "complete", "artifact": None, "reads": []}
     assert response.usd > 0
+    # The reply names the profile's model and the counters it measured; this host reports no cache split.
+    assert list(response.usage) == [_profile().model]
+    row = response.usage[_profile().model]
+    assert set(row) == {"input", "output", "usd"} and row["usd"] == response.usd
     method, path, body, headers = fake_host.instances[0].requests[0]
     assert method == "POST" and path == "/v1/responses"
     assert body["store"] is False and "tools" not in body
