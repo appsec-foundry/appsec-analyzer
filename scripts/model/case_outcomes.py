@@ -574,6 +574,12 @@ def investigation_results(
         for finding in reply["findings"]
         if all(records.get(candidate, {}).get("contradicted") for candidate in finding["candidate_ids"])
     ]
+    # A line that registers several routes, such as one call of a REST resource generator, is no single
+    # location: a control evidenced for one of its routes contradicts no survey finding about another.
+    registrations = [
+        (route["handler_file"], route["handler_line"]) for route in (facts or {}).get("routes", {}).values()
+    ]
+    shared = {spot for spot in registrations if registrations.count(spot) > 1}
     results = []
     for case_id, (case, answer, candidates, checks) in assessed.items():
         variants = None
@@ -600,7 +606,7 @@ def investigation_results(
             (record["anchor"]["file"], record["anchor"]["line"])
             for record in candidates
             if record["status"] == "control" and record.get("anchor")
-        }
+        } - shared
         if controlled:
             row["control_locations"] = [{"file": file, "line": line} for file, line in sorted(controlled)]
         results.append(row)

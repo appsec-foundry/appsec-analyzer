@@ -720,6 +720,11 @@ def test_investigation_results_name_the_locations_of_evidenced_controls(catalog)
     result = tcr.investigation_results(reply, "api", precheck={"TC-AUTHZ-01": _PRECHECK}, facts=_FACTS, catalog=catalog)
     # The first control was contradicted by its post-check, so only the confirmed one names its location.
     assert result["results"][0]["control_locations"] == [{"file": "server.js", "line": 12}]
+    # A line that registers another route too, as one call of a REST generator does, is no single location:
+    # its control stays the outcome but contradicts no survey finding.
+    shared = {**_FACTS, "routes": {**_FACTS["routes"], "R-004": {**_FACTS["routes"]["R-003"], "route_id": "R-004"}}}
+    result = tcr.investigation_results(reply, "api", precheck={"TC-AUTHZ-01": _PRECHECK}, facts=shared, catalog=catalog)
+    assert result["results"][0]["outcome"] in ("control", "partial") and "control_locations" not in result["results"][0]
 
 
 def test_control_locations_stay_valid_when_the_combined_model_qualifies_them(catalog):

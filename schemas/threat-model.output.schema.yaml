@@ -2200,7 +2200,8 @@ properties:
             control_locations:
               description: >-
                 Candidate locations where the model investigation evidenced a control. A survey finding
-                with a CWE of this test case at one of them records the contradiction. A
+                with a CWE of this test case at one of them records the contradiction. A line that
+                registers several routes, such as one call of a REST resource generator, is left out. A
                 repository-qualified (version 2) model also names each location's repository and
                 content hash, as it does for every location.
               type: array
