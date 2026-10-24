@@ -124,7 +124,7 @@ def catalog_instructions(case_ids: Iterable[str]) -> str:
         if checks:
             lines.append(f"The controller checks your claims with: {checks}.")
         blocks.append("\n".join(lines))
-    return "Test cases of this job (plugin-owned catalog text):\n\n" + "\n\n".join(blocks)
+    return "Test cases (plugin-owned catalog text):\n\n" + "\n\n".join(blocks)
 
 
 # --- controller-derived fields ------------------------------------------------

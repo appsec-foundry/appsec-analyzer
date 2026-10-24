@@ -23,6 +23,8 @@ runner, the role instructions and the component pool.
 
 from __future__ import annotations
 
+import threading
+
 from contexts import case_analysis
 from contexts import multi_repo_analysis as analysis
 from model import case_candidates, case_outcomes
@@ -38,7 +40,8 @@ NO_CANDIDATE_REASON = "no test case of the aspect has a starting candidate in th
 #: Lines served from where a generated route's data model is defined: the fields its request body can set follow.
 MAX_MODEL_LINES = 120
 _ADAPTATION = (
-    "Answer the supplied test cases for the selected component and aspect. The context's "
+    "Answer exactly the test cases that test_case_candidates lists, for the selected component and aspect; the "
+    "catalog text below also describes the test cases the component's other jobs answer. The context's "
     "test_case_candidates lists each test case's pre-check candidates; the controller serves each "
     "candidate's anchor and resolved handler lines, and the lines the supplied controls, flows and "
     "boundaries cite, in source_slices. readable_sources maps each repository_id to its permitted paths, grouped by "
@@ -148,7 +151,7 @@ def run_pilot(
     candidates for its context artifact.
     """
     catalog, cases, aspects, facts = planned["catalog"], planned["cases"], planned["aspects"], planned["facts"]
-    entries, work = planned["entries"], planned["work"]
+    entries, work = planned["entries"], _first_jobs_first(planned["work"])
     if planned["deferred"]:
         jobs.notes.append(
             f"test case aspects {', '.join(planned['deferred'])} are selected but not investigated yet; "
@@ -184,7 +187,7 @@ def run_pilot(
             if number == 1:
                 context["candidate_jobs"]["answered_elsewhere"] = _locations(elsewhere, facts[rid])
         role_instructions = instructions(
-            "test_case_investigator", _ADAPTATION + "\n\n" + case_analysis.catalog_instructions(share)
+            "test_case_investigator", _ADAPTATION + "\n\n" + case_analysis.catalog_instructions(_entry_cases(entry))
         )
         schema = case_analysis.contract(case_analysis.INVESTIGATION)
         limit = view.context_limit(role_instructions, schema)
@@ -209,6 +212,8 @@ def run_pilot(
             normalize=case_analysis.investigation_normalizer(scope, component, aspect, identity, share),
             salvage=case_analysis.investigation_salvage,
             preload=preload,
+            # The component's context and the aspect are the same in every job of the entry.
+            shared_context_keys=len(envelope["context"]) + 1,
             validate=lambda artifact, ranges: case_analysis.validate_investigation(
                 scope,
                 component,
@@ -244,7 +249,8 @@ def run_pilot(
         return {"reply": artifact}
 
     answered = {}
-    for (entry, number), answer in zip(work, concurrently(jobs, work, investigate) if work else [], strict=True):
+    dispatched = concurrently(jobs, work, _after_first_jobs(work, investigate)) if work else []
+    for (entry, number), answer in zip(work, dispatched, strict=True):
         answered.setdefault(id(entry), []).append((entry["jobs"][number - 1], answer))
     results, findings, candidates = [], [], {}
     for entry in entries:
@@ -317,6 +323,44 @@ def run_pilot(
         "findings": findings,
         "candidates": candidates,
     }
+
+
+def _entry_cases(entry) -> list[str]:
+    """Every test case the jobs of one component and aspect answer, each once, in job order.
+
+    Every job of the entry gets the catalog text of all of them, so the jobs'
+    prompts are the same up to the end of the shared component context, and
+    the later jobs read that start from the host's prompt cache.
+    """
+    return list(dict.fromkeys(case_id for share in entry["jobs"] for case_id in share))
+
+
+def _first_jobs_first(work: list) -> list:
+    """The first job of every entry before all later jobs, in their planned order otherwise."""
+    return [item for item in work if item[1] == 1] + [item for item in work if item[1] > 1]
+
+
+def _after_first_jobs(work: list, investigate):
+    """`investigate` where a later job of an entry starts only once the entry's first job has ended.
+
+    The first job writes the entry's shared context into the prompt cache; a
+    later job started before that could not read it and would write it again.
+    The pool takes jobs in order and `_first_jobs_first` puts the first jobs
+    ahead, so the first job a later job waits for is already running.
+    """
+    ended = {id(entry): threading.Event() for entry, _ in work}
+
+    def run(position, item, view):
+        entry, number = item
+        if number > 1:
+            ended[id(entry)].wait()
+        try:
+            return investigate(position, item, view)
+        finally:
+            if number == 1:
+                ended[id(entry)].set()
+
+    return run
 
 
 def _budget_statement(jobs, count: int, aspects: list[str], components: int) -> str:
