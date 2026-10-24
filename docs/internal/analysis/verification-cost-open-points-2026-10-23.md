@@ -1,6 +1,6 @@
 # Verification cost: open points
 
-Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main.
+Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main. Point 10 was added the same day after the third measuring run.
 
 ## Baseline
 
@@ -248,6 +248,68 @@ Defects found, each fixed on main with tests:
 
 The live progress now says what each step produced, each number once: the survey its findings and cost, verification each aspect's findings and cost, the merge its survey and scanner inputs, the consolidation per aspect what only one method found and how many findings the report keeps, and a line for abuse-case findings that were merged or added.
 
+## 10. Third measuring run
+
+Juice Shop at standard depth with AuthN, AuthZ, DataProt, InputVal and AI verified, started from a copy of the first measuring run like point 9 (output `juice-verify-cost-3`, code ba28e3bd). The run took 55 minutes of working time and recorded no run issue.
+
+| Accepted jobs, USD | Second run (AuthZ, DataProt) | Third run (AuthN, AuthZ, DataProt, InputVal, AI) |
+| --- | --- | --- |
+| Survey jobs | 4.41 | 4.24 |
+| Evidence review | 2.07 | 2.00 |
+| Verify AuthZ | 2.33 | 2.30 |
+| Verify DataProt | 1.03 | 1.02 |
+| Verify AuthN | – | 2.09 |
+| Verify InputVal | – | 1.30 |
+| Verify AI | – | 0.19 |
+| Other jobs, reused ones included | 3.03 | 3.09 |
+| All jobs | 12.87 | 16.24 |
+
+The real calls cost USD 14.40 for 125 calls; the closing line's USD 16.24 and 149 calls include USD 1.83 and 24 calls for the 17 reused jobs. Verification ran 30 jobs with 43 calls: AuthZ 9 jobs and 14 calls, AuthN 9 and 13, DataProt 6 and 8, InputVal 5 and 7, AI 1 and 1. The offline estimate before the run was USD 1.90 for AuthN, 1.10 for InputVal, 0.20 for AI and USD 14 to 15 for the real calls.
+
+What the fixes of point 9 did:
+
+- The wallet sites `routes/order.ts:148`, 150 and 157 are controls again; the answer at line 148 cites the prefix guard at `server.ts:356`, and the false wallet finding is gone.
+- The text captcha's answer (`routes/captcha.ts:31`) is a DataProt finding.
+- The session token in browser storage is one finding: the survey's at `login.component.ts:101`, linked with the DataProt finding there. Abuse case AC-T-001 binds its step at `basket.service.ts:64` to it; the merge of abuse-case findings made one call for USD 0.01.
+- No survey finding is contradicted, so neither is the one at `server.ts:501`.
+- `dataExport.ts:33` is one finding, although jobs 1 and 7 of the Express server both reported it.
+
+One defect is new, caused by the fold of 0199b02f. Job 6 of the Express server reported three findings at `server.ts:501`, the generator call that registers 37 routes: the product update (PUT, R-263), the hint update (PUT, R-286) and security answers with a caller-chosen UserId (POST, R-256). The fold's identity is file, line and CWE family, and CWE-862 and CWE-915 share the family `authz`, so the report kept only the product update. The security answers finding, TCF-024 in the first measuring run, is missing, and the hint update survives only inside AuthN's finding at `server.ts:503`.
+
+Fixed in `_fold_duplicate_findings` with a test: findings whose candidates name different routes stay apart, and a candidate without a route, such as the code site at `dataExport.ts:33`, still folds. Recombining this run's accepted replies with the fix gives the three findings at `server.ts:501` back and still one at `dataExport.ts:33`; the findings of the other aspects do not change.
+
+### Benefit per aspect
+
+"Only Verify" and "only survey" are the consolidation lines. "New" counts verification findings with no other finding at the same line: no survey or scanner finding and none of another aspect.
+
+| Aspect | Findings | Only Verify | Only survey | New | USD |
+| --- | --- | --- | --- | --- | --- |
+| AuthZ | 33 | 27 | 3 | 16, 4 of them High | 2.30 |
+| InputVal | 25 | 8 | 5 | 6, 2 of them High | 1.30 |
+| DataProt | 10 | 6 | 3 | 4, 1 of them High | 1.02 |
+| AuthN | 18 | 14 | 2 | 5, none High | 2.09 |
+| AI | 2 | 2 | 10 | 1, Low | 0.19 |
+
+- AuthZ's new findings are mostly routes of the route table without an owner or role check and request bodies that set the owner. The four High ones are the basket item's BasketId from the body, the product update, the address update by ID and the user list.
+- InputVal links 17 of its 25 findings to the survey, so most of its value is independent confirmation. New are XXE in the XML upload (`lib/xml.ts:35`) and the browsable key directory (`server.ts:277`), both High, the log directory, a null-byte bypass of the FTP allow-list and two Low ones.
+- DataProt adds TOTP secrets stored in plaintext (High), both captcha answers, and the password hash and TOTP secret in the login IP response.
+- AuthN's 13 other findings lie on lines where another method already reports a finding, mostly of the same weakness: AuthZ (`server.ts:278`, `server.ts:676`, `routes/memory.ts:24`), the scanners (the unpinned token algorithm, routes without authentication middleware), DataProt (the embedded private key) or the survey. The report lists most of these weaknesses twice. Its 5 new findings are two missing password strength rules, two routes without authentication that AuthZ reports on neighbouring lines, and unauthenticated socket.io connections (Low).
+- AI's "only survey" count is overstated, because the AI catalog's CWEs overlap other aspects (point 8).
+
+Recommendation for the default of `standard` in `data/assessment-depths.yaml`, for the product owner to decide: AuthZ, DataProt, InputVal and AI, with AuthN left to `thorough`. On Juice Shop this costs USD 2.51 more than AuthZ alone (verification USD 4.81 instead of 2.30); AI runs only for components with a language model signal. The cheaper variant, AuthZ and DataProt, costs USD 1.02 more. The figures come from one run of a deliberately vulnerable application, where missing authentication mostly shows as unprotected routes that AuthZ already reports; an application with its own login logic may get more from AuthN.
+
+Not fixed:
+
+- Verification findings of different aspects at one line stay separate findings, for example the embedded private key at `lib/insecurity.ts:21` from AuthN and DataProt beside the scanner's finding, or `routes/memory.ts:24` from AuthN, AuthZ, DataProt and the survey. The fold works only within one component and aspect.
+- Verification findings are linked only with survey findings. At the same line and CWE as a scanner finding both stay in the report: T-013 and the unpinned token algorithm, T-027 and the Pug template, T-020 and the layout path, T-031 and the embedded key.
+
+Still open from earlier points, each to be solved for any repository:
+
+- AI is selected only by the `llm_features` signal, which detects SDK imports in JavaScript and Python. An architecture that names a language model service should select it too.
+- Handlers that return the caller's data without reading stored data, such as whoami (`currentUser.ts`, point 9), have no starting point.
+- TC-AUTHZ-01 has no deterministic support that makes every data lookup of a handler a sink (fix 2 in [the control answers check](verification-control-answers-check-2026-10-24.md)).
+- The two survey defects of point 8: a finding on a commented-out line passed the evidence review, and two findings with the same line and CWE stayed apart.
+
 ## Order
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
@@ -255,5 +317,7 @@ The live progress now says what each step produced, each number once: the survey
 3. Measure everything built so far in one run (point 1). Done: verification cost USD 2.57 instead of USD 4.45, with answers within the usual run-to-run spread.
 4. Give the survey jobs of a component the same instructions, so they share their context too (point 3). Done: about USD 0.85 less in the second measuring run.
 5. Measure step 4 and the verification fixes of point 8 in a second run (point 9). Done: AuthZ and DataProt cost about what AuthZ alone cost before; the fixes found the missing places, and five defects it showed are fixed.
-6. Measure the fixes of point 9 in a third run of the same kind: whether the wallet sites are judged controls again, whether the text captcha is reported, whether the two token findings become one, and whether the contradiction on `server.ts:501` is gone.
-7. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
+6. Measure the fixes of point 9 in a third run with all five aspects (point 10). Done: all fixes work; the new fold merged findings of different routes at one line, which is fixed.
+7. Decide the default aspects of `standard` from the cost and benefit per aspect (point 10).
+8. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
+9. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
