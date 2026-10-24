@@ -484,3 +484,31 @@ def test_a_plain_prompt_or_a_transport_without_block_caching_keeps_the_text_inpu
     seen = log(tmp_path)
     assert seen["prompt"] == "pre\ndata" and "--input-format" not in seen["argv"]
     assert "DISABLE_PROMPT_CACHING" not in seen["env"]
+
+
+def test_reported_usage_keeps_only_models_with_complete_counters_and_a_valid_cost():
+    good = {
+        "inputTokens": 1,
+        "outputTokens": 2,
+        "cacheReadInputTokens": 3,
+        "cacheCreationInputTokens": 4,
+        "costUSD": 0.5,
+    }
+    outcome = {
+        "modelUsage": {
+            "claude-haiku-5-5": good,
+            "model with spaces": good,
+            "claude-negative": {**good, "outputTokens": -1},
+            "claude-bool": {**good, "inputTokens": True},
+            "claude-nan": {**good, "costUSD": float("nan")},
+            "claude-no-cost": {key: value for key, value in good.items() if key != "costUSD"},
+            "claude-no-cache": {key: value for key, value in good.items() if key != "cacheReadInputTokens"},
+        }
+    }
+    # An incomplete model is left out whole: its calls count as not itemised, never as zero.
+    assert host._reported_usage(outcome) == {
+        "claude-haiku-5-5": {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "usd": 0.5}
+    }
+    assert host._reported_usage({"modelUsage": {}}) is None
+    assert host._reported_usage({}) is None
+    assert host._reported_usage("not a result") is None

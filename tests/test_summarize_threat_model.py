@@ -588,9 +588,8 @@ def test_completion_rows_share_the_overview_numbers(tmp_path):
     assert stm.completion_rows(tmp_path) == []
 
 
-def test_completion_rows_name_the_register_count_when_practice_sites_fold(tmp_path):
-    """The console states the §8 card count whenever the headline folds practice
-    sites, as the show-security-assessment overview does."""
+def test_completion_rows_leave_out_the_register_count_when_practice_sites_fold(tmp_path):
+    """The closing console states one finding count; the report section's own count stays in the report."""
     body = """\
         meta: {project: {name: Demo}}
         threats:
@@ -605,7 +604,7 @@ def test_completion_rows_name_the_register_count_when_practice_sites_fold(tmp_pa
     _write_model(tmp_path, body)
     rows = stm.completion_rows(tmp_path)
     assert rows[0] == ("Findings", "1 · High 1")
-    assert rows[1] == ("", "§8 register lists 2; practice sites fold into weaknesses")
+    assert all("§8" not in text for _, text in rows)
 
 
 def test_cli_reads_a_published_set_and_refuses_a_mixed_one(tmp_path):
@@ -632,18 +631,62 @@ def test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them(t
             - {test_case_id: TC-INFRA-02, outcome: undecidable}
     """
     _write_model(tmp_path, body)
-    assert ("Verification", "4 examined · 1 finding · 2 controls · 1 undecidable") in stm.completion_rows(tmp_path)
+    assert ("Verification", "1 finding · 2 controls · 1 undecidable") in stm.completion_rows(tmp_path)
     assert all("incomplete" not in text for _, text in stm.completion_rows(tmp_path))
     # An undecidable item without any candidate location had nothing to examine, and the line says how many.
     nothing = "{test_case_id: TC-AUTHZ-01, outcome: undecidable, candidates: {applicable: 0, undecidable: 0}}"
     some = "{test_case_id: TC-DATA-01, outcome: undecidable, candidates: {applicable: 6, undecidable: 3}}"
     _write_model(tmp_path, body.rstrip(" ") + f"            - {nothing}\n            - {some}\n")
-    line = "6 examined · 1 finding · 2 controls · 3 undecidable (1 without a location to examine)"
+    line = "1 finding · 2 controls · 3 undecidable (1 without a location to examine)"
     assert ("Verification", line) in stm.completion_rows(tmp_path)
     plain = tmp_path / "plain"
     plain.mkdir()
     _write_model(plain, "meta: {project: {name: Demo}}\nthreats:\n  - {t_id: T-001, risk: High}\n")
     assert all(label != "Verification" for label, _ in stm.completion_rows(plain))
+
+
+def test_closing_verification_line_leads_with_what_needs_a_look():
+    counts = {"finding": 19, "control": 3, "no_finding": 9, "undecidable": 22, "not_applicable": 55, "disabled": 1}
+    assert stm.closing_test_case_line(counts) == (
+        "19 findings · 3 controls · 22 undecidable (9 no finding, 55 not applicable, 1 disabled)"
+    )
+    assert stm.closing_test_case_line({"not_applicable": 2}) == "2 not applicable"
+    assert stm.closing_test_case_line({"undecidable": 1}, unexamined=1) == (
+        "1 undecidable (1 without a location to examine)"
+    )
+
+
+def test_abuse_case_line_names_the_verdicts_as_the_report_groups_them():
+    cases = [{"chain_verdict": verdict} for verdict in ("fully_viable",) * 6 + ("inconclusive",) * 4]
+    cases += [{"chain_verdict": "mitigated"}, {"chain_verdict": "partially_blocked"}]
+    limit = {"id": "AC-B-002", "reason": "exceeds the limit of 3 business abuse cases at standard depth"}
+    assert stm.abuse_case_line({"cases": cases, "not_performed": [limit, limit]}) == (
+        "6 confirmed · 1 partially blocked · 4 unresolved · 1 mitigated · 2 not checked (limit)"
+    )
+    # Another reason is not guessed at: the cases are only counted.
+    other = {"id": "AC-B-009", "reason": "budget reserved for required completion work"}
+    assert stm.abuse_case_line({"cases": [], "not_performed": [limit, other]}) == "2 not checked"
+    # A run without abuse cases says nothing.
+    assert stm.abuse_case_line({"status": "not_run", "cases": [], "not_performed": []}) == ""
+    assert stm.abuse_case_line(None) == ""
+
+
+def test_completion_rows_state_abuse_case_verdicts_only_when_the_model_has_cases(tmp_path):
+    body = """\
+        meta: {project: {name: Demo}}
+        threats:
+          - {t_id: T-001, risk: High}
+        abuse_case_analysis:
+          cases:
+            - {id: AC-B-001, chain_verdict: fully_viable}
+            - {id: AC-B-002, chain_verdict: inconclusive}
+    """
+    _write_model(tmp_path, body)
+    assert ("Abuse cases", "1 confirmed · 1 unresolved") in stm.completion_rows(tmp_path)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _write_model(plain, "meta: {project: {name: Demo}}\nthreats:\n  - {t_id: T-001, risk: High}\n")
+    assert all(label != "Abuse cases" for label, _ in stm.completion_rows(plain))
 
 
 def test_completion_rows_name_aspects_the_budget_left_incomplete(tmp_path):

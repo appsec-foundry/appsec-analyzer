@@ -400,6 +400,9 @@ def run_abuse_cases(
     persist_abuse_cases(workspace, root, cfg, run_script)
     if candidates:
         progress("Review coverage: " + _abuse_coverage(workspace, candidates))
+        # What came out of the checks; the numbered steps above already counted the cases.
+        if result := _abuse_result(workspace):
+            progress(f"Phase result: Abuse cases: {result}")
     receipts.append("Canonical abuse-case analysis persisted")
     gate = run_script(
         "validators/abuse_case_gate.py", ["--output-dir", str(workspace)], acceptable=(0, _ABUSE_GATE_EXIT)
@@ -471,6 +474,14 @@ def _abuse_coverage(workspace: Path, candidates: list[str]) -> str:
         elif any(step.get("unverified") is False for step in case.get("steps") or []):
             partial += 1
     return f"abuse-case verification: {checked} checked, {partial} partial, {len(candidates) - checked - partial} unchecked"
+
+
+def _abuse_result(workspace: Path) -> str:
+    """The cases' verdicts for the phase's done line, in the report's own words; "" when the model names none."""
+    from renderers.summarize_threat_model import abuse_case_line
+
+    model = yaml.safe_load((workspace / "threat-model.yaml").read_text(encoding="utf-8"))
+    return abuse_case_line(model.get("abuse_case_analysis"))
 
 
 def persist_abuse_cases(workspace, root, cfg, run_script) -> None:

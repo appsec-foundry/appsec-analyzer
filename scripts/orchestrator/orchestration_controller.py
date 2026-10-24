@@ -2651,17 +2651,23 @@ def _coverage_infos(entries: list[dict], verbose: bool) -> list[str]:
         if not entry.get("listing"):
             unowned.append(entry["text"])
         elif not verbose:
-            unowned.append(f"{entry['text']}; --verbose names the first ones in each directory")
+            # The count and the way to the names; the directory split belongs to --verbose and the report.
+            unowned.append(
+                f"{_count_noun(entry['files'], 'program file')} belong to no component and were not analysed; "
+                "--verbose names the first ones in each directory"
+            )
         else:
             unowned.append(entry["text"])
             for directory, files, paths in entry["listing"]:
                 more = f", … {files - len(paths)} more" if files > len(paths) else ""
                 unowned.append(f"  {field(directory)} {files}: {', '.join(field(path) for path in paths)}{more}")
     undecided = [entry["text"] for entry in entries if "undecided" in entry]
-    if len(undecided) > 1 and not verbose:
+    if undecided and not verbose:
+        many = len(undecided) > 1
         undecided = [
-            f"{len(undecided)} security-relevant code locations stayed open: the model read them but could not "
-            f"judge them; {MODEL} and --verbose list them"
+            f"{_count_noun(len(undecided), 'security-relevant code location')} stayed open: the model read "
+            f"{'them' if many else 'it'} but could not judge {'them' if many else 'it'}; "
+            f"{MODEL} and --verbose list {'them' if many else 'it'}"
         ]
     entries = [entry for entry in entries if "component" in entry]
     if verbose or len(entries) <= 1:
@@ -4103,6 +4109,7 @@ def assess_repositories(
                         # A resumed run's ELAPSED adds the working time of its earlier attempts.
                         console.continue_from(state.worked_before)
                     console.job_counts = jobs.job_counts
+                    console.usage_mark = budget.usage_mark
                     noticed = []
 
                     def report_plugin_change():
@@ -4319,6 +4326,7 @@ def assess_repositories(
         "reused_calls": budget.reused_calls,
         "reused_usd": None if budget.subscription else round(budget.reused_usd, 2),
         "subscription_label": budget.subscription_label if budget.subscription else None,
+        "usage": budget.usage_report(),
         **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
         # A resumed run's closing line adds the working time of its earlier attempts.
         **({"worked_before": state.worked_before} if state.worked_before else {}),
@@ -4689,40 +4697,39 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     from renderers.summarize_threat_model import completion_rows
 
     kind = "Combined security assessment" if len(outcome["repositories"]) > 1 else "Security assessment"
-    head = f"✓ {kind} of {', '.join(outcome['repositories'])} written in {elapsed}"
-    reused = outcome.get("reused_calls") or 0
-    if outcome["spent_usd"] is None:
-        cost = f"({outcome['calls']} model calls" + (f", {reused} of them reused from an earlier run" if reused else "")
-        cost += f", {outcome.get('subscription_label') or 'subscription'}; USD cost unavailable)"
-    else:
-        cost = f"({outcome['calls']} model calls, ≈ USD {outcome['spent_usd']:.2f}"
-        if reused:
-            cost += f", of which USD {outcome.get('reused_usd') or 0:.2f} for {reused} calls reused from an earlier run"
-        cost += ")"
-    if _AssessmentConsole.max_columns and len(head) + 1 + len(cost) > _AssessmentConsole.columns() - 1:
-        print(out(head, "ok", "bold") + "\n  " + out(cost, "muted"), file=stream)
-    else:
-        print(out(head, "ok", "bold") + " " + out(cost, "muted"), file=stream)
+    models = (outcome.get("usage") or {}).get("models") or {}
+    # The one model of a run names itself here; several get their own rows under Cost.
+    head = " · ".join(
+        [f"✓ {kind} of {', '.join(outcome['repositories'])} written in {elapsed}"]
+        + [part for part in (outcome.get("depth"), next(iter(models)) if len(models) == 1 else None) if part]
+    )
+    print(out(head, "ok", "bold"), file=stream)
     output = Path(outcome["output"])
     files = sorted(
         (str(output / name) for name in outcome["deliverables"] if not name.endswith(".svg")),
         key=lambda path: not path.endswith(".md"),
     )
+    # The trust mode matters when it is not the default.
     rows = [
         (key, value, None)
-        for key, value in (("Depth", outcome.get("depth")), ("Trust mode", outcome.get("trust_mode")))
-        if value
+        for key, value in (("Trust mode", outcome.get("trust_mode")),)
+        if value not in (None, "untrusted")
     ]
     rows += [(key, value, None) for key, value in completion_rows(output)]
-    rows += [("Report" if index == 0 else "", path, "accent") for index, path in enumerate(files)]
+    rows += _completion_cost_rows(outcome)
+    if files:
+        also = ", ".join(Path(path).name for path in files[1:])
+        rows.append(("Report", files[0] + (f" (also {also})" if also else ""), "accent"))
     if outcome.get("runtime_files"):
         rows.append(("Run files", outcome["runtime_files"], "muted"))
-    if outcome.get("diagnostics"):
+    # The path serves a run that needs a look, or one started with --verbose; a clean run's summary leaves it out.
+    if outcome.get("diagnostics") and (outcome.get("warnings") or outcome.get("runtime_files")):
         rows.append(("Diagnostics", outcome["diagnostics"], "muted"))
-    rows += _completion_step_rows(output, outcome["deliverables"])
     import shlex
 
-    rows.append(("Review", shlex.join(["appsec-analyzer", "review", str(output)]), "accent"))
+    rows += _completion_step_rows(
+        output, outcome["deliverables"], shlex.join(["appsec-analyzer", "review", str(output)])
+    )
     # Values wrap flush under their column when --width narrows the console.
     width = _AssessmentConsole.columns() - 1 - 14 if _AssessmentConsole.max_columns else 0
     for key, value, role in rows:
@@ -4739,23 +4746,70 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         print(out(line, "warn") if line.strip() else line, file=stream)
 
 
-def _completion_step_rows(output: Path, deliverables) -> list[tuple[str, str, str | None]]:
-    """The Next and Also rows, by the single-repository summary's own rules.
+def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
+    """The Cost rows: the run's totals, then one row per model when several were used.
+
+    The tokens and the per-model rows come from what the hosts reported. Calls without a report (reused,
+    failed or stopped calls, hosts that report none) are named, so the rows add up to the total.
+    """
+    from appsec_analyzer.assessment.console import _tokens
+
+    usage = outcome.get("usage") or {}
+    models = usage.get("models") or {}
+    unitemised = usage.get("unitemised_calls") or 0
+    spent = outcome["spent_usd"]
+    parts = [f"≈ USD {spent:.2f}"] if spent is not None else []
+    parts.append(_count_noun(outcome["calls"], "model call"))
+    if spent is None:
+        parts.append(f"{outcome.get('subscription_label') or 'subscription'}; USD cost unavailable")
+    tokens = sum(
+        sum(row.get(key, 0) for key in ("input", "output", "cache_read", "cache_write")) for row in models.values()
+    )
+    if tokens:
+        parts.append(f"{'≥ ' if unitemised else ''}{_tokens(int(tokens))} tokens")
+    rows: list[tuple[str, str, str | None]] = [("Cost", " · ".join(parts), None)]
+    reused = outcome.get("reused_calls") or 0
+    if reused:
+        text = f"{_count_noun(reused, 'call')} reused from an earlier run"
+        if outcome.get("reused_usd") is not None:
+            text += f" (USD {outcome['reused_usd']:.2f} of the total)"
+        rows.append(("", text, "muted"))
+    if len(models) > 1:
+        for model, row in sorted(models.items(), key=lambda item: -item[1].get("usd", 0)):
+            text = f"{model}  {_count_noun(int(row['calls']), 'call')} · ≈ USD {row.get('usd', 0):.2f}"
+            tokens = sum(row.get(key, 0) for key in ("input", "output", "cache_read", "cache_write"))
+            rows.append(("", text + (f" · {_tokens(int(tokens))} tokens" if tokens else ""), "muted"))
+        if unitemised:
+            text = f"not itemised  {_count_noun(unitemised, 'call')}"
+            if usage.get("unitemised_usd") is not None:
+                text += f" · ≈ USD {usage['unitemised_usd']:.2f}"
+            rows.append(("", text, "muted"))
+    return rows
+
+
+def _completion_step_rows(output: Path, deliverables, review: str) -> list[tuple[str, str, str | None]]:
+    """The Next steps rows: the review command, then what the single-repository summary's rules add.
 
     Their inputs come from this run, never from the files that summary reads
     from the output directory, which may still hold an earlier scan's. The
-    report step is left out: the Report rows above already name the report.
+    report step and the fixed advice to triage and to check citations are left
+    out: the Report row names the report, and the advice reads the same in
+    every run. The architect review is named only when it holds defects.
     """
     from renderers.render_completion_summary import build_follow_ups, build_next_steps
     from renderers.summarize_threat_model import completion_severity_counts
 
     metrics = {"threats_by_sev": completion_severity_counts(output)}
     cfg = {"write_sarif": "security-assessment.sarif.json" in deliverables}
-    rows: list[tuple[str, str, str | None]] = []
-    for key, steps in (
-        ("Next", build_next_steps(output, output, metrics, cfg)[1:]),
-        ("Also", build_follow_ups(output, metrics, cfg)),
-    ):
+    architect = [
+        step for step in build_next_steps(output, output, metrics, cfg)[1:] if step.startswith("Read the architect")
+    ]
+    # Analyzer makes no model call here; the coding assistant it starts uses its own account.
+    rows: list[tuple[str, str, str | None]] = [
+        ("Next steps", review, "accent"),
+        ("", "starts your coding assistant; its own account and usage limits apply", "muted"),
+    ]
+    for key, steps in (("", architect), ("Also", build_follow_ups(output, metrics, cfg))):
         for index, step in enumerate(steps):
             head, *rest = step.split("\n")
             rows.append((key if index == 0 else "", head, None))

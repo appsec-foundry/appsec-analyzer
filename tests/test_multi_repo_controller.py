@@ -538,7 +538,10 @@ def test_coverage_statements_collapse_to_one_line_unless_verbose():
         "security-assessment.yaml and --verbose list them"
     ]
     assert controller._coverage_infos(undecided, verbose=True) == [row["text"] for row in undecided]
-    assert controller._coverage_infos(undecided[:1], verbose=False) == [undecided[0]["text"]]
+    assert controller._coverage_infos(undecided[:1], verbose=False) == [
+        "1 security-relevant code location stayed open: the model read it but could not judge it; "
+        "security-assessment.yaml and --verbose list it"
+    ]
     unowned = {
         "unowned": {"files": 3, "by_directory": []},
         "files": 3,
@@ -554,8 +557,9 @@ def test_coverage_statements_collapse_to_one_line_unless_verbose():
         "  lib/ 5: lib/a.ts, lib/b [31m.ts, … 3 more",
         "  (repository root) 1: top.js",
     ]
+    # The summary line gives the count; the directory split belongs to --verbose and the report.
     assert controller._coverage_infos([listed], verbose=False) == [
-        f"{unowned['text']}; --verbose names the first ones in each directory"
+        "3 program files belong to no component and were not analysed; --verbose names the first ones in each directory"
     ]
     # Files outside every component stay their own line and never join the per-component count.
     assert controller._coverage_infos([unowned, *entries], verbose=False) == [
