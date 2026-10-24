@@ -325,7 +325,7 @@ def test_a_profile_disabled_test_case_reports_disabled_and_keeps_its_findings(tm
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     profile = profiles.resolve_scan("claude")
     reason = "managed by the platform team"
-    profile["settings"]["test_cases"] = {"aspects": ["IAM"], "disable": [{"id": "TC-CI-01", "reason": reason}]}
+    profile["settings"]["test_cases"] = {"aspects": ["SessionMgmt"], "disable": [{"id": "TC-CI-01", "reason": reason}]}
     from orchestrator import orchestration_controller as controller
 
     monkeypatch.setattr(
@@ -419,6 +419,28 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
     assert f"| [TC-AUTHZ-01](#tc-authz-01) · {service['name']} | AuthZ | Finding |" in report
     assert "## Verification Findings" in report and "do not count in the totals of the findings register" in report
     assert "| TCF-001 | [TC-AUTHZ-01](#tc-authz-01) |" in report
+
+
+def test_a_profile_that_selects_authentication_gets_its_verification_jobs(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    host = PilotHost()
+    pilot = ("--no-pdf", "--test-case-aspects", "AuthN")
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), pilot, seed=_seed, host=host)
+    assert outcome["status"] == "complete"
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
+    service = next(row for row in model["components"] if "server.js" in row["paths"])
+    # Each component that owns the guard checks its token; the browser client has nothing to authenticate.
+    owners = [row["id"] for row in model["components"] if "lib/auth.js" in row["paths"]]
+    assert len(owners) == 2 and sorted(host.investigations) == sorted((cid, "AuthN") for cid in owners)
+    rows = {row["test_case_id"] for row in _component_rows(model) if row["component_id"] == service["id"]}
+    assert rows == {"TC-AUTHN-01", "TC-AUTHN-02", "TC-AUTHN-03", "TC-AUTHN-04", "TC-AUTHN-05"}
+    # The guard's token check is one candidate that names the order route running it, not a route candidate.
+    listing = host.listed[host.investigations.index((service["id"], "AuthN"))]
+    listed = {row["test_case_id"]: row["candidates"] for row in listing}
+    (check,) = listed["TC-AUTHN-02"]
+    assert check["anchor"]["file"] == "lib/auth.js" and check["anchor"]["line"] == 5
+    assert [route["path"] for route in check["reached_by"]] == ["/api/orders/:id"]
 
 
 def test_a_failed_investigation_records_undecidable_with_a_warning_and_the_run_completes(tmp_path, monkeypatch):

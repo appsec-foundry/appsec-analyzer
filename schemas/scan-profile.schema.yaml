@@ -125,7 +125,7 @@ $defs:
     uniqueItems: true
     items:
       enum:
-      - IAM
+      - AuthN
       - SessionMgmt
       - AuthZ
       - InputVal
@@ -143,7 +143,7 @@ $defs:
         uniqueItems: true
         items:
           enum:
-          - IAM
+          - AuthN
           - SessionMgmt
           - AuthZ
           - InputVal

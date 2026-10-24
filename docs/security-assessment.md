@@ -237,7 +237,7 @@ With verification on:
 - The completion summary shows a Verification row with the outcome counts.
 - In SARIF, a linked finding uses the verification item ID as `ruleId`. The finding ID moves to the result property `findingId`.
 
-The aspects `IAM` and `SessionMgmt` are accepted but not investigated yet. How the places to check are chosen and how outcomes are decided is described in the [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs). The design and the pilot runs are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md) and the [implementation status](internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md).
+The aspect `AuthN` (authentication) is verified only when a profile selects it; no depth verifies it by default. On Juice Shop it adds nine verification jobs, about as many as `AuthZ`. The aspect `SessionMgmt` is accepted but not investigated yet. How the places to check are chosen and how outcomes are decided is described in the [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs). The design and the pilot runs are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md) and the [implementation status](internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md).
 
 ## Known threats
 

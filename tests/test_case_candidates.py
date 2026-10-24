@@ -290,7 +290,7 @@ def test_route_facts_select_the_candidates_of_each_case(catalog, shop):
         rid for rid in routes if facts["routes"][rid]["method"].upper() in {"POST", "PUT", "PATCH", "ALL"}
     }
     # A case without route facts starts from its rules only.
-    assert cc.starting_candidates(_case(catalog, "TC-AUTHN-03"), "api", facts, [])["candidates"] == []
+    assert cc.starting_candidates(_case(catalog, "TC-SESSION-01"), "api", facts, [])["candidates"] == []
     # The browser client has no route candidates.
     assert cc.starting_candidates(_case(catalog, "TC-AUTHN-01"), "web", facts, findings)["candidates"] == []
 
@@ -400,7 +400,9 @@ def test_rule_candidates_stay_in_their_component_and_repository(catalog, shop):
         "not a finding",
         {"source_check_id": "AUTHZ-005", "evidence": {"file": "lib/auth.js", "line": "5"}},
     ]
-    case = _case(catalog, "TC-AUTHN-02")
+    # The token check's rules without its code sites, which would add the token calls of the shop.
+    tokens = _case(catalog, "TC-AUTHN-02")
+    case = {**tokens, "starting_points": {"rules": tokens["starting_points"]["rules"]}}
     candidates = cc.starting_candidates(case, "api", facts, threats)["candidates"]
     assert [(row["anchor"], row["rule_ids"]) for row in candidates] == [
         ({"file": "lib/auth.js", "line": 5}, ["AUTHZ-005"]),
@@ -414,8 +416,8 @@ def test_rule_candidates_stay_in_their_component_and_repository(catalog, shop):
     role = route_id(facts, "POST", "/api/users/:id/role")
     row = facts["routes"][role]
     hit = {"source_check_id": "AUTHZ-005", "evidence": {"file": row["handler_file"], "line": row["handler_line"]}}
-    tokens = cc.starting_candidates(_case(catalog, "TC-AUTHN-02"), "api", facts, [hit])["candidates"]
-    assert [(entry["route_id"], entry["rule_ids"]) for entry in tokens] == [(role, ["AUTHZ-005"])]
+    at_route = cc.starting_candidates(case, "api", facts, [hit])["candidates"]
+    assert [(entry["route_id"], entry["rule_ids"]) for entry in at_route] == [(role, ["AUTHZ-005"])]
     # Where a route fact selects the route too, the hit joins its candidate, which comes first.
     hit = {**hit, "source_check_id": "AUTHZ-003"}
     mass_assignment = cc.starting_candidates(_case(catalog, "TC-AUTHZ-03"), "api", facts, [hit])["candidates"]
@@ -849,6 +851,106 @@ def test_a_credential_kept_in_browser_storage_starts_a_storage_check(catalog, tm
     assert facts["sites"]["client_storage"] == [["web/login.ts", 3]]
     candidates = cc.starting_candidates(_case(catalog, "TC-DATA-02"), "web", facts, [])["candidates"]
     assert [row["anchor"] for row in candidates] == [{"file": "web/login.ts", "line": 3}]
+
+
+# Two routes behind a guard that verifies the token, a login that issues one, a password reset, a route
+# outside the account flows, a data model that hashes its password field, and a WebSocket handler.
+ACCOUNTS = {
+    "server.js": "const express = require('express')\n"
+    "const { authenticate, issue } = require('./lib/guard')\n"
+    "const app = express()\n"
+    "app.get('/api/orders', authenticate, (req, res) => res.json([]))\n"
+    "app.get('/api/profile', authenticate, (req, res) => res.json({}))\n"
+    "app.post('/rest/user/login', (req, res) => res.json({ token: issue(req.body.email, req.body.password) }))\n"
+    "app.post('/rest/user/reset-password', (req, res) => res.status(204).end())\n"
+    "app.get('/api/products', (req, res) => res.json([]))\n",
+    "lib/guard.js": "const jwt = require('jsonwebtoken')\n"
+    "module.exports.authenticate = (req, res, next) => {\n"
+    "  req.user = jwt.verify(req.headers.authorization, process.env.KEY)\n"
+    "  next()\n"
+    "}\n"
+    "module.exports.issue = (email) => jwt.sign({ email }, process.env.KEY)\n",
+    "models/user.js": "const User = sequelize.define('User', {\n"
+    "  email: DataTypes.STRING,\n"
+    "  password: {\n"
+    "    type: DataTypes.STRING,\n"
+    "    set (clearTextPassword) { this.setDataValue('password', security.hash(clearTextPassword)) }\n"
+    "  },\n"
+    "})\n",
+    "lib/socket.js": "module.exports.register = (io) => {\n"
+    "  io.on('connection', (socket) => {\n"
+    "    socket.on('chat message', (text) => socket.broadcast.emit('chat message', text))\n"
+    "  })\n"
+    "}\n",
+}
+
+
+@pytest.fixture(scope="module")
+def accounts(tmp_path_factory):
+    root = write_repo(tmp_path_factory.mktemp("accounts"), ACCOUNTS)
+    return cc.route_facts(root, build_inventory(root), [], components={"api": list(ACCOUNTS)})
+
+
+def test_a_token_check_in_a_shared_guard_is_one_candidate_naming_the_routes_that_run_it(catalog, accounts):
+    guarded = [route_id(accounts, "GET", path) for path in ("/api/orders", "/api/profile")]
+    for case_id in ("TC-AUTHN-02", "TC-AUTHN-03"):
+        candidates = cc.starting_candidates(_case(catalog, case_id), "api", accounts, [])["candidates"]
+        # The verification and the signing site are the candidates, not every route the guard protects.
+        assert [row["anchor"] for row in candidates] == [
+            {"file": "lib/guard.js", "line": 3},
+            {"file": "lib/guard.js", "line": 6},
+        ]
+        assert not any("route_id" in row or "sinks" in row for row in candidates)
+        assert candidates[0]["reached_by"] == guarded
+        assert "reached_by" not in candidates[1]
+
+
+def test_account_flows_start_password_and_recovery_checks(catalog, accounts):
+    flows = {route_id(accounts, "POST", path) for path in ("/rest/user/login", "/rest/user/reset-password")}
+    recovery = cc.starting_candidates(_case(catalog, "TC-AUTHN-05"), "api", accounts, [])["candidates"]
+    assert {row.get("route_id") for row in recovery} == flows
+    # Password storage also starts from where the data model defines and hashes the password.
+    storage = cc.starting_candidates(_case(catalog, "TC-AUTHN-04"), "api", accounts, [])["candidates"]
+    assert {row["route_id"] for row in storage if "route_id" in row} == flows
+    assert [row["anchor"] for row in storage if "route_id" not in row] == [
+        {"file": "models/user.js", "line": 3},
+        {"file": "models/user.js", "line": 5},
+    ]
+
+
+def test_hashing_a_password_through_a_helper_counts_as_handling_passwords(catalog, tmp_path):
+    # A data model component that hashes with its own helper, the weak storage the password check looks for.
+    files = {"models/user.js": ACCOUNTS["models/user.js"]}
+    root = write_repo(tmp_path, files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"models": list(files)})
+    case = _case(catalog, "TC-AUTHN-04")
+    assert cc.applies(case, facts, "models") == (True, cc.APPLIES_REASONS["password_handling"])
+    candidates = cc.starting_candidates(case, "models", facts, [])["candidates"]
+    assert [row["anchor"]["line"] for row in candidates] == [3, 5]
+
+
+def test_a_websocket_handler_starts_an_authentication_check_beside_the_routes(catalog, accounts):
+    candidates = cc.starting_candidates(_case(catalog, "TC-AUTHN-01"), "api", accounts, [])["candidates"]
+    assert {row["route_id"] for row in candidates if "route_id" in row} == set(
+        accounts["components"]["api"]["route_ids"]
+    )
+    assert [row["anchor"] for row in candidates if "route_id" not in row] == [
+        {"file": "lib/socket.js", "line": 2},
+        {"file": "lib/socket.js", "line": 3},
+    ]
+
+
+@pytest.mark.parametrize("kind", ["token_handling", "password_hash", "password_field", "channel"])
+def test_authentication_site_patterns_take_linear_time_on_hostile_files(kind):
+    # Repository text reaches these patterns, first as a whole file. A pattern that backtracks over a run of
+    # blank lines takes seconds here instead of milliseconds.
+    import time
+
+    pattern = cc.site_kinds()[0][kind]["pattern"]
+    for text in ("\n" * 20_000, " \t\n" * 7_000, ("hash(" + "a" * 1990 + "\n") * 10, ("@" + "a" * 1990 + "\n") * 10):
+        started = time.perf_counter()
+        pattern.search(text)
+        assert time.perf_counter() - started < 0.5, (kind, text[:8])
 
 
 # A checkout route under a prefix guard whose handler writes the wallet of the caller the guard set,

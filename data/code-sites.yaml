@@ -10,7 +10,10 @@
 # applicability ``signal`` of the same name in model/case_candidates.py, or
 # from ``source: egress_clients``, the outbound calls whose destination the
 # request chooses. ``scope: model`` limits a kind to files that define data
-# models. ``matches`` and ``ignores`` are lines the pattern must and must not
+# models. ``anchor: site`` makes every site a candidate of its own, also where
+# routes reach it, and lists those routes in ``reached_by``: the site answers
+# the test case for each route that runs it, as a token check in a shared
+# guard does. ``matches`` and ``ignores`` are lines the pattern must and must not
 # mark; tests/test_case_candidates.py checks them. Structure:
 # schemas/code-sites.schema.yaml.
 version: 1
@@ -171,3 +174,86 @@ kinds:
   - 'lookupOrder: tool({ description, inputSchema, execute })'
   ignores:
   - 'const text = generateId()'
+- kind: token_handling
+  description: code signs, decodes, or verifies a token
+  anchor: site
+  patterns:
+  - '\b(?:jwt|jws|jose|jsonwebtoken|JWT|Jwts|jwtService|JwtService)\s*\.\s*(?:sign|verify|decode|encode|parse|Parse|require|create|parser|builder)\w{0,24}\b'
+  - '\b(?:jwtVerify|jwtDecrypt|compactVerify|decodeJwt|jwtDecode|jwt_decode|expressjwt|expressJwt|koaJwt)\s*\('
+  - '\bnew\s+(?:JwtStrategy|SignJWT|JwtSecurityTokenHandler)\b'
+  - '\.(?:ValidateToken|ReadJwtToken)\s*\('
+  - '\bJWT::(?:encode|decode)\s*\('
+  matches:
+  - 'jwt.verify(token, publicKey, (err: Error | null, decoded: any) => {'
+  - 'export const isAuthorized = () => expressJwt(({ secret: publicKey }) as any)'
+  - 'payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])'
+  - 'token, err := jwt.Parse(raw, keyFunc)'
+  - 'DecodedJWT decoded = JWT.require(algorithm).build().verify(token);'
+  - 'passport.use(new JwtStrategy(options, verify))'
+  - 'const verifyToken = promisify(jwt.verify)'
+  ignores:
+  - '(err: jwt.VerifyErrors | null) => {'
+  - 'const options: jwt.SignOptions = { expiresIn }'
+  - "import jwt from 'jsonwebtoken'"
+  - 'const jwtSecret = process.env.JWT_SECRET'
+  - 'const token = req.headers.authorization'
+- kind: password_hash
+  description: code hashes, compares, or checks a password
+  anchor: site
+  patterns:
+  - '\b(?:bcrypt\w{0,12}|argon2\w{0,12}|scrypt\w{0,12})\s*\.\s*(?:hash|compare|verify|genSalt|gen_salt|hashpw|checkpw)\w{0,12}\s*\('
+  - '\b(?:hashpw|checkpw|password_hash|password_verify|check_password|check_password_hash|generate_password_hash|make_password|set_password|pbkdf2Sync|pbkdf2_hmac)\s*\('
+  - '\b(?:passwordEncoder|PasswordEncoder|passwordHasher|PasswordHasher)\s*\.\s*(?:encode|matches|hash|verify|HashPassword|VerifyHashedPassword)\s*\('
+  - '(?:[Hh]ash|HASH|md5|MD5|[Ss]ha(?:1|224|256|384|512)|[Dd]igest|[Ee]ncrypt)\w{0,12}\s*\(\s*[^)\n]{0,120}(?i:passw|pwd)'
+  - '\.update\s*\(\s*[\w.]{0,60}(?i:passw|pwd)'
+  matches:
+  - "this.setDataValue('password', security.hash(clearTextPassword))"
+  - 'const valid = await bcrypt.compare(password, user.passwordHash)'
+  - 'user.password = generate_password_hash(form.password.data)'
+  - 'String encoded = passwordEncoder.encode(rawPassword);'
+  - 'digest = hashlib.sha256(password.encode()).hexdigest()'
+  - "crypto.createHash('md5').update(req.body.password).digest('hex')"
+  ignores:
+  - "const checksum = crypto.createHash('sha256').update(fileContent).digest('hex')"
+  - "const passwordInput = document.getElementById('password')"
+  - 'await user.update({ password: newPassword })'
+- kind: password_field
+  description: a data model defines a password field
+  scope: model
+  ignore_case: true
+  patterns:
+  - '^[ \t]*(?:password(?:_?hash|_?digest|_?salt)?|passwd|pwd|hashed_?password|encrypted_?password)[ \t]*[:=(]'
+  - '^[ \t]*(?:(?:private|protected|public|internal)[ \t]+)?string[ \t]+(?:password(?:_?hash|_?digest)?|hashed_?password)[ \t]*[;={]'
+  matches:
+  - '      password: {'
+  - '    password = models.CharField(max_length=128)'
+  - '    private String password;'
+  - '    hashed_password = Column(String(128))'
+  - '    public string PasswordHash { get; set; }'
+  ignores:
+  - '  email: {'
+  - '  passwordResetToken: {'
+  - 'const password = req.body.password'
+- kind: channel
+  description: code registers a WebSocket, GraphQL, or message handler that callers reach outside the route inventory
+  anchor: site
+  patterns:
+  - '\b(?:io|socket|ws|wss|nsp|namespace)\s*\.\s*on\s*\(\s*[''"`]'
+  - '\bnew\s+(?:WebSocketServer|WebSocket\.Server|ws\.Server|ApolloServer)\s*\('
+  - '@(?:WebSocketGateway|SubscribeMessage|Resolver|Mutation|Subscription|MessageMapping|SubscribeMapping|QueryMapping|MutationMapping|SchemaMapping|ServerEndpoint)\b'
+  - '@\w{1,40}\s*\.\s*(?:websocket|on)\s*\('
+  - '\bupgrader\s*\.\s*Upgrade\s*\('
+  - '\bMapHub\s*<'
+  matches:
+  - "  io.on('connection', (socket: any) => {"
+  - "    socket.on('notification received', (data: any) => {"
+  - 'const wss = new WebSocketServer({ server })'
+  - 'const server = new ApolloServer({ typeDefs, resolvers })'
+  - "@SubscribeMessage('events')"
+  - "@socketio.on('message')"
+  - 'conn, err := upgrader.Upgrade(w, r, nil)'
+  ignores:
+  - "process.on('uncaughtException', handler)"
+  - "server.on('error', onError)"
+  - "import { Server } from 'socket.io'"
+  - "@app.on_event('startup')"

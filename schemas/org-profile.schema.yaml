@@ -110,7 +110,7 @@ properties:
           assessment depth, beside the survey. A scan profile cannot remove
           them; they are added to the aspects it selects.
         items:
-          enum: [IAM, SessionMgmt, AuthZ, InputVal, DataProt, AI]
+          enum: [AuthN, SessionMgmt, AuthZ, InputVal, DataProt, AI]
 
   depths:
     type: object
@@ -661,7 +661,7 @@ $defs:
         uniqueItems: true
         items:
           enum:
-          - IAM
+          - AuthN
           - SessionMgmt
           - AuthZ
           - InputVal

@@ -15,8 +15,8 @@ REASON = {"id": "TC-CI-01", "reason": "legacy pipeline"}
 BAD_TEST_CASE_OBJECTS = (
     {"aspects": []},
     {"aspects": ["Infra"]},
-    {"aspects": ["IAM", "IAM"]},
-    {"aspects": "IAM"},
+    {"aspects": ["AuthN", "AuthN"]},
+    {"aspects": "AuthN"},
     {"unknown": True},
     {"disable": [{"id": "TC-CI-01"}]},
     {"disable": [{"id": "TC-CI-01", "reason": ""}]},
@@ -274,14 +274,14 @@ def test_test_case_object_is_normalized_and_keeps_its_own_identity(home):
         {
             "schema_version": 1,
             "test_cases": {
-                "aspects": ["AI", "DataProt", "IAM"],
+                "aspects": ["AI", "DataProt", "AuthN"],
                 "disable": [{"id": "TC-INFRA-01", "reason": "managed by platform"}, REASON],
             },
         },
     )
     resolved = profiles.resolve_scan("cases")
     assert resolved["settings"]["test_cases"] == {
-        "aspects": ["IAM", "DataProt", "AI"],
+        "aspects": ["AuthN", "DataProt", "AI"],
         "disable": [REASON, {"id": "TC-INFRA-01", "reason": "managed by platform"}],
     }
     write(home, "scan", "plain", {"schema_version": 1, "test_cases": True})
@@ -302,11 +302,11 @@ def test_session_test_cases_form():
     assert profiles.session_test_cases(None) is False
     assert profiles.session_test_cases(True) == {"aspects": [], "disable": []}
     assert profiles.session_test_cases(False, enabled=True) == {"aspects": [], "disable": []}
-    assert profiles.session_test_cases(False, aspects=("DataProt", "IAM")) == {
-        "aspects": ["IAM", "DataProt"],
+    assert profiles.session_test_cases(False, aspects=("DataProt", "AuthN")) == {
+        "aspects": ["AuthN", "DataProt"],
         "disable": [],
     }
-    setting = {"aspects": ["IAM"], "disable": [REASON]}
+    setting = {"aspects": ["AuthN"], "disable": [REASON]}
     assert profiles.session_test_cases(setting) == setting
     # A flag can narrow the aspects but never removes a disable.
     assert profiles.session_test_cases(setting, aspects=("AuthZ",)) == {"aspects": ["AuthZ"], "disable": [REASON]}
@@ -335,24 +335,24 @@ def test_a_profile_inside_a_repository_cannot_enable_or_disable_test_cases(home,
         profiles.read_document(path, repositories=[str(repository)])
 
 
-@pytest.mark.parametrize("change", [{"aspects": ["IAM"]}, {"disable": [REASON]}])
+@pytest.mark.parametrize("change", [{"aspects": ["AuthN"]}, {"disable": [REASON]}])
 def test_changing_aspects_or_disabled_test_cases_requires_a_new_run(home, tmp_path, monkeypatch, change):
     from runtime import assessment_state
 
     output = tmp_path / "out"
     output.mkdir()
     (output / assessment_state.STATE_NAME).write_text("{}")
-    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"aspects": ["IAM", "AuthZ"]}})
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"aspects": ["AuthN", "AuthZ"]}})
     saved = profiles.resolve_scan("cases")
     monkeypatch.setattr(assessment_state, "_read_state", lambda p: {"operator_profile": saved})
     assert profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
-    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"aspects": ["IAM", "AuthZ"], **change}})
+    write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"aspects": ["AuthN", "AuthZ"], **change}})
     with pytest.raises(profiles.ProfileError, match="changed"):
         profiles.restore_profile(profiles.resolve_scan("cases"), output, resume=True)
 
 
 def test_object_test_cases_reach_the_controller_as_aspects_and_profile(home, tmp_path, monkeypatch):
-    setting = {"aspects": ["AuthZ", "IAM"], "disable": [REASON]}
+    setting = {"aspects": ["AuthZ", "AuthN"], "disable": [REASON]}
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": setting})
     from appsec_analyzer import hosts
 
@@ -364,7 +364,7 @@ def test_object_test_cases_reach_the_controller_as_aspects_and_profile(home, tmp
     def assess(args, **kwargs):
         seen.update(args=list(args), profile=kwargs["run_profile"])
         ns, _ = controller._assessment_argument_parser().parse_known_args(args)
-        assert ns.test_cases is True and ns.test_case_aspects == ("IAM", "AuthZ")
+        assert ns.test_cases is True and ns.test_case_aspects == ("AuthN", "AuthZ")
         return 0
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
@@ -373,11 +373,11 @@ def test_object_test_cases_reach_the_controller_as_aspects_and_profile(home, tmp
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     assert cli.main(["assess", "--repo", str(repo), "--profile", "cases"]) == 0
     assert "--test-cases" in seen["args"]
-    assert seen["args"][seen["args"].index("--test-case-aspects") + 1] == "IAM,AuthZ"
+    assert seen["args"][seen["args"].index("--test-case-aspects") + 1] == "AuthN,AuthZ"
     from appsec_analyzer.profiles import session_test_cases
 
     assert session_test_cases(seen["profile"]["settings"]["test_cases"], enabled=True) == {
-        "aspects": ["IAM", "AuthZ"],
+        "aspects": ["AuthN", "AuthZ"],
         "disable": [REASON],
     }
 

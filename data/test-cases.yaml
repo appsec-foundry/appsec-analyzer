@@ -11,10 +11,10 @@
 #
 # unmapped_rules lists scanner rules that are deliberately not a starting point.
 version: 1
-catalog_version: '4'
+catalog_version: '5'
 aspects:
-- id: IAM
-  title: Identity and authentication
+- id: AuthN
+  title: Authentication
 - id: SessionMgmt
   title: Session management
 - id: AuthZ
@@ -44,7 +44,7 @@ aspects:
 test_cases:
 - id: TC-AUTHN-01
   title: Sensitive routes, operations, and channels require authentication
-  aspect: IAM
+  aspect: AuthN
   stride:
   - Spoofing
   - Elevation of Privilege
@@ -62,6 +62,7 @@ test_cases:
     facts:
     - route_inventory.authn_signal
     - route_inventory.missing_authz_suspect
+    - code_sites.channel
   guidance: Start with the unauthenticated route candidates. Also check non-HTTP entry points such as WebSocket handlers, GraphQL resolvers, jobs, and exports. Reject candidates that are public by design, with evidence.
   scope: component
   controls:
@@ -79,7 +80,7 @@ test_cases:
   fixtures: tests/fixtures/test-cases/TC-AUTHN-01/
 - id: TC-AUTHN-02
   title: Tokens are verified with a pinned algorithm and a server-held key
-  aspect: IAM
+  aspect: AuthN
   stride:
   - Spoofing
   cwe:
@@ -101,6 +102,8 @@ test_cases:
     - AUTHZ-PHP-001
     - AUTHZ-RB-001
     - ARCH-JWT-001
+    facts:
+    - code_sites.token_handling
   guidance: Check each place that parses or decodes tokens, including libraries wrapped by middleware. A decode without verification is a weakness only where its result is trusted.
   scope: component
   controls:
@@ -114,7 +117,7 @@ test_cases:
   fixtures: tests/fixtures/test-cases/TC-AUTHN-02/
 - id: TC-AUTHN-03
   title: Token expiry, issuer, and audience are validated
-  aspect: IAM
+  aspect: AuthN
   stride:
   - Spoofing
   cwe:
@@ -128,6 +131,8 @@ test_cases:
     - AUTHZ-009
     - AUTHZ-104
     - AUTHZ-CS-003
+    facts:
+    - code_sites.token_handling
   guidance: Distinguish explicitly disabled claim checks from library defaults and name the default when relying on it.
   scope: component
   controls:
@@ -141,7 +146,7 @@ test_cases:
   fixtures: tests/fixtures/test-cases/TC-AUTHN-03/
 - id: TC-AUTHN-04
   title: Passwords are strong and stored with an adaptive hash
-  aspect: IAM
+  aspect: AuthN
   stride:
   - Spoofing
   - Information Disclosure
@@ -166,6 +171,10 @@ test_cases:
     - CRYPTO-KT-001
     - CRYPTO-SWIFT-001
     - CRYPTO-DART-001
+    facts:
+    - route_inventory.credential_flow
+    - code_sites.password_hash
+    - code_sites.password_field
   guidance: A broken hash in code that does not handle passwords belongs to TC-CRYPTO-01. Check registration, password change, and reset paths, not only login.
   scope: component
   controls:
@@ -180,7 +189,7 @@ test_cases:
   fixtures: tests/fixtures/test-cases/TC-AUTHN-04/
 - id: TC-AUTHN-05
   title: Recovery, re-authentication, and login responses resist takeover and enumeration
-  aspect: IAM
+  aspect: AuthN
   stride:
   - Spoofing
   - Information Disclosure
@@ -194,6 +203,8 @@ test_cases:
   starting_points:
     rules:
     - AUTHN-001
+    facts:
+    - route_inventory.credential_flow
   guidance: Check whether a password change needs the current password, whether recovery relies on guessable answers, and whether responses and timing differ for known and unknown accounts.
   scope: component
   controls:
