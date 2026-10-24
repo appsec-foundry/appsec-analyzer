@@ -2164,10 +2164,12 @@ def test_jobs_record_fresh_and_reused_time_per_role():
     from runtime.assessment_jobs import AssessmentJobs
 
     jobs = AssessmentJobs.__new__(AssessmentJobs)
-    jobs.timing, jobs._lock = {}, threading.RLock()
+    jobs.timing, jobs._lock, jobs.reused, jobs.ran = {}, threading.RLock(), 0, 0
     jobs._record("stride_analyzer", seconds=2.0, calls=3)
     jobs._record("stride_analyzer")
     assert jobs.timing["stride_analyzer"] == {"jobs": 1, "reused": 1, "calls": 3, "seconds": 2.0}
+    # The session counts what the console's reused marks compare.
+    assert (jobs.reused, jobs.ran) == (1, 1)
 
 
 @pytest.mark.parametrize("live", [False, True], ids=["log", "terminal"])
