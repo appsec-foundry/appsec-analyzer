@@ -301,7 +301,7 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `as
 
 ### Model provider
 
-`score` and `scan-sources` need no provider. `assess` selects its provider with `--profile`; without it, `assess` uses `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
+`score` and `scan-sources` need no provider. `assess` selects its provider with `--profile`; without it, `assess` uses your [scan profile](docs/profiles.md#use-your-profile-by-default) `default` if you created one, otherwise `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
 
 | `--profile` | Provider | Requirement |
 | --- | --- | --- |

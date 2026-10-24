@@ -172,6 +172,8 @@ class AssessmentState:
         self._last_heartbeat = 0.0
         # Working seconds of the earlier attempts a resume continues; pauses between them do not count.
         self.worked_before = 0
+        # Start of the unfinished run whose accepted jobs a new run took into its cache.
+        self.reused_run_started = None
         self._attempt_started = time.monotonic()
 
     @contextmanager
@@ -412,6 +414,9 @@ class AssessmentState:
                             child.unlink()
                     if not self.replace:
                         self._move_jobs_to_cache()
+                        cache = self.directory / CACHE_NAME
+                        if cache.is_dir() and any(cache.glob("job-*.receipt.json")):
+                            self.reused_run_started = unfinished["started_at"]
                 for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
                     (self.output / name).unlink()
                 self._superseded = kept

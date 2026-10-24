@@ -167,7 +167,11 @@ class _AssessmentConsole:
     before that it scales a nominal run time to the planned phases and
     components, so it changes as the run learns its size. Before the component
     count is known PROGRESS says ``planning``. Time stamps and durations read
-    one clock.
+    one clock. A resumed run's ELAPSED shows this attempt's time and, in
+    parentheses, the working time of all its attempts (``continue_from``).
+
+    Steps reused from an earlier attempt's accepted jobs make no model call:
+    a component whose every job was reused, and a phase's done line, say so.
 
     Off a terminal (CI, logs) a progress line follows a change after
     ``PROGRESS_SECONDS`` and comes at the latest after ``HEARTBEAT_SECONDS``;
@@ -289,6 +293,8 @@ class _AssessmentConsole:
     }
     # Prefix of a phase's result step: "<RESULT><phase>: <what it produced>".
     RESULT = "Phase result: "
+    # Suffix of a component's last step when every job it needed was reused.
+    REUSED = " · reused"
     _POSITION = re.compile(r"\s*\((\d+)/(\d+)\)$")
     # Expected share of a run's wall clock per phase, in points. Measured as
     # the mean phase durations of two single-repository standard runs of nine
@@ -380,7 +386,13 @@ class _AssessmentConsole:
         self.checked = False
         # Called once a phase has started, e.g. to report a plugin change at once.
         self.on_phase = None
+        # Jobs reused and run so far (AssessmentJobs.job_counts), and their
+        # counts when the current phase started.
+        self.job_counts = None
+        self.phase_jobs = (0, 0)
         self.run_started = self.last = self.clock()
+        # Working seconds of the earlier attempts a resumed run continues.
+        self.worked_before = 0
         # Model calls in flight (_ReportedTransport registers itself) and the
         # last controller step with its start, for the terminal's status line.
         self.running: dict[int, Any] = {}
@@ -495,6 +507,7 @@ class _AssessmentConsole:
         now = self.clock() if now is None else now
         self.write(self._row(event, detail, now), now)
         share, elapsed, left = self._run_fields(now)
+        total = self._total(now)
         phase = self.phase or ""
         _AssessmentProgress.emit(
             self.EVENTS[event],
@@ -504,6 +517,7 @@ class _AssessmentConsole:
             total=len(self.plan),
             progress=share,
             elapsed=elapsed,
+            **({"elapsed_total": total} if total else {}),
             left=left,
             detail=detail,
         )
@@ -611,14 +625,14 @@ class _AssessmentConsole:
         """The survey's part of the threat analysis; the verification jobs take the rest."""
         return 1 - self.verify_jobs * self.VERIFY_JOB_WEIGHT / self._weight("Threat analysis")
 
-    def _verify_step(self, text: str, now: float) -> bool:
+    def _verify_step(self, text: str, now: float, reused: bool = False) -> bool:
         """Show verification as the second step of the threat analysis (REQ-040); False for other lines.
 
         The plan arrives before the survey, so the phase weighs the jobs from the
         start and the run's share never falls. Jobs run concurrently, so a job's
         start only names it, and its end advances the share. A component's jobs
         are its parts: its row comes when the last one ends, so a component
-        checked in several jobs is still one step.
+        checked in several jobs is still one step, marked reused when each part was.
         """
         with _AssessmentConsole._lock:
             if text.startswith(self._SURVEY_DONE) and "Survey" in self.steps:
@@ -671,7 +685,7 @@ class _AssessmentConsole:
             # Names come from repository files and model output.
             name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
             unit = self.verify_running.setdefault(
-                number, {"started": now, "running": 0, "done": 0, "aspects": [], "gaps": Counter()}
+                number, {"started": now, "running": 0, "done": 0, "reused": 0, "aspects": [], "gaps": Counter()}
             )
             if aspect not in unit["aspects"]:
                 unit["aspects"].append(aspect)
@@ -680,6 +694,7 @@ class _AssessmentConsole:
             else:
                 unit["running"] = max(0, unit["running"] - 1)
                 unit["done"] += 1
+                unit["reused"] += reused
                 if cause:
                     unit["gaps"][cause] += 1
                 self.verify_done += 1
@@ -707,6 +722,8 @@ class _AssessmentConsole:
                     f"no result ({causes})" if total == 1 else f"{missing} of {total} parts without result ({causes})"
                 )
             parts.append(_duration(now - unit["started"]))
+            if unit["reused"] >= total:
+                parts.append("reused")
             self.record("⚠" if gaps else "✓", " · ".join(parts), now)
             self.shown = (self.current, round(100 * self.done))
             return True
@@ -741,13 +758,27 @@ class _AssessmentConsole:
         return here > there or (here == there and self.fraction > 0)
 
     def continue_from(self, seconds: int) -> None:
-        """Count ELAPSED on from the working time of the earlier attempts a resumed run continues."""
-        self.run_started = self.clock() - seconds
+        """Add the working time of the earlier attempts a resumed run continues to ELAPSED, in parentheses.
+
+        LEFT still follows this attempt's speed alone: its share starts again
+        from the first phase, so time of earlier attempts would inflate it.
+        """
+        self.worked_before = seconds
+
+    def _total(self, now: float) -> str:
+        """The working time of every attempt of a resumed run; empty for a run's first attempt."""
+        return _elapsed(self.worked_before + now - self.run_started) if self.worked_before else ""
+
+    def _elapsed_width(self) -> int:
+        """ELAPSED's width; a resumed run's adds its total, such as ``1h05m (2h10m)``."""
+        return 13 if self.worked_before else 7
 
     def _run(self, now: float) -> str:
         """The run columns: finished share, elapsed time, and the remaining time at the measured speed."""
         share, elapsed, left = self._run_fields(now)
-        return f"{share:>8}  {elapsed:>7}  {left:>6}"
+        if total := self._total(now):
+            elapsed = f"{elapsed} ({total})"
+        return f"{share:>8}  {elapsed:>{self._elapsed_width()}}  {left:>6}"
 
     def _run_fields(self, now: float) -> tuple[str, str, str]:
         elapsed, left = now - self.run_started, ""
@@ -827,7 +858,7 @@ class _AssessmentConsole:
             self._out(
                 self.st(
                     f"{'TIME':<8}  {'PHASE':<{self._PHASE_WIDTH}}  {'EVENT':<{self._EVENT_WIDTH}}  "
-                    f"{'PROGRESS':>8}  {'ELAPSED':>7}  {'LEFT':>6}  DETAIL",
+                    f"{'PROGRESS':>8}  {'ELAPSED':>{self._elapsed_width()}}  {'LEFT':>6}  DETAIL",
                     "muted",
                     "bold",
                 )
@@ -982,6 +1013,9 @@ class _AssessmentConsole:
             phase, _, result = text[len(self.RESULT) :].partition(": ")
             self.results[phase] = result
             return
+        reused = text.endswith(self.REUSED)
+        if reused:
+            text = text.removesuffix(self.REUSED)
         # Steps name repository components; only printable text reaches the status line.
         self.activity = "".join(char if char.isprintable() else "?" for char in text)[: self._NAME_MAX]
         self.activity_started = time.monotonic()
@@ -990,7 +1024,7 @@ class _AssessmentConsole:
             # Before the first phase a plain line; inside a phase a progress line of it.
             if not self.phase:
                 self.write(text)
-            elif not (self.phase == "Threat analysis" and self._verify_step(text, self.clock())):
+            elif not (self.phase == "Threat analysis" and self._verify_step(text, self.clock(), reused)):
                 self.record("·", text)
             return
         now = self.clock()
@@ -1005,6 +1039,7 @@ class _AssessmentConsole:
                 self.verify_done, self.verify_running, self.steps, self.step_times = 0, {}, {}, {}
                 self.verify_components_done = 0
                 self.corrections, self.budget_skips = Counter(), Counter()
+                self.phase_jobs = self.job_counts() if self.job_counts else (0, 0)
                 self.fraction = 0.0
                 self._advance(0.0)
                 scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
@@ -1014,7 +1049,7 @@ class _AssessmentConsole:
                 if self.on_phase:
                     self.on_phase()
         if prefix in self.UNIT_STEPS:
-            self._unit_step(prefix, text, position, now)
+            self._unit_step(prefix, text, position, now, reused)
             return
         if prefix in self.STATED:
             self.record("·", text, now)
@@ -1057,7 +1092,7 @@ class _AssessmentConsole:
     )
     UNIT_NAME = 26
 
-    def _unit_step(self, prefix: str, text: str, position, now: float) -> None:
+    def _unit_step(self, prefix: str, text: str, position, now: float, reused: bool = False) -> None:
         """Track one concurrently analyzed component; the share follows finished work, not starts."""
         name = self._POSITION.sub("", text[len(prefix) :].lstrip(": "))
         name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
@@ -1087,6 +1122,7 @@ class _AssessmentConsole:
                 unit = self.units.pop(name, None)
                 self.units_done += 1
                 finished = name + (f" · {_duration(now - unit['started'])}" if unit else "")
+                finished += self.REUSED if reused else ""
             total = self.count[0] if self.count else 0
             if total:
                 running = sum(self._unit_progress(unit) / 100 for unit in self.units.values())
@@ -1202,6 +1238,10 @@ class _AssessmentConsole:
                 for role, count in self.budget_skips.items()
                 if count > 1
             )
+            if self.job_counts:
+                reused, ran = (count - before for count, before in zip(self.job_counts(), self.phase_jobs, strict=True))
+                if reused:
+                    produced.append("partly reused" if ran else "reused, no model calls")
             self._advance(1.0)
             if self.phase == self.plan[-1]:
                 self.done = 1.0

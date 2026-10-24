@@ -107,14 +107,54 @@ def test_prompt_requires_a_higher_literal_usd_amount(monkeypatch, answer, approv
         assert len(messages) == count
 
 
+class Diagnostics:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, event, **fields):
+        self.events.append((event, fields))
+
+
+@pytest.mark.parametrize(
+    "answers,outcome,attempts",
+    [
+        (["2.50\n"], "authorized", 1),
+        (["\n"], "blank", 1),
+        ([""], "end_of_input", 1),
+        (["9" * 200], "too_long", 1),
+        (["secret\n", "0.5\n", "1\n"], "invalid", 3),
+    ],
+)
+def test_prompt_records_how_it_ended_without_the_typed_text(monkeypatch, answers, outcome, attempts):
+    messages, diagnostics = [], Diagnostics()
+    state = SimpleNamespace(
+        budget=AssessmentBudget(1, 0.05, 10, 60), state={}, approve_budget_increase=lambda usd: None
+    )
+    prompt = interactive.BudgetPrompt(
+        state, report=messages.append, pause=lambda value: None, role_labels={}, diagnostics=diagnostics
+    )
+    replies = iter(answers)
+    monkeypatch.setattr(prompt, "_readline", lambda stop: next(replies))
+    prompt(lambda: False)
+    [(event, fields)] = diagnostics.events
+    assert event == "budget_prompt" and fields["outcome"] == outcome and fields["attempts"] == attempts
+    assert fields["waited_s"] >= 0 and fields["optional"] is False
+    assert "secret" not in repr(diagnostics.events)
+    # Only an ended input is reported as such; a typed decline reads as before.
+    assert ("input ended without an answer" in messages[-1]) is (outcome == "end_of_input")
+
+
 def test_cancellation_while_awaiting_input_never_approves(terminal):
     budget = AssessmentBudget(1, 0.05, 10, 60)
-    amounts, paused = [], []
+    amounts, paused, diagnostics = [], [], Diagnostics()
     state = SimpleNamespace(budget=budget, state={}, approve_budget_increase=amounts.append)
-    prompt = interactive.BudgetPrompt(state, report=lambda text: None, pause=paused.append, role_labels={})
+    prompt = interactive.BudgetPrompt(
+        state, report=lambda text: None, pause=paused.append, role_labels={}, diagnostics=diagnostics
+    )
     with pytest.raises(HostCancelled):
         prompt(lambda: True)
     assert not amounts and paused == [True, False]
+    assert diagnostics.events[0][1]["outcome"] == "interrupted"
 
 
 def test_budget_question_waits_for_running_calls_and_blocks_new_admission():

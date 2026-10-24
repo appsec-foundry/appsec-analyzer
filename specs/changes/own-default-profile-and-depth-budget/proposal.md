@@ -1,0 +1,24 @@
+---
+reason: An operator who wants other spending limits had to pass --profile on every run, and a budget the scan profile set for one depth applied only to the Claude Code dialogue. A Juice Shop run also skipped 14 cheap optional jobs with USD 2.71 of USD 20 left, because each optional role without a measured job had to find a full USD 2 call allowance above the USD 2 report reserve, and nothing said that the cost of steps reused from the unfinished run counted toward the new limit.
+affected_ids: [REQ-018, REQ-023]
+compatibility: Without --profile and --host, assess and preflight now use ~/.config/appsec-analyzer/profiles/default.yaml when it exists; without that file nothing changes. --non-interactive still requires an explicit profile. A budget under depths in the operator's scan profile now also applies to assess runs without --budget; the shipped and organization depth budgets stay with the Claude Code dialogue, so runs without own settings keep USD 20. Optional jobs of roles without a measurement may now start with less than a full call allowance; the required reserves and the total limit are unchanged. Saved artifacts and their schemas are unchanged; the private diagnostics gain a budget_prompt event.
+verification: Offline tests cover a depth budget from the scan profile, the profile budget at other depths, the CLI budget winning, the unchanged shipped default and subscription profiles; assess selecting an invalid default.yaml and stopping instead of falling back, --non-interactive still requiring a profile, and a linked default.yaml being refused; a cold optional role refused without measurements and below 1.5 times the run average, admitted above it, with the report reserve kept at the full allowance; the restart question, run header and stop advice naming the reused cost; the header naming an operator's own scan profile; and the budget question recording authorized, blank, end-of-input, too-long, invalid and interrupted endings without the typed text. Ruff and the standalone gate run against the base commit. No live model call was made.
+---
+
+# Own default profile, depth budgets in the CLI and fuller use of the budget
+
+## Default profile
+
+`assess` without `--profile` or `--host` uses the operator's scan profile `default` when `~/.config/appsec-analyzer/profiles/default.yaml` exists, otherwise `claude`. `preflight` follows the same rule, so it checks the profile the assessment would use. An existing but unsafe or invalid file stops the command; it never falls back to another provider. The run header names an operator's own scan profile and its file. `--non-interactive` keeps requiring an explicit profile, so automation names its provider and spending limit in the command.
+
+## Depth budgets
+
+A `budget` under `depths.<depth>` in the selected scan profile now applies to `assess` without `--budget`; other depths keep the profile's `budget`. The shipped depth budgets of USD 10, 20 and 40 and organization depth budgets still apply only to the Claude Code dialogue, as decided in [assessment-depth-settings](../assessment-depth-settings/proposal.md). A run without own settings therefore keeps the USD 20 of [public-budget-defaults](../public-budget-defaults/proposal.md).
+
+## Budget use and messages
+
+These changes restore what REQ-023 already promises and change no requirement text. An optional role without an accepted job must now find 1.5 times the average cost of this run's accepted jobs above the reserves, at most the per-call allowance, instead of the full allowance; before any job is accepted, the full allowance still applies. Reserves for required work keep the full allowance for cold roles. Measured over 21 earlier runs, the affected roles cost at most USD 0.11 to 0.16 per job; if an estimate is still too low, the job stops at its ceiling and the run records a coverage gap. The restart question, the run header and the stop advice now say that reused steps count toward the new limit. The budget question records how it ended as a fixed code, how often it asked and how long it waited in the private diagnostics, and an ended terminal input is reported as such.
+
+## Decisions
+
+The operator chose on 2026-10-24 to keep profiles as single files instead of building one central configuration file, because provider connections and organization profiles stay separate in any case. A file `default.yaml` replaced a separate configuration file that would only have pointed to a profile. Depth budgets apply in the CLI only from the operator's own scan profile, so organization profiles and the shipped file change no CLI spending. A second budget question before required work stops after an optional decline was dropped: optional questions are asked only once no source analysis is pending, and the remaining report keeps its own reserve.

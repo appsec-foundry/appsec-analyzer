@@ -57,7 +57,9 @@ def _run_state(record: dict) -> str:
     if progress and progress != "planning":
         parts.append(f"{progress} done")
     if _text(record.get("elapsed")):
-        parts.append(f"{_text(record.get('elapsed'))} elapsed")
+        # A resumed run adds the working time of all its attempts.
+        total = _text(record.get("elapsed_total"))
+        parts.append(f"{_text(record.get('elapsed'))} elapsed" + (f" ({total} in total)" if total else ""))
     if _text(record.get("left")):
         parts.append(f"{_text(record.get('left'))} left (rough estimate)")
     return f"  ({' · '.join(parts)})" if parts else ""

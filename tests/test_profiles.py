@@ -171,6 +171,43 @@ def test_depth_values_override_single_depths_and_keep_the_others(home):
     assert profiles.resolve_scan("some")["settings"]["test_cases"]["aspects"] == ["DataProt"]
 
 
+def test_a_depth_budget_in_the_scan_profile_applies_unless_the_cli_sets_one(home):
+    write(home, "scan", "team", {"schema_version": 1, "budget": 25, "depths": {"thorough": {"budget": 40}}})
+    thorough = profiles.resolve_scan("team", depth="thorough")
+    assert thorough["settings"]["budget"] == 40
+    assert thorough["origins"]["settings"]["budget"].endswith("team.yaml (depths.thorough.budget)")
+    # Other depths keep the profile's budget, and an explicit CLI budget wins.
+    assert profiles.resolve_scan("team")["settings"]["budget"] == 25
+    assert profiles.resolve_scan("team", depth="thorough", budget=12)["settings"]["budget"] == 12
+    # Without the team's own value, the shipped depth budgets stay with the Claude Code dialogue.
+    assert profiles.resolve_scan("claude", depth="thorough")["settings"]["budget"] == 20
+    write(home, "scan", "plan", {"schema_version": 1, "model_profile": "codex-cli", "depths": {"quick": {"budget": 9}}})
+    assert profiles.resolve_scan("plan", depth="quick")["settings"]["budget"] is None
+
+
+def test_assess_without_a_profile_uses_the_operators_default_and_fails_closed(home, monkeypatch, capsys):
+    from appsec_analyzer import hosts
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not start"))
+    repo = "https://example.invalid/repo.git"
+    assert profiles.default_scan() == "claude"
+    path = write(home, "scan", "default", {"schema_version": 1, "test_cases": "yes"})
+    assert profiles.default_scan() == "default"
+    # An invalid default stops the run instead of falling back to the Claude profile.
+    assert cli.main(["assess", "--repo", repo]) == 2
+    assert "invalid scan profile (test_cases." in capsys.readouterr().err
+    # Automation still names its profile.
+    assert cli.main(["assess", "--repo", repo, "--non-interactive"]) == 2
+    assert "requires --repo and an explicit --profile" in capsys.readouterr().err
+    path.unlink()
+    target = home / "elsewhere.yaml"
+    target.write_text(yaml.safe_dump({"schema_version": 1}), encoding="utf-8")
+    path.symlink_to(target)
+    assert profiles.default_scan() == "default"
+    with pytest.raises(profiles.ProfileError):
+        profiles.resolve_scan("default")
+
+
 @pytest.mark.parametrize(
     "document",
     [

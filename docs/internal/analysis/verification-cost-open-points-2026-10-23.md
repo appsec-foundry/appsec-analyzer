@@ -1,6 +1,6 @@
 # Verification cost: open points
 
-Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run.
+Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests.
 
 ## Baseline
 
@@ -36,9 +36,10 @@ The product owner ran it on 2026-10-24 at 288794a7. After its last model call th
 - The whole run still wrote 2.9 million tokens into the cache and read 1.7 million; the survey wrote 1.46 million of them, since its jobs of a component differ in their instructions (order step 4).
 - Both corrections concerned a finding outside the component; none named another job's test case.
 - Of 294 candidates, 226 got the same answer as in the fourth run; between the third and the fourth run it was 237 of 293. On the Express server weakness answers rose from 33 to 39, controls from 85 to 96, and undecidable answers fell from 20 to 6, mostly generated routes whose data model is now preloaded.
-- Verification found 18 findings the survey did not (fourth run 17, third 16). Two authorization findings of the fourth run are missing: order tracking without an owner check (`routes/trackOrder.ts:18`, found by verification in runs 2 to 4) and security answers with a caller-chosen UserId (`server.ts:501`, only in run 4); both were rejected as outside the objective. Such rejections fell from 46 to 38.
+- Verification found 18 findings the survey did not (fourth run 17, third 16). One authorization finding of runs 2 to 4 is missing: order tracking without an owner check (`routes/trackOrder.ts:18`), rejected as outside the objective; the survey did not report it either. Security answers with a caller-chosen UserId (`server.ts:501`) are there as TCF-024; an earlier version of this list named them as missing. Rejections as outside the objective fell from 46 to 38.
 - The survey reported 106 findings against 113; 77 percent of the fourth run's were found again, against 80 percent between the third and the fourth run. Critical and High stayed at 3 and 23 against 3 and 22.
-- The 11 additional control answers were not checked against the code. A wrong one would report a confirmed control and contradict a survey finding.
+- Checked offline against the code: the 11 additional control answers on the Express server are 18 new and 7 lost ones. 10 of the new ones were rejections with the same reasoning in the fourth run, mostly routes behind `denyAll`, so control counts are not comparable between runs; 8 became decidable because the guard bodies are now preloaded. 17 of the 18 are correct.
+- One new control is wrong: `POST /rest/user/data-export` under TC-AUTHZ-01. The guard binds the memories query (`routes/dataExport.ts:26`), but the same handler looks up orders by a vowel-masked e-mail that several accounts share (`routes/dataExport.ts:33`). That line was in the served source, so it is a judgement error. Of the lost controls, three wallet sites in `routes/order.ts` were correct in the fourth run and are undecidable now: a scanner hit inside a handler got no guards of the route that reaches it, and job 1 did not read the prefix guard at `server.ts:356` this time.
 
 ## 2. The component context dominates each call
 
@@ -153,7 +154,9 @@ Option 2 is merged in d9ee6490. a26ac7b5 gives every exchange prompt its blocks 
 
 Rebuilt offline the same way as in point 2, all 9 AuthZ jobs of the fourth run's three components get the same 17,001 bytes of instructions, and the 7 Express jobs share a block of 53,720 bytes after the 704-byte preamble. For the fourth run's call pattern of 16 AuthZ calls, the estimated input cost falls from about USD 2.49 after the path cut to about USD 1.17. The estimate assumes 2.3 bytes per token, 8,000 tokens of further reads per later call and no additional corrections; the output, USD 1.32 in that run, stays.
 
-The survey jobs of a component still differ in their instructions ("This is job 2 of 5"), so they share only the instructions entry with other components and reuse their own context within a job. Giving them the same instructions is the next caching step after the measuring run.
+The survey jobs of a component then still differed in their instructions ("This is job 2 of 5"). On the branch `feat/verify-quality-survey-cache` they get the same instructions: the job count and the duty of job 1 to report what only the supplied controls, flows or boundaries show moved into a `survey_jobs` context key after the shared component context, and the jobs mark that context as shared. The jobs of a component run one after another, at most 2 minutes 22 seconds apart in the fourth run, so the five-minute cache entry holds without waiting.
+
+Rebuilt offline from the measuring run, with each survey job answered by the artifact the run accepted for it, the 22 survey jobs keep their batches and preload. The later jobs of the Express server (4 of 5) and of the Angular frontend (9 of 10) share their instructions and a component context of 50,802 and 57,766 bytes. With one call per job and 2.3 bytes per token, the survey's cache writes fall from 1,446,000 tokens (measured: 1.46 million) to 923,000 and its cache reads rise from 66,000 to 592,000; its input cost falls from about USD 3.62 to USD 2.37. The change leaves the verification requests as they were; the rebuild reused them.
 
 ## 4. Larger verification jobs
 
@@ -178,10 +181,34 @@ Another session recommended splitting verification by size instead of by aspect:
 - **Test cases and open search in one call.** Within verification this exists in part: the goal item, such as TC-AUTHZ-06, rides along in the first job of each component. The `open_reviewer` contract in `scripts/contexts/case_analysis.py` exists, but the controller does not dispatch it. Merging verification into the survey call would contradict the decisions that verification never replaces the survey and that both methods find independently.
 - **Several calls with prompt caching.** This matches point 3, with two corrections: moving the catalog text out of the instructions is not enough, since a marker must follow the shared context (the response schema stays the same up to a job's third call, see point 3); and the source is not shared between parts, only the component context.
 
+## 8. Survey findings that verification missed
+
+The product owner asked whether verification should build on the survey's findings to raise quality. Feeding survey findings to verification was not built: the model tends to confirm what it is shown, and "found by both" would no longer be independent evidence (REQ-040 reports it per finding). Instead, an offline analysis on 2026-10-24 asked why verification missed survey findings, to fix the causes in verification itself.
+
+In the measuring run verification found all 4 survey findings with an authorization CWE itself, and no survey finding is contradicted by a verified control in any run. In pilot runs 3 and 4, which also verified InputVal, DataProt and AI, 27 survey findings of a verified aspect had no verification finding on the same line with the same CWE family:
+
+- 13 are the same weakness that verification reported elsewhere: at the sink in the frontend while the survey cites the server-side source, on the server side while the survey cites the client, or on the same line under another CWE family.
+- 5 were jobs that returned no acceptable result in run 3; fixed since 612811f1.
+- 4 had no starting place: a token in `localStorage` (Angular frontend, both runs), and the captcha answer and the application configuration in GET responses (run 4).
+- 4 were out of scope: three embedded secrets whose item TC-DATA-03 the pilot profile disabled, and one in a component without routes.
+- 1 survey finding is doubtful: the data export writes only the caller's own data.
+
+A targeted follow-up check of such survey findings would cover about 2 to 3 per thorough run after the fixes below, and none at standard depth with AuthZ only, so it was not built.
+
+Built on the branch `feat/verify-quality-survey-cache`, not merged, each with offline tests:
+
+- TC-DATA-02 also starts from browser code that keeps a credential in script-readable storage: `localStorage` or `sessionStorage` writes, script-set cookies and `document.cookie` with a credential-like key (code site kind `client_storage`). Juice Shop's Angular frontend gets one DataProt job with 9 such places; before, it got none.
+- TC-DATA-01 also starts from GET routes whose handlers create or save a record or read configuration. On Juice Shop the Express server's DataProt candidates grow from 41 to 50, which needs a second job.
+- A scanner hit inside a handler lists the routes whose resolved handler reaches it (`reached_by`, at most 3), so the job knows which registration and guards decide it; their guards and registrations are preloaded only into room the candidates leave. All 20 such TC-AUTHZ-01 candidates on the Express server get their route. Job 1 there fills its 36 preload windows with candidates, so the prefix guard at `server.ts:356` still has to be read.
+- TC-AUTHZ-01's guidance says that a control must bind every lookup of user-owned data the handler makes, and that a lookup by a transformed or non-unique attribute of the caller, such as a masked e-mail, does not bind it. This changes the verification instructions, so no earlier verification job is reused.
+
+Two survey defects showed up and are not fixed: the fourth run anchored a finding on a commented-out route line (`server.ts:370`, `// app.put(...)`) and it passed the evidence review, and it kept two findings with the same line and CWE (T-072, T-073).
+
 ## Order
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
 2. Rebuild the Express server's verification context offline and size its parts (point 2). Done: the generic path cut is worth more than a cut per aspect.
 3. Measure everything built so far in one run (point 1). Done: verification cost USD 2.57 instead of USD 4.45, with answers within the usual run-to-run spread.
-4. Give the survey jobs of a component the same instructions, so they share their context too (point 3).
-5. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
+4. Give the survey jobs of a component the same instructions, so they share their context too (point 3). Built on the branch; offline about USD 1.25 less survey input.
+5. Measure step 4 and the verification fixes of point 8 in a second run: Juice Shop at standard depth with AuthZ and DataProt verified, started from a copy of the first measuring run so recon, architecture, controls and boundaries come from its accepted jobs (`bash /tmp/verify-quality/run.sh`, output `juice-verify-cost-2`). It should show the survey's cache reads, whether the Angular frontend's DataProt job finds the token in `localStorage`, whether the captcha answer and the configuration response are found, and whether the data export control stays wrong. For this run the live progress on the branch also says what each step produced. The survey's line gives its findings, those the evidence review refuted, its count per verified aspect by CWE, and its cost. Verification gives its cost and, per aspect, its findings, controls, partial and undecidable items, and cost. The merge line gives how many findings it combined. The consolidation line gives how many the report keeps, how many were refuted or fell below the severity floor, and per aspect how many verification and survey findings the other method did not find.
+6. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
