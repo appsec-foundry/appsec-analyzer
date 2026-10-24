@@ -123,7 +123,15 @@ scan reuses compatible accepted steps of an unfinished run in the same output.
 In an interactive terminal it first asks whether to continue that run, start
 such a new scan (the default for Enter or end of input), or rebuild; continuing
 is offered only while the run's limits, deadline, and accounting allow it.
-`--non-interactive`, `--quiet`, `--json`, and CI runs never ask. Earlier results
+Keys pressed before the question appears do not answer it, and the chosen start
+is confirmed in one line.
+`--non-interactive`, `--quiet`, `--json`, and CI runs never ask. A continued run's
+header names its start, working time, spending so far, and deadline; a new scan
+names the unfinished run whose accepted steps it reuses. Both run every phase
+again, and only steps without a matching accepted result call a model: the
+progress display marks reused components, and each phase's end line says
+whether its steps were reused. For a continued run, ELAPSED shows the current
+attempt and, in parentheses, the working time of all attempts. Earlier results
 stay in the output until a new run completes; that run removes the ones it did
 not replace. Inspect `status` or `progress`
 with the output directory, request `stop`, and use `results` to verify the
@@ -194,7 +202,7 @@ Findings on neighbouring lines stay separate, because a route table often regist
 
 These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth verifies authorization only, because in four pilot runs on Juice Shop this aspect added the most for its cost. The run header shows the methods, such as `Survey · Verify AuthZ`.
 
-Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the survey starts, the run names the components it will verify. Before the first verification job, it states the estimated cost of all jobs and whether the remaining budget covers them. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis from its start. It shows the survey and the verification as two steps, each with its own start and end. It lists each component once its verification has finished, with its duration, however many jobs the component needed, and names the jobs without a result.
+Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the survey starts, the run names the components it will verify. Before the first verification job, it states the estimated cost of all jobs and whether the remaining budget covers them; jobs with an accepted result of an earlier attempt need no new model call and stay out of the estimate. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis from its start. It shows the survey and the verification as two steps, each with its own start and end. It lists each component once its verification has finished, with its duration, however many jobs the component needed, and names the jobs without a result.
 
 ### Configure verification
 

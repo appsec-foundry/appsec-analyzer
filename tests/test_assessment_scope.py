@@ -176,7 +176,7 @@ def test_scope_facts_reach_console_and_structured_start_without_stdout(tmp_path,
         assert value in captured.err
     # The follower receives the same resolved scope as the terminal header.
     lines = controller._assessment_start_lines(
-        ns, budget, "standard", cfg, SimpleNamespace(runtime_changed=False), facts
+        ns, budget, "standard", cfg, SimpleNamespace(resume=False, reused_run_started=None), facts
     )
     feed = tmp_path / "progress.jsonl"
     controller._AssessmentProgress.open(str(feed))

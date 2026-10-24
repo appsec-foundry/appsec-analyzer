@@ -2138,7 +2138,8 @@ def _assessment_stride(
             review = {**parts[0], "decisions": [row for part in parts for row in part["decisions"]]}
         else:
             review = {"schema_version": 2, **identity, "decisions": []}
-        progress(f"Analyzed component: {label(component)} ({next(finished)}/{len(components['components'])})")
+        reused = _AssessmentConsole.REUSED if jobs.reused and not jobs.ran else ""
+        progress(f"Analyzed component: {label(component)} ({next(finished)}/{len(components['components'])}){reused}")
         return document, review
 
     evidence_parts, deferred = {}, []
@@ -2933,20 +2934,20 @@ def _assessment_intro(
     depth: str,
     lineup: str,
     pipeline: str,
-    runtime_changed=False,
     cfg: dict[str, Any] | None = None,
     scope_facts: list[tuple[str, str]] | None = None,
     *,
     compact: bool = False,
+    continued: tuple[str, str] | None = None,
 ) -> list[tuple[str, str]]:
-    """Return the console header rows, shown once every pre-run check has passed."""
+    """Return the console header rows, shown once every pre-run check has passed.
+
+    ``continued`` is the row of an earlier attempt the run resumes or of an
+    unfinished run whose steps it reuses (``_assessment_continuation``).
+    """
     output = ns.output
     if ns.rebuild:
         output += " (--rebuild: replaces any earlier assessment)"
-    elif runtime_changed:
-        output += " (--resume: the plugin changed, so only unchanged model steps are reused)"
-    elif ns.resume:
-        output += " (--resume: continues the earlier assessment)"
     cut = "" if budget.subscription else f"model calls stop at ${budget.max_usd:.2f}"
     profile = (cfg or {}).get("operator_profile") or {}
     budget_origin = profile.get("origins", {}).get("settings", {}).get("budget", "")
@@ -2994,6 +2995,7 @@ def _assessment_intro(
     rows = [
         ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(getattr(ns, "repo_sources", ()) or ns.repo)),
         ("Output", output),
+        *([continued] if continued else []),
         (
             "Billing",
             f"{budget.subscription_label} via "
@@ -3046,18 +3048,30 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, 
     """What the run is about to spend and where, as the console header states it, one line per fact.
 
     For a follower that shows the start in a conversation: the header's
-    rows for repository, output, depth, budget, time limit, models and planned
-    scope, each on one line, without the trust and pipeline rows the header adds.
+    rows for repository, output, a resumed or reused run, depth, budget, time
+    limit, models and planned scope, each on one line, without the trust and
+    pipeline rows the header adds.
     """
     lineup, _ = _assessment_model_lines(cfg, compact=True)
     rows = dict(
-        _assessment_intro(ns, budget, depth, lineup, _assessment_pipeline(cfg), state.runtime_changed, cfg, scope_facts)
+        _assessment_intro(
+            ns,
+            budget,
+            depth,
+            lineup,
+            _assessment_pipeline(cfg),
+            cfg,
+            scope_facts,
+            continued=_assessment_continuation(state, budget),
+        )
     )
     lines = []
     for key in (
         "Repository",
         "Repositories",
         "Output",
+        "Resumed",
+        "Reuses",
         "Depth",
         "Budget",
         "Time limit",
@@ -3072,6 +3086,31 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, 
             # The budget's second line explains priorities, not the limit.
             lines.append(f"{key:<11} {parts[0] if key == 'Budget' else '; '.join(parts)}")
     return lines
+
+
+def _assessment_continuation(state, budget) -> tuple[str, str] | None:
+    """The header row of a resumed run or of a new run that reuses an unfinished run's steps (REQ-016)."""
+
+    def utc(epoch, form="%Y-%m-%d %H:%M UTC"):
+        return time.strftime(form, time.gmtime(epoch))
+
+    if state.resume:
+        started, deadline = state.state["started_at"], state.state["expires_at"]
+        same_day = time.gmtime(started)[:3] == time.gmtime(deadline)[:3]
+        spent = f"{budget.calls} model calls used" if budget.subscription else f"USD {budget.spent_usd:.2f} spent"
+        value = (
+            f"continues the run started {utc(started)} · {_elapsed(state.worked_before)} worked · {spent} · "
+            f"deadline {utc(deadline, '%H:%M UTC') if same_day else utc(deadline)}"
+        )
+        if state.runtime_changed:
+            value += "\nthe plugin changed, so only unchanged model steps are reused"
+        return "Resumed", value
+    if state.reused_run_started is not None:
+        return (
+            "Reuses",
+            f"accepted steps of the unfinished run started {utc(state.reused_run_started)} that still match",
+        )
+    return None
 
 
 def _assessment_pipeline(cfg: dict[str, Any]) -> str:
@@ -3991,10 +4030,10 @@ def assess_repositories(
                             depth,
                             lineup,
                             _assessment_pipeline(cfg),
-                            state.runtime_changed,
                             cfg,
                             planned_scope,
                             compact=not ns.verbose,
+                            continued=_assessment_continuation(state, budget),
                         )
                         + ([("Diagnostics", str(jobs.diagnostics.path))] if ns.verbose and jobs.diagnostics else []),
                         sectioned=True,
@@ -4002,8 +4041,9 @@ def assess_repositories(
                     console.preflight(getattr(ns, "preflight_checks", ()))
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
                     if state.worked_before:
-                        # A resumed run's ELAPSED goes on from where its last attempt stopped.
+                        # A resumed run's ELAPSED adds the working time of its earlier attempts.
                         console.continue_from(state.worked_before)
+                    console.job_counts = jobs.job_counts
                     noticed = []
 
                     def report_plugin_change():
@@ -4219,7 +4259,33 @@ def assess_repositories(
         "calls": budget.calls,
         "subscription_label": budget.subscription_label if budget.subscription else None,
         **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
+        # A resumed run's closing line adds the working time of its earlier attempts.
+        **({"worked_before": state.worked_before} if state.worked_before else {}),
     }
+
+
+def _restart_write(text: str) -> None:
+    # Python buffers a terminal's stderr by line: unflushed, a question without a
+    # line end appeared only after the answer it asked for.
+    sys.stderr.write(text)
+    sys.stderr.flush()
+
+
+def _restart_readline() -> str:
+    import termios
+
+    # Keys pressed before the question appeared, such as an Enter while the run
+    # was preparing, must not answer it: only input typed after it counts.
+    termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    return sys.stdin.readline(64)
+
+
+# What each answer starts, confirmed once the question is answered.
+_RESTART_CHOSEN = {
+    "resume": "Continuing the unfinished run with its original limits and deadline (--resume).",
+    None: "Starting a new run that reuses accepted steps that still match.",
+    "rebuild": "Starting from scratch (--rebuild).",
+}
 
 
 def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str | None:
@@ -4228,15 +4294,16 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str 
     Only an explicit answer selects --resume or --rebuild. Enter, end of input
     and repeated invalid answers keep the default: a new scan that reuses the
     run's accepted steps. Continuing is offered only when the recorded limits,
-    deadline and accounting allow it. Returns "resume", "rebuild" or None.
+    deadline and accounting allow it. The answer's effect is confirmed in one
+    line. Returns "resume", "rebuild" or None.
     """
     from runtime.assessment_state import unfinished_run
 
     found = unfinished_run(Path(ns.output), budget)
     if found is None:
         return None
-    readline = readline or (lambda: sys.stdin.readline(64))
-    write = write or sys.stderr.write
+    readline = readline or _restart_readline
+    write = write or _restart_write
     started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(found["started_at"]))
     minutes = max(int(time.time() - found["started_at"]) // 60, 1)
     ago = f"{minutes} min" if minutes < 60 else f"{minutes // 60} h" if minutes < 2880 else f"{minutes // 1440} days"
@@ -4258,14 +4325,19 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str 
         "",
     ]
     write("\n".join(lines) + "\n")
+    choice = None
     for _ in range(3):
         write(f"Choose {' or '.join(choices)} [2]: ")
-        answer = readline().strip()
-        if not answer:
-            return None
-        if answer in choices:
-            return choices[answer]
-    return None
+        line = readline()
+        if not line.endswith("\n"):
+            # End of input echoes no line end; the confirmation starts its own line.
+            write("\n")
+        answer = line.strip()
+        if not answer or answer in choices:
+            choice = choices.get(answer)
+            break
+    write(_RESTART_CHOSEN[choice] + "\n")
+    return choice
 
 
 def _assessment_legacy(ns, output: Path) -> str | None:
@@ -4787,7 +4859,10 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                 file=sys.stderr,
             )
         return 1
-    elapsed = _elapsed(time.monotonic() - started)
+    seconds = time.monotonic() - started
+    elapsed = _elapsed(seconds)
+    if outcome.get("worked_before"):
+        elapsed += f" ({_elapsed(seconds + outcome['worked_before'])} in total)"
     try:
         _print_closing(outcome, elapsed, Style.for_stream(sys.stdout), Style.for_stream(sys.stderr))
     except Exception as exc:
