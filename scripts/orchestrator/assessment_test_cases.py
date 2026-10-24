@@ -50,7 +50,8 @@ _ADAPTATION = (
     "generator at its anchor and handled by library code: judge it by the generator call, the data model it names, "
     "and the registrations for the same path among its handler lines. A candidate's sinks are the lines in its "
     "handler where fixed patterns found the mechanism its test case asks about; they are hints, and other paths "
-    "count as well. When the context has candidate_jobs, other jobs answer the "
+    "count as well. A candidate inside a handler lists in reached_by the routes whose handlers reach it; their "
+    "registrations and guards decide it as well. When the context has candidate_jobs, other jobs answer the "
     "rest of the component's candidates: add model candidates only when adds_candidates is true, and never at a "
     "location that answered_elsewhere lists for the same test case."
 )
@@ -203,7 +204,7 @@ def run_pilot(
         # Files of no component, such as shared helpers, where a finding may anchor once the job read them.
         shared = frozenset(envelope["job_allowed"]) - owned
         selector = _selector(entry, number)
-        artifact = view.execute(
+        exchanged = view.exchange(
             role="test_case_investigator",
             selector=selector,
             instructions=role_instructions,
@@ -236,6 +237,7 @@ def run_pilot(
             # The candidates of a replaced job record undecidable (OR-39).
             on_failure=lambda reason: {"replaced": True},
         )
+        artifact = exchanged.artifact
         if artifact.get("replaced"):
             gap = next(row for row in view.gaps if row["selector"] == selector)
             cause = "budget" if gap.get("budget") else "failure"
@@ -248,13 +250,14 @@ def run_pilot(
             )
         # The view holds this one job, so the console can mark a component whose every job was reused.
         progress(f"Finished verifying {job}" + (" · reused" if view.reused and not view.ran else ""))
-        return {"reply": artifact}
+        return {"reply": artifact, "usd": exchanged.usd}
 
     answered = {}
     dispatched = concurrently(jobs, work, _after_first_jobs(work, investigate)) if work else []
     for (entry, number), answer in zip(work, dispatched, strict=True):
         answered.setdefault(id(entry), []).append((entry["jobs"][number - 1], answer))
     results, findings, candidates = [], [], {}
+    usd = {}
     for entry in entries:
         component = entry["component"]
         parts = answered.get(id(entry), [])
@@ -295,6 +298,7 @@ def run_pilot(
                         cases[case_id], component["id"], answer["cause"], unexamined=len(entry["precheck"][case_id])
                     )
         results += [entry["fixed"].get(case["id"]) or derived[case["id"]] for case in entry["cases"]]
+        usd[entry["aspect"]] = usd.get(entry["aspect"], 0.0) + sum(answer.get("usd") or 0.0 for _, answer in parts)
         if entry["precheck"]:
             rid = component["repository_ids"][0]
             candidates.setdefault(component["id"], []).extend(
@@ -311,10 +315,18 @@ def run_pilot(
             for _, answer in answered.get(id(entry), [])
         )
     ]
+    # What each aspect found and cost, so a reader can weigh one against the other; a replaced job's cost is
+    # in the run's total only. The completion summary counts the verification items' outcomes.
     progress(
         "Verify done · "
-        + (f"{', '.join(aspects)} · " if aspects else "")
-        + f"{len(results)} results, {len(findings)} findings"
+        + (
+            " · ".join(
+                f"{aspect} {_count(sum(1 for finding in findings if finding['aspect'] == aspect), 'finding')}"
+                + ("" if jobs.budget.subscription else f" (≈ USD {usd.get(aspect, 0.0):.2f})")
+                for aspect in aspects
+            )
+            or "no aspect verified"
+        )
         + (f"; incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
     )
     return {
@@ -401,6 +413,56 @@ def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, 
     )
 
 
+def survey_line(documents, reviews, usd) -> str:
+    """What the survey found, said when it ends and verification starts (REQ-040).
+
+    It counts the survey's findings before the merge, as the merge line does, and names those the evidence
+    review refuted. ``usd`` is what the survey jobs and their evidence reviews cost, or None without monetary
+    accounting.
+    """
+    found = refuted = 0
+    for document, review in zip(documents, reviews, strict=True):
+        verdicts = {row["local_id"]: row["verdict"] for row in review["decisions"]}
+        found += len(document["threats"])
+        refuted += sum(1 for threat in document["threats"] if verdicts.get(threat.get("local_id")) == "refuted")
+    parts = [_count(found, "finding") + (f", {refuted} refuted by the evidence review" if refuted else "")]
+    if usd is not None:
+        parts.append(f"≈ USD {usd:.2f}")
+    return "Survey done · " + " · ".join(parts)
+
+
+def method_lines(threats, findings, aspects, catalog) -> list[str]:
+    """For each verified aspect, how many findings only one method found (REQ-040).
+
+    Reads the model after ``case_outcomes.combine_methods`` linked them, so the counts are the report's: a
+    verification finding names the survey findings at its location, a survey finding the verification findings,
+    and a survey finding at a verified control is contradicted. A survey finding counts for an aspect when its
+    CWE is one of the aspect's verification items, so one finding can count for several aspects.
+    """
+    lines = []
+    for aspect in aspects:
+        cwes = aspect_cwes(catalog, aspect)
+        survey = [row for row in threats if row.get("source") == "stride" and row.get("cwe") in cwes]
+        parts = [
+            f"{sum(1 for row in findings if row.get('aspect') == aspect and not row.get('survey_finding_ids'))}"
+            " only by Verify",
+            f"{sum(1 for row in survey if not row.get('verification'))} only by the survey",
+        ]
+        if contradicted := sum(1 for row in survey if row.get("verification_contradicted")):
+            parts.append(f"{contradicted} contradicted")
+        lines.append(f"{aspect} · " + " · ".join(parts))
+    return lines
+
+
+def aspect_cwes(catalog, aspect: str) -> set[str]:
+    """The CWEs of an aspect's catalog verification items."""
+    return {cwe for case in catalog["test_cases"] if case["aspect"] == aspect for cwe in case["cwe"]}
+
+
+def _count(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {singular if count == 1 else plural or singular + 's'}"
+
+
 def _count_jobs(count: int) -> str:
     return f"{count} {'job' if count == 1 else 'jobs'}"
 
@@ -471,6 +533,8 @@ def _context_candidates(precheck, rid: str, facts) -> list[dict]:
             candidate = {**row, "anchor": {"repository_id": rid, **row["anchor"]}}
             if "route_id" in row:
                 candidate["route"] = _route(facts, row["route_id"])
+            if "reached_by" in row:
+                candidate["reached_by"] = [{"route_id": key, **_route(facts, key)} for key in row["reached_by"]]
             candidates.append(candidate)
         listed.append({"test_case_id": case_id, "candidates": candidates})
     return listed
@@ -539,16 +603,22 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
         lines += [{"repository_id": rid, "file": path, "line": first} for path, first, _ in route.get("chain", [])]
         # A sink can lie far into a long handler.
         lines += [{"repository_id": rid, **sink} for sink in row.get("sinks", [])]
-        guards += [
-            {"repository_id": rid, "file": path, "line": start}
-            for path, start, _ in [*wares.get(row.get("route_id"), []), *route.get("guards", [])]
-        ]
         if route.get("data_model"):
             models.append({"repository_id": rid, "file": route["data_model"][0], "line": route["data_model"][1]})
-        registered = (inventory.get(row.get("route_id")) or {}).get("guard_lines") or []
-        targets.append(
-            {"evidence": anchor, "guard_lines": [[rid, route.get("handler_file"), line] for line in registered]}
-        )
+        # The guards of the candidate's route decide it. A location inside a handler is decided by the routes
+        # reaching it: their guards and registrations fill leftover room, so they never displace a candidate.
+        registered, middleware = [], []
+        for key in [row["route_id"]] if "route_id" in row else row.get("reached_by", []):
+            reached = facts["routes"].get(key) or {}
+            spans = [*wares.get(key, []), *reached.get("guards", [])]
+            lines_before = (inventory.get(key) or {}).get("guard_lines") or []
+            if key == row.get("route_id"):
+                guards += [{"repository_id": rid, "file": path, "line": start} for path, start, _ in spans]
+            elif reached:
+                middleware += [[rid, path, start, end] for path, start, end in spans]
+                lines_before = [*lines_before, reached["handler_line"]]
+            registered += [[rid, reached.get("handler_file"), line] for line in lines_before]
+        targets.append({"evidence": anchor, "guard_lines": registered, "middleware": middleware})
     served = list(context_preload)
     # Middleware definitions get a quarter of what is left, data models a quarter of the rest, the candidates the rest.
     for rows, share, before, after in (

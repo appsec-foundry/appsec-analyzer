@@ -1937,7 +1937,10 @@ def _assessment_stride(
         # cites one it was never served is rejected and regenerates its whole
         # result. Only the first job reports what the context alone shows, so
         # the other jobs keep their room for targets and do not repeat it.
-        def stride_instructions(first=True, share=""):
+        # Every job of the component gets the same instructions and finds its
+        # share in survey_jobs after the shared context, so later jobs read the
+        # instructions and that context from the host's prompt cache.
+        def stride_instructions():
             return (
                 _assessment_role_instructions(
                     "stride_analyzer",
@@ -1948,10 +1951,9 @@ def _assessment_stride(
                     "the supplied confirmed incident flows. A connection does not establish payload continuity, "
                     "identity propagation or exploitation. Read both ends before asserting a cross-repository "
                     "mechanism and retain its source-to-sink trace. "
-                    "The controller supplies each investigation_targets anchor's source"
-                    + (", and the lines the supplied controls, flows and boundaries cite," if first else "")
-                    + " in source_slices; follow its "
-                    "mechanism to the relevant control or sink. A target's routes lists every route it covers; "
+                    "The controller supplies each investigation_targets anchor's source in source_slices; follow its "
+                    "mechanism to the relevant control or sink. The component's first or only job also gets the "
+                    "lines the supplied controls, flows and boundaries cite. A target's routes lists every route it covers; "
                     "decide them together, including their guards and handler; a target's related registration "
                     "lines may lie in another component's file. A target's guard_lines name earlier guard "
                     "registrations on its routes' paths, its imports the repository files its file imports, and "
@@ -1989,7 +1991,9 @@ def _assessment_stride(
                     + " "
                     + _STRIDE_CRITICAL_RULE
                     + " Unproven practices retain their unproven tier and no CVSS."
-                    + (" " + share.rstrip() if share else ""),
+                    " When the context has survey_jobs, the component's targets are split over several jobs: job 1 "
+                    "alone also reports weaknesses that only the supplied controls, flows or boundaries show; every "
+                    "other job reports a finding only when its targets or the source it read for them show it.",
                 )
                 + "\n\nSelected analysis lenses:\n"
                 + lens_policy
@@ -1997,7 +2001,7 @@ def _assessment_stride(
 
         schema = analysis.contract("multi-repo-stride.schema.json")
         schema["required"].append("surface_coverage")
-        context_limit = jobs.context_limit(stride_instructions(share="x" * 512), schema)
+        context_limit = jobs.context_limit(stride_instructions(), schema)
         room = preload_room(context, max_context_bytes=context_limit)
         context_preload = analysis.evidence_preload(
             scope,
@@ -2030,26 +2034,16 @@ def _assessment_stride(
                 "stride:" + component["id"] + (f":{index}/{len(target_batches)}" if len(target_batches) > 1 else "")
             )
             first = index == 1
-            if len(target_batches) == 1:
-                share = ""
-            elif first:
-                share = (
-                    f"This is job 1 of {len(target_batches)} for the component; it alone also reports weaknesses "
-                    "that only the supplied controls, flows or boundaries show. "
-                )
-            else:
-                share = (
-                    f"This is job {index} of {len(target_batches)} for the component; report a finding only when "
-                    "this job's targets or the source you read for them show it: job 1 reports what only the "
-                    "supplied controls, flows or boundaries show. "
-                )
+            job_context = {**context, "investigation_targets": target_batch}
+            if len(target_batches) > 1:
+                job_context["survey_jobs"] = {"job": index, "of": len(target_batches)}
             parts.append(
                 jobs.execute(
                     role="stride_analyzer",
                     selector=selector,
                     budget_group="stride:" + component["id"],
-                    instructions=stride_instructions(first, share),
-                    context={**context, "investigation_targets": target_batch},
+                    instructions=stride_instructions(),
+                    context=job_context,
                     schema=schema,
                     allowed_sources=job_allowed,
                     normalize=analysis.stride_normalizer(target_batch, component, identity),
@@ -2058,10 +2052,12 @@ def _assessment_stride(
                         target_batch,
                         [*preload, *(key for key in context_preload if first and key not in preload)],
                         job_allowed,
-                        context={**context, "investigation_targets": target_batch},
+                        context=job_context,
                         component_sources=analysis.source_selection(components["components"]),
                         max_context_bytes=context_limit,
                     ),
+                    # The component's context is the same in every job; its targets and share follow it.
+                    shared_context_keys=len(context),
                     validate=lambda artifact, ranges, targets=target_batch: analysis.validate_stride(
                         scope,
                         component,
@@ -2143,6 +2139,8 @@ def _assessment_stride(
         return document, review
 
     evidence_parts, deferred = {}, []
+    # Only survey jobs and their evidence reviews run until the survey ends, so the budget's growth is their cost.
+    spent = jobs.budget.spent_usd
     results = _assessment_components_concurrently(jobs, components["components"], analyze)
     documents = [document for document, _ in results]
     reviews = [review for _, review in results]
@@ -2160,9 +2158,15 @@ def _assessment_stride(
         for position in {item[0] for item in deferred}:
             reviews[position - 1]["decisions"] = [row for part in evidence_parts[position] for row in part["decisions"]]
     scope.verify_unchanged()
-    found = sum(len(document["threats"]) for document in documents) + sum(len(rows) for rows in scanned.values())
-    _phase_result(progress, "Threat analysis", _count_noun(found, "finding"))
+    surveyed = sum(len(document["threats"]) for document in documents)
     if envelopes is not None:
+        # With verification to follow, the survey is its own step and says what it found (REQ-040).
+        if planned["work"]:
+            progress(
+                assessment_test_cases.survey_line(
+                    documents, reviews, None if jobs.budget.subscription else jobs.budget.spent_usd - spent
+                )
+            )
         pilot.update(
             assessment_test_cases.run_pilot(
                 scope,
@@ -2188,6 +2192,8 @@ def _assessment_stride(
         started_at=started_at,
         review_groups=lambda verdict, groups: _assessment_merge_review(jobs, verdict, groups, progress=progress),
     )
+    scanner = sum(len(rows) for rows in scanned.values())
+    progress(f"Merge · {surveyed} survey and {scanner} scanner findings merged into {len(merged['threats'])}")
     return documents, reviews, merged
 
 
@@ -2233,8 +2239,12 @@ def _assessment_components_concurrently(jobs, components, analyze):
 MERGE_REVIEW_GROUPS = 32
 
 
-def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress) -> list[dict]:
-    """Run the legacy merger's judgment on the groups no deterministic rule decides."""
+def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress, late: bool = False) -> list[dict]:
+    """Run the legacy merger's judgment on the groups no deterministic rule decides.
+
+    ``late`` marks the review of findings that abuse cases added after the merge: its jobs get their own
+    selectors, and its progress line stays in the abuse-case phase.
+    """
     from model.merge_threats import validate_agent_decision_document
     from runtime.assessment_host import Rejection
 
@@ -2242,7 +2252,8 @@ def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress
     batches = [groups[start : start + MERGE_REVIEW_GROUPS] for start in range(0, len(groups), MERGE_REVIEW_GROUPS)]
     decisions: list[dict] = []
     for number, batch in enumerate(batches, 1):
-        progress(f"Reviewing merge candidates ({verdict}, {number}/{len(batches)})")
+        subject = "abuse-case findings against the merged findings" if late else "merge candidates"
+        progress(f"Reviewing {subject} ({verdict}, {number}/{len(batches)})")
         context = {"evidence_verdict": verdict, "candidate_groups": batch}
 
         def validate(artifact, ranges, context=context):
@@ -2254,7 +2265,7 @@ def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress
 
         artifact = jobs.execute(
             role="threat_merger",
-            selector=f"merge:{verdict}:{number}/{len(batches)}",
+            selector=f"{'late-merge' if late else 'merge'}:{verdict}:{number}/{len(batches)}",
             instructions=_assessment_role_instructions(
                 "threat_merger",
                 "Return one decision per supplied candidate group. Every member shares one evidence verdict. "
@@ -2925,7 +2936,7 @@ def _methods_label(test_cases) -> str:
     if not test_cases:
         return "Survey"
     aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
-    return "Survey · Verify " + (", ".join(aspects) if aspects else "scanner rules only")
+    return "Survey · Verify (" + (", ".join(aspects) if aspects else "scanner rules only") + ")"
 
 
 def _assessment_intro(
@@ -3467,6 +3478,37 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
         (workspace / ".stage-stats.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> None:
+    """Say per verified aspect how the methods relate, and end the phase with what the model kept.
+
+    The model leaves out refuted findings and those below the register's severity floor; the merged
+    intermediate keeps both, so the difference names them. Abuse verification may add findings later.
+    """
+    from shared._finding_state import is_refuted
+
+    merged = json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")).get("threats") or []
+    reported = len(model.get("threats") or [])
+    refuted = sum(1 for threat in merged if is_refuted(threat))
+    parts = [f"{reported} of {_count_noun(len(merged), 'finding')} in the report"]
+    if refuted:
+        parts.append(f"{refuted} refuted")
+    if (below := len(merged) - refuted - reported) > 0:
+        parts.append(f"{below} below the severity floor")
+    if cfg.get("test_cases"):
+        from model.case_outcomes import load_catalog
+
+        from orchestrator import assessment_test_cases
+
+        aspects = [
+            aspect for aspect in cfg["test_cases"]["aspects"] if aspect in assessment_test_cases.INVESTIGATED_ASPECTS
+        ]
+        for line in assessment_test_cases.method_lines(
+            model.get("threats") or [], model.get("test_case_findings") or [], aspects, load_catalog()
+        ):
+            progress(line)
+    _phase_result(progress, "Consolidation", " · ".join(parts))
+
+
 def _assessment_render(
     scope,
     jobs,
@@ -3551,7 +3593,7 @@ def _assessment_render(
         # often this run rebuilds the model, and a new entry for the next scan.
         atomic_write_text(workspace / ".scan-start-epoch", str(cfg["assessment_started_at"]))
 
-    def build_model(step: str) -> None:
+    def build_model(step: str) -> dict:
         progress(step)
         _run_script(
             "model/build_threat_model_yaml.py",
@@ -3608,11 +3650,12 @@ def _assessment_render(
         atomic_write_text(model_path, yaml.safe_dump(model, sort_keys=False, allow_unicode=True))
         _run_script("validators/validate_intermediate.py", ["threat_model_output", str(model_path)])
         _enrich_and_gate_yaml(workspace, {**cfg, "repo_root": str(root)}, receipts)
+        return model
 
     # Abuse matching binds its steps to the ranked findings, so the model is
     # built before it; the root-cause synthesis then covers the findings that
     # abuse verification adds, and the model is built again with them.
-    build_model("Building the assessment model")
+    _consolidation_result(progress, workspace, build_model("Building the assessment model"), cfg)
     receipts += run_abuse_cases(
         scope,
         jobs,
@@ -3623,6 +3666,9 @@ def _assessment_render(
         instructions=_assessment_role_instructions,
         run_script=_run_script,
         rebuild=lambda: build_model("Updating the assessment model with the verified abuse cases"),
+        merge_review=lambda verdict, groups: _assessment_merge_review(
+            jobs, verdict, groups, progress=progress, late=True
+        ),
         progress=progress,
     )
     if json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")).get("threats"):
@@ -4151,7 +4197,6 @@ def assess_repositories(
                     test_cases=cfg["test_cases"],
                     pilot=pilot,
                 )
-                _phase_result(say, "Consolidation", _count_noun(len(merged["threats"]), "finding") + " after merge")
                 original, _ = build_assessment_model(
                     scope,
                     skill_cfg={**cfg, "mode": "full"},

@@ -63,6 +63,8 @@ class Host:
         # The (repository_id, path, start, end) slices each call's packet carried.
         self.packets = []
         self.systems = []
+        # The cache blocks each call's prompt was made of.
+        self.blocks = []
 
     def factory(self, role, ceiling):
         owner = self
@@ -70,6 +72,7 @@ class Host:
         class Transport:
             def invoke(self, system, prompt, schema, timeout_s, should_stop):
                 owner.systems.append(system)
+                owner.blocks.append(getattr(prompt, "blocks", (prompt,)))
                 return owner.invoke(role, prompt)
 
         return Transport()
@@ -425,23 +428,31 @@ def test_only_the_first_job_of_a_split_component_carries_its_context_lines(tmp_p
     calls = len(host.calls)
     steps = []
     controller._assessment_stride(scope, jobs, architecture, controls, [], progress=steps.append)
+    calls_made = list(zip(host.calls[calls:], host.packets[calls:], host.systems[calls:], host.blocks[calls:]))
     stride = [
-        (system, slices)
-        for (role, ctx), slices, system in zip(host.calls[calls:], host.packets[calls:], host.systems[calls:])
+        (system, slices, ctx, blocks)
+        for (role, ctx), slices, system, blocks in calls_made
         if role == "stride_analyzer" and ctx["component"]["id"] == component["id"]
     ]
     context_window = (rid, "app.py", line - 10)
-    carriers = [index for index, (_, slices) in enumerate(stride) if any(key[:3] == context_window for key in slices)]
+    carriers = [
+        index for index, (_, slices, *_) in enumerate(stride) if any(key[:3] == context_window for key in slices)
+    ]
     assert len(stride) > 1 and carriers == [0]
-    assert f"job 1 of {len(stride)}" in stride[0][0]
-    assert all(f"job {n} of {len(stride)}" in system for n, (system, _) in enumerate(stride[1:], 2))
+    # Every job gets the same instructions and the same prompt start up to the component's context;
+    # its share and its targets follow, so later jobs read that start from the host's prompt cache.
+    assert len({system for system, *_ in stride}) == 1
+    assert [ctx["survey_jobs"] for _, _, ctx, _ in stride] == [
+        {"job": n, "of": len(stride)} for n in range(1, len(stride) + 1)
+    ]
+    assert all(len(blocks) == 4 for *_, blocks in stride) and len({blocks[:2] for *_, blocks in stride}) == 1
+    shared = stride[0][3][1]
+    assert '"readable_sources": ' in shared and "investigation_targets" not in shared and "survey_jobs" not in shared
     # A component analyzed in one job is not told about other jobs.
     single = [
-        system
-        for (role, ctx), system in zip(host.calls[calls:], host.systems[calls:])
-        if role == "stride_analyzer" and ctx["component"]["id"] != component["id"]
+        ctx for (role, ctx), *_ in calls_made if role == "stride_analyzer" and ctx["component"]["id"] != component["id"]
     ]
-    assert single and not any("job 1 of" in system for system in single)
+    assert single and not any("survey_jobs" in ctx for ctx in single)
     # MR-16 console: each finished job and each finished component is reported, in completion order.
     # Both repositories name their component "Service": the label tells them apart.
     name = f"{component['name']} [{component['id'][-6:]}]"

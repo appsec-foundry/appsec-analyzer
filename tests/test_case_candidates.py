@@ -809,3 +809,107 @@ def test_a_route_that_reaches_a_sink_is_the_candidate_and_names_the_sink(catalog
 def test_responses_start_from_reads_of_stored_data(catalog, sites):
     candidates = cc.starting_candidates(_case(catalog, "TC-DATA-01"), "api", sites, [])["candidates"]
     assert [row["route_id"] for row in candidates] == [route_id(sites, "GET", "/rest/search")]
+
+
+def test_responses_also_start_from_records_a_read_route_saves_and_from_configuration(catalog, tmp_path):
+    root = write_repo(
+        tmp_path,
+        {
+            "server.js": "const express = require('express')\n"
+            "const config = require('config')\n"
+            "const { Captcha } = require('./models')\n"
+            "const app = express()\n"
+            "app.get('/rest/config', (req, res) => res.json(config.util.toObject(config)))\n"
+            "app.get('/rest/captcha', async (req, res) => {\n"
+            "  const captcha = Captcha.build({ answer: 42 })\n"
+            "  await captcha.save()\n"
+            "  res.json(captcha)\n"
+            "})\n"
+            "app.get('/rest/ping', (req, res) => res.json({ ok: true }))\n",
+        },
+    )
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": ["server.js"]})
+    candidates = cc.starting_candidates(_case(catalog, "TC-DATA-01"), "api", facts, [])["candidates"]
+    assert sorted(row["route_id"] for row in candidates) == sorted(
+        route_id(facts, "GET", path) for path in ("/rest/config", "/rest/captcha")
+    )
+
+
+def test_a_credential_kept_in_browser_storage_starts_a_storage_check(catalog, tmp_path):
+    root = write_repo(
+        tmp_path,
+        {
+            "web/login.ts": "export function remember (auth: { token: string }, language: string) {\n"
+            "  localStorage.setItem('language', language)\n"
+            "  localStorage.setItem('token', auth.token)\n"
+            "}\n",
+        },
+    )
+    facts = cc.route_facts(root, build_inventory(root), [], components={"web": ["web/login.ts"]})
+    assert facts["sites"]["client_storage"] == [["web/login.ts", 3]]
+    candidates = cc.starting_candidates(_case(catalog, "TC-DATA-02"), "web", facts, [])["candidates"]
+    assert [row["anchor"] for row in candidates] == [{"file": "web/login.ts", "line": 3}]
+
+
+# A checkout route under a prefix guard whose handler writes the wallet of the caller the guard set,
+# and a helper no route reaches.
+REACHED = {
+    "server.js": "const express = require('express')\n"
+    "const { isAuthorized } = require('./lib/guards')\n"
+    "const { checkout } = require('./routes/order')\n"
+    "const app = express()\n"
+    "app.use('/rest/basket', isAuthorized())\n"
+    "app.post('/rest/basket/:id/checkout', checkout())\n",
+    "lib/guards.js": "module.exports.isAuthorized = () => (req, res, next) => {\n"
+    "  req.body.UserId = req.user.id\n"
+    "  next()\n"
+    "}\n",
+    "routes/order.js": "module.exports.checkout = () => async (req, res) => {\n"
+    "  await Wallet.decrement({ balance: 10 }, { where: { UserId: req.body.UserId } })\n"
+    "  res.json({})\n"
+    "}\n",
+    "lib/unused.js": "module.exports.drain = (id) => Wallet.destroy({ where: { UserId: id } })\n",
+}
+
+
+def test_a_scanner_hit_inside_a_handler_gets_the_guards_of_the_routes_reaching_it(tmp_path, catalog):
+    """The guard that sets the caller decides the hit, so the job reads it without a further call."""
+    from orchestrator import assessment_test_cases as pilot
+    from runtime.assessment_host import MAX_CONTEXT_BYTES
+    from runtime.multi_repo_scope import AssessmentScope, RepositoryView
+
+    repo = write_repo(tmp_path / "repo", REACHED)
+    inventory = build_inventory(repo)
+    hits = [
+        {"source_check_id": "AUTHZ-001", "evidence": {"file": "routes/order.js", "line": 2}},
+        {"source_check_id": "AUTHZ-001", "evidence": {"file": "lib/unused.js", "line": 1}},
+    ]
+    facts = cc.route_facts(repo, inventory, hits, components={"api": list(REACHED)})
+    case = _case(catalog, "TC-AUTHZ-01")
+    candidates = cc.starting_candidates(case, "api", facts, hits)["candidates"]
+    checkout = route_id(facts, "POST", "/rest/basket/:id/checkout")
+    located = {row["anchor"]["file"]: row for row in candidates if "route_id" not in row}
+    assert located["routes/order.js"]["reached_by"] == [checkout]
+    assert "reached_by" not in located["lib/unused.js"]
+
+    files = {path: (repo / path).read_bytes() for path in REACHED}
+    view = RepositoryView("repo-" + "1" * 16, repo, "b" * 40, "c" * 64, files)
+    scope = AssessmentScope((view,), tmp_path / "output")
+    rid = view.repository_id
+    precheck = {case["id"]: [located["routes/order.js"]]}
+    listed = pilot._context_candidates(precheck, rid, facts)[0]["candidates"]
+    assert listed[0]["reached_by"] == [{"route_id": checkout, "method": "POST", "path": "/rest/basket/:id/checkout"}]
+    allowed = frozenset((rid, path) for path in files)
+    envelope = {"incident": [], "adjacent": [], "allowed": allowed, "job_allowed": allowed}
+    architecture = {
+        "route_inventories": {rid: inventory},
+        "route_middleware": {rid: {checkout: [["lib/guards.js", 1, 4]]}},
+    }
+    component = {"id": "api", "repository_ids": [rid], "paths": [{"repository_id": rid, "path": p} for p in files]}
+    preload = pilot._preload(
+        scope, {"existing_controls": []}, precheck, rid, facts, envelope, architecture, [component], MAX_CONTEXT_BYTES
+    )
+    covered = lambda path, line: any(key[1] == path and key[2] <= line <= key[3] for key in preload)  # noqa: E731
+    # The guard's definition, its prefix registration and the route's registration, beside the hit itself.
+    assert covered("lib/guards.js", 2) and covered("server.js", 5) and covered("server.js", 6)
+    assert covered("routes/order.js", 2)

@@ -633,3 +633,52 @@ def test_a_matcher_configuration_error_stops_the_run_instead_of_matching_nothing
 
     with pytest.raises(review.AssessmentReviewError, match="org profile"):
         _abuse(abuse, Jobs(_verifier()), run_script=run)
+
+
+def test_promoted_findings_of_a_weakness_already_found_join_it_and_move_their_bindings(tmp_path):
+    token = {"cwe": "CWE-922", "stride": "Information Disclosure", "evidence_check": "verified", "component_id": "web"}
+    survey = {"t_id": "T-005", "title": "Session JWT in localStorage", "risk": "Medium", "threat_category_id": "TH-04"}
+    promoted = {"t_id": "T-104", "title": "Session token in client storage", "risk": "High", "source": "source-scan"}
+    other = {
+        "t_id": "T-105",
+        "title": "Debug route left enabled",
+        "risk": "Low",
+        "cwe": "CWE-489",
+        "component_id": "web",
+    }
+    threats = [
+        {**survey, **token, "evidence": {"file": "src/login.ts", "line": 101}},
+        {**promoted, **token, "evidence": {"file": "src/basket.ts", "line": 64}, "abuse_case_id": "AC-T-001"},
+        {
+            **other,
+            "stride": "Elevation of Privilege",
+            "evidence_check": "verified",
+            "evidence": {"file": "a.ts", "line": 1},
+        },
+    ]
+    (tmp_path / ".threats-merged.json").write_text(json.dumps({"version": 2, "threats": threats}))
+    (tmp_path / ".components.json").write_text(json.dumps({"components": [{"id": "web", "repository_ids": ["r"]}]}))
+    step = {"step": 1, "matched_finding_id": "T-104"}
+    matches = {
+        "matches": [{"abuse_case_id": "AC-T-001", "step_matches": [step], "matched_finding_ids": ["T-005", "T-104"]}]
+    }
+    (tmp_path / ".abuse-case-matches.json").write_text(json.dumps(matches))
+    verdicts = {
+        "verdicts": [{"abuse_case_id": "AC-T-001", "step_verdicts": [{"step": 1, "matched_finding_id": "T-104"}]}]
+    }
+    (tmp_path / ".abuse-case-verdicts.json").write_text(json.dumps(verdicts))
+
+    def merge_review(verdict, groups):
+        return [{"group_id": group["group_id"], "action": "merge", "merge_target_index": 0} for group in groups]
+
+    line = review._merge_promoted(tmp_path, {"T-005"}, merge_review)
+    assert line == "Merge of abuse-case findings · 1 joined T-005 · 1 added as a new finding"
+    merged = json.loads((tmp_path / ".threats-merged.json").read_text())
+    assert [threat["t_id"] for threat in merged["threats"]] == ["T-005", "T-105"]
+    # The abuse case now cites the finding that absorbed its step, once.
+    case = json.loads((tmp_path / ".abuse-case-matches.json").read_text())["matches"][0]
+    assert case["step_matches"][0]["matched_finding_id"] == "T-005" and case["matched_finding_ids"] == ["T-005"]
+    verdict = json.loads((tmp_path / ".abuse-case-verdicts.json").read_text())["verdicts"][0]
+    assert verdict["step_verdicts"][0]["matched_finding_id"] == "T-005"
+    # Without promoted findings there is nothing to merge or say.
+    assert review._merge_promoted(tmp_path, {"T-005", "T-105"}, merge_review) == ""

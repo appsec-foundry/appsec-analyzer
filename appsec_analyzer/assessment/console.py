@@ -236,6 +236,7 @@ class _AssessmentConsole:
         ("Independently verifying evidence", "Threat analysis"),
         ("Analyzed component", "Threat analysis"),
         ("Reviewing merge candidates", "Consolidation"),
+        ("Merge · ", "Consolidation"),
         ("Building the deterministic route inventory", "Consolidation"),
         ("Evaluating posture producers", "Consolidation"),
         ("Reviewing findings as architect", "Consolidation"),
@@ -273,6 +274,8 @@ class _AssessmentConsole:
     # Subjects that also get a permanent line each, so the run's console
     # names every discovered repository, analyzed component and verified abuse case.
     LISTED = ("Discovering repository", "Surveying component", "Verifying abuse case")
+    # Steps that state a result and start their phase if it has not started; each gets a permanent line as written.
+    STATED = ("Merge · ",)
     # Listed names come from repository files and model output.
     _NAME_MAX = 100
     # What a phase's subjects are, for progress lines and the done line's count.
@@ -318,6 +321,8 @@ class _AssessmentConsole:
     _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) components? for .* · (\d+) jobs?$")
     _VERIFY_START = "Verify start · "
     _VERIFY_DONE = "Verify done · "
+    # What the survey found, said when it ends; the console adds its duration and component count.
+    _SURVEY_DONE = "Survey done · "
     # A component's jobs are its parts; the console shows one step per component.
     _VERIFY_JOB = re.compile(
         r"(Verifying|Finished verifying) component (\d+)/\d+, part \d+/(\d+), (\S+): (.*?)"
@@ -630,6 +635,12 @@ class _AssessmentConsole:
         checked in several jobs is still one step, marked reused when each part was.
         """
         with _AssessmentConsole._lock:
+            if text.startswith(self._SURVEY_DONE) and "Survey" in self.steps:
+                self.step_times["Survey"] = now - self.steps["Survey"]
+                survey = f"{self._SURVEY_DONE}{_duration(self.step_times['Survey'])}"
+                found = text[len(self._SURVEY_DONE) :]
+                self.record("·", f"{survey} · {_count_noun(self.units_done, 'component')} · {found}", now)
+                return True
             if plan := self._VERIFY_PLAN.match(text):
                 components, jobs = int(plan[1]), int(plan[2])
                 # The job count only weighs the step; the line shows the components.
@@ -642,7 +653,8 @@ class _AssessmentConsole:
                     self.fraction *= weight / self._weight(self.phase)
                     self._advance(self.fraction)
                 if text.startswith(self._VERIFY_START):
-                    if "Survey" in self.steps:
+                    # The survey's own line, when it came, already ended its step.
+                    if "Survey" in self.steps and "Survey" not in self.step_times:
                         self.step_times["Survey"] = now - self.steps["Survey"]
                         survey = f"Survey done · {_duration(self.step_times['Survey'])}"
                         self.record("·", f"{survey} · {_count_noun(self.units_done, 'component')}", now)
@@ -1038,6 +1050,9 @@ class _AssessmentConsole:
                     self.on_phase()
         if prefix in self.UNIT_STEPS:
             self._unit_step(prefix, text, position, now, reused)
+            return
+        if prefix in self.STATED:
+            self.record("·", text, now)
             return
         if position:
             # Subjects already finished in this phase, so the share never runs ahead.

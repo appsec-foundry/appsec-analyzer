@@ -3280,6 +3280,8 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.step("Analyzed component: Web")
     survey = console.done
     clock.tick(5)
+    # The survey says what it found; the console adds its duration and component count.
+    console.step("Survey done · 3 findings · ≈ USD 0.80")
     console.step("Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left · 3 jobs")
     assert console.done == survey and console.current == "Verify: 0/2 components done"
     console.step("Verifying component 1/2, part 1/2, AuthZ: API")
@@ -3300,7 +3302,7 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     clock.tick(10)
     console.step("Finished verifying component 2/2, part 1/1, AuthZ: Web")
     assert console.done > second and console.current == "Verify: 2/2 components done"
-    console.step("Verify done · AuthZ · 12 results, 3 findings")
+    console.step("Verify done · AuthZ 3 findings (≈ USD 1.10)")
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
     assert [(event, detail) for _, event, _, _, _, detail in rows] == [
@@ -3311,13 +3313,13 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
         ("·", "component 2/2 · Web"),
         ("✓", "Survey: 1/2 components done · API · 1m00s"),
         ("✓", "Survey: 2/2 components done · Web · 1m00s"),
-        ("·", "Survey done · 1m05s · 2 components"),
+        ("·", "Survey done · 1m05s · 2 components · 3 findings · ≈ USD 0.80"),
         ("·", "Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left"),
         ("·", "Verify component 1 started · API"),
         ("·", "Verify component 2 started · Web"),
         ("⚠", "Verify: 1/2 components done · AuthZ · API · 1 of 2 parts without result (budget) · 1m00s"),
         ("✓", "Verify: 2/2 components done · AuthZ · Web · 40s"),
-        ("·", "Verify done · 1m10s · AuthZ · 12 results, 3 findings"),
+        ("·", "Verify done · 1m10s · AuthZ 3 findings (≈ USD 1.10)"),
         ("done", "2m15s · Survey 1m05s · Verify 1m10s · 2 components"),
     ]
     shares = [int(row[2].strip("~%")) for row in rows]
@@ -3400,6 +3402,31 @@ def test_without_verification_the_threat_analysis_has_no_steps():
     details = [row[-1] for row in _rows(lines)]
     assert details[-1] == "1m00s · 1 component"
     assert not any(detail.startswith(("Survey start", "Survey done", "Verify")) for detail in details)
+
+
+def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.plan_components(1)
+    console.step("Surveying component: API (1/1)")
+    clock.tick(60)
+    console.step("Analyzed component: API")
+    console.step("Merge · 8 survey and 4 scanner findings merged into 9")
+    console.step("Building the assessment model")
+    console.step("AuthZ · 1 only by Verify · 0 only by the survey")
+    result = "7 of 9 findings in the report · 2 below the severity floor"
+    console.step(f"{controller._AssessmentConsole.RESULT}Consolidation: {result}")
+    console.close()
+    rows = [(phase, event, detail) for phase, event, _, _, _, detail in _rows(lines)]
+    # The threat analysis ends before the merge, which opens the consolidation even without a merge review.
+    assert [row[1:] for row in rows if row[0].endswith("Threat analysis")][-1] == ("done", "1m00s · 1 component")
+    consolidation = [row[1:] for row in rows if row[0].endswith("Consolidation")]
+    assert consolidation[:3] == [
+        ("start", ""),
+        ("·", "Merge · 8 survey and 4 scanner findings merged into 9"),
+        ("·", "AuthZ · 1 only by Verify · 0 only by the survey"),
+    ]
+    assert consolidation[-1][0] == "done" and consolidation[-1][1].endswith(f" · {result}")
 
 
 def test_a_terminal_shows_running_verification_jobs_on_the_status_line_only():

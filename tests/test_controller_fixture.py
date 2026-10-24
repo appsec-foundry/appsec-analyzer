@@ -624,10 +624,20 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert len(set(host.systems)) == 1 and len({blocks[:2] for blocks in host.blocks}) == 1
     assert all(len(blocks) == 4 for blocks in host.blocks) and host.blocks[0][1].endswith('"aspect": "AuthZ"')
     assert all(said.index(f"Verifying {job}") > said.index(f"Finished verifying {jobs[0]}") for job in jobs[1:])
-    summary = (
-        f"Verify done · AuthZ · {len(_component_rows(model))} results, {len(model['test_case_findings'])} findings"
-    )
-    assert said.index(summary) > max(said.index(f"Finished verifying {job}") for job in jobs)
+    # The survey says what it found before verification starts.
+    (survey,) = [text for text in said if text.startswith("Survey done · ")]
+    assert said.index(survey) < said.index(start) and " findings" in survey and " · ≈ USD " in survey
+    # Verification says what each aspect found and cost when it ends.
+    (done,) = [text for text in said if text.startswith("Verify done · ")]
+    found = len(model["test_case_findings"])
+    assert done.startswith(f"Verify done · AuthZ {found} finding{'' if found == 1 else 's'} (≈ USD ")
+    assert said.index(done) > max(said.index(f"Finished verifying {job}") for job in jobs)
+    # The merge says what it combined; the model build how the methods relate per aspect and what it kept.
+    (merge,) = [text for text in said if text.startswith("Merge · ")]
+    (methods,) = [text for text in said if text.startswith("AuthZ · ") and " only by Verify · " in text]
+    (kept,) = [text for text in said if text.startswith("Phase result: Consolidation: ")]
+    assert said.index(done) < said.index(merge) < said.index("Building the assessment model") < said.index(methods)
+    assert said.index(methods) < said.index(kept) and " findings in the report" in kept
 
     # Each pre-check candidate is answered in exactly one job; together the jobs answer all of them.
     answered = [cid for _, share in calls.values() for ids in share.values() for cid in ids]

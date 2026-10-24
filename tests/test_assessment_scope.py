@@ -290,3 +290,9 @@ def test_a_run_that_disables_nothing_is_not_refused(tmp_path, test_cases):
     scope = _scope(tmp_path)
     with _session(scope, tmp_path, test_cases, ["TC-CI-01"]) as (cfg, _state, _jobs):
         assert bool(cfg["test_cases"]) is bool(test_cases)
+
+
+def test_the_methods_row_puts_the_verified_aspects_under_verify():
+    assert controller._methods_label(None) == "Survey"
+    assert controller._methods_label({"aspects": ["AuthZ", "DataProt"]}) == "Survey · Verify (AuthZ, DataProt)"
+    assert controller._methods_label({"aspects": []}) == "Survey · Verify (scanner rules only)"

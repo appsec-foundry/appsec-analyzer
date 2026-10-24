@@ -3352,6 +3352,75 @@ def single_repository_groups(groups: list[dict], components: list[dict]) -> list
     return [group for group in groups if len(repositories(group)) == 1 and None not in repositories(group)]
 
 
+def merge_late_findings(
+    threats: list[dict], late_ids, components: list[dict], review_groups=None
+) -> tuple[list[dict], dict[str, str]]:
+    """Fold findings added after the merge, such as promoted abuse-case steps, into the findings already there.
+
+    The merge's candidate passes, deterministic decisions and merger review run again over the live findings
+    of each evidence verdict, but only for groups that pair a late finding with findings that were there. A
+    decision may only move late findings into exactly one finding that was there, which survives whatever
+    target the merger named: its ID, which weaknesses, verification links and abuse-case bindings cite, stays,
+    and it takes the riskier member's rating, as a merge survivor does. Decisions among findings that were
+    there are ignored; the merge already made them. Returns the threats without the folded late findings, and
+    each folded late T-ID with the T-ID that absorbed it.
+    """
+    late = set(late_ids) & {threat.get("t_id") for threat in threats}
+    folded: dict[str, str] = {}
+    if not late:
+        return threats, folded
+    by_verdict: dict[str, list[dict]] = {}
+    for threat in threats:
+        if not is_refuted(threat):
+            if threat.get("t_id") in late:
+                # The merge backfills a category before grouping; a promoted finding has none of its own.
+                backfill_threat_category_id(threat)
+            by_verdict.setdefault(threat.get("evidence_check"), []).append(threat)
+    for verdict, rows in sorted(by_verdict.items(), key=lambda item: str(item[0])):
+        index_groups = [
+            (meta, members)
+            for meta, members in _candidate_index_groups(rows)
+            if any(rows[i].get("t_id") in late for i in members)
+            and any(rows[i].get("t_id") not in late for i in members)
+        ]
+        groups = [
+            {**meta, "member_count": len(members), "members": [_candidate_member(rows[i]) for i in members]}
+            for meta, members in index_groups
+        ]
+        pending, decisions = _split_auto_decisions(groups)
+        pending = single_repository_groups(pending, components)
+        if pending and review_groups is not None:
+            decisions += review_groups(verdict, pending)
+        members_of = {meta["group_id"]: members for meta, members in index_groups}
+        for decision in decisions:
+            members = members_of.get(decision.get("group_id")) if isinstance(decision, dict) else None
+            if members is None or decision.get("action") != "merge":
+                continue
+            positions = _decision_positions(decision, members)
+            if positions is None:
+                continue
+            selected = [rows[members[pos]] for pos in positions]
+            kept = [row for row in selected if row.get("t_id") not in late]
+            joining = [row for row in selected if row.get("t_id") in late and row.get("t_id") not in folded]
+            if (
+                len(kept) != 1
+                or not joining
+                or not _same_primary_threat_category([*kept, *joining])
+                or not _can_merge_boundary_refs([*kept, *joining])
+            ):
+                continue
+            survivor = kept[0]
+            riskiest = min([survivor, *joining], key=lambda row: _risk_rank(row.get("risk")))
+            _merge_member_metadata(survivor, [survivor, *joining], systemic=False)
+            if riskiest is not survivor:
+                for field in ("risk", "likelihood", "impact"):
+                    if riskiest.get(field):
+                        survivor[field] = riskiest[field]
+            for row in joining:
+                folded[row["t_id"]] = survivor["t_id"]
+    return [threat for threat in threats if threat.get("t_id") not in folded], folded
+
+
 def merge_assessment(
     scope,
     components: dict,

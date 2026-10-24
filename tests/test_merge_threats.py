@@ -3751,6 +3751,51 @@ def test_review_groups_never_span_repositories(mt):
     assert mt.single_repository_groups([local, spanning, unknown], components) == [local]
 
 
+def test_a_late_finding_joins_the_finding_of_its_weakness_that_was_already_there(mt):
+    components = [{"id": "web", "repository_ids": ["repo-a"]}, {"id": "api", "repository_ids": ["repo-a"]}]
+    token = {"cwe": "CWE-922", "stride": "Information Disclosure", "evidence_check": "verified", "component_id": "web"}
+    rated = {"risk": "Medium", "likelihood": "Medium", "impact": "Medium"}
+    there = _threat(t_id="T-005", threat_category_id="TH-04", evidence={"file": "src/login.ts", "line": 101}, **rated)
+    there.update(token)
+    # A promoted abuse-case step carries no threat category of its own.
+    late = _threat(t_id="T-104", threat_category_id=None, evidence={"file": "src/basket.ts", "line": 64}, **token)
+    idor = {"cwe": "CWE-639", "stride": "Tampering", "evidence_check": "verified", "component_id": "api"}
+    apart = [_threat(t_id=f"T-00{n}", evidence={"file": "api.ts", "line": n}, **idor) for n in (1, 2)]
+    late_idor = _threat(t_id="T-106", evidence={"file": "api.ts", "line": 30}, **idor)
+    seen = []
+
+    def review(verdict, groups):
+        seen.append((verdict, sorted(len(group["members"]) for group in groups)))
+        # The merger names the late, riskier finding as the target, and would also join the earlier pair.
+        return [
+            {
+                "group_id": group["group_id"],
+                "action": "merge",
+                "member_indices": list(range(len(group["members"]))),
+                "merge_target_index": len(group["members"]) - 1,
+            }
+            for group in groups
+        ]
+
+    remaining, folded = mt.merge_late_findings([there, *apart, late, late_idor], {"T-104", "T-106"}, components, review)
+    assert seen == [("verified", [2, 3])]
+    # The finding that was there absorbs the late one, keeps its ID and takes the riskier rating.
+    assert folded == {"T-104": "T-005"}
+    assert [row["t_id"] for row in remaining] == ["T-005", "T-001", "T-002", "T-106"]
+    assert (there["risk"], there["likelihood"], there["impact"]) == ("High", "High", "High")
+    assert there["instance_count"] == 2 and there["affected_files"] == ["src/basket.ts", "src/login.ts"]
+    # A decision that also joins findings the merge kept apart moves nothing.
+    assert all("instances" not in row for row in apart)
+
+    # Without a merger review nothing folds, and without a late finding nothing is reviewed.
+    others = [_threat(t_id="T-005", **token), _threat(t_id="T-104", evidence={"file": "src/b.ts", "line": 1}, **token)]
+    assert mt.merge_late_findings(others, {"T-104"}, components) == (others, {})
+    assert mt.merge_late_findings(others, set(), components, review) == (others, {})
+    # The same title at the same line is the same finding without any review, as in the merge.
+    same = [_threat(t_id="T-005", **token), _threat(t_id="T-104", **token)]
+    assert mt.merge_late_findings(same, {"T-104"}, components)[1] == {"T-104": "T-005"}
+
+
 def test_attribution_runs_again_once_actors_are_resolved(mt, tmp_path, monkeypatch):
     merged = {"version": 2, "threats": [_threat(t_id="T-001", component_id="edge")]}
     path = tmp_path / ".threats-merged.json"
