@@ -38,7 +38,7 @@ The product owner ran it on 2026-10-24 at 288794a7. After its last model call th
 - Of 294 candidates, 226 got the same answer as in the fourth run; between the third and the fourth run it was 237 of 293. On the Express server weakness answers rose from 33 to 39, controls from 85 to 96, and undecidable answers fell from 20 to 6, mostly generated routes whose data model is now preloaded.
 - Verification found 18 findings the survey did not (fourth run 17, third 16). One authorization finding of runs 2 to 4 is missing: order tracking without an owner check (`routes/trackOrder.ts:18`), rejected as outside the objective; the survey did not report it either. Security answers with a caller-chosen UserId (`server.ts:501`) are there as TCF-024; an earlier version of this list named them as missing. Rejections as outside the objective fell from 46 to 38.
 - The survey reported 106 findings against 113; 77 percent of the fourth run's were found again, against 80 percent between the third and the fourth run. Critical and High stayed at 3 and 23 against 3 and 22.
-- Checked offline against the code: the 11 additional control answers on the Express server are 18 new and 7 lost ones. 10 of the new ones were rejections with the same reasoning in the fourth run, mostly routes behind `denyAll`, so control counts are not comparable between runs; 8 became decidable because the guard bodies are now preloaded. 17 of the 18 are correct.
+- Checked offline against the code: the 11 additional control answers on the Express server are 18 new and 7 lost ones. 10 of the new ones were rejections with the same reasoning in the fourth run, mostly routes behind `denyAll`, so control counts are not comparable between runs; 8 became decidable because the guard bodies are now preloaded. 17 of the 18 are correct. The answers one by one are in [the control answers check](verification-control-answers-check-2026-10-24.md).
 - One new control is wrong: `POST /rest/user/data-export` under TC-AUTHZ-01. The guard binds the memories query (`routes/dataExport.ts:26`), but the same handler looks up orders by a vowel-masked e-mail that several accounts share (`routes/dataExport.ts:33`). That line was in the served source, so it is a judgement error. Of the lost controls, three wallet sites in `routes/order.ts` were correct in the fourth run and are undecidable now: a scanner hit inside a handler got no guards of the route that reaches it, and job 1 did not read the prefix guard at `server.ts:356` this time.
 
 ## 2. The component context dominates each call
@@ -183,7 +183,7 @@ Another session recommended splitting verification by size instead of by aspect:
 
 ## 8. Survey findings that verification missed
 
-The product owner asked whether verification should build on the survey's findings to raise quality. Feeding survey findings to verification was not built: the model tends to confirm what it is shown, and "found by both" would no longer be independent evidence (REQ-040 reports it per finding). Instead, an offline analysis on 2026-10-24 asked why verification missed survey findings, to fix the causes in verification itself.
+The product owner asked whether verification should build on the survey's findings to raise quality. Feeding survey findings to verification was not built: the model tends to confirm what it is shown, and "found by both" would no longer be independent evidence (REQ-040 reports it per finding). Instead, an offline analysis on 2026-10-24 asked why verification missed survey findings, to fix the causes in verification itself; each miss is listed in [the gap analysis](verification-gaps-pilot-runs-3-4-2026-10-24.md).
 
 In the measuring run verification found all 4 survey findings with an authorization CWE itself, and no survey finding is contradicted by a verified control in any run. In pilot runs 3 and 4, which also verified InputVal, DataProt and AI, 27 survey findings of a verified aspect had no verification finding on the same line with the same CWE family:
 
@@ -217,6 +217,17 @@ Juice Shop at standard depth with AuthZ and DataProt verified, started from a co
 | All jobs | 12.96 | 12.87 |
 
 The survey's cache reads rose from 66,000 to 1.0 million tokens and its writes fell from 1.46 to 1.03 million, so the shared survey instructions save about USD 0.85; the offline rebuild predicted fewer reads because it counted one call per job, while correction calls read the cache too. The savings pay for most of DataProt. The closing line's USD 12.87 and 128 calls include USD 1.83 and 24 calls for the 17 reused jobs; the real calls cost USD 11.03.
+
+| Juice Shop at standard depth, USD | Pilot 2 (AuthZ) | Pilot 3 (AuthZ, DataProt, InputVal) | First measuring run (AuthZ) | Second measuring run (AuthZ, DataProt) |
+| --- | --- | --- | --- | --- |
+| Survey jobs | 7.49 | 7.14 | 5.26 | 4.41 |
+| Verification | 3.05 | 6.45 | 2.57 | 3.36 |
+| Evidence review | 2.27 | 2.67 | 2.01 | 2.07 |
+| Other jobs | 3.55 | 3.71 | 3.12 | 3.03 |
+| Accepted jobs | 16.36 | 19.97 | 12.96 | 12.87 |
+| Closing line | 20.56 | 22.23 | 12.96 | 12.87 |
+
+Most of the drop since the pilot runs came before the second run. The own cache markers of point 3 cut the survey by about USD 2 for every role that uses them, the smaller verification context and fewer corrections cut verification, and the jobs that failed or were repeated in the pilot runs, about USD 4 above the accepted jobs in pilot 2, no longer occur since 612811f1. The shared survey instructions add the USD 0.85 above.
 
 What the fixes of point 8 did:
 
