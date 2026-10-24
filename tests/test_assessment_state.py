@@ -149,6 +149,23 @@ def test_interrupted_session_releases_lock_and_resumes_same_identity(scope):
         assert resumed.budget.deadline <= initial.budget.deadline + 1
 
 
+def test_resume_keeps_what_reused_jobs_charged_and_an_older_state_starts_at_zero(scope):
+    initial = lifecycle(scope)
+    with initial.hold():
+        initial.budget.calls, initial.budget.spent_usd = 2, 0.03
+        initial.budget.reused_calls, initial.budget.reused_usd = 1, 0.01
+        initial.checkpoint()
+    with lifecycle(scope, resume=True).hold() as resumed:
+        assert (resumed.budget.reused_calls, resumed.budget.reused_usd) == (1, 0.01)
+    # A state written before these fields existed still resumes; it names no reused cost.
+    state = stored(scope)
+    del state["accounting"]["reused_calls"], state["accounting"]["reused_usd"]
+    (scope.output / ".assessment-state.json").write_text(json.dumps(state))
+    with lifecycle(scope, resume=True).hold() as resumed:
+        assert (resumed.budget.reused_calls, resumed.budget.reused_usd) == (0, 0.0)
+        assert resumed.budget.calls == 2
+
+
 def test_budget_holds_are_never_persisted_and_start_empty_on_resume(scope):
     initial = lifecycle(scope)
     with initial.hold():
@@ -156,7 +173,7 @@ def test_budget_holds_are_never_persisted_and_start_empty_on_resume(scope):
         initial.budget.calls, initial.budget.spent_usd = 1, 0.01
         initial.checkpoint()
         assert "hold" not in json.dumps(stored(scope))
-        assert stored(scope)["accounting"].keys() == {"calls", "spent_usd", "unavailable"}
+        assert stored(scope)["accounting"].keys() == {"calls", "spent_usd", "unavailable", "reused_calls", "reused_usd"}
     # The controller recomputes holds for a resumed run.
     resumed = lifecycle(scope, resume=True)
     with resumed.hold():
@@ -568,7 +585,13 @@ def test_cost_reservation_is_durable_before_dispatch_and_unknown_cost_blocks_res
 
     class BrokenHost:
         def invoke(self, *args):
-            assert stored(scope)["accounting"] == {"calls": 1, "spent_usd": 0.05, "unavailable": True}
+            assert stored(scope)["accounting"] == {
+                "calls": 1,
+                "spent_usd": 0.05,
+                "unavailable": True,
+                "reused_calls": 0,
+                "reused_usd": 0.0,
+            }
             raise RuntimeError("backend failed")
 
     with pytest.raises(RuntimeError, match="backend failed"):
@@ -623,7 +646,13 @@ def test_a_refused_call_with_a_reported_cost_leaves_the_run_resumable(scope):
                 validate=lambda a, r: None,
             )
     assert stored(scope)["status"] == "failed"
-    assert stored(scope)["accounting"] == {"calls": 1, "spent_usd": 0.0, "unavailable": False}
+    assert stored(scope)["accounting"] == {
+        "calls": 1,
+        "spent_usd": 0.0,
+        "unavailable": False,
+        "reused_calls": 0,
+        "reused_usd": 0.0,
+    }
     with lifecycle(scope, resume=True).hold() as resumed:
         assert resumed.budget.calls == 1 and resumed.budget.spent_usd == 0.0
 

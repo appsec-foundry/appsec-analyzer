@@ -4315,6 +4315,9 @@ def assess_repositories(
         **({"runtime_files": str(workspace)} if workspace.is_dir() and ns.verbose else {}),
         "spent_usd": None if budget.subscription else round(budget.spent_usd, 2),
         "calls": budget.calls,
+        # Jobs reused from an earlier run count toward this run's limits at their original cost.
+        "reused_calls": budget.reused_calls,
+        "reused_usd": None if budget.subscription else round(budget.reused_usd, 2),
         "subscription_label": budget.subscription_label if budget.subscription else None,
         **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
         # A resumed run's closing line adds the working time of its earlier attempts.
@@ -4687,11 +4690,15 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
 
     kind = "Combined security assessment" if len(outcome["repositories"]) > 1 else "Security assessment"
     head = f"✓ {kind} of {', '.join(outcome['repositories'])} written in {elapsed}"
-    cost = (
-        f"({outcome['calls']} model calls, {outcome.get('subscription_label') or 'subscription'}; USD cost unavailable)"
-        if outcome["spent_usd"] is None
-        else f"({outcome['calls']} model calls, ≈ USD {outcome['spent_usd']:.2f})"
-    )
+    reused = outcome.get("reused_calls") or 0
+    if outcome["spent_usd"] is None:
+        cost = f"({outcome['calls']} model calls" + (f", {reused} of them reused from an earlier run" if reused else "")
+        cost += f", {outcome.get('subscription_label') or 'subscription'}; USD cost unavailable)"
+    else:
+        cost = f"({outcome['calls']} model calls, ≈ USD {outcome['spent_usd']:.2f}"
+        if reused:
+            cost += f", of which USD {outcome.get('reused_usd') or 0:.2f} for {reused} calls reused from an earlier run"
+        cost += ")"
     if _AssessmentConsole.max_columns and len(head) + 1 + len(cost) > _AssessmentConsole.columns() - 1:
         print(out(head, "ok", "bold") + "\n  " + out(cost, "muted"), file=stream)
     else:

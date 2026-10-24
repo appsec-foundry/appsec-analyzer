@@ -92,6 +92,8 @@ class AssessmentBudget(DiscoveryBudget):
         self.deadline = time.monotonic() + self.timeout_s
         self._clocks = (time.monotonic(), time.time())
         self.failed = False
+        # What jobs reused from an earlier run charged to this one; the closing line names it.
+        self.reused_calls, self.reused_usd = 0, 0.0
         self.init_retries()
         self.required = {}
         self.observed = {}
@@ -621,8 +623,10 @@ class AssessmentJobs:
                         if self.budget.subscription and self.budget.calls + receipt["calls"] > self.budget.max_calls:
                             raise BudgetExhausted("Cached job calls exceed the selected subscription call limit")
                         self.budget.calls += receipt["calls"]
+                        self.budget.reused_calls += receipt["calls"]
                         if not self.budget.subscription:
                             self.budget.spent_usd += receipt["usd"]
+                            self.budget.reused_usd += receipt["usd"]
                     self.checkpoint()
                     os.replace(found_artifact, artifact_path)
                     os.replace(found_path, receipt_path)

@@ -276,6 +276,9 @@ class AssessmentState:
             self._check_receipts(accounting)
             self.budget.calls = accounting["calls"]
             self.budget.spent_usd = accounting["spent_usd"]
+            # Older states did not record what reused jobs charged.
+            self.budget.reused_calls = accounting.get("reused_calls", 0)
+            self.budget.reused_usd = accounting.get("reused_usd") or 0.0
             self.budget.deadline = time.monotonic() + self.state["expires_at"] - time.time()
             for name, expected in self.state["deliverables"].items():
                 if _deliverable(self.output, name) != expected:
@@ -668,6 +671,8 @@ class AssessmentState:
             "calls": self.budget.calls,
             "spent_usd": self.budget.spent_usd,
             "unavailable": self.budget.failed,
+            "reused_calls": self.budget.reused_calls,
+            "reused_usd": None if self.budget.subscription else self.budget.reused_usd,
         }
         self.state["worked_seconds"] = self.worked_before + int(time.monotonic() - self._attempt_started)
         Draft202012Validator(json.loads(SCHEMA.read_text())).validate(self.state)

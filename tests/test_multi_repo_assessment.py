@@ -2239,6 +2239,15 @@ def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path,
         "              Inspect source citations and coverage before accepting or fixing findings",
         f"  Review      appsec-analyzer review {tmp_path}",
     ]
+    # Jobs reused from an earlier run count at their original cost, and the line says how much of it that is.
+    monkeypatch.setattr(
+        controller,
+        "assess_repositories",
+        lambda argv: {**outcome, "deliverables": delivered, "reused_calls": 2, "reused_usd": 0.4},
+    )
+    assert controller.assess_main(["--repo", "edge"]) == 0
+    head = capsys.readouterr().out.splitlines()[0]
+    assert head.endswith("(3 model calls, ≈ USD 1.00, of which USD 0.40 for 2 calls reused from an earlier run)")
 
 
 def _closing_lines(tmp_path, monkeypatch, capsys, yaml_text, deliverables):

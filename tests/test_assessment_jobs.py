@@ -292,6 +292,9 @@ def test_a_fresh_run_reuses_an_earlier_run_s_accepted_job_and_counts_its_cost(tm
     assert fresh.execute(**request) == {"result": "accepted"}
     assert fresh_host.calls == 0
     assert (fresh.budget.calls, fresh.budget.spent_usd) == (1, pytest.approx(0.01))
+    # The closing line names what reused jobs charged; a job of this run's own is not counted again.
+    assert (fresh.budget.reused_calls, fresh.budget.reused_usd) == (1, pytest.approx(0.01))
+    assert jobs.budget.reused_calls == 0
     # The adopted, charged job joins this run's receipts and leaves the cache.
     assert len(list(fresh.directory.glob("*.receipt.json"))) == 1
     assert not list(fresh.cache.iterdir())

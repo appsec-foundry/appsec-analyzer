@@ -54,7 +54,9 @@
       "properties": {
         "calls": {"type": "integer", "minimum": 0, "maximum": 47256},
         "spent_usd": {"type": ["number", "null"], "minimum": 0},
-        "unavailable": {"type": "boolean"}
+        "unavailable": {"type": "boolean"},
+        "reused_calls": {"type": "integer", "minimum": 0, "maximum": 47256},
+        "reused_usd": {"type": ["number", "null"], "minimum": 0}
       }
     },
     "partial_report": {
