@@ -433,20 +433,23 @@ def survey_line(documents, reviews, usd) -> str:
 
 
 def method_lines(threats, findings, aspects, catalog) -> list[str]:
-    """For each verified aspect, how many findings only one method found (REQ-040).
+    """For each verified aspect, how many findings both methods and only one method found (REQ-040).
 
     Reads the model after ``case_outcomes.combine_methods`` linked them, so the counts are the report's: a
     verification finding names the survey findings at its location, a survey finding the verification findings,
-    and a survey finding at a verified control is contradicted. A survey finding counts for an aspect when its
-    CWE is one of the aspect's verification items, so one finding can count for several aspects.
+    and a survey finding at a verified control is contradicted. "Found by both" counts the verification findings
+    that name a survey finding. A survey finding counts for an aspect when its CWE is one of the aspect's
+    verification items, so one finding can count for several aspects.
     """
     lines = []
     for aspect in aspects:
         cwes = aspect_cwes(catalog, aspect)
         survey = [row for row in threats if row.get("source") == "stride" and row.get("cwe") in cwes]
+        verified = [row for row in findings if row.get("aspect") == aspect]
+        both = sum(1 for row in verified if row.get("survey_finding_ids"))
         parts = [
-            f"{sum(1 for row in findings if row.get('aspect') == aspect and not row.get('survey_finding_ids'))}"
-            " only by Verify",
+            f"{both} found by both",
+            f"{len(verified) - both} only by Verify",
             f"{sum(1 for row in survey if not row.get('verification'))} only by the survey",
         ]
         if contradicted := sum(1 for row in survey if row.get("verification_contradicted")):

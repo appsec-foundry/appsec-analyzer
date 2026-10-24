@@ -691,8 +691,8 @@ def test_the_consolidation_counts_each_aspect_as_the_report_links_the_methods(ca
     results = [{"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 30}]}]
     tcr.combine_methods(threats, findings, results, catalog)
     assert assessment_test_cases.method_lines(threats, findings, ["AuthZ", "DataProt"], catalog) == [
-        "AuthZ · 1 only by Verify · 2 only by the survey · 1 contradicted",
-        "DataProt · 0 only by Verify · 0 only by the survey",
+        "AuthZ · 1 found by both · 1 only by Verify · 2 only by the survey · 1 contradicted",
+        "DataProt · 0 found by both · 0 only by Verify · 0 only by the survey",
     ]
 
 

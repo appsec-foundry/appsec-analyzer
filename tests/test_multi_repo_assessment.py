@@ -554,6 +554,16 @@ def test_default_console_writes_every_line_in_one_column_grid():
         ("3/8 Trust boundaries", "start", "~12%", "1m", "~16m", "3 crossings"),
         ("3/8 Trust boundaries", "done", "~34%", "2m", "~12m", "1m00s · 3 crossings"),
         ("5/8 Threat analysis", "start", "~36%", "2m", "~11m", "2 components"),
+        # The survey first says how it examines the code.
+        (
+            "5/8 Threat analysis",
+            "·",
+            "~36%",
+            "2m",
+            "~11m",
+            "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits · "
+            "2 components",
+        ),
         # Every STRIDE component gets its own line, so a model status within
         # the heartbeat interval adds none.
         ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "component 1/2 · API"),
@@ -2199,6 +2209,7 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     # in completion order; a terminal shows the running ones as bars instead of start lines.
     started = ["component 1/2 · Gateway", "component 2/2 · Ledger ?[2J?"]
     assert listed == [
+        controller._AssessmentConsole.SURVEY_METHOD + " · 2 components",
         *([] if live else started),
         "abuse case 1/2 · AC-901 — Replay a signed callback",
         "abuse case 2/2 · AC-902",
@@ -3378,15 +3389,24 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.step("Verify done · AuthZ 3 findings (≈ USD 1.10)")
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
+    # The plan only weighs the phase; each approach opens with how it examines the code.
     assert [(event, detail) for _, event, _, _, _, detail in rows] == [
         ("start", ""),
-        ("·", "Verify planned · 2 components for AuthZ after the survey"),
-        ("·", "Survey start · 2 components"),
+        (
+            "·",
+            "Approach 1 · Survey: STRIDE-based review of each component's entry points, outbound calls and "
+            "scanner hits · 2 components",
+        ),
         ("·", "component 1/2 · API"),
         ("·", "component 2/2 · Web"),
         ("✓", "Survey: 1/2 components done · API · 1m00s"),
         ("✓", "Survey: 2/2 components done · Web · 1m00s"),
         ("·", "Survey done · 1m05s · 2 components · 3 findings · ≈ USD 0.80"),
+        (
+            "·",
+            "Approach 2 · Verify: checks predefined verification items at every code location they apply to, "
+            "independent of approach 1",
+        ),
         ("·", "Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left"),
         ("·", "Verify component 1 started · API"),
         ("·", "Verify component 2 started · Web"),
@@ -3423,6 +3443,8 @@ def test_a_component_whose_every_job_was_reused_says_so():
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
     console.plan_components(2)
+    console.step("Running deterministic source scanners")
+    console.step("Verify planned · 2 components for AuthZ after the survey · 3 jobs")
     console.step("Surveying component: API (1/2)")
     console.step("Surveying component: Web (2/2)")
     clock.tick(5)
@@ -3534,7 +3556,12 @@ def test_without_verification_the_threat_analysis_has_no_steps():
     console.close()
     details = [row[-1] for row in _rows(lines)]
     assert details[-1] == "1m00s · 1 component"
-    assert not any(detail.startswith(("Survey start", "Survey done", "Verify")) for detail in details)
+    # The survey still says how it examines the code, without a number when it is the only approach.
+    assert (
+        "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits · 1 component"
+        in details
+    )
+    assert not any(detail.startswith(("Approach", "Survey done", "Verify")) for detail in details)
 
 
 def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
@@ -3546,7 +3573,7 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     console.step("Analyzed component: API")
     console.step("Merge · 8 survey and 4 scanner findings merged into 9")
     console.step("Building the assessment model")
-    console.step("AuthZ · 1 only by Verify · 0 only by the survey")
+    console.step("AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey")
     result = "7 of 9 findings in the report · 2 below the severity floor"
     console.step(f"{controller._AssessmentConsole.RESULT}Consolidation: {result}")
     console.close()
@@ -3557,7 +3584,7 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     assert consolidation[:3] == [
         ("start", ""),
         ("·", "Merge · 8 survey and 4 scanner findings merged into 9"),
-        ("·", "AuthZ · 1 only by Verify · 0 only by the survey"),
+        ("·", "AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey"),
     ]
     assert consolidation[-1][0] == "done" and consolidation[-1][1].endswith(f" · {result}")
 

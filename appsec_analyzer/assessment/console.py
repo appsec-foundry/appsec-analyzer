@@ -181,8 +181,9 @@ class _AssessmentConsole:
     and LEFT always describe the whole run. DETAIL describes the phase and
     comes last, so its length never shifts a column; a ``done`` line's
     detail starts with the phase's duration. With verification, the threat
-    analysis has two steps, Survey and Verify; DETAIL starts with the step's
-    name, and each step has its own start and done lines.
+    analysis runs two separate approaches, Survey and Verify, one after the
+    other; each opens with a line saying how it examines the code, DETAIL
+    starts with the step's name, and each step has its own done line.
 
     PROGRESS counts finished work. Once the component count is known
     (``plan_components``), Controls and STRIDE weigh per component. LEFT
@@ -340,7 +341,15 @@ class _AssessmentConsole:
     # three survey jobs (Juice Shop, 2026-10-23: 27 survey jobs took 21 minutes
     # and 19 verification jobs 18), so it adds that share to threat analysis.
     VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 3
+    # Survey and Verify are separate approaches, not steps that build on each other (REQ-040);
+    # each opens with how it examines the code.
+    SURVEY_METHOD = "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits"
+    VERIFY_METHOD = (
+        "Approach 2 · Verify: checks predefined verification items at every code location they apply to, "
+        "independent of approach 1"
+    )
     # The plan comes before the survey, the start after it; both name the components and end with the job count.
+    # Only the start is shown: the plan only weighs the phase.
     _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) components? for .* · (\d+) jobs?$")
     _VERIFY_START = "Verify start · "
     _VERIFY_DONE = "Verify done · "
@@ -689,7 +698,8 @@ class _AssessmentConsole:
                     self.steps["Verify"] = now
                     self._mark_step("Verify")
                     self.current = f"Verify: 0/{components} components done"
-                self.record("·", text, now)
+                    self.record("·", self.VERIFY_METHOD, now)
+                    self.record("·", text, now)
                 self.shown = (self.current, round(100 * self.done))
                 return True
             if text.startswith(self._VERIFY_DONE):
@@ -1143,9 +1153,10 @@ class _AssessmentConsole:
                 if "Survey" not in self.steps:
                     self.steps["Survey"] = now
                     self._mark_step("Survey")
-                    # With verification planned, the survey is the first of two steps (REQ-040).
-                    if self.verify_jobs and position:
-                        self.record("·", f"Survey start · {_count_noun(int(position[2]), 'component')}", now)
+                    # With verification planned, the survey is the first of two approaches (REQ-040).
+                    method = ("Approach 1 · " if self.verify_jobs else "") + self.SURVEY_METHOD
+                    count = f" · {_count_noun(int(position[2]), 'component')}" if position else ""
+                    self.record("·", method + count, now)
                 if position:
                     self.count = (max(int(position[2]), self.count[0] if self.count else 0), "component")
                 self.units[name] = {"done": 0, "total": None, "stage": "STRIDE", "started": now}
