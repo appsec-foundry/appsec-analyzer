@@ -303,6 +303,10 @@ def _ranges(slices) -> list[dict]:
     return [{k: row[k] for k in ("repository_id", "path", "sha256", "start_line", "end_line")} for row in slices]
 
 
+def _job_id(role, selector) -> str:
+    return "job-" + digest({"role": role, "selector": selector})[:24]
+
+
 class AssessmentJobs:
     def __init__(
         self,
@@ -358,6 +362,9 @@ class AssessmentJobs:
         # Wall time and calls per role of the jobs this session ran; a reused
         # job counts as reused, since its time was spent in an earlier run.
         self.timing: dict[str, dict] = {}
+        # Jobs this object reused and ran; a view counts only its own, so the
+        # console can mark a component whose every job was reused.
+        self.reused, self.ran = 0, 0
         # Only accepted in-memory results enter a budget interruption report.
         # Shared by component views; no receipt is trusted merely by reading it.
         self.accepted_results: dict[str, dict] = {}
@@ -387,6 +394,7 @@ class AssessmentJobs:
         """
         child = copy.copy(self)
         child.notes, child.gaps, child.infos = [], [], []
+        child.reused, child.ran = 0, 0
         return child
 
     def join(self, child) -> None:
@@ -399,10 +407,34 @@ class AssessmentJobs:
             row = self.timing.setdefault(role, {"jobs": 0, "reused": 0, "calls": 0, "seconds": 0.0})
             if seconds is None:
                 row["reused"] += 1
+                self.reused += 1
             else:
                 row["jobs"] += 1
                 row["calls"] += calls
                 row["seconds"] += seconds
+                self.ran += 1
+
+    def job_counts(self) -> tuple[int, int]:
+        """Jobs reused and jobs run so far in this session, across all views."""
+        with self._lock:
+            return sum(row["reused"] for row in self.timing.values()), sum(row["jobs"] for row in self.timing.values())
+
+    def has_accepted(self, role, selector) -> bool:
+        """Whether an accepted receipt of this job waits for reuse, in this run or in the cache.
+
+        For estimates only: whether the receipt still matches is decided when the
+        job runs, so a job whose request changed runs again despite it.
+        """
+        name = _job_id(role, selector) + ".receipt.json"
+        for folder in (self.directory, self.cache):
+            if folder is None or not (folder / name).is_file():
+                continue
+            try:
+                receipt = _read_json(folder / name)
+            except ExchangeError:
+                return False
+            return isinstance(receipt, dict) and receipt.get("scope_sha256") == self.scope_sha256
+        return False
 
     def execute(self, **kwargs):
         """Return the accepted artifact of one controller-selected job."""
@@ -528,7 +560,7 @@ class AssessmentJobs:
         request_sha256 = digest(request)
         if trace:
             trace.emit("job_request", request_sha256=request_sha256)
-        job_id = "job-" + digest({"role": role, "selector": selector})[:24]
+        job_id = _job_id(role, selector)
         artifact_path = self.directory / f"{job_id}.json"
         receipt_path = self.directory / f"{job_id}.receipt.json"
         validator = Draft202012Validator(json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))

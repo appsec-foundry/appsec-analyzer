@@ -161,7 +161,8 @@ def run_pilot(
     owned = analysis.source_selection(components)
     verified = planned["verified"]
     if work:
-        progress(_budget_statement(jobs, len(work), planned["worked"], len(verified)))
+        reused = sum(jobs.has_accepted("test_case_investigator", _selector(*item)) for item in work)
+        progress(_budget_statement(jobs, len(work), planned["worked"], len(verified), reused=reused))
     # The console shows one step per component: each job names its component and its part of the component's jobs.
     parts = [[index for index, (entry, _) in enumerate(work) if entry["component"]["id"] == cid] for cid in verified]
 
@@ -201,7 +202,7 @@ def run_pilot(
         identity = {key: context[key] for key in ("source_scope_sha256", "component_inventory_fingerprint")}
         # Files of no component, such as shared helpers, where a finding may anchor once the job read them.
         shared = frozenset(envelope["job_allowed"]) - owned
-        selector = f"test-cases:{component['id']}:{aspect}" + (f":{number}/{count}" if count > 1 else "")
+        selector = _selector(entry, number)
         artifact = view.execute(
             role="test_case_investigator",
             selector=selector,
@@ -245,7 +246,8 @@ def run_pilot(
                 f"verification job {selector} dropped {len(artifact['dropped_findings'])} findings that still broke "
                 "an evidence, trace or rating rule after the last correction; their candidates are undecidable"
             )
-        progress(f"Finished verifying {job}")
+        # The view holds this one job, so the console can mark a component whose every job was reused.
+        progress(f"Finished verifying {job}" + (" · reused" if view.reused and not view.ran else ""))
         return {"reply": artifact}
 
     answered = {}
@@ -363,27 +365,38 @@ def _after_first_jobs(work: list, investigate):
     return run
 
 
-def _budget_statement(jobs, count: int, aspects: list[str], components: int) -> str:
+def _selector(entry, number: int) -> str:
+    count = len(entry["jobs"])
+    return f"test-cases:{entry['component']['id']}:{entry['aspect']}" + (f":{number}/{count}" if count > 1 else "")
+
+
+def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, reused: int = 0) -> str:
     """Whether the remaining budget covers every verification job, said before the first one runs (REQ-040).
 
     Until a verification job is accepted, the reserve of a survey job stands in for one: both carry the
-    component's context. A run that cannot cover them all keeps going; the budget stops the jobs it cannot
-    pay, and their aspects are marked incomplete. The job count closes the line for the console, which
-    weighs the jobs and shows the components."""
+    component's context. The ``reused`` jobs have an accepted result of an earlier attempt and need no new
+    call, so they stay out of the estimate. A run that cannot cover them all keeps going; the budget stops
+    the jobs it cannot pay, and their aspects are marked incomplete. The job count closes the line for the
+    console, which weighs the jobs and shows the components."""
     subject = f"Verify start · {_count_components(components)} for {', '.join(aspects)}"
     budget = jobs.budget
+    if reused >= count:
+        return f"{subject} · reuses accepted results, no model calls expected · {_count_jobs(count)}"
     if budget.subscription:
         return f"{subject} · the run's call and time limits apply · {_count_jobs(count)}"
-    needed = count * budget.job_usd("test_case_investigator", "stride_analyzer")
+    needed = (count - reused) * budget.job_usd("test_case_investigator", "stride_analyzer")
     available = budget.available_usd()
+    beyond = " beyond the reused results" if reused else ""
     if needed <= available:
-        return f"{subject} · about USD {needed:.2f}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
+        return (
+            f"{subject} · about USD {needed:.2f}{beyond}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
+        )
     jobs.notes.append(
-        f"verification needs about USD {needed:.2f} for {count} jobs, but USD {available:.2f} remained; "
+        f"verification needs about USD {needed:.2f} for {count - reused} jobs, but USD {available:.2f} remained; "
         "aspects whose jobs the budget stops are marked incomplete"
     )
     return (
-        f"{subject} · about USD {needed:.2f}, but only USD {available:.2f} of the budget left; "
+        f"{subject} · about USD {needed:.2f}{beyond}, but only USD {available:.2f} of the budget left; "
         f"an aspect that cannot finish is marked incomplete · {_count_jobs(count)}"
     )
 

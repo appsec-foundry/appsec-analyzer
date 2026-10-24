@@ -426,15 +426,60 @@ def test_preflight_checks_form_a_block_above_the_grid(monkeypatch):
     assert sum(line.startswith("TIME") for line in lines) == 1 and lines.count("  Preflight") == 1
 
 
-def test_a_resumed_console_counts_elapsed_on_from_the_earlier_attempts():
+def _column(header, row, name):
+    """The value of a right-aligned grid column, cut at the header's right edge of ``name``."""
+    return row[: header.index(name) + len(name)].rsplit("  ", 1)[-1].strip()
+
+
+def test_a_resumed_console_shows_this_attempt_and_in_parentheses_all_attempts(tmp_path):
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
     console.continue_from(1800)
-    console.step("Discovering every selected repository")
-    clock.tick(120)
-    console.step(console.RESULT + "Reconnaissance: 1 repository")
-    console.step("Reviewing trust crossing: signal-external-ingress-0123abcd (1/3)")
-    assert [row[3] for row in _rows(lines)[:2]] == ["30m", "32m"]
+    feed = tmp_path / "progress.jsonl"
+    controller._AssessmentProgress.open(str(feed))
+    try:
+        console.step("Discovering every selected repository")
+        clock.tick(120)
+        console.step(console.RESULT + "Reconnaissance: 1 repository")
+        console.step("Reviewing trust crossing: signal-external-ingress-0123abcd (1/3)")
+    finally:
+        controller._AssessmentProgress.end(0)
+    header = next(line for line in lines if line.startswith("TIME"))
+    rows = [line for line in lines if re.match(r"\d\d:\d\d:\d\d  ", line)][:2]
+    # The wider column keeps every row aligned under its header.
+    assert [_column(header, row, "ELAPSED") for row in rows] == ["<1m (30m)", "2m (32m)"]
+    records = [json.loads(line) for line in feed.read_text().splitlines() if line]
+    # A follower reads both times as fields of their own.
+    assert [(row["elapsed"], row["elapsed_total"]) for row in records[:2]] == [("<1m", "30m"), ("2m", "32m")]
+
+
+def test_a_first_attempt_shows_elapsed_without_a_total(tmp_path):
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    feed = tmp_path / "progress.jsonl"
+    controller._AssessmentProgress.open(str(feed))
+    try:
+        console.step("Discovering every selected repository")
+    finally:
+        controller._AssessmentProgress.end(0)
+    assert _rows(lines)[0][3] == "<1m"
+    assert "elapsed_total" not in json.loads(feed.read_text().splitlines()[0])
+
+
+def test_a_resumed_run_estimates_left_from_this_attempt_alone():
+    """The share starts again from the first phase, so earlier attempts' time must not inflate LEFT."""
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.continue_from(3 * 3600)
+    console.plan_components(2)
+    console.step("Running deterministic source scanners")
+    console.step("Surveying component: API (1/2)")
+    clock.tick(60)
+    console.step("Analyzed component: API (1/2)")
+    header = next(line for line in lines if line.startswith("TIME"))
+    finished = next(line for line in lines if "Survey: 1/2 components done" in line)
+    assert _column(header, finished, "ELAPSED") == "1m (3h01m)"
+    assert _column(header, finished, "LEFT") == "~1m"
 
 
 def test_components_reporting_together_start_a_phase_once(monkeypatch):
@@ -791,14 +836,6 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     assert rows["Output"] == "/o (--rebuild: replaces any earlier assessment)"
     assert "Phases" not in rows and rows["Pipeline"] == "P"
     reusing = parse(["--repo", "/r", "--output", "/o", "--hard-budget", "20"])
-    rows = dict(
-        controller._assessment_intro(
-            reusing, controller._assessment_budget(reusing), "standard", "Models: m1", "P", reuses_steps=True
-        )
-    )
-    assert rows["Output"] == (
-        "/o (reuses matching steps of the unfinished assessment; their cost counts toward the limit)"
-    )
     # An operator's own scan profile is named, since `assess` also uses `default` without --profile.
     for name, files, shown in (
         ("default", ["/h/profiles/default.yaml"], "default · /h/profiles/default.yaml"),
@@ -3304,6 +3341,52 @@ def test_a_component_verified_for_several_aspects_is_one_step():
     assert [detail for detail in details if detail.startswith("Verify: ")] == [
         "Verify: 1/1 components done · AuthZ, InputVal · API · 20s"
     ]
+
+
+def test_a_component_whose_every_job_was_reused_says_so():
+    """REQ-016: a step taken from an earlier attempt's accepted jobs reads as reused, not as new work."""
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.plan_components(2)
+    console.step("Surveying component: API (1/2)")
+    console.step("Surveying component: Web (2/2)")
+    clock.tick(5)
+    console.step("Analyzed component: API (1/2)" + console.REUSED)
+    console.step("Analyzed component: Web (2/2)")
+    console.step("Verify start · 2 components for AuthZ · reuses accepted results, no model calls expected · 3 jobs")
+    console.step("Verifying component 1/2, part 1/2, AuthZ: API")
+    console.step("Verifying component 1/2, part 2/2, AuthZ: API")
+    console.step("Verifying component 2/2, part 1/1, AuthZ: Web")
+    clock.tick(5)
+    console.step("Finished verifying component 1/2, part 1/2, AuthZ: API · reused")
+    console.step("Finished verifying component 2/2, part 1/1, AuthZ: Web · reused")
+    # One part of API ran again, so API as a whole was not reused.
+    console.step("Finished verifying component 1/2, part 2/2, AuthZ: API")
+    details = [row[-1] for row in _rows(lines)]
+    assert [detail for detail in details if detail.startswith(("Survey: ", "Verify: "))] == [
+        "Survey: 1/2 components done · API · 5s · reused",
+        "Survey: 2/2 components done · Web · 5s",
+        "Verify: 1/2 components done · AuthZ · Web · 5s · reused",
+        "Verify: 2/2 components done · AuthZ · API · 5s",
+    ]
+    assert "Verify start · 2 components for AuthZ · reuses accepted results, no model calls expected" in details
+
+
+def test_a_phase_done_line_says_whether_its_jobs_were_reused():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    reused, ran = [0], [0]
+    console.job_counts = lambda: (reused[0], ran[0])
+    console.step("Discovering every selected repository")
+    reused[0] += 1
+    console.step("Analyzing local architecture: shop (1/1)")
+    reused[0] += 1
+    ran[0] += 1
+    console.step("Measuring the boundary source context")
+    console.step("Assessing controls: API (1/1)")
+    console.close()
+    done = [detail for _, event, _, _, _, detail in _rows(lines) if event == "done"]
+    assert done == ["0s · reused, no model calls", "0s · 1 repository · partly reused", "0s", "0s · 1 component"]
 
 
 def test_without_verification_the_threat_analysis_has_no_steps():

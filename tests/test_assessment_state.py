@@ -400,6 +400,63 @@ def test_resume_after_a_plugin_change_still_stops_on_a_changed_artifact(scope):
     assert len(dispatched) == 2
 
 
+def _utc(epoch):
+    return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(epoch))
+
+
+@pytest.mark.parametrize("runtime_changed", [False, True])
+def test_the_header_names_a_resumed_run_with_its_start_work_spending_and_deadline(scope, runtime_changed):
+    from orchestrator.orchestration_controller import _assessment_continuation
+
+    _interrupted_with_two_jobs(scope)
+    earlier = stored(scope)
+    earlier["worked_seconds"] = 47 * 60
+    (scope.output / ".assessment-state.json").write_text(json.dumps(earlier))
+    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64 if runtime_changed else "a" * 64)
+    with resumed.hold():
+        key, value = _assessment_continuation(resumed, resumed.budget)
+    first, *rest = value.split("\n")
+    assert key == "Resumed"
+    assert first.startswith(f"continues the run started {_utc(earlier['started_at'])} · 47m worked · USD 0.02 spent")
+    assert first.endswith(_utc(earlier["expires_at"])[-9:])
+    assert rest == (["the plugin changed, so only unchanged model steps are reused"] if runtime_changed else [])
+
+
+def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
+    from orchestrator.orchestration_controller import _assessment_continuation
+
+    first, _, _ = _interrupted_with_two_jobs(scope)
+    started = stored(scope)["started_at"]
+    with lifecycle(scope).hold() as fresh:
+        assert fresh.state["run_id"] != first.state["run_id"]
+        assert _assessment_continuation(fresh, fresh.budget) == (
+            "Reuses",
+            # Reused steps are charged to the new run, so the header says so.
+            f"accepted steps of the unfinished run started {_utc(started)} that still match; "
+            "their cost counts toward the limit",
+        )
+    # A run without earlier accepted jobs, and one that rebuilt, reuse nothing.
+    with lifecycle(scope, replace=True).hold() as rebuilt:
+        assert _assessment_continuation(rebuilt, rebuilt.budget) is None
+
+
+def test_job_counts_tell_reused_from_run_jobs_per_view_and_in_total(scope):
+    first, dispatched, factory = _interrupted_with_two_jobs(scope)
+    with lifecycle(scope).hold() as fresh:
+        jobs = _plugin_change_jobs(fresh, factory)
+        # Both earlier jobs wait in the cache; whether a request still matches is decided when it runs.
+        assert jobs.has_accepted("recon_scanner", "kept") and jobs.has_accepted("recon_scanner", "changed")
+        assert not jobs.has_accepted("recon_scanner", "never-run")
+        reused, ran = jobs.view(), jobs.view()
+        reused.execute(**_plugin_change_job("kept", "same prompt"))
+        ran.execute(**_plugin_change_job("changed", "new prompt"))
+        assert len(dispatched) == 3
+        assert (reused.reused, reused.ran, ran.reused, ran.ran) == (1, 0, 0, 1)
+        assert jobs.job_counts() == (1, 1)
+        # Adopted into this run's jobs, the reused receipt still counts as accepted.
+        assert jobs.has_accepted("recon_scanner", "kept")
+
+
 def test_resume_refuses_a_plugin_change_together_with_changed_settings(scope):
     with lifecycle(scope).hold():
         pass
@@ -1082,6 +1139,8 @@ def _restart_choice(scope, answers, budget=None):
     [(["1\n"], "resume"), (["3\n"], "rebuild"), (["\n"], None), ([], None), (["x\n", "9\n", "4\n", "3\n"], None)],
 )
 def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(scope, answers, expected):
+    from orchestrator.orchestration_controller import _RESTART_CHOSEN
+
     with lifecycle(scope).hold():
         pass
     choice, shown = _restart_choice(scope, answers)
@@ -1091,6 +1150,39 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
     assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
     # Reused steps are charged to the new run, so the default says so.
     assert "their cost counts toward the new limit" in shown
+    # The effect of the answer is confirmed; after end of input, which echoes no line end, on a line of its own.
+    assert shown.endswith(("[2]: \n" if not answers else "[2]: ") + _RESTART_CHOSEN[expected] + "\n")
+
+
+def test_the_question_shows_before_input_is_read_and_ignores_keys_typed_earlier(scope, monkeypatch):
+    """The question reaches a terminal at once, and only an answer typed after it counts."""
+    import termios
+    from types import SimpleNamespace
+
+    from orchestrator.orchestration_controller import _assessment_restart_choice
+
+    with lifecycle(scope).hold():
+        pass
+    events = []
+
+    class Terminal:
+        def write(self, text):
+            events.append(("write", text))
+
+        def flush(self):
+            events.append(("flush",))
+
+        def readline(self, limit):
+            events.append(("read",))
+            return "1\n"
+
+    monkeypatch.setattr(sys, "stderr", Terminal())
+    monkeypatch.setattr(sys, "stdin", Terminal())
+    monkeypatch.setattr(termios, "tcflush", lambda stream, queue: events.append(("discard", queue)))
+    choice = _assessment_restart_choice(SimpleNamespace(output=str(scope.output)), AssessmentBudget(1.0, 0.05, 10, 60))
+    assert choice == "resume"
+    asked = next(index for index, event in enumerate(events) if event[0] == "write" and event[1].startswith("Choose"))
+    assert events[asked + 1 : asked + 4] == [("flush",), ("discard", termios.TCIFLUSH), ("read",)]
 
 
 def test_the_question_omits_a_resume_that_cannot_succeed(scope):
