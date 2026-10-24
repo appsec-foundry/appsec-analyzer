@@ -626,19 +626,18 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert all(said.index(f"Verifying {job}") > said.index(f"Finished verifying {jobs[0]}") for job in jobs[1:])
     # The survey says what it found before verification starts.
     (survey,) = [text for text in said if text.startswith("Survey done · ")]
-    assert said.index(survey) < said.index(start) and " · by aspect AuthZ " in survey and " · ≈ USD " in survey
-    # Verification names its cost when it ends, then what each aspect found and cost.
+    assert said.index(survey) < said.index(start) and " findings" in survey and " · ≈ USD " in survey
+    # Verification says what each aspect found and cost when it ends.
     (done,) = [text for text in said if text.startswith("Verify done · ")]
-    assert done.startswith("Verify done · AuthZ · ≈ USD ")
-    assert said.index(done) > max(said.index(f"Finished verifying {job}") for job in jobs)
     found = len(model["test_case_findings"])
-    aspect = said[said.index(done) + 1]
-    assert aspect.startswith(f"AuthZ · {found} finding{'' if found == 1 else 's'}") and " · ≈ USD " in aspect
-    # The merge and the model build say what they kept, and the model build how the methods relate per aspect.
+    assert done.startswith(f"Verify done · AuthZ {found} finding{'' if found == 1 else 's'} (≈ USD ")
+    assert said.index(done) > max(said.index(f"Finished verifying {job}") for job in jobs)
+    # The merge says what it combined; the model build how the methods relate per aspect and what it kept.
     (merge,) = [text for text in said if text.startswith("Merge · ")]
-    (kept,) = [text for text in said if text.startswith("Consolidation · ")]
-    assert said.index(done) < said.index(merge) < said.index("Building the assessment model") < said.index(kept)
-    assert " findings after merge, " in kept and said[said.index(kept) + 1].startswith("AuthZ · Verify ")
+    (methods,) = [text for text in said if text.startswith("AuthZ · ") and " only by Verify · " in text]
+    (kept,) = [text for text in said if text.startswith("Phase result: Consolidation: ")]
+    assert said.index(done) < said.index(merge) < said.index("Building the assessment model") < said.index(methods)
+    assert said.index(methods) < said.index(kept) and " findings in the report" in kept
 
     # Each pre-check candidate is answered in exactly one job; together the jobs answer all of them.
     answered = [cid for _, share in calls.values() for ids in share.values() for cid in ids]

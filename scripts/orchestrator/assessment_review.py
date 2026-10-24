@@ -310,12 +310,14 @@ def _derive(jobs, workspace: Path, *, instructions) -> list[str]:
 
 
 def run_abuse_cases(
-    scope, jobs, names, workspace, root, cfg, *, instructions, run_script, rebuild, progress
+    scope, jobs, names, workspace, root, cfg, *, instructions, run_script, rebuild, progress, merge_review=None
 ) -> list[str]:
     """Stage 1d on the workspace: match, verify per candidate, finalize, render and gate.
 
     ``rebuild()`` is the controller's own model build, so a rebuild with the
     verified chains keeps every field the controller adds to the model.
+    ``merge_review(verdict, groups)`` is the controller's merger review for the
+    findings that promotion adds after the merge.
     """
     if cfg.get("skip_abuse_case_verification"):
         return ["Abuse verification disabled"]
@@ -375,7 +377,9 @@ def run_abuse_cases(
             _verify_candidate(scope, jobs, names, workspace, candidate, instructions=instructions)
     run_script("validators/verify_abuse_cases.py", ["merge", "--output-dir", str(workspace)])
     run_script("model/match_abuse_cases.py", ["finalize", "--output-dir", str(workspace)])
+    before = _threat_ids(workspace)
     run_script("model/promote_verified_abuse_cases.py", ["--output-dir", str(workspace)])
+    merging = _merge_promoted(workspace, before, merge_review)
     receipts += run_architect_review(
         scope,
         jobs,
@@ -390,6 +394,9 @@ def run_abuse_cases(
     if (workspace / ".abuse-case-verdicts.json").is_file():
         rebuild()
         run_script("model/triage_compute_ranking.py", [str(workspace), "--if-deterministic-owner"])
+    if merging:
+        model = yaml.safe_load((workspace / "threat-model.yaml").read_text(encoding="utf-8"))
+        progress(f"{merging} · {len(model.get('threats') or [])} findings in the report")
     persist_abuse_cases(workspace, root, cfg, run_script)
     if candidates:
         progress("Review coverage: " + _abuse_coverage(workspace, candidates))
@@ -400,6 +407,55 @@ def run_abuse_cases(
     if gate.returncode == _ABUSE_GATE_EXIT:
         raise AssessmentReviewError("abuse-case release gate failed: " + (gate.stderr or gate.stdout).strip()[-500:])
     return receipts
+
+
+def _threat_ids(workspace: Path) -> set[str]:
+    merged = read_json(workspace / ".threats-merged.json")
+    return {threat.get("t_id") for threat in merged.get("threats") or [] if threat.get("t_id")}
+
+
+def _merge_promoted(workspace: Path, before: set[str], merge_review) -> str:
+    """Fold the findings promotion added into the merged findings and say what happened (REQ-008).
+
+    Promotion binds a step to a finding at the same location and weakness family; a finding of the same
+    weakness elsewhere needs the merge's own grouping and review, which ran before promotion. A folded
+    finding's abuse-case bindings move to the finding that absorbed it. Returns the console line, or ""
+    when promotion added nothing.
+    """
+    from model.merge_threats import merge_late_findings
+
+    path = workspace / ".threats-merged.json"
+    merged = read_json(path)
+    late = [
+        threat["t_id"] for threat in merged.get("threats") or [] if threat.get("t_id") and threat["t_id"] not in before
+    ]
+    if not late:
+        return ""
+    # Without the component registry no group is known to stay inside one repository, so none goes to review.
+    registry = workspace / ".components.json"
+    components = read_json(registry)["components"] if registry.is_file() else []
+    merged["threats"], folded = merge_late_findings(merged["threats"], late, components, merge_review)
+    if folded:
+        write_json(path, merged)
+        for name in (".abuse-case-matches.json", ".abuse-case-verdicts.json"):
+            if (workspace / name).is_file():
+                write_json(workspace / name, _rebind(read_json(workspace / name), folded))
+    parts = [f"{len(folded)} joined {', '.join(sorted(set(folded.values())))}"] if folded else []
+    if added := len(late) - len(folded):
+        parts.append(f"{added} added as {'a new finding' if added == 1 else 'new findings'}")
+    return "Merge of abuse-case findings · " + " · ".join(parts)
+
+
+def _rebind(value, folded: dict[str, str]):
+    """``value`` with each folded T-ID replaced by its survivor; a list of IDs names each survivor once."""
+    if isinstance(value, dict):
+        return {key: _rebind(item, folded) for key, item in value.items()}
+    if isinstance(value, list):
+        items = [_rebind(item, folded) for item in value]
+        if items != value and all(isinstance(item, str) for item in items):
+            items = list(dict.fromkeys(items))
+        return items
+    return folded.get(value, value) if isinstance(value, str) else value
 
 
 def _abuse_coverage(workspace: Path, candidates: list[str]) -> str:

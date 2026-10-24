@@ -24,7 +24,6 @@ runner, the role instructions and the component pool.
 from __future__ import annotations
 
 import threading
-from collections import Counter
 
 from contexts import case_analysis
 from contexts import multi_repo_analysis as analysis
@@ -40,12 +39,6 @@ MULTI_REPOSITORY_REASON = "the pilot investigates only components of a single re
 NO_CANDIDATE_REASON = "no test case of the aspect has a starting candidate in the component, so no model job ran"
 #: Lines served from where a generated route's data model is defined: the fields its request body can set follow.
 MAX_MODEL_LINES = 120
-#: Outcomes an aspect's progress line counts besides its findings; the completion summary counts all of them.
-_ASPECT_OUTCOMES = (
-    ("control", "control", "controls"),
-    ("partial", "partial", "partial"),
-    ("undecidable", "undecidable", "undecidable"),
-)
 _ADAPTATION = (
     "Answer exactly the test cases that test_case_candidates lists, for the selected component and aspect; the "
     "catalog text below also describes the test cases the component's other jobs answer. The context's "
@@ -160,8 +153,6 @@ def run_pilot(
     """
     catalog, cases, aspects, facts = planned["catalog"], planned["cases"], planned["aspects"], planned["facts"]
     entries, work = planned["entries"], _first_jobs_first(planned["work"])
-    # Only verification jobs run in this step, so what the budget spends meanwhile is their cost.
-    spent = jobs.budget.spent_usd
     if planned["deferred"]:
         jobs.notes.append(
             f"test case aspects {', '.join(planned['deferred'])} are selected but not investigated yet; "
@@ -264,7 +255,7 @@ def run_pilot(
     for (entry, number), answer in zip(work, dispatched, strict=True):
         answered.setdefault(id(entry), []).append((entry["jobs"][number - 1], answer))
     results, findings, candidates = [], [], {}
-    outcomes, usd = {}, {}
+    usd = {}
     for entry in entries:
         component = entry["component"]
         parts = answered.get(id(entry), [])
@@ -304,9 +295,7 @@ def run_pilot(
                     derived[case_id] = case_outcomes.replacement_result(
                         cases[case_id], component["id"], answer["cause"], unexamined=len(entry["precheck"][case_id])
                     )
-        rows = [entry["fixed"].get(case["id"]) or derived[case["id"]] for case in entry["cases"]]
-        results += rows
-        outcomes.setdefault(entry["aspect"], Counter()).update(row["outcome"] for row in rows)
+        results += [entry["fixed"].get(case["id"]) or derived[case["id"]] for case in entry["cases"]]
         usd[entry["aspect"]] = usd.get(entry["aspect"], 0.0) + sum(answer.get("usd") or 0.0 for _, answer in parts)
         if entry["precheck"]:
             rid = component["repository_ids"][0]
@@ -324,22 +313,20 @@ def run_pilot(
             for _, answer in answered.get(id(entry), [])
         )
     ]
-    subscription = jobs.budget.subscription
+    # What each aspect found and cost, so a reader can weigh one against the other; a replaced job's cost is
+    # in the run's total only. The completion summary counts the verification items' outcomes.
     progress(
         "Verify done · "
-        + ", ".join(aspects or ["no aspect"])
-        + ("" if subscription else f" · ≈ USD {jobs.budget.spent_usd - spent:.2f}")
+        + (
+            " · ".join(
+                f"{aspect} {_count(sum(1 for finding in findings if finding['aspect'] == aspect), 'finding')}"
+                + ("" if jobs.budget.subscription else f" (≈ USD {usd.get(aspect, 0.0):.2f})")
+                for aspect in aspects
+            )
+            or "no aspect verified"
+        )
         + (f"; incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
     )
-    # What each aspect found, so a reader can weigh it against its cost; replaced jobs count only in the total.
-    for aspect in aspects:
-        found = sum(1 for finding in findings if finding["aspect"] == aspect)
-        counts = outcomes.get(aspect, Counter())
-        shown = [_count(found, "finding")]
-        shown += [_count(counts[key], *nouns) for key, *nouns in _ASPECT_OUTCOMES if counts[key]]
-        if not subscription:
-            shown.append(f"≈ USD {usd.get(aspect, 0.0):.2f}")
-        progress(f"{aspect} · " + " · ".join(shown))
     return {
         "schema_version": 1,
         "aspects": aspects,
@@ -413,56 +400,43 @@ def _budget_statement(jobs, count: int, aspects: list[str], components: int) -> 
     )
 
 
-def survey_line(documents, reviews, aspects, catalog, usd) -> str:
+def survey_line(documents, reviews, usd) -> str:
     """What the survey found, said when it ends and verification starts (REQ-040).
 
-    It counts the survey's findings before the merge, so a weakness that several components report still counts
-    once per component; the ones the evidence review refuted are named apart. A survey finding counts for an
-    aspect when its CWE is one of the aspect's verification items, so one finding can count for several aspects.
-    ``usd`` is what the survey jobs and their evidence reviews cost, or None without monetary accounting.
+    It counts the survey's findings before the merge, as the merge line does, and names those the evidence
+    review refuted. ``usd`` is what the survey jobs and their evidence reviews cost, or None without monetary
+    accounting.
     """
-    kept, refuted = [], 0
+    found = refuted = 0
     for document, review in zip(documents, reviews, strict=True):
         verdicts = {row["local_id"]: row["verdict"] for row in review["decisions"]}
-        for threat in document["threats"]:
-            if verdicts.get(threat.get("local_id")) == "refuted":
-                refuted += 1
-            else:
-                kept.append(threat)
-    parts = [_count(len(kept), "finding") + (f" and {refuted} refuted by the evidence review" if refuted else "")]
-    if aspects:
-        counts = [(aspect, aspect_cwes(catalog, aspect)) for aspect in aspects]
-        parts.append(
-            "by aspect "
-            + ", ".join(f"{aspect} {sum(1 for row in kept if row.get('cwe') in cwes)}" for aspect, cwes in counts)
-        )
+        found += len(document["threats"])
+        refuted += sum(1 for threat in document["threats"] if verdicts.get(threat.get("local_id")) == "refuted")
+    parts = [_count(found, "finding") + (f", {refuted} refuted by the evidence review" if refuted else "")]
     if usd is not None:
         parts.append(f"≈ USD {usd:.2f}")
     return "Survey done · " + " · ".join(parts)
 
 
 def method_lines(threats, findings, aspects, catalog) -> list[str]:
-    """For each verified aspect, how the report's survey and verification findings relate (REQ-040).
+    """For each verified aspect, how many findings only one method found (REQ-040).
 
     Reads the model after ``case_outcomes.combine_methods`` linked them, so the counts are the report's: a
     verification finding names the survey findings at its location, a survey finding the verification findings,
-    and a survey finding at a verified control is contradicted. Survey findings count for an aspect by CWE, as in
-    ``survey_line``.
+    and a survey finding at a verified control is contradicted. A survey finding counts for an aspect when its
+    CWE is one of the aspect's verification items, so one finding can count for several aspects.
     """
     lines = []
     for aspect in aspects:
         cwes = aspect_cwes(catalog, aspect)
         survey = [row for row in threats if row.get("source") == "stride" and row.get("cwe") in cwes]
-        verified = [row for row in findings if row.get("aspect") == aspect]
         parts = [
-            f"Verify {_count(len(verified), 'finding')}, "
-            f"{sum(1 for row in verified if not row.get('survey_finding_ids'))} not found by the survey",
-            f"Survey {_count(len(survey), 'finding')}, "
-            f"{sum(1 for row in survey if not row.get('verification'))} not found by Verify",
+            f"{sum(1 for row in findings if row.get('aspect') == aspect and not row.get('survey_finding_ids'))}"
+            " only by Verify",
+            f"{sum(1 for row in survey if not row.get('verification'))} only by the survey",
         ]
-        contradicted = sum(1 for row in survey if row.get("verification_contradicted"))
-        if contradicted:
-            parts.append(f"{contradicted} contradicted by a verified control")
+        if contradicted := sum(1 for row in survey if row.get("verification_contradicted")):
+            parts.append(f"{contradicted} contradicted")
         lines.append(f"{aspect} · " + " · ".join(parts))
     return lines
 

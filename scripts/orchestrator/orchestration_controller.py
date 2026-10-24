@@ -2157,18 +2157,13 @@ def _assessment_stride(
         for position in {item[0] for item in deferred}:
             reviews[position - 1]["decisions"] = [row for part in evidence_parts[position] for row in part["decisions"]]
     scope.verify_unchanged()
-    found = sum(len(document["threats"]) for document in documents) + sum(len(rows) for rows in scanned.values())
-    _phase_result(progress, "Threat analysis", _count_noun(found, "finding"))
+    surveyed = sum(len(document["threats"]) for document in documents)
     if envelopes is not None:
         # With verification to follow, the survey is its own step and says what it found (REQ-040).
         if planned["work"]:
             progress(
                 assessment_test_cases.survey_line(
-                    documents,
-                    reviews,
-                    planned["aspects"],
-                    planned["catalog"],
-                    None if jobs.budget.subscription else jobs.budget.spent_usd - spent,
+                    documents, reviews, None if jobs.budget.subscription else jobs.budget.spent_usd - spent
                 )
             )
         pilot.update(
@@ -2196,7 +2191,8 @@ def _assessment_stride(
         started_at=started_at,
         review_groups=lambda verdict, groups: _assessment_merge_review(jobs, verdict, groups, progress=progress),
     )
-    progress(f"Merge · {found} findings of survey and scanners merged into {len(merged['threats'])}")
+    scanner = sum(len(rows) for rows in scanned.values())
+    progress(f"Merge · {surveyed} survey and {scanner} scanner findings merged into {len(merged['threats'])}")
     return documents, reviews, merged
 
 
@@ -2242,8 +2238,12 @@ def _assessment_components_concurrently(jobs, components, analyze):
 MERGE_REVIEW_GROUPS = 32
 
 
-def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress) -> list[dict]:
-    """Run the legacy merger's judgment on the groups no deterministic rule decides."""
+def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress, late: bool = False) -> list[dict]:
+    """Run the legacy merger's judgment on the groups no deterministic rule decides.
+
+    ``late`` marks the review of findings that abuse cases added after the merge: its jobs get their own
+    selectors, and its progress line stays in the abuse-case phase.
+    """
     from model.merge_threats import validate_agent_decision_document
     from runtime.assessment_host import Rejection
 
@@ -2251,7 +2251,8 @@ def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress
     batches = [groups[start : start + MERGE_REVIEW_GROUPS] for start in range(0, len(groups), MERGE_REVIEW_GROUPS)]
     decisions: list[dict] = []
     for number, batch in enumerate(batches, 1):
-        progress(f"Reviewing merge candidates ({verdict}, {number}/{len(batches)})")
+        subject = "abuse-case findings against the merged findings" if late else "merge candidates"
+        progress(f"Reviewing {subject} ({verdict}, {number}/{len(batches)})")
         context = {"evidence_verdict": verdict, "candidate_groups": batch}
 
         def validate(artifact, ranges, context=context):
@@ -2263,7 +2264,7 @@ def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress
 
         artifact = jobs.execute(
             role="threat_merger",
-            selector=f"merge:{verdict}:{number}/{len(batches)}",
+            selector=f"{'late-merge' if late else 'merge'}:{verdict}:{number}/{len(batches)}",
             instructions=_assessment_role_instructions(
                 "threat_merger",
                 "Return one decision per supplied candidate group. Every member shares one evidence verdict. "
@@ -2934,7 +2935,7 @@ def _methods_label(test_cases) -> str:
     if not test_cases:
         return "Survey"
     aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
-    return "Survey · Verify " + (", ".join(aspects) if aspects else "scanner rules only")
+    return "Survey · Verify (" + (", ".join(aspects) if aspects else "scanner rules only") + ")"
 
 
 def _assessment_intro(
@@ -3430,7 +3431,7 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
 
 
 def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> None:
-    """Say what the model kept of the merged findings and, per verified aspect, how the methods relate.
+    """Say per verified aspect how the methods relate, and end the phase with what the model kept.
 
     The model leaves out refuted findings and those below the register's severity floor; the merged
     intermediate keeps both, so the difference names them. Abuse verification may add findings later.
@@ -3440,12 +3441,11 @@ def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> 
     merged = json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")).get("threats") or []
     reported = len(model.get("threats") or [])
     refuted = sum(1 for threat in merged if is_refuted(threat))
-    parts = [f"{_count_noun(len(merged), 'finding')} after merge, {reported} in the report"]
+    parts = [f"{reported} of {_count_noun(len(merged), 'finding')} in the report"]
     if refuted:
-        parts.append(f"{refuted} refuted by the evidence review")
+        parts.append(f"{refuted} refuted")
     if (below := len(merged) - refuted - reported) > 0:
         parts.append(f"{below} below the severity floor")
-    progress("Consolidation · " + " · ".join(parts))
     if cfg.get("test_cases"):
         from model.case_outcomes import load_catalog
 
@@ -3458,7 +3458,7 @@ def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> 
             model.get("threats") or [], model.get("test_case_findings") or [], aspects, load_catalog()
         ):
             progress(line)
-    _phase_result(progress, "Consolidation", _count_noun(reported, "finding") + " in the report")
+    _phase_result(progress, "Consolidation", " · ".join(parts))
 
 
 def _assessment_render(
@@ -3618,6 +3618,9 @@ def _assessment_render(
         instructions=_assessment_role_instructions,
         run_script=_run_script,
         rebuild=lambda: build_model("Updating the assessment model with the verified abuse cases"),
+        merge_review=lambda verdict, groups: _assessment_merge_review(
+            jobs, verdict, groups, progress=progress, late=True
+        ),
         progress=progress,
     )
     if json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")).get("threats"):
