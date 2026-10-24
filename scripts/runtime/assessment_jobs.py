@@ -470,6 +470,7 @@ class AssessmentJobs:
         budget_group=None,
         trace=None,
         salvage=None,
+        shared_context_keys=0,
     ):
         """Execute or resume one job, including its accepted retrieval receipt.
 
@@ -481,6 +482,8 @@ class AssessmentJobs:
         ``preload`` slices reach the first packet (see ``run_exchange``) and
         join the request identity, as does ``salvage``, which may keep part
         of a result still rejected after the last correction.
+        ``shared_context_keys`` only places the prompt's cache blocks (see
+        ``run_exchange``); the text stays the same, so it stays out of the identity.
 
         ``on_failure(reason)`` makes the job optional (decision OR-39): when
         the model returns no acceptable result, a call times out after its
@@ -620,6 +623,7 @@ class AssessmentJobs:
                     preload=preload,
                     context_limit_bytes=self.context_limit(instructions, schema),
                     salvage=salvage,
+                    shared_context_keys=shared_context_keys,
                 )
         except BudgetExhausted as exc:
             if on_failure is None or self.budget.unsettled or self.should_stop():

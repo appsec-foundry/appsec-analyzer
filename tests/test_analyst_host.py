@@ -437,3 +437,50 @@ def test_an_unrecorded_failure_is_classified_from_the_result_alone(tmp_path, out
         transport(tmp_path, f"print(json.dumps({outcome!r}))\n").invoke("s", "p", {}, 30, lambda: False)
     assert caught.value.reason == reason and caught.value.usd == usd
     assert "model prose" not in str(caught.value)
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+def test_a_prompt_with_blocks_is_sent_with_own_cache_markers_and_without_the_hosts(tmp_path, recorded):
+    from runtime.assessment_host import Prompt
+
+    events = tmp_path / "events.jsonl" if recorded else None
+    t = host.ClaudeCliTransport(
+        tmp_path / "work",
+        executable=fake_host(tmp_path, f"print(json.dumps({{'type': 'result', **{REPLY!r}}}))\n"),
+        events_path=events,
+        cache_blocks=True,
+    )
+    reply = t.invoke("s", Prompt(["preamble\n", "<<<shared", " own", " rest>>>\n"]), {}, 30, lambda: False)
+    assert reply.payload == {"ok": True}
+    seen = log(tmp_path)
+    argv = seen["argv"]
+    assert argv[argv.index("--input-format") + 1] == "stream-json"
+    assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv
+    assert ("--include-partial-messages" in argv) == recorded
+    assert seen["env"]["DISABLE_PROMPT_CACHING"] == "1"
+    message = json.loads(seen["prompt"])
+    content = message["message"]["content"]
+    assert message["type"] == "user" and [row["text"] for row in content] == [
+        "preamble\n",
+        "<<<shared",
+        " own",
+        " rest>>>\n",
+    ]
+    # Every block but the varying last one ends with a marker; at most three, below the host's limit of four.
+    assert [row.get("cache_control") for row in content] == [{"type": "ephemeral"}] * 3 + [None]
+
+
+@pytest.mark.parametrize("cache_blocks,blocks", [(True, False), (False, True)])
+def test_a_plain_prompt_or_a_transport_without_block_caching_keeps_the_text_input(
+    tmp_path, monkeypatch, cache_blocks, blocks
+):
+    from runtime.assessment_host import Prompt
+
+    monkeypatch.delenv("DISABLE_PROMPT_CACHING", raising=False)
+    t = host.ClaudeCliTransport(
+        tmp_path / "work", executable=fake_host(tmp_path, f"print(json.dumps({REPLY!r}))\n"), cache_blocks=cache_blocks
+    )
+    t.invoke("s", Prompt(["pre\n", "data"]) if blocks else "pre\ndata", {}, 30, lambda: False)
+    seen = log(tmp_path)
+    assert seen["prompt"] == "pre\ndata" and "--input-format" not in seen["argv"]
+    assert "DISABLE_PROMPT_CACHING" not in seen["env"]

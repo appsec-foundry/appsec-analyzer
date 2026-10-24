@@ -1358,8 +1358,11 @@ def test_controller_host_calls_write_the_short_lived_prompt_cache(tmp_path, monk
     for events in (tmp_path / "events", None):
         transport = _assessment_cli_host_factory(tmp_path / "hosts", events)("stride_analyzer", "sonnet", 1.0)
         assert transport.environment()["FORCE_PROMPT_CACHING_5M"] == "1"
-    # Other hosts keep the login's default TTL.
-    assert "FORCE_PROMPT_CACHING_5M" not in ClaudeCliTransport(tmp_path / "work").environment()
+        # Exchange prompts mark their own cache positions.
+        assert transport.cache_blocks
+    # Other hosts keep the login's default TTL and the host's own cache markers.
+    other = ClaudeCliTransport(tmp_path / "work")
+    assert "FORCE_PROMPT_CACHING_5M" not in other.environment() and not other.cache_blocks
 
 
 class _MergerJobs:

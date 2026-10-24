@@ -694,6 +694,47 @@ def test_verification_preloads_a_generated_routes_guard_and_data_model(tmp_path,
     assert all((rid, key[1]) in allowed for key in preload)
 
 
+def test_every_job_of_a_component_and_aspect_names_all_its_test_cases_once():
+    from orchestrator import assessment_test_cases as pilot
+
+    entry = {
+        "jobs": [{"TC-AUTHZ-01": [], "TC-AUTHZ-06": []}, {"TC-AUTHZ-01": [], "TC-AUTHZ-02": []}, {"TC-AUTHZ-02": []}]
+    }
+    assert pilot._entry_cases(entry) == ["TC-AUTHZ-01", "TC-AUTHZ-06", "TC-AUTHZ-02"]
+
+
+def test_a_later_verification_job_starts_only_after_its_entrys_first_job_ended():
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from orchestrator import assessment_test_cases as pilot
+
+    a, b = {"name": "a"}, {"name": "b"}
+    work = pilot._first_jobs_first([(a, 1), (a, 2), (a, 3), (b, 1), (b, 2)])
+    assert work == [(a, 1), (b, 1), (a, 2), (a, 3), (b, 2)]
+    events, lock = [], threading.Lock()
+
+    def investigate(position, item, view):
+        entry, number = item
+        with lock:
+            events.append(("start", entry["name"], number))
+        time.sleep(0.05 if number == 1 else 0)
+        with lock:
+            events.append(("end", entry["name"], number))
+        if entry is b and number == 1:
+            raise RuntimeError("first job failed")
+        return number
+
+    run = pilot._after_first_jobs(work, investigate)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(run, position, item, None) for position, item in enumerate(work, 1)]
+    for name, later in (("a", (2, 3)), ("b", (2,))):
+        assert all(events.index(("start", name, n)) > events.index(("end", name, 1)) for n in later)
+    # A failed first job still lets its later jobs run.
+    assert isinstance(futures[1].exception(), RuntimeError) and futures[4].result() == 2
+
+
 # --- code sites ---------------------------------------------------------------
 
 

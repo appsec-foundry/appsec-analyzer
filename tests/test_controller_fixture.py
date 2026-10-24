@@ -144,6 +144,9 @@ class PilotHost(WebApplicationHost):
         # The starting files each investigation's context lists.
         self.starting = []
         self.stride_prompts = []
+        # Per investigation call: its instructions and its prompt's cache blocks.
+        self.systems = []
+        self.blocks = []
 
     def invoke(self, role, system, prompt, schema, timeout_s, should_stop):
         if role == "stride_analyzer":
@@ -152,6 +155,8 @@ class PilotHost(WebApplicationHost):
             return HostReply(dict(action="complete", reads=[], artifact={"unexpected": True}), 0.01)
         if role != "test_case_investigator":
             return super().invoke(role, system, prompt, schema, timeout_s, should_stop)
+        self.systems.append(system)
+        self.blocks.append(prompt.blocks)
         if self.fail:
             raise TransportError("host call failed: no_result", reason="no_result", usd=0.0)
         packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
@@ -614,6 +619,11 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert {text for text in said if text.startswith("Verifying component ")} == {f"Verifying {job}" for job in jobs}
     # Each job reports its end after its start, so the console counts finished jobs.
     assert all(said.index(f"Verifying {job}") < said.index(f"Finished verifying {job}") for job in jobs)
+    # The jobs share their instructions and their prompts' start up to the component context and aspect,
+    # and a later job starts once the first has written that start into the prompt cache.
+    assert len(set(host.systems)) == 1 and len({blocks[:2] for blocks in host.blocks}) == 1
+    assert all(len(blocks) == 4 for blocks in host.blocks) and host.blocks[0][1].endswith('"aspect": "AuthZ"')
+    assert all(said.index(f"Verifying {job}") > said.index(f"Finished verifying {jobs[0]}") for job in jobs[1:])
     summary = (
         f"Verify done · AuthZ · {len(_component_rows(model))} results, {len(model['test_case_findings'])} findings"
     )
