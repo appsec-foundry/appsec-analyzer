@@ -440,6 +440,20 @@ The product owner asked whether authorization verification works together with t
 
 Decided by the product owner on 2026-10-23: one finding needs the same file, line, and CWE family; a contradiction needs the same line and keeps a CWE of the verification item, because an ownership check does not show that a role check exists. Proposal `specs/changes/survey-verify-linking/proposal.md`. Linking by route and handler for the remaining pairs is not built.
 
+### Authentication verification (built 2026-10-24)
+
+Asked by the product owner on 2026-10-24: the aspect `IAM` is renamed `AuthN`, because its items TC-AUTHN-01 to 05 cover authentication only, and it gets starting points so that it can be verified. The control domain IAM of the report's security architecture section is a separate list and keeps its name. The aspect was never released, so profiles get no alias for the old name.
+
+- `AuthN` is an investigated aspect. No depth verifies it by default; a scan profile selects it, as `test_cases.aspects` or `depths.<depth>.verify`.
+- TC-AUTHN-01 keeps every route as a candidate, as decided for AuthZ, and adds WebSocket, GraphQL, and message handlers (`code_sites.channel`). TC-AUTHN-02 and 03 start from token checks (`code_sites.token_handling`), TC-AUTHN-04 from password hashing, password fields in data models, and account routes, TC-AUTHN-05 from account routes. An account route is one whose path names login, registration, recovery, password, a second factor, or authentication (`route_inventory.credential_flow`).
+- A code site kind with `anchor: site` stays one candidate where routes reach it and lists them in `reached_by`, as a scanner hit does. Token checks, password hashing, and channels use it: a token check in a shared guard would otherwise make every route behind the guard a candidate for the same question.
+- The applicability signal `password_handling` also counts a hash call with a password argument, so a data model that hashes passwords with its own helper is examined. Before, TC-AUTHN-04 was not applicable there.
+- Catalog version 5.
+
+Offline count with the components, route inventory, and scanner findings of `juice-verify-cost-2`, without model calls: 9 AuthN jobs, against 8 before the change and 9 for AuthZ by the same count, which matches the fourth run. TC-AUTHN-01 drives the cost with 147 candidates on the Express server, 5 of its jobs. At USD 0.40 to 0.50 per verification job, AuthN would add about USD 3.60 to 4.50 per Juice Shop run. Not measured in a run.
+
+Open: the existing kind `sensitive_field` uses `^\s*` in a multiline pattern, which backtracks quadratically over a run of blank lines in a file that defines data models: 8,000 blank lines take about 5 seconds. The new kind `password_field` uses `^[ \t]*` and stays linear; a test checks the four new kinds on hostile input. SessionMgmt still has no starting points, and the catalog has no OAuth or OIDC item.
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |

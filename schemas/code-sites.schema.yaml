@@ -32,6 +32,8 @@ properties:
           enum: [egress_clients]
         scope:
           enum: [any, model]
+        anchor:
+          enum: [route, site]
         ignore_case:
           type: boolean
         matches:

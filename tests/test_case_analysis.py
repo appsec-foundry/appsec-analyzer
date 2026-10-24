@@ -648,7 +648,7 @@ def test_combined_jobs_keep_the_findings_each_dropped(job):
 
 def test_identity_and_aspect_belong_to_the_job(job):
     with pytest.raises(ExchangeError, match="aspect"):
-        validate(job, reply(job), aspect="IAM")
+        validate(job, reply(job), aspect="AuthN")
     with pytest.raises(ExchangeError, match="component identity"):
         validate(job, reply(job, component_id="admin"))
 
@@ -726,7 +726,7 @@ def test_a_reply_of_every_investigated_aspect_passes_normalizer_contract_and_rev
 
 
 def test_the_normalizer_sets_controller_fields_and_fixes_precheck_candidates(job):
-    artifact = reply(job, component_id="other", aspect="IAM", source_scope_sha256="0" * 64)
+    artifact = reply(job, component_id="other", aspect="AuthN", source_scope_sha256="0" * 64)
     precheck = artifact["test_cases"][0]["candidates"][0]
     precheck.update(anchor=job["at"]("server.js", 9), route_id="R-002")
     artifact["test_cases"][0]["candidates"][1]["evidence"][0]["sha256"] = "f" * 64

@@ -111,6 +111,9 @@ _SIGNAL_CODE: dict[str, re.Pattern] = {
         r"|passlib)\b"
         r"|\b(?:body|form|data|params|credentials|user|json)\s*(?:\.|\[\s*['\"])\s*(?:password|passwd|pwd|newPassword"
         r"|new_password|currentPassword|current_password)\b"
+        # Hashing a password through the application's own helper, the storage most likely to be weak.
+        r"|(?:[Hh]ash|HASH|md5|MD5|[Ss]ha(?:1|224|256|384|512)|[Dd]igest|[Ee]ncrypt)\w{0,12}\s*\(\s*[^)\n]{0,120}"
+        r"(?i:passw|pwd)"
     ),
     "session_handling": re.compile(
         r"\b(?:express-session|cookie-session|koa-session|flask_session|SessionMiddleware|HttpSession|session_start)\b"
@@ -266,7 +269,14 @@ _ROUTE_FACTS = {
         row["method"].upper() == "GET" and not row["object_id"] and route_authenticated(row)
     ),
     "route_inventory.reads_data": lambda row: row["method"].upper() == "GET" and row["reads_data"],
+    # Login, registration, recovery, password change and second factor: the flows that create or prove an identity.
+    "route_inventory.credential_flow": lambda row: bool(_CREDENTIAL_PATH.search(row["path"])),
 }
+_CREDENTIAL_PATH = re.compile(
+    r"log-?in|log-?out|sign-?in|sign-?up|sign-?out|regist|passw|reset|forgot|recover|security-?question|2fa|mfa"
+    r"|totp|\botp\b|webauthn|passkey|auth|sso|saml",
+    re.IGNORECASE,
+)
 # Besides a database read, what a read route's response can carry: a record the handler creates or
 # saves, and configuration.
 _STORED_OR_CONFIGURED = re.compile(
@@ -413,8 +423,9 @@ def starting_candidates(
 
     Each candidate is ``{candidate_id, origin: "pre-check", anchor: {file, line}}``
     with ``route_id`` for a route registration and ``rule_ids`` for the
-    starting rules a scanner reported there. A scanner hit inside a handler
-    lists in ``reached_by`` the routes whose resolved handler reaches it, at
+    starting rules a scanner reported there. A scanner hit inside a handler,
+    like a code site of a kind anchored at its site, lists in ``reached_by``
+    the routes whose resolved handler reaches it, at
     most ``MAX_REACHING_ROUTES``, since their guards decide it. Scanner hits come first, then
     routes the inventory flags, then the other routes; ``overflow`` counts the
     candidates beyond ``cap``, without a cap none.
@@ -441,10 +452,19 @@ def starting_candidates(
             located.setdefault(anchor, _route_entry(registered[anchor], facts))
     # As for routes: the entry point is the candidate and carries the sinks its handler reaches;
     # a site that no route of the component reaches is a candidate of its own.
+    kinds = site_kinds()[0]
     for fact in case["starting_points"].get("facts") or []:
         if not fact.startswith("code_sites."):
             continue
-        sites = [tuple(site) for site in facts["sites"].get(fact.removeprefix("code_sites."), []) if site[0] in owned]
+        kind = fact.removeprefix("code_sites.")
+        sites = [tuple(site) for site in facts["sites"].get(kind, []) if site[0] in owned]
+        if kinds[kind].get("anchor") == "site":
+            # The site answers the test case for every route that runs it, such as a shared guard,
+            # so it stays one candidate instead of making each of those routes one.
+            for site in sites:
+                if site not in located:
+                    located[site] = _location_entry(site, component, registered, facts)
+            continue
         reached: set[tuple[str, int]] = set()
         for route_id in component["route_ids"]:
             row = facts["routes"][route_id]
@@ -476,20 +496,7 @@ def starting_candidates(
             continue
         anchor = (hit["file"], hit["line"])
         if anchor not in located:
-            route_id = registered.get(anchor)
-            reaching = [
-                key
-                for key in component["route_ids"]
-                if any(
-                    file == anchor[0] and first <= anchor[1] <= last
-                    for file, first, last in facts["routes"][key]["chain"]
-                )
-            ][:MAX_REACHING_ROUTES]
-            located[anchor] = (
-                _route_entry(route_id, facts)
-                if route_id
-                else {"key": ["location", *anchor], "flagged": False, "rule_ids": set(), "reached_by": reaching}
-            )
+            located[anchor] = _location_entry(anchor, component, registered, facts)
         located[anchor]["rule_ids"].add(hit["rule_id"])
     ordered = sorted(located.items(), key=lambda item: (not item[1]["rule_ids"], not item[1]["flagged"], item[0]))
     candidates = []
@@ -555,6 +562,19 @@ def _route_entry(route_id: str, facts: Mapping[str, Any]) -> dict:
         "flagged": _flagged(row),
         "rule_ids": set(),
     }
+
+
+def _location_entry(anchor: tuple[str, int], component: dict, registered: dict, facts: Mapping[str, Any]) -> dict:
+    """The route registered at ``anchor``, or the location with the first routes whose resolved handler reaches it."""
+    route_id = registered.get(anchor)
+    if route_id:
+        return _route_entry(route_id, facts)
+    reaching = [
+        key
+        for key in component["route_ids"]
+        if any(file == anchor[0] and first <= anchor[1] <= last for file, first, last in facts["routes"][key]["chain"])
+    ][:MAX_REACHING_ROUTES]
+    return {"key": ["location", *anchor], "flagged": False, "rule_ids": set(), "reached_by": reaching}
 
 
 def _candidate_id(case_id: str, component_id: str, key: list) -> str:

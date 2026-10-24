@@ -34,7 +34,7 @@ from shared.assessment_sources import source_rows
 from orchestrator import assessment_workspace as ws
 
 #: Aspects this step investigates; a profile may select further pilot aspects.
-INVESTIGATED_ASPECTS = ("AuthZ", "InputVal", "DataProt", "AI")
+INVESTIGATED_ASPECTS = ("AuthN", "AuthZ", "InputVal", "DataProt", "AI")
 MULTI_REPOSITORY_REASON = "the pilot investigates only components of a single repository"
 NO_CANDIDATE_REASON = "no test case of the aspect has a starting candidate in the component, so no model job ran"
 #: Lines served from where a generated route's data model is defined: the fields its request body can set follow.
