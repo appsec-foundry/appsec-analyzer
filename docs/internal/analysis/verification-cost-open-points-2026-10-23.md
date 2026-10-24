@@ -1,6 +1,6 @@
 # Verification cost: open points
 
-Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests.
+Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main.
 
 ## Baseline
 
@@ -195,20 +195,54 @@ In the measuring run verification found all 4 survey findings with an authorizat
 
 A targeted follow-up check of such survey findings would cover about 2 to 3 per thorough run after the fixes below, and none at standard depth with AuthZ only, so it was not built.
 
-Built on the branch `feat/verify-quality-survey-cache`, not merged, each with offline tests:
+Built with offline tests and merged into main (3515cf86):
 
 - TC-DATA-02 also starts from browser code that keeps a credential in script-readable storage: `localStorage` or `sessionStorage` writes, script-set cookies and `document.cookie` with a credential-like key (code site kind `client_storage`). Juice Shop's Angular frontend gets one DataProt job with 9 such places; before, it got none.
 - TC-DATA-01 also starts from GET routes whose handlers create or save a record or read configuration. On Juice Shop the Express server's DataProt candidates grow from 41 to 50, which needs a second job.
-- A scanner hit inside a handler lists the routes whose resolved handler reaches it (`reached_by`, at most 3), so the job knows which registration and guards decide it; their guards and registrations are preloaded only into room the candidates leave. All 20 such TC-AUTHZ-01 candidates on the Express server get their route. Job 1 there fills its 36 preload windows with candidates, so the prefix guard at `server.ts:356` still has to be read.
+- A scanner hit inside a handler lists the routes whose resolved handler reaches it (`reached_by`, at most 3), so the job knows which registration and guards decide it; their guards and registrations are preloaded only into room the candidates leave. All 20 such TC-AUTHZ-01 candidates on the Express server get their route. Job 1 there fills its 36 preload windows with candidates, so the prefix guard at `server.ts:356` still has to be read; point 9 shows that the job did not read it, and why `reached_by` now names it.
 - TC-AUTHZ-01's guidance says that a control must bind every lookup of user-owned data the handler makes, and that a lookup by a transformed or non-unique attribute of the caller, such as a masked e-mail, does not bind it. This changes the verification instructions, so no earlier verification job is reused.
 
 Two survey defects showed up and are not fixed: the fourth run anchored a finding on a commented-out route line (`server.ts:370`, `// app.put(...)`) and it passed the evidence review, and it kept two findings with the same line and CWE (T-072, T-073).
+
+## 9. Second measuring run
+
+Juice Shop at standard depth with AuthZ and DataProt verified, started from a copy of the first measuring run, so recon, architecture, controls and boundaries came from its accepted jobs (output `juice-verify-cost-2`, code c7d5470f). The run took 47 minutes of working time; a 29-minute pause while the laptop slept is not counted.
+
+| Accepted jobs, USD | First run (AuthZ) | Second run (AuthZ, DataProt) |
+| --- | --- | --- |
+| Survey jobs | 5.26 | 4.41 |
+| Evidence review | 2.01 | 2.07 |
+| Verify AuthZ | 2.57 | 2.33 |
+| Verify DataProt | – | 1.03 |
+| All jobs | 12.96 | 12.87 |
+
+The survey's cache reads rose from 66,000 to 1.0 million tokens and its writes fell from 1.46 to 1.03 million, so the shared survey instructions save about USD 0.85; the offline rebuild predicted fewer reads because it counted one call per job, while correction calls read the cache too. The savings pay for most of DataProt. The closing line's USD 12.87 and 128 calls include USD 1.83 and 24 calls for the 17 reused jobs; the real calls cost USD 11.03.
+
+What the fixes of point 8 did:
+
+- The Angular frontend's new DataProt job found the session token in `localStorage` (`login.component.ts:101`, CWE-922).
+- The data export is now a finding instead of a wrong control, and `orderHistory.ts:17` with the same masked-email lookup is new.
+- The image captcha's answer was found. The text captcha was a candidate now, but the job dismissed it as "returned by design to this challenge app".
+- The application configuration was found as an AuthZ finding (`server.ts:607`), not as DataProt.
+- Verification reported 35 AuthZ findings, 28 of them not in the survey. The 3 AuthZ survey findings verification did not link it reported elsewhere: the registration role on neighbouring lines, the image captcha under another CWE family, the configuration under AuthZ. Of the DataProt survey findings, whoami (`currentUser.ts:30`) had no candidate because its handler reads no stored data, and the challenge flags sent to every WebSocket lie outside the catalog.
+
+Defects found, each fixed on main with tests:
+
+- A false finding: the checkout's wallet debit at `order.ts:150` was reported as trusting a client-supplied UserId, because job 1 never saw the prefix guard with `appendUserId` at `server.ts:356`. `reached_by` now lists where the route and its guards are registered (d376462a).
+- The verification policy now states that an application's purpose never makes a weakness acceptable, and when `public-by-design` applies (ed4cff29).
+- A wrong contradiction: a control for one generated REST route at `server.ts:501`, the generator call that registers 37 routes, contradicted the survey's finding about another. A line that registers several routes is no longer a control location (3785a26e).
+- Two jobs reported the data export at `dataExport.ts:33` twice; combined jobs now report a weakness at one line and CWE family once (0199b02f).
+- Every Juice Shop run reported the session token in browser storage twice, once from the survey and once from abuse case AC-T-001, because promoted abuse-case findings came after the merge. They now go through the merge's grouping and review against the findings already there (c8b9afb2); offline, exactly this pair is the one group the merger is asked about in both measuring runs.
+- The closing line names what reused jobs cost (4ba33332), and the summary says how many undecidable items had no location to examine (5cf5bd45): 21 of the run's 22.
+
+The live progress now says what each step produced, each number once: the survey its findings and cost, verification each aspect's findings and cost, the merge its survey and scanner inputs, the consolidation per aspect what only one method found and how many findings the report keeps, and a line for abuse-case findings that were merged or added.
 
 ## Order
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
 2. Rebuild the Express server's verification context offline and size its parts (point 2). Done: the generic path cut is worth more than a cut per aspect.
 3. Measure everything built so far in one run (point 1). Done: verification cost USD 2.57 instead of USD 4.45, with answers within the usual run-to-run spread.
-4. Give the survey jobs of a component the same instructions, so they share their context too (point 3). Built on the branch; offline about USD 1.25 less survey input.
-5. Measure step 4 and the verification fixes of point 8 in a second run: Juice Shop at standard depth with AuthZ and DataProt verified, started from a copy of the first measuring run so recon, architecture, controls and boundaries come from its accepted jobs (`bash /tmp/verify-quality/run.sh`, output `juice-verify-cost-2`). It should show the survey's cache reads, whether the Angular frontend's DataProt job finds the token in `localStorage`, whether the captcha answer and the configuration response are found, and whether the data export control stays wrong. For this run the live progress on the branch also says what each step produced. The survey's line gives its findings, those the evidence review refuted, its count per verified aspect by CWE, and its cost. Verification gives its cost and, per aspect, its findings, controls, partial and undecidable items, and cost. The merge line gives how many findings it combined. The consolidation line gives how many the report keeps, how many were refuted or fell below the severity floor, and per aspect how many verification and survey findings the other method did not find.
-6. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
+4. Give the survey jobs of a component the same instructions, so they share their context too (point 3). Done: about USD 0.85 less in the second measuring run.
+5. Measure step 4 and the verification fixes of point 8 in a second run (point 9). Done: AuthZ and DataProt cost about what AuthZ alone cost before; the fixes found the missing places, and five defects it showed are fixed.
+6. Measure the fixes of point 9 in a third run of the same kind: whether the wallet sites are judged controls again, whether the text captcha is reported, whether the two token findings become one, and whether the contradiction on `server.ts:501` is gone.
+7. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
