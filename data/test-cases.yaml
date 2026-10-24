@@ -11,10 +11,12 @@
 #
 # unmapped_rules lists scanner rules that are deliberately not a starting point.
 version: 1
-catalog_version: '5'
+catalog_version: '6'
 aspects:
 - id: AuthN
   title: Authentication
+- id: AuthNRoutes
+  title: Route authentication
 - id: SessionMgmt
   title: Session management
 - id: AuthZ
@@ -44,7 +46,7 @@ aspects:
 test_cases:
 - id: TC-AUTHN-01
   title: Sensitive routes, operations, and channels require authentication
-  aspect: AuthN
+  aspect: AuthNRoutes
   stride:
   - Spoofing
   - Elevation of Privilege
@@ -217,6 +219,66 @@ test_cases:
   post: []
   references: []
   fixtures: tests/fixtures/test-cases/TC-AUTHN-05/
+- id: TC-AUTHN-06
+  title: SSO and OAuth sign-in binds each response to its request and validates the identity it receives
+  aspect: AuthN
+  stride:
+  - Spoofing
+  - Tampering
+  cwe:
+  - CWE-352
+  - CWE-601
+  - CWE-345
+  - CWE-347
+  mode: seeded
+  objective: Determine whether every OAuth 2.0, OpenID Connect, or SAML sign-in uses the authorization code flow with PKCE or a confidential client, binds the response to its request with state or nonce, redirects only to exactly registered URIs, and validates the token, user info, or assertion it receives before it signs a user in.
+  applies_when:
+  - signal: sso_usage
+  starting_points:
+    rules: []
+    facts:
+    - code_sites.sso_flow
+  guidance: Check the authorization request, the callback, the token exchange, and the step that turns the provider's answer into a local session, in browser and server code. The implicit flow and tokens in the URL fragment are weaknesses; a browser or mobile client needs PKCE. A library default counts as a control only when you name it and nothing disables it. Signing a user in from an access token or profile without checking that the provider issued it for this client is a weakness.
+  scope: component
+  controls:
+  - Social Login Adapter (OAuth / OIDC)
+  - SAML Authentication
+  evidence:
+    finding: authorization request, callback, or token check and the missing binding, redirect check, or validation
+    control: location of the PKCE, state, or nonce check, the redirect allow-list, or the token or assertion validation
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-06/
+- id: TC-AUTHN-07
+  title: Credentials and tokens travel only by secure authentication methods
+  aspect: AuthN
+  stride:
+  - Spoofing
+  - Information Disclosure
+  cwe:
+  - CWE-598
+  - CWE-522
+  - CWE-1390
+  mode: seeded
+  objective: Determine whether the application authenticates only by methods that keep credentials and tokens out of URLs and cleartext, avoid deprecated flows such as the OAuth implicit or password grant, and never accept a credential that a client can derive from public data.
+  applies_when:
+  - signal: credential_transport
+  starting_points:
+    rules: []
+    facts:
+    - code_sites.auth_scheme
+  guidance: Check where credentials or tokens are sent or read, such as query strings, URL fragments, Basic authentication headers, and OAuth grant parameters, and where client code computes a password. Basic authentication or an API key is a weakness only without TLS or where a browser keeps it; name the transport you rely on. A password or token built from an e-mail address, user name, or other public data is a weakness wherever the server accepts it.
+  scope: component
+  controls:
+  - API Key / Bearer Token Authentication
+  - Password-Based Login
+  - Transport Layer Security
+  evidence:
+    finding: place that sends, reads, or derives the credential and the insecure method
+    control: location that enforces the secure method, such as a header-only token read or a TLS-only listener
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-07/
 - id: TC-SESSION-01
   title: Session tokens are protected in storage, transport, lifetime, and logout
   aspect: SessionMgmt

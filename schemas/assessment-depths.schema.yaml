@@ -30,10 +30,10 @@ $defs:
       verify:
         description: Security aspects that verification checks beside the survey; an empty list runs the survey only.
         type: array
-        maxItems: 6
+        maxItems: 7
         uniqueItems: true
         items:
-          enum: [AuthN, SessionMgmt, AuthZ, InputVal, DataProt, AI]
+          enum: [AuthN, AuthNRoutes, SessionMgmt, AuthZ, InputVal, DataProt, AI]
       abuse_cases:
         description: Optional business abuse cases checked; 0 checks only cases that are asked for.
         type: integer

@@ -940,7 +940,75 @@ def test_a_websocket_handler_starts_an_authentication_check_beside_the_routes(ca
     ]
 
 
-@pytest.mark.parametrize("kind", ["token_handling", "password_hash", "password_field", "channel"])
+# A browser client that signs in through a hand-built implicit OAuth flow and turns the provider's profile into a
+# password, a server that signs in through an OAuth library, and a component whose only mention is a comment.
+SIGN_IN = {
+    "web/login.ts": "const provider = 'https://accounts.example.com/o/oauth2/auth'\n"
+    "export const start = (win, clientId, back) => {\n"
+    "  win.location.replace(`${provider}?client_id=${clientId}&response_type=token&redirect_uri=${back}`)\n"
+    "}\n",
+    "web/callback.ts": "export const finish = (http, users, token) => {\n"
+    "  const profile = http.get('https://api.example.com/userinfo')\n"
+    "  return http.get('https://api.example.com/userinfo?access_token=' + token)\n"
+    "    .then((profile) => users.login({ email: profile.email, password: btoa(profile.email) }))\n"
+    "}\n",
+    "server/auth.js": "const passport = require('passport')\n"
+    "const { Strategy: GoogleStrategy } = require('passport-google-oauth20')\n"
+    "passport.use(new GoogleStrategy({ clientID, clientSecret, callbackURL }, verify))\n",
+    "server/health.js": "// const token = req.query.token\nmodule.exports.health = (req, res) => res.json({ ok: true })\n",
+}
+
+
+@pytest.fixture(scope="module")
+def sign_in(tmp_path_factory):
+    root = write_repo(tmp_path_factory.mktemp("sign-in"), SIGN_IN)
+    components = {
+        "web": ["web/login.ts", "web/callback.ts"],
+        "server": ["server/auth.js"],
+        "health": ["server/health.js"],
+    }
+    return cc.route_facts(root, build_inventory(root), [], components=components)
+
+
+def _anchors(catalog, case_id, component, facts):
+    candidates = cc.starting_candidates(_case(catalog, case_id), component, facts, [])["candidates"]
+    return {(row["anchor"]["file"], row["anchor"]["line"]) for row in candidates}
+
+
+def test_sso_sign_in_starts_from_hand_built_flows_and_libraries(catalog, sign_in):
+    case = _case(catalog, "TC-AUTHN-06")
+    for component in ("web", "server"):
+        assert cc.applies(case, sign_in, component) == (True, cc.APPLIES_REASONS["sso_usage"]), component
+    # The authorization request with its response type, the token in the URL, and the library's strategy.
+    assert _anchors(catalog, "TC-AUTHN-06", "web", sign_in) == {("web/login.ts", 3), ("web/callback.ts", 3)}
+    assert _anchors(catalog, "TC-AUTHN-06", "server", sign_in) == {("server/auth.js", 3)}
+    # A comment alone is no sign-in code.
+    assert cc.applies(case, sign_in, "health") == (False, cc.NOT_APPLICABLE_REASON)
+
+
+def test_insecure_authentication_methods_start_from_where_credentials_travel(catalog, sign_in):
+    case = _case(catalog, "TC-AUTHN-07")
+    assert cc.applies(case, sign_in, "web") == (True, cc.APPLIES_REASONS["credential_transport"])
+    # The implicit grant, the token in the query string, and the password built from the profile's e-mail.
+    assert _anchors(catalog, "TC-AUTHN-07", "web", sign_in) == {
+        ("web/login.ts", 3),
+        ("web/callback.ts", 3),
+        ("web/callback.ts", 4),
+    }
+    # A library sign-in that keeps its tokens out of URLs, and a commented-out query read, are not such methods.
+    for component in ("server", "health"):
+        assert cc.applies(case, sign_in, component) == (False, cc.NOT_APPLICABLE_REASON), component
+
+
+def test_the_route_check_is_an_aspect_of_its_own(catalog):
+    aspects = {case["id"]: case["aspect"] for case in catalog["test_cases"] if case["id"].startswith("TC-AUTHN-")}
+    assert aspects.pop("TC-AUTHN-01") == "AuthNRoutes"
+    assert set(aspects.values()) == {"AuthN"} and len(aspects) == 6
+
+
+@pytest.mark.parametrize(
+    "kind", ["token_handling", "password_hash", "password_field", "channel", "sso_flow", "auth_scheme"]
+)
 def test_authentication_site_patterns_take_linear_time_on_hostile_files(kind):
     # Repository text reaches these patterns, first as a whole file. A pattern that backtracks over a run of
     # blank lines takes seconds here instead of milliseconds.
@@ -951,6 +1019,18 @@ def test_authentication_site_patterns_take_linear_time_on_hostile_files(kind):
         started = time.perf_counter()
         pattern.search(text)
         assert time.perf_counter() - started < 0.5, (kind, text[:8])
+
+
+@pytest.mark.parametrize("signal", ["sso_usage", "credential_transport"])
+def test_sign_in_signals_take_linear_time_on_hostile_files(signal):
+    # Applicability runs these over whole files before any line is a candidate.
+    import time
+
+    pattern = cc._SIGNAL_CODE[signal]
+    for text in ("\n" * 20_000, " \t\n" * 7_000, ("query." + "a" * 1990 + "\n") * 10, ("'Basic " * 400 + "\n") * 10):
+        started = time.perf_counter()
+        pattern.search(text)
+        assert time.perf_counter() - started < 0.5, (signal, text[:8])
 
 
 # A checkout route under a prefix guard whose handler writes the wallet of the caller the guard set,

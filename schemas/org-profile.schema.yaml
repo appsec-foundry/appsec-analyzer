@@ -103,14 +103,14 @@ properties:
       required_aspects:
         type: array
         minItems: 1
-        maxItems: 6
+        maxItems: 7
         uniqueItems: true
         description: |
           Aspects whose verification items a model investigates at every
           assessment depth, beside the survey. A scan profile cannot remove
           them; they are added to the aspects it selects.
         items:
-          enum: [AuthN, SessionMgmt, AuthZ, InputVal, DataProt, AI]
+          enum: [AuthN, AuthNRoutes, SessionMgmt, AuthZ, InputVal, DataProt, AI]
 
   depths:
     type: object
@@ -657,11 +657,12 @@ $defs:
       verify:
         description: Security aspects that verification checks beside the survey; an empty list runs the survey only.
         type: array
-        maxItems: 6
+        maxItems: 7
         uniqueItems: true
         items:
           enum:
           - AuthN
+          - AuthNRoutes
           - SessionMgmt
           - AuthZ
           - InputVal

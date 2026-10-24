@@ -115,6 +115,35 @@ _SIGNAL_CODE: dict[str, re.Pattern] = {
         r"|(?:[Hh]ash|HASH|md5|MD5|[Ss]ha(?:1|224|256|384|512)|[Dd]igest|[Ee]ncrypt)\w{0,12}\s*\(\s*[^)\n]{0,120}"
         r"(?i:passw|pwd)"
     ),
+    "sso_usage": re.compile(
+        r"\b(?:require|import)\s*\(?\s*['\"](?:passport-(?:oauth\w*|google-oauth\w*|openidconnect|azure-ad|saml)"
+        r"|openid-client|oidc-client(?:-ts)?|angular-oauth2-oidc|@azure/msal-[\w-]+|@auth0/[\w-]+|next-auth|@auth/core"
+        r"|simple-oauth2|client-oauth2|@okta/[\w-]+|keycloak-js|@node-saml/[\w-]+|saml2-js|google-auth-library)['\"]"
+        r"|\bfrom\s+['\"](?:openid-client|oidc-client(?:-ts)?|angular-oauth2-oidc|@azure/msal-[\w-]+|@auth0/[\w-]+"
+        r"|next-auth|@auth/core|simple-oauth2|@okta/[\w-]+|keycloak-js|google-auth-library)['\"]"
+        r"|^[ \t]*(?:import|from)\s+(?:authlib|requests_oauthlib|oauthlib|social_core|social_django|allauth"
+        r"|onelogin\.saml2|saml2|flask_dance|msal)\b"
+        # Framework sign-in and the protocol's own parameters, which hand-built flows use too.
+        r"|\.\s*(?:oauth2Login|saml2Login)\s*\(|@EnableOAuth2Sso\b|\bAdd(?:OpenIdConnect|OAuth|Google|MicrosoftAccount"
+        r"|Saml2)\s*\(|\boidc\s*\.\s*NewProvider\s*\(|\boauth2\s*\.\s*Config\s*\{|\bOmniAuth\b|\\OAuth2\\Client\\"
+        r"|\bresponse_type=|['\"]response_type['\"]\s*:|\bredirect_uri=|[#&?]access_token="
+        r"|\b(?:authorize_redirect|authorize_access_token|AuthCodeURL)\s*\(",
+        re.MULTILINE,
+    ),
+    # Line by line, so code_sites.auth_scheme takes the same pattern.
+    "credential_transport": re.compile(
+        # A credential or token in a query string or fragment, written into a URL or read from the request.
+        # An otpauth URI carries its secret into a QR code by design, so a bare secret parameter is no such place.
+        r"[#?&](?:access_token|id_token|token|api_?key|apikey|password|passwd|pwd|jwt|session_?id)="
+        r"|\b(?:query|args|GET|searchParams|query_params)\s*(?:\.\s*get\s*\(\s*|\.\s*|\[\s*)['\"]?(?:access_token"
+        r"|id_token|token|api_?key|apikey|password|passwd|pwd|secret|jwt)\b"
+        r"|\$_GET\s*\[\s*['\"](?:access_token|token|api_?key|apikey|password|passwd|pwd|secret)['\"]"
+        # Basic authentication, the deprecated OAuth grants, and a password the client encodes itself.
+        r"|\b(?:basicAuth|basic_auth|BasicAuth|HTTPBasicAuth|httpBasic|UseBasicAuthentication"
+        r"|BasicAuthenticationHandler)\b|['\"`]Basic (?:['\"`]\s*[+)]|\$\{|%s|\{)"
+        r"|\bgrant_type['\"]?\s*[:=,]\s*['\"]?password\b|\bresponse_type=(?:token|id_token)\b"
+        r"|\bpassword\s*[:=]\s*(?:(?:window\s*\.\s*)?btoa|base64\s*\.\s*b64encode)\s*\("
+    ),
     "session_handling": re.compile(
         r"\b(?:express-session|cookie-session|koa-session|flask_session|SessionMiddleware|HttpSession|session_start)\b"
         r"|\b(?:req|request|ctx)\s*\.\s*session\b"
@@ -237,6 +266,9 @@ APPLIES_REASONS = {
     "object_id_routes": "the component registers routes that take an object identifier in the path or a request body",
     "jwt_usage": "the code issues, verifies or decodes JSON Web Tokens",
     "password_handling": "the code handles passwords",
+    "sso_usage": "the code signs users in through OAuth, OpenID Connect or SAML",
+    "credential_transport": "the code passes credentials or tokens in URLs, by Basic authentication or an OAuth grant, "
+    "or encodes a password itself",
     "session_handling": "the code creates or stores sessions or session tokens",
     "database_access": "the code accesses a database",
     "command_execution": "the code runs commands, evaluates code or compiles templates",
@@ -633,7 +665,9 @@ def _code_facts(root: Path, files: list[str]) -> tuple[dict[str, list[str]], dic
                     continue
                 for kind, pattern in present.items():
                     match = pattern.search(line)
-                    if match and len(sites[kind]) < _MAX_SITES and (hash_comments or "//" not in line[: match.start()]):
+                    # A URL's scheme separator starts no comment, so a token in an absolute URL stays a site.
+                    before = line[: match.start()].replace("://", "") if match else ""
+                    if match and len(sites[kind]) < _MAX_SITES and (hash_comments or "//" not in before):
                         sites[kind].append([rel, number])
         for signal in sorted(hits):
             found[signal].append(rel)

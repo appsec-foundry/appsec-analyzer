@@ -44,7 +44,7 @@ ROLES = (
     "secarch_renderer",
 )
 # Aspects with a model investigation in the pilot; the object form of test_cases selects among them.
-TEST_CASE_ASPECTS = ("AuthN", "SessionMgmt", "AuthZ", "InputVal", "DataProt", "AI")
+TEST_CASE_ASPECTS = ("AuthN", "AuthNRoutes", "SessionMgmt", "AuthZ", "InputVal", "DataProt", "AI")
 NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 MAX_BYTES = 65_536
 

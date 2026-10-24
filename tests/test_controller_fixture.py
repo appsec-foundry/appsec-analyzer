@@ -424,17 +424,22 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
 def test_a_profile_that_selects_authentication_gets_its_verification_jobs(tmp_path, monkeypatch):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
     host = PilotHost()
-    pilot = ("--no-pdf", "--test-case-aspects", "AuthN")
+    pilot = ("--no-pdf", "--test-case-aspects", "AuthN,AuthNRoutes")
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), pilot, seed=_seed, host=host)
     assert outcome["status"] == "complete"
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     service = next(row for row in model["components"] if "server.js" in row["paths"])
     # Each component that owns the guard checks its token; the browser client has nothing to authenticate.
+    # The route check is an aspect of its own, asked where routes are registered.
     owners = [row["id"] for row in model["components"] if "lib/auth.js" in row["paths"]]
-    assert len(owners) == 2 and sorted(host.investigations) == sorted((cid, "AuthN") for cid in owners)
-    rows = {row["test_case_id"] for row in _component_rows(model) if row["component_id"] == service["id"]}
-    assert rows == {"TC-AUTHN-01", "TC-AUTHN-02", "TC-AUTHN-03", "TC-AUTHN-04", "TC-AUTHN-05"}
+    assert len(owners) == 2
+    assert sorted(host.investigations) == sorted([(cid, "AuthN") for cid in owners] + [(service["id"], "AuthNRoutes")])
+    rows = {row["test_case_id"]: row for row in _component_rows(model) if row["component_id"] == service["id"]}
+    assert set(rows) == {f"TC-AUTHN-0{number}" for number in range(1, 8)}
+    assert rows["TC-AUTHN-01"]["aspect"] == "AuthNRoutes" and rows["TC-AUTHN-02"]["aspect"] == "AuthN"
+    # Without SSO code or credentials in URLs the sign-in and method items do not apply.
+    assert rows["TC-AUTHN-06"]["outcome"] == rows["TC-AUTHN-07"]["outcome"] == "not_applicable"
     # The guard's token check is one candidate that names the order route running it, not a route candidate.
     listing = host.listed[host.investigations.index((service["id"], "AuthN"))]
     listed = {row["test_case_id"]: row["candidates"] for row in listing}

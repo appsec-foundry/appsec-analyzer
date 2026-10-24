@@ -358,8 +358,8 @@ These options apply to `assess`. Command-line options override the defaults from
 `--assessment-depth` sets what `assess` checks beside the [survey](docs/security-assessment.md#survey-and-verification), which always runs:
 
 - `quick` runs no verification and no business-logic checks.
-- `standard` also verifies authorization, input validation, data protection and, where the application calls a language model, its AI features.
-- `thorough` verifies authentication as well. With Claude, it uses Opus for the survey. In one Juice Shop comparison, it cost about 1.8× as much as `standard`, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough).
+- `standard` also verifies authentication, authorization, input validation, data protection and, where the application calls a language model, its AI features.
+- `thorough` also checks every route's authentication. With Claude, it uses Opus for the survey. In one Juice Shop comparison, it cost about 1.8× as much as `standard`, without more verified results. See [choosing standard or thorough](docs/model-selection.md#choosing-standard-or-thorough).
 
 Each verified aspect adds model calls. A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does).
 

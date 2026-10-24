@@ -29,14 +29,14 @@ depths:
     actor_discovery: false
     budget: 10
   standard:
-    verify: [AuthZ, InputVal, DataProt, AI]
+    verify: [AuthN, AuthZ, InputVal, DataProt, AI]
     abuse_cases: 3
     derived_abuse_cases: 0
     architect_review: false
     actor_discovery: true
     budget: 20
   thorough:
-    verify: [AuthN, AuthZ, InputVal, DataProt, AI]
+    verify: [AuthN, AuthNRoutes, AuthZ, InputVal, DataProt, AI]
     abuse_cases: 8
     derived_abuse_cases: 3
     architect_review: true

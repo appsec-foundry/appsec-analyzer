@@ -257,3 +257,45 @@ kinds:
   - "server.on('error', onError)"
   - "import { Server } from 'socket.io'"
   - "@app.on_event('startup')"
+- kind: sso_flow
+  description: code starts, completes, or checks an OAuth, OpenID Connect, or SAML sign-in
+  anchor: site
+  patterns:
+  - '\bresponse_type=|[''"]response_type[''"]\s*:|\bredirect_uri=|[#&?]access_token='
+  - '\bnew\s+\w{0,40}(?:OAuth2?|OIDC|OpenIDConnect|OpenIdConnect|Saml|SAML|Google|Azure\w{0,12})Strategy\s*\('
+  - '\b(?:authorize_redirect|authorize_access_token|fetch_token|AuthCodeURL|authorizationUrl|getAuthorizationUrl|handleRedirectCallback|loginWithRedirect|signinRedirect(?:Callback)?|initImplicitFlow|initCodeFlow|initLoginFlow|loginPopup|acquireToken\w{0,12})\s*\('
+  - '\.\s*(?:oauth2Login|saml2Login)\s*\(|@EnableOAuth2Sso\b|\bAdd(?:OpenIdConnect|OAuth|Google|MicrosoftAccount|Saml2)\s*\('
+  - '\b(?:Issuer\s*\.\s*discover|oidc\s*\.\s*NewProvider|OneLogin_Saml2_Auth|OAuth2Session|WebApplicationClient)\s*\('
+  - '\boauth2\s*\.\s*Config\s*\{|\boauth\s*\.\s*register\s*\('
+  matches:
+  - 'this.windowRefService.nativeWindow.location.replace(`${oauthProviderUrl}?client_id=${this.clientId}&response_type=token&scope=email&redirect_uri=${this.redirectUri}`)'
+  - "if (path.includes('#access_token=')) {"
+  - 'passport.use(new GoogleStrategy({ clientID, clientSecret, callbackURL }, verify))'
+  - "const issuer = await Issuer.discover('https://accounts.example.com')"
+  - 'token = oauth.google.authorize_access_token()'
+  - 'http.oauth2Login(withDefaults());'
+  - 'url := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)'
+  ignores:
+  - "import { OAuthComponent } from './oauth/oauth.component'"
+  - 'public oauthUnavailable = true'
+  - 'const redirectUrl = req.query.next'
+  - "const accessToken = localStorage.getItem('token')"
+- kind: auth_scheme
+  description: code passes a credential or token in a URL, uses Basic authentication or a deprecated OAuth grant, or encodes a password itself
+  anchor: site
+  signal: credential_transport
+  matches:
+  - "return this.http.get('https://www.googleapis.com/oauth2/v1/userinfo?alt=json&access_token=' + accessToken)"
+  - "this.userService.login({ email: profile.email, password: btoa(profile.email.split('').reverse().join('')), oauth: true })"
+  - 'const token = req.query.token'
+  - "api_key = request.args.get('api_key')"
+  - "app.use(basicAuth({ users: { admin: process.env.ADMIN_PASSWORD } }))"
+  - "headers: { Authorization: 'Basic ' + btoa(user + ':' + pass) }"
+  - "body: new URLSearchParams({ grant_type: 'password', username, password })"
+  ignores:
+  - 'const token = req.headers.authorization'
+  - "const plan = 'Basic plan'"
+  - 'const term = req.query.q'
+  - "this.router.navigate(['/search'], { queryParams: { q: value } })"
+  - 'const tokenizer = query.tokenize(text)'
+  - 'this.totpUrl = `otpauth://totp/${appName}:${email}?secret=${secret}&issuer=${appName}`'

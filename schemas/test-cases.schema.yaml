@@ -97,6 +97,8 @@ properties:
                   - object_id_routes
                   - jwt_usage
                   - password_handling
+                  - sso_usage
+                  - credential_transport
                   - session_handling
                   - database_access
                   - command_execution

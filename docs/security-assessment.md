@@ -199,10 +199,10 @@ Findings on neighbouring lines stay separate, because a route table often regist
 | Depth | Survey | Verification |
 | --- | --- | --- |
 | quick | yes | none |
-| standard | yes | `AuthZ`, `InputVal`, `DataProt`, `AI` |
-| thorough | yes | `AuthN`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
+| standard | yes | `AuthN`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
+| thorough | yes | `AuthN`, `AuthNRoutes`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 
-These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth leaves out `AuthN`, because in a measuring run on Juice Shop it cost about as much as `AuthZ` and most of its findings repeated what authorization verification, the scanners or the survey already reported. `AI` gets jobs only for components that call a language model. The run header shows the methods, such as `Survey · Verify AuthZ`.
+These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth leaves out `AuthNRoutes`, because in a measuring run on Juice Shop this route-by-route check of authentication cost about as much as `AuthZ` and most of its findings repeated what authorization verification, the scanners or the survey already reported. `AI` gets jobs only for components that call a language model. The run header shows the methods, such as `Survey · Verify AuthZ`.
 
 Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the survey starts, the run names the components it will verify. Before the first verification job, it states the estimated cost of all jobs and whether the remaining budget covers them; jobs with an accepted result of an earlier attempt need no new model call and stay out of the estimate. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis from its start. It shows the survey and the verification as two steps, each with its own start and end. It lists each component once its verification has finished, with its duration, however many jobs the component needed, and names the jobs without a result.
 
@@ -210,13 +210,13 @@ Each verified aspect adds model jobs after the survey and sends more source code
 
 You choose the verified aspects per depth in a scan profile, and an organization can set its own defaults in an organization profile. Analyzer starts from the shipped file, applies the organization profile, and then the scan profile. There is no command-line option for it.
 
-To verify authentication as well at standard depth, and authorization already at quick depth, add this to a scan profile:
+To check every route's authentication as well at standard depth, and authorization already at quick depth, add this to a scan profile:
 
 ```yaml
 schema_version: 1
 depths:
   standard:
-    verify: [AuthN, AuthZ, InputVal, DataProt, AI]
+    verify: [AuthN, AuthNRoutes, AuthZ, InputVal, DataProt, AI]
   quick:
     verify: [AuthZ]
 ```
@@ -237,7 +237,7 @@ With verification on:
 - The completion summary shows a Verification row with the outcome counts.
 - In SARIF, a linked finding uses the verification item ID as `ruleId`. The finding ID moves to the result property `findingId`.
 
-The aspect `AuthN` (authentication) is verified at thorough depth, or at another depth when a profile selects it. On Juice Shop it adds nine verification jobs, about as many as `AuthZ`. The aspect `SessionMgmt` is accepted but not investigated yet. How the places to check are chosen and how outcomes are decided is described in the [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs). The design and the pilot runs are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md) and the [implementation status](internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md).
+The aspect `AuthN` (authentication) checks how users and services sign in: token checks, passwords, account recovery, SSO and OAuth integration, and insecure methods such as credentials in URLs. The aspect `AuthNRoutes` checks that every sensitive route, operation, and channel requires authentication. On Juice Shop `AuthN` needs four verification jobs and `AuthNRoutes` six. The aspect `SessionMgmt` is accepted but not investigated yet. How the places to check are chosen and how outcomes are decided is described in the [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs). The design and the pilot runs are in the [proposal](internal/analysis/aspect-test-cases-proposal-2026-10-19.md) and the [implementation status](internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md).
 
 ## Known threats
 

@@ -20,7 +20,7 @@
     "source_scope_sha256": {"$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/source_scope_sha256"},
     "component_inventory_fingerprint": {"$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/component_inventory_fingerprint"},
     "component_id": {"$ref": "https://appsec-advisor/schemas/multi-repo-stride.schema.json#/properties/component_id"},
-    "aspect": {"enum": ["AuthN", "SessionMgmt", "AuthZ", "InputVal", "DataProt", "AI"]},
+    "aspect": {"enum": ["AuthN", "AuthNRoutes", "SessionMgmt", "AuthZ", "InputVal", "DataProt", "AI"]},
     "test_cases": {
       "type": "array",
       "minItems": 1,
