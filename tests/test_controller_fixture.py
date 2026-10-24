@@ -634,7 +634,7 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert planned < min(said.index(text) for text in said if text.startswith("Surveying component"))
     # Before the first job the run says whether the remaining budget covers them all.
     (start,) = [text for text in said if text.startswith("Verify start · ")]
-    assert start.startswith("Verify start · 1 component for AuthZ · about USD ") and " of the budget left" in start
+    assert start.startswith("Verify start · 1 component · AuthZ · ≈ USD ") and " of the budget left" in start
     assert start.endswith(f" · {count} jobs")
     assert said.index(start) < min(said.index(text) for text in said if text.startswith("Verifying component "))
     jobs = [f"component 1/1, part {number}/{count}, AuthZ: {name}" for number in range(1, count + 1)]
@@ -648,11 +648,15 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert all(said.index(f"Verifying {job}") > said.index(f"Finished verifying {jobs[0]}") for job in jobs[1:])
     # The survey says what it found before verification starts.
     (survey,) = [text for text in said if text.startswith("Survey done · ")]
-    assert said.index(survey) < said.index(start) and " findings" in survey and " · ≈ USD " in survey
-    # Verification says what each aspect found and cost when it ends.
-    (done,) = [text for text in said if text.startswith("Verify done · ")]
+    # The console adds the survey's cost, so the line states none of its own.
+    assert said.index(survey) < said.index(start) and " findings" in survey and "USD" not in survey
+    # Verification ends, then says per aspect what it found and cost and what each item showed.
+    (done,) = [text for text in said if text.startswith("Verify done")]
+    assert done == "Verify done"
     found = len(model["test_case_findings"])
-    assert done.startswith(f"Verify done · AuthZ {found} finding{'' if found == 1 else 's'} (≈ USD ")
+    (aspect,) = [text for text in said if text.startswith("AuthZ · ") and " only by Verify" not in text]
+    assert aspect.startswith(f"AuthZ · {found} finding{'' if found == 1 else 's'} · ≈ USD ") and " in " in aspect
+    assert said.index(aspect) == said.index(done) + 1
     assert said.index(done) > max(said.index(f"Finished verifying {job}") for job in jobs)
     # The merge says what it combined; the model build how the methods relate per aspect and what it kept.
     (merge,) = [text for text in said if text.startswith("Merge · ")]

@@ -28,9 +28,7 @@ def test_a_covered_verification_says_so_and_leaves_no_note():
     jobs = _Jobs(_Budget(0.4, 10.0))
     text = assessment_test_cases._budget_statement(jobs, 19, ["AuthZ", "InputVal"], 3)
     # The console shows the components and weighs the jobs the line ends with.
-    assert text == (
-        "Verify start · 3 components for AuthZ, InputVal · about USD 7.60, USD 10.00 of the budget left · 19 jobs"
-    )
+    assert text == "Verify start · 3 components · AuthZ, InputVal · ≈ USD 7.60, USD 10.00 of the budget left · 19 jobs"
     # Before the first verification job, a survey job's reserve stands in for one.
     assert jobs.budget.roles == [("test_case_investigator", "stride_analyzer")] and not jobs.notes
 
@@ -39,7 +37,7 @@ def test_an_uncovered_verification_warns_and_records_a_note():
     jobs = _Jobs(_Budget(0.5, 1.0))
     text = assessment_test_cases._budget_statement(jobs, 4, ["AuthZ"], 1)
     assert text == (
-        "Verify start · 1 component for AuthZ · about USD 2.00, but only USD 1.00 of the budget left; "
+        "Verify start · 1 component · AuthZ · ≈ USD 2.00, but only USD 1.00 of the budget left; "
         "an aspect that cannot finish is marked incomplete · 4 jobs"
     )
     assert jobs.notes == [

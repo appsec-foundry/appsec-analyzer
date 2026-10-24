@@ -350,9 +350,12 @@ class _AssessmentConsole:
     )
     # The plan comes before the survey, the start after it; both name the components and end with the job count.
     # Only the start is shown: the plan only weighs the phase.
-    _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) components? for .* · (\d+) jobs?$")
+    _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) components?(?: for | · ).* · (\d+) jobs?$")
     _VERIFY_START = "Verify start · "
-    _VERIFY_DONE = "Verify done · "
+    # The end, then one line per aspect; the console adds the step's duration and cost.
+    _VERIFY_DONE = "Verify done"
+    # What a component's survey found, at the end of its name.
+    _FOUND = re.compile(r" · (\d+ findings?)$")
     # What the survey found, said when it ends; the console adds its duration and component count.
     _SURVEY_DONE = "Survey done · "
     # A component's jobs are its parts; the console shows one step per component.
@@ -706,7 +709,7 @@ class _AssessmentConsole:
                 if "Verify" in self.steps:
                     self.step_times["Verify"] = now - self.steps["Verify"]
                     took = _duration(self.step_times["Verify"]) + self._step_cost("Verify")
-                    text = f"{self._VERIFY_DONE}{took} · {text[len(self._VERIFY_DONE) :]}"
+                    text = f"{self._VERIFY_DONE} · {took}{text[len(self._VERIFY_DONE) :]}"
                 self.current = ""
                 self.record("·", text, now)
                 return True
@@ -754,7 +757,7 @@ class _AssessmentConsole:
                 return True
             if not finished:
                 return True
-            parts = [done, f"{', '.join(unit['aspects'])} · {name}"]
+            parts = [done, f"{name} · {', '.join(unit['aspects'])}"]
             if gaps := unit["gaps"]:
                 causes, missing = ", ".join(sorted(gaps)), sum(gaps.values())
                 parts.append(
@@ -1146,6 +1149,9 @@ class _AssessmentConsole:
     def _unit_step(self, prefix: str, text: str, position, now: float, reused: bool = False) -> None:
         """Track one concurrently analyzed component; the share follows finished work, not starts."""
         name = self._POSITION.sub("", text[len(prefix) :].lstrip(": "))
+        found = self._FOUND.search(name) if prefix == "Analyzed component" else None
+        if found:
+            name = name[: found.start()]
         name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
         with _AssessmentConsole._lock:
             if prefix == "Surveying component":
@@ -1175,6 +1181,7 @@ class _AssessmentConsole:
                 unit = self.units.pop(name, None)
                 self.units_done += 1
                 finished = name + (f" · {_duration(now - unit['started'])}" if unit else "")
+                finished += f" · {found[1]}" if found else ""
                 finished += self.REUSED if reused else ""
             total = self.count[0] if self.count else 0
             if total:

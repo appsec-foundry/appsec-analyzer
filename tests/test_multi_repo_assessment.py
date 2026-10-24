@@ -3360,13 +3360,14 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.step("Surveying component: API (1/2)")
     console.step("Surveying component: Web (2/2)")
     clock.tick(60)
-    console.step("Analyzed component: API")
-    console.step("Analyzed component: Web")
+    # Each component's survey says what it found.
+    console.step("Analyzed component: API · 2 findings")
+    console.step("Analyzed component: Web · 1 finding")
     survey = console.done
     clock.tick(5)
     # The survey says what it found; the console adds its duration and component count.
-    console.step("Survey done · 3 findings · ≈ USD 0.80")
-    console.step("Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left · 3 jobs")
+    console.step("Survey done · 3 findings")
+    console.step("Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left · 3 jobs")
     assert console.done == survey and console.current == "Verify: 0/2 components done"
     console.step("Verifying component 1/2, part 1/2, AuthZ: API")
     console.step("Verifying component 1/2, part 2/2, AuthZ: API")
@@ -3386,7 +3387,8 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     clock.tick(10)
     console.step("Finished verifying component 2/2, part 1/1, AuthZ: Web")
     assert console.done > second and console.current == "Verify: 2/2 components done"
-    console.step("Verify done · AuthZ 3 findings (≈ USD 1.10)")
+    console.step("Verify done")
+    console.step("AuthZ · 3 findings · ≈ USD 1.10 · 2 items in 2 components: 1 with a finding, 1 partial, 2 no finding")
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
     # The plan only weighs the phase; each approach opens with how it examines the code.
@@ -3399,20 +3401,22 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
         ),
         ("·", "component 1/2 · API"),
         ("·", "component 2/2 · Web"),
-        ("✓", "Survey: 1/2 components done · API · 1m00s"),
-        ("✓", "Survey: 2/2 components done · Web · 1m00s"),
-        ("·", "Survey done · 1m05s · 2 components · 3 findings · ≈ USD 0.80"),
+        ("✓", "Survey: 1/2 components done · API · 1m00s · 2 findings"),
+        ("✓", "Survey: 2/2 components done · Web · 1m00s · 1 finding"),
+        ("·", "Survey done · 1m05s · 2 components · 3 findings"),
         (
             "·",
             "Approach 2 · Verify: checks predefined verification items at every code location they apply to, "
             "independent of approach 1",
         ),
-        ("·", "Verify start · 2 components for AuthZ · about USD 1.20, USD 3.00 of the budget left"),
+        ("·", "Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left"),
         ("·", "Verify component 1 started · API"),
         ("·", "Verify component 2 started · Web"),
-        ("⚠", "Verify: 1/2 components done · AuthZ · API · 1 of 2 parts without result (budget) · 1m00s"),
-        ("✓", "Verify: 2/2 components done · AuthZ · Web · 40s"),
-        ("·", "Verify done · 1m10s · AuthZ 3 findings (≈ USD 1.10)"),
+        ("⚠", "Verify: 1/2 components done · API · AuthZ · 1 of 2 parts without result (budget) · 1m00s"),
+        ("✓", "Verify: 2/2 components done · Web · AuthZ · 40s"),
+        # The end, then what each aspect found and what its items showed.
+        ("·", "Verify done · 1m10s"),
+        ("·", "AuthZ · 3 findings · ≈ USD 1.10 · 2 items in 2 components: 1 with a finding, 1 partial, 2 no finding"),
         ("done", "2m15s · Survey 1m05s · Verify 1m10s · 2 components"),
     ]
     shares = [int(row[2].strip("~%")) for row in rows]
@@ -3425,7 +3429,7 @@ def test_a_component_verified_for_several_aspects_is_one_step():
     console.plan_components(1)
     console.step("Surveying component: API (1/1)")
     console.step("Analyzed component: API")
-    console.step("Verify start · 1 component for AuthZ, InputVal · the run's call and time limits apply · 2 jobs")
+    console.step("Verify start · 1 component · AuthZ, InputVal · the run's call and time limits apply · 2 jobs")
     console.step("Verifying component 1/1, part 1/2, AuthZ: API")
     console.step("Verifying component 1/1, part 2/2, InputVal: API")
     clock.tick(20)
@@ -3434,7 +3438,7 @@ def test_a_component_verified_for_several_aspects_is_one_step():
     details = [row[-1] for row in _rows(lines)]
     # One row once both aspects ended, naming them in the order their jobs started.
     assert [detail for detail in details if detail.startswith("Verify: ")] == [
-        "Verify: 1/1 components done · AuthZ, InputVal · API · 20s"
+        "Verify: 1/1 components done · API · AuthZ, InputVal · 20s"
     ]
 
 
@@ -3448,9 +3452,9 @@ def test_a_component_whose_every_job_was_reused_says_so():
     console.step("Surveying component: API (1/2)")
     console.step("Surveying component: Web (2/2)")
     clock.tick(5)
-    console.step("Analyzed component: API (1/2)" + console.REUSED)
-    console.step("Analyzed component: Web (2/2)")
-    console.step("Verify start · 2 components for AuthZ · reuses accepted results, no model calls expected · 3 jobs")
+    console.step("Analyzed component: API · 3 findings (1/2)" + console.REUSED)
+    console.step("Analyzed component: Web · 0 findings (2/2)")
+    console.step("Verify start · 2 components · AuthZ · reuses accepted results, no model calls expected · 3 jobs")
     console.step("Verifying component 1/2, part 1/2, AuthZ: API")
     console.step("Verifying component 1/2, part 2/2, AuthZ: API")
     console.step("Verifying component 2/2, part 1/1, AuthZ: Web")
@@ -3461,12 +3465,12 @@ def test_a_component_whose_every_job_was_reused_says_so():
     console.step("Finished verifying component 1/2, part 2/2, AuthZ: API")
     details = [row[-1] for row in _rows(lines)]
     assert [detail for detail in details if detail.startswith(("Survey: ", "Verify: "))] == [
-        "Survey: 1/2 components done · API · 5s · reused",
-        "Survey: 2/2 components done · Web · 5s",
-        "Verify: 1/2 components done · AuthZ · Web · 5s · reused",
-        "Verify: 2/2 components done · AuthZ · API · 5s",
+        "Survey: 1/2 components done · API · 5s · 3 findings · reused",
+        "Survey: 2/2 components done · Web · 5s · 0 findings",
+        "Verify: 1/2 components done · Web · AuthZ · 5s · reused",
+        "Verify: 2/2 components done · API · AuthZ · 5s",
     ]
-    assert "Verify start · 2 components for AuthZ · reuses accepted results, no model calls expected" in details
+    assert "Verify start · 2 components · AuthZ · reuses accepted results, no model calls expected" in details
 
 
 def test_a_phase_done_line_says_whether_its_jobs_were_reused():

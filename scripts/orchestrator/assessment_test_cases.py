@@ -24,6 +24,7 @@ runner, the role instructions and the component pool.
 from __future__ import annotations
 
 import threading
+from collections import Counter
 
 from contexts import case_analysis
 from contexts import multi_repo_analysis as analysis
@@ -316,20 +317,15 @@ def run_pilot(
             for _, answer in answered.get(id(entry), [])
         )
     ]
-    # What each aspect found and cost, so a reader can weigh one against the other; a replaced job's cost is
-    # in the run's total only. The completion summary counts the verification items' outcomes.
+    # What each aspect found and cost, so a reader can weigh one against the other, and what its items showed;
+    # a replaced job's cost is in the run's total only. The console adds the step's duration and cost.
     progress(
-        "Verify done · "
-        + (
-            " · ".join(
-                f"{aspect} {_count(sum(1 for finding in findings if finding['aspect'] == aspect), 'finding')}"
-                + ("" if jobs.budget.subscription else f" (≈ USD {usd.get(aspect, 0.0):.2f})")
-                for aspect in aspects
-            )
-            or "no aspect verified"
-        )
-        + (f"; incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
+        "Verify done"
+        + ("" if aspects else " · no aspect verified")
+        + (f" · incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
     )
+    for aspect in aspects:
+        progress(aspect_line(aspect, results, findings, None if jobs.budget.subscription else usd.get(aspect, 0.0)))
     return {
         "schema_version": 1,
         "aspects": aspects,
@@ -391,7 +387,7 @@ def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, 
     call, so they stay out of the estimate. A run that cannot cover them all keeps going; the budget stops
     the jobs it cannot pay, and their aspects are marked incomplete. The job count closes the line for the
     console, which weighs the jobs and shows the components."""
-    subject = f"Verify start · {_count_components(components)} for {', '.join(aspects)}"
+    subject = f"Verify start · {_count_components(components)} · {', '.join(aspects)}"
     budget = jobs.budget
     if reused >= count:
         return f"{subject} · reuses accepted results, no model calls expected · {_count_jobs(count)}"
@@ -399,37 +395,67 @@ def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, 
         return f"{subject} · the run's call and time limits apply · {_count_jobs(count)}"
     needed = (count - reused) * budget.job_usd("test_case_investigator", "stride_analyzer")
     available = budget.available_usd()
-    beyond = " beyond the reused results" if reused else ""
     if needed <= available:
-        return (
-            f"{subject} · about USD {needed:.2f}{beyond}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
-        )
+        return f"{subject} · ≈ USD {needed:.2f}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
     jobs.notes.append(
         f"verification needs about USD {needed:.2f} for {count - reused} jobs, but USD {available:.2f} remained; "
         "aspects whose jobs the budget stops are marked incomplete"
     )
     return (
-        f"{subject} · about USD {needed:.2f}{beyond}, but only USD {available:.2f} of the budget left; "
+        f"{subject} · ≈ USD {needed:.2f}, but only USD {available:.2f} of the budget left; "
         f"an aspect that cannot finish is marked incomplete · {_count_jobs(count)}"
     )
 
 
-def survey_line(documents, reviews, usd) -> str:
+def survey_line(documents, reviews) -> str:
     """What the survey found, said when it ends and verification starts (REQ-040).
 
     It counts the survey's findings before the merge, as the merge line does, and names those the evidence
-    review refuted. ``usd`` is what the survey jobs and their evidence reviews cost, or None without monetary
-    accounting.
+    review refuted. The console adds the survey's duration and cost.
     """
     found = refuted = 0
     for document, review in zip(documents, reviews, strict=True):
         verdicts = {row["local_id"]: row["verdict"] for row in review["decisions"]}
         found += len(document["threats"])
         refuted += sum(1 for threat in document["threats"] if verdicts.get(threat.get("local_id")) == "refuted")
-    parts = [_count(found, "finding") + (f", {refuted} refuted by the evidence review" if refuted else "")]
-    if usd is not None:
-        parts.append(f"≈ USD {usd:.2f}")
-    return "Survey done · " + " · ".join(parts)
+    return (
+        "Survey done · " + _count(found, "finding") + (f", {refuted} refuted by the evidence review" if refuted else "")
+    )
+
+
+# Outcome -> the words of an aspect's verification line, in the completion summary's order.
+_OUTCOME_WORDS = (
+    ("finding", "with a finding", "with findings"),
+    ("control", "control", "controls"),
+    ("partial", "partial", "partial"),
+    ("no_finding", "no finding", "no finding"),
+    ("undecidable", "undecidable", "undecidable"),
+    ("not_applicable", "not applicable", "not applicable"),
+    ("disabled", "disabled", "disabled"),
+)
+
+
+def aspect_line(aspect: str, results, findings, usd) -> str:
+    """What verification of one aspect found and cost, and what each of its items showed per component (REQ-040).
+
+    The findings are the aspect's TCF- findings. The outcomes count one result per item and component, so
+    they add up to the items times the components. ``usd`` is None without monetary accounting.
+    """
+    rows = [row for row in results if row.get("aspect") == aspect]
+    counts = Counter(row["outcome"] for row in rows)
+    outcomes = ", ".join(
+        f"{counts[key]} {singular if counts[key] == 1 else plural}"
+        for key, singular, plural in _OUTCOME_WORDS
+        if counts.get(key)
+    )
+    items = _count(len({row["test_case_id"] for row in rows}), "item")
+    components = _count_components(len({row["component_id"] for row in rows}))
+    return (
+        f"{aspect} · {_count(sum(1 for row in findings if row['aspect'] == aspect), 'finding')}"
+        + ("" if usd is None else f" · ≈ USD {usd:.2f}")
+        + f" · {items} in {components}"
+        + (f": {outcomes}" if outcomes else "")
+    )
 
 
 def method_lines(threats, findings, aspects, catalog) -> list[str]:

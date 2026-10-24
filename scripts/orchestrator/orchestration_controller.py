@@ -2135,12 +2135,15 @@ def _assessment_stride(
         else:
             review = {"schema_version": 2, **identity, "decisions": []}
         reused = _AssessmentConsole.REUSED if jobs.reused and not jobs.ran else ""
-        progress(f"Analyzed component: {label(component)} ({next(finished)}/{len(components['components'])}){reused}")
+        # What the component's survey found, counted as the survey's closing line counts it (REQ-040).
+        found = _count_noun(len(document["threats"]), "finding")
+        progress(
+            f"Analyzed component: {label(component)} · {found} "
+            f"({next(finished)}/{len(components['components'])}){reused}"
+        )
         return document, review
 
     evidence_parts, deferred = {}, []
-    # Only survey jobs and their evidence reviews run until the survey ends, so the budget's growth is their cost.
-    spent = jobs.budget.spent_usd
     results = _assessment_components_concurrently(jobs, components["components"], analyze)
     documents = [document for document, _ in results]
     reviews = [review for _, review in results]
@@ -2162,11 +2165,7 @@ def _assessment_stride(
     if envelopes is not None:
         # With verification to follow, the survey is its own step and says what it found (REQ-040).
         if planned["work"]:
-            progress(
-                assessment_test_cases.survey_line(
-                    documents, reviews, None if jobs.budget.subscription else jobs.budget.spent_usd - spent
-                )
-            )
+            progress(assessment_test_cases.survey_line(documents, reviews))
         pilot.update(
             assessment_test_cases.run_pilot(
                 scope,

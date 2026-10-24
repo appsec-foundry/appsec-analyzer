@@ -708,10 +708,33 @@ def test_the_survey_line_counts_its_findings_and_those_the_evidence_review_refut
         {"decisions": [{"local_id": "a", "verdict": "verified"}, {"local_id": "b", "verdict": "ambiguous"}]},
         {"decisions": [{"local_id": "a", "verdict": "verified"}, {"local_id": "b", "verdict": "refuted"}]},
     ]
-    line = assessment_test_cases.survey_line(documents, reviews, 7.274)
-    assert line == "Survey done · 5 findings, 1 refuted by the evidence review · ≈ USD 7.27"
-    # Without refuted findings or monetary accounting the line names neither.
-    assert assessment_test_cases.survey_line(documents[:1], reviews[:1], None) == "Survey done · 3 findings"
+    line = assessment_test_cases.survey_line(documents, reviews)
+    # The console adds the survey's cost, so the line states none of its own.
+    assert line == "Survey done · 5 findings, 1 refuted by the evidence review"
+    # Without refuted findings the line names none.
+    assert assessment_test_cases.survey_line(documents[:1], reviews[:1]) == "Survey done · 3 findings"
+
+
+def test_an_aspect_line_counts_its_findings_and_each_items_outcome_per_component():
+    from orchestrator import assessment_test_cases
+
+    results = [
+        {"test_case_id": "TC-AUTHZ-01", "aspect": "AuthZ", "component_id": "api", "outcome": "finding"},
+        {"test_case_id": "TC-AUTHZ-01", "aspect": "AuthZ", "component_id": "web", "outcome": "control"},
+        {"test_case_id": "TC-AUTHZ-02", "aspect": "AuthZ", "component_id": "api", "outcome": "no_finding"},
+        {"test_case_id": "TC-AUTHZ-02", "aspect": "AuthZ", "component_id": "web", "outcome": "no_finding"},
+        {"test_case_id": "TC-INPUT-01", "aspect": "InputVal", "component_id": "api", "outcome": "not_applicable"},
+    ]
+    findings = [{"aspect": "AuthZ"}, {"aspect": "AuthZ"}, {"aspect": "InputVal"}]
+    line = assessment_test_cases.aspect_line("AuthZ", results, findings, 3.104)
+    # The outcomes add up to the items times the components: 2 x 2 = 4.
+    assert (
+        line == "AuthZ · 2 findings · ≈ USD 3.10 · 2 items in 2 components: 1 with a finding, 1 control, 2 no finding"
+    )
+    # Without monetary accounting the line states no amount.
+    assert assessment_test_cases.aspect_line("InputVal", results, findings, None) == (
+        "InputVal · 1 finding · 1 item in 1 component: 1 not applicable"
+    )
 
 
 def test_investigation_results_name_the_locations_of_evidenced_controls(catalog):
