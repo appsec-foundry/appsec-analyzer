@@ -2950,6 +2950,9 @@ def _assessment_intro(
         output += " (--rebuild: replaces any earlier assessment)"
     cut = "" if budget.subscription else f"model calls stop at ${budget.max_usd:.2f}"
     profile = (cfg or {}).get("operator_profile") or {}
+    from appsec_analyzer.profiles import BUILTINS
+
+    own_profile = profile.get("files") and profile.get("name") and profile["name"] not in BUILTINS
     budget_origin = profile.get("origins", {}).get("settings", {}).get("budget", "")
     if budget.subscription:
         cut = (
@@ -2996,6 +2999,8 @@ def _assessment_intro(
         ("Repository" if len(ns.repo) == 1 else "Repositories", "\n".join(getattr(ns, "repo_sources", ()) or ns.repo)),
         ("Output", output),
         *([continued] if continued else []),
+        # An operator's own scan profile, which `assess` may also use without --profile.
+        *([("Profile", f"{profile['name']} · {profile['files'][0]}")] if own_profile else []),
         (
             "Billing",
             f"{budget.subscription_label} via "
@@ -3072,6 +3077,7 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, 
         "Output",
         "Resumed",
         "Reuses",
+        "Profile",
         "Depth",
         "Budget",
         "Time limit",
@@ -3106,9 +3112,12 @@ def _assessment_continuation(state, budget) -> tuple[str, str] | None:
             value += "\nthe plugin changed, so only unchanged model steps are reused"
         return "Resumed", value
     if state.reused_run_started is not None:
+        # A reused step is charged to this run, so it counts toward the new limit.
+        counted = "model calls count" if budget.subscription else "cost counts"
         return (
             "Reuses",
-            f"accepted steps of the unfinished run started {utc(state.reused_run_started)} that still match",
+            f"accepted steps of the unfinished run started {utc(state.reused_run_started)} that still match; "
+            f"their {counted} toward the limit",
         )
     return None
 
@@ -4011,7 +4020,11 @@ def assess_repositories(
                                 console.clear_status()
 
                     budget.on_budget_increase = BudgetPrompt(
-                        state, report=console.notice, pause=pause_prompt, role_labels=_AssessmentConsole.ROLE_LABELS
+                        state,
+                        report=console.notice,
+                        pause=pause_prompt,
+                        role_labels=_AssessmentConsole.ROLE_LABELS,
+                        diagnostics=jobs.diagnostics,
                     )
                 lineup, model_warning = _assessment_model_lines(cfg, compact=console is not None and not ns.verbose)
                 depth = str(cfg.get("assessment_depth") or "standard")
@@ -4319,8 +4332,10 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str 
     else:
         lines.append("  1  Continue it (--resume), with its original limits and deadline")
         choices = {"1": "resume", "2": None, "3": "rebuild"}
+    counted = "model calls count" if budget.subscription else "cost counts"
     lines += [
-        "  2  Start a new run with this command's limits, reusing accepted steps that still match (default)",
+        "  2  Start a new run with this command's limits, reusing accepted steps that still match (default);",
+        f"     their {counted} toward the new limit",
         "  3  Start from scratch (--rebuild): accepted steps and history are deleted",
         "",
     ]
@@ -4794,7 +4809,11 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         print(f"⏸ assessment incomplete: {_cap_reason(str(exc))}", file=sys.stderr)
         if getattr(exc, "report", None):
             print(f"  Incomplete budget report: {exc.report}", file=sys.stderr)
-        print("  Increase the limit and rerun without --resume to reuse compatible accepted steps.", file=sys.stderr)
+        print(
+            "  Increase the total limit and rerun without --resume to reuse compatible accepted steps; "
+            "what they cost counts toward the new limit.",
+            file=sys.stderr,
+        )
         return ASSESS_PAUSED_EXIT
     except CallError as exc:
         print(f"✗ {exc}", file=sys.stderr)

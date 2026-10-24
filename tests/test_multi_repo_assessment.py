@@ -835,6 +835,19 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     assert rows["Trust mode"] == "untrusted (trust check required before analysis)"
     assert rows["Output"] == "/o (--rebuild: replaces any earlier assessment)"
     assert "Phases" not in rows and rows["Pipeline"] == "P"
+    reusing = parse(["--repo", "/r", "--output", "/o", "--hard-budget", "20"])
+    # An operator's own scan profile is named, since `assess` also uses `default` without --profile.
+    for name, files, shown in (
+        ("default", ["/h/profiles/default.yaml"], "default · /h/profiles/default.yaml"),
+        ("claude", ["/h/model-profiles/team.yaml"], None),
+    ):
+        cfg = {"operator_profile": {"name": name, "files": files, "settings": {}, "origins": {}}}
+        rows = dict(
+            controller._assessment_intro(
+                reusing, controller._assessment_budget(reusing), "standard", "Models: m1", "P", cfg=cfg
+            )
+        )
+        assert rows.get("Profile") == shown
     ns = parse(
         ["--repo", "/r", "--output", "/o", "--hard-budget", "5", "--trust-mode", "trusted", "--max-duration", "3900"]
     )

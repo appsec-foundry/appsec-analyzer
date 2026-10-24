@@ -1452,6 +1452,8 @@ requirements:
       - tests/test_profiles.py::test_invalid_depth_values_are_rejected
       - tests/test_profiles.py::test_a_case_cannot_be_both_checked_and_skipped
       - tests/test_profiles.py::test_the_resolved_depth_values_stay_out_of_the_identity
+      - tests/test_profiles.py::test_a_depth_budget_in_the_scan_profile_applies_unless_the_cli_sets_one
+      - tests/test_profiles.py::test_assess_without_a_profile_uses_the_operators_default_and_fails_closed
       - tests/test_resolve_org_profile.py::test_depth_defaults_and_disabled_abuse_cases_reach_the_effective_profile
       - tests/test_resolve_org_profile.py::test_invalid_organization_depth_defaults_are_rejected
       - tests/test_match_abuse_cases.py::test_depth_settings_set_the_business_case_limits
@@ -1747,12 +1749,14 @@ requirements:
       - tests/test_run_headless_completion.py::test_an_explicit_hard_budget_wins_over_the_derived_one
       - tests/test_assessment_jobs.py::test_optional_work_preserves_the_report_budget
       - tests/test_interactive_budget.py::test_prompt_requires_a_higher_literal_usd_amount
+      - tests/test_interactive_budget.py::test_prompt_records_how_it_ended_without_the_typed_text
       - tests/test_interactive_budget.py::test_budget_question_waits_for_running_calls_and_blocks_new_admission
       - tests/test_assessment_state.py::test_explicit_terminal_answer_controls_admission_and_persistence
       - tests/test_assessment_state.py::test_approved_budget_is_persisted_before_use_and_restored_on_resume
       - tests/test_assessment_state.py::test_failed_approval_persistence_never_authorizes_spending
       - tests/test_assessment_state.py::test_resume_rejects_a_broken_budget_authorization_chain
       - tests/test_assessment_jobs.py::test_optional_work_protects_pending_analysis_and_uses_measured_job_cost
+      - tests/test_assessment_jobs.py::test_a_cold_optional_role_needs_the_run_average_above_the_full_report_reserve
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_the_report_and_local_finalization
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_pending_analysis_with_configured_workers
       - tests/test_assessment_jobs.py::test_assessment_budget_rejects_invalid_parallel_limits

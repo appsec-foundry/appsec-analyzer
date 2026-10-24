@@ -365,6 +365,16 @@ def _case_files(values: list[str]) -> list[str]:
     return paths
 
 
+def default_scan(home=None) -> str:
+    """The scan profile `assess` uses without a selection: the operator's `default`, otherwise `claude` (REQ-018).
+
+    Any entry under that name selects it, so an unsafe or invalid file stops the
+    run instead of silently falling back to another provider.
+    """
+    home = home or config_home()
+    return "default" if os.path.lexists(home / "profiles" / "default.yaml") else "claude"
+
+
 def resolve_scan(
     selection: str,
     *,
@@ -418,6 +428,11 @@ def resolve_scan(
     if settings["assessment_depth"] not in DEPTHS:
         raise ProfileError("unsupported assessment depth")
     depth = settings["assessment_depth"]
+    # REQ-018: a budget the scan profile sets for this depth applies unless the CLI sets one.
+    depth_budget = (settings["depths"].get(depth) or {}).get("budget")
+    if budget is None and depth_budget is not None:
+        settings["budget"] = depth_budget
+        provenance["budget"] = f"{provenance['depths']} (depths.{depth}.budget)"
     verify = (settings["depths"].get(depth) or {}).get("verify")
     if verify is not None:
         provenance["test_cases"] = f"{provenance['depths']} (depths.{depth}.verify)"

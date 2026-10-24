@@ -636,6 +636,9 @@ def test_finishing_summary_still_obeys_completion_and_execution_limits(tmp_path,
         jobs.budget.deadline = time.monotonic() + FINALIZATION_SECONDS
     elif limit == "calls":
         jobs.budget.calls = jobs.budget.max_calls
+    elif limit == "other_role":
+        # Enough for the summary, less than 1.5 x the report's cost for a cold role.
+        jobs.budget.spent_usd = 29.70
     role = "other" if limit == "other_role" else "ms_renderer"
     assert jobs.execute(
         **{**kwargs, "role": role, "selector": SUMMARY_JOB},
@@ -695,6 +698,30 @@ def test_one_expensive_batch_does_not_reserve_its_cost_for_every_pending_batch(t
         "result": "not reviewed"
     }
     assert host.calls == 1 and jobs.gaps[0]["budget"]
+
+
+def test_a_cold_optional_role_needs_the_run_average_above_the_full_report_reserve(tmp_path):
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget = AssessmentBudget(20.0, 2.0, 100, 7200)
+    jobs.budget.plan_completion()
+    optional = dict(on_failure=lambda reason: {"result": "not reviewed"})
+    # Without any accepted job, an optional job still needs a full call allowance.
+    jobs.budget.spent_usd = 17.29
+    assert jobs.execute(**{**kwargs, "role": "threat_merger"}, **optional) == {"result": "not reviewed"}
+    for usd in (0.2, 0.3):
+        jobs.budget.accepted("stride:done", "stride_analyzer", usd, 1)
+    # The report keeps its full USD 2 reserve; the USD 0.30 above it is less
+    # than 1.5 x the USD 0.25 that accepted jobs cost on average.
+    jobs.budget.spent_usd = 17.70
+    assert jobs.execute(**{**kwargs, "role": "threat_merger", "selector": "two"}, **optional) == {
+        "result": "not reviewed"
+    }
+    assert host.calls == 0 and len(jobs.gaps) == 2
+    jobs.budget.spent_usd = 17.29
+    assert jobs.execute(**{**kwargs, "role": "threat_merger", "selector": "three"}, **optional) == {
+        "result": "accepted"
+    }
+    assert host.calls == 1 and len(jobs.gaps) == 2
 
 
 def test_optional_work_waits_for_pending_analysis_before_asking_for_more_budget(tmp_path):

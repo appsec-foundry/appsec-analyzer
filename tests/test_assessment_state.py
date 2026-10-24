@@ -431,7 +431,9 @@ def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
         assert fresh.state["run_id"] != first.state["run_id"]
         assert _assessment_continuation(fresh, fresh.budget) == (
             "Reuses",
-            f"accepted steps of the unfinished run started {_utc(started)} that still match",
+            # Reused steps are charged to the new run, so the header says so.
+            f"accepted steps of the unfinished run started {_utc(started)} that still match; "
+            "their cost counts toward the limit",
         )
     # A run without earlier accepted jobs, and one that rebuilt, reuse nothing.
     with lifecycle(scope, replace=True).hold() as rebuilt:
@@ -1146,6 +1148,8 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
     assert f"An unfinished assessment is stored in {scope.output}" in shown
     assert "Interrupted, started" in shown and "Spent so far: USD 0.00." in shown
     assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
+    # Reused steps are charged to the new run, so the default says so.
+    assert "their cost counts toward the new limit" in shown
     # The effect of the answer is confirmed; after end of input, which echoes no line end, on a line of its own.
     assert shown.endswith(("[2]: \n" if not answers else "[2]: ") + _RESTART_CHOSEN[expected] + "\n")
 

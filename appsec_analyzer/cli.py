@@ -538,7 +538,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         help=(
             "Override the bundled scan profile with NAME_OR_FILE"
             if organization
-            else "Scan profile name or external YAML file (default: claude; built-ins: claude, codex, codex-cli, copilot-cli, lite, bedrock; also 'lite MODEL')"
+            else "Scan profile name or external YAML file (default: your profile 'default' if it exists, otherwise claude; built-ins: claude, codex, codex-cli, copilot-cli, lite, bedrock; also 'lite MODEL')"
         ),
     )
     output_group.add_argument(
@@ -1038,7 +1038,7 @@ def _assessment_host(ns: argparse.Namespace) -> str:
     return _PROFILE_HOSTS["claude"]
 
 
-def _prepare_profile(ns: argparse.Namespace) -> None:
+def _prepare_profile(ns: argparse.Namespace, default: str = "claude") -> None:
     if getattr(ns, "run_profile", None):
         return
     from appsec_analyzer.profiles import OUTPUTS, resolve_scan
@@ -1061,7 +1061,7 @@ def _prepare_profile(ns: argparse.Namespace) -> None:
         if not selection:
             raise ValueError(f"{host} has no configured model/depth profile")
     if not selection:
-        selection = "claude"
+        selection = default
     explicit = getattr(ns, "explicit", ())
     profile = resolve_scan(
         selection,
@@ -1606,7 +1606,10 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                 f"All options: {command} assess --help"
             )
         if ns.command in ("assess", "preflight"):
-            _prepare_profile(ns)
+            from appsec_analyzer.profiles import default_scan
+
+            # Preflight checks the profile the assessment would use.
+            _prepare_profile(ns, default_scan())
         if ns.command == "audit-requirements":
             print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
         if ns.command == "version":
