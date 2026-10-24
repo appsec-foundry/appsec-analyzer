@@ -739,7 +739,9 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
     if summary.get("test_case_counts"):
-        rows.append(("Verification", test_case_line(summary["test_case_counts"])))
+        rows.append(
+            ("Verification", test_case_line(summary["test_case_counts"], summary.get("test_case_unexamined", 0)))
+        )
     if summary.get("incomplete_aspects"):
         aspects = ", ".join(summary["incomplete_aspects"])
         rows.append(("", f"incomplete for {aspects}: the budget ended before every verification job ran"))
@@ -757,12 +759,17 @@ _TEST_CASE_WORDS = (
 )
 
 
-def test_case_line(counts: dict[str, int]) -> str:
-    """Outcome counts of the examined verification items (REQ-040), in a fixed order."""
+def test_case_line(counts: dict[str, int], unexamined: int = 0) -> str:
+    """Outcome counts of the examined verification items (REQ-040), in a fixed order.
+
+    ``unexamined`` counts the undecidable items that had no candidate location at all.
+    """
     parts = [f"{sum(counts.values())} examined"]
     for key, singular, plural in _TEST_CASE_WORDS:
         if counts.get(key):
             parts.append(f"{counts[key]} {singular if counts[key] == 1 else plural}")
+            if key == "undecidable" and unexamined:
+                parts[-1] += f" ({unexamined} without a location to examine)"
     return " · ".join(parts)
 
 
@@ -795,6 +802,18 @@ def _completion_summary(output_dir: Path) -> dict | None:
                 counts[row["outcome"]] = counts.get(row["outcome"], 0) + 1
         if counts:
             summary["test_case_counts"] = counts
+        # An undecidable item with no candidate location had nothing to examine, which differs from a location
+        # whose question the examined source could not settle.
+        unexamined = sum(
+            1
+            for row in results
+            if isinstance(row, dict)
+            and row.get("outcome") == "undecidable"
+            and isinstance(row.get("candidates"), dict)
+            and row["candidates"].get("applicable") == 0
+        )
+        if unexamined:
+            summary["test_case_unexamined"] = unexamined
         incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
         if incomplete:
             summary["incomplete_aspects"] = incomplete

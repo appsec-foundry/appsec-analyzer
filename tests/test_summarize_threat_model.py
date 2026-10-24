@@ -634,6 +634,12 @@ def test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them(t
     _write_model(tmp_path, body)
     assert ("Verification", "4 examined · 1 finding · 2 controls · 1 undecidable") in stm.completion_rows(tmp_path)
     assert all("incomplete" not in text for _, text in stm.completion_rows(tmp_path))
+    # An undecidable item without any candidate location had nothing to examine, and the line says how many.
+    nothing = "{test_case_id: TC-AUTHZ-01, outcome: undecidable, candidates: {applicable: 0, undecidable: 0}}"
+    some = "{test_case_id: TC-DATA-01, outcome: undecidable, candidates: {applicable: 6, undecidable: 3}}"
+    _write_model(tmp_path, body.rstrip(" ") + f"            - {nothing}\n            - {some}\n")
+    line = "6 examined · 1 finding · 2 controls · 3 undecidable (1 without a location to examine)"
+    assert ("Verification", line) in stm.completion_rows(tmp_path)
     plain = tmp_path / "plain"
     plain.mkdir()
     _write_model(plain, "meta: {project: {name: Demo}}\nthreats:\n  - {t_id: T-001, risk: High}\n")
