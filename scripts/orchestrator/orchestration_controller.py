@@ -3149,6 +3149,8 @@ def _assessment_cli_host_factory(work_root: Path, events_dir: Path | None = None
             max_thinking_tokens=ASSESSMENT_MAX_THINKING_TOKENS if events_dir else None,
             # Each exchange prompt is unique and read again only within minutes (MD-11).
             short_cache=True,
+            # Only the parts other calls repeat are written into the cache.
+            cache_blocks=True,
         )
 
     return factory

@@ -279,6 +279,7 @@ class ClaudeCliTransport:
         events_path: Path | None = None,
         max_thinking_tokens: int | None = None,
         short_cache: bool = False,
+        cache_blocks: bool = False,
     ):
         """`events_path` records the host's event stream, one timestamped line per event.
 
@@ -289,6 +290,15 @@ class ClaudeCliTransport:
         such bound with adaptive effort. `short_cache` writes the prompt with
         the five-minute cache TTL instead of a subscription's one-hour default
         (decision MD-11), for callers whose prompts are never read again later.
+
+        `cache_blocks` sends a prompt that has blocks (`assessment_host.Prompt`)
+        as one stream-json user message, each block but the last with a
+        five-minute cache marker, and turns the host's own markers off. The
+        host marks only the system prompt and the end of the message, so
+        without this every call writes its whole packet into the cache at the
+        write premium, and no other call reads the parts it shares. The host
+        forwards these markers as observed with CLI 2.1.310; its documentation
+        does not describe them.
         """
         if effort is not None and effort not in ("low", "medium", "high", "xhigh", "max"):
             raise ValueError("unsupported host effort level")
@@ -301,6 +311,7 @@ class ClaudeCliTransport:
         self.events_path = events_path
         self.max_thinking_tokens = max_thinking_tokens
         self.short_cache = short_cache
+        self.cache_blocks = cache_blocks
         # Receives every parsed event of a recorded call, including partial
         # model output; a consumer may count it but must never display it.
         self.on_event: Callable[[dict], None] | None = None
@@ -319,7 +330,9 @@ class ClaudeCliTransport:
         with open(self.events_path, "a", encoding="utf-8") as sink:
             sink.write(f"-\t{line}\n")
 
-    def argv(self, system: str, schema: dict) -> list[str]:
+    def argv(self, system: str, schema: dict, *, blocks: bool = False) -> list[str]:
+        """The host command; `blocks` reads the prompt as stream-json, which needs stream-json output."""
+        streamed = self.events_path is not None or blocks
         return [
             self.executable,
             "-p",
@@ -335,7 +348,9 @@ class ClaudeCliTransport:
             "--permission-prompts",
             "none",
             "--output-format",
-            *(["stream-json", "--verbose", "--include-partial-messages"] if self.events_path is not None else ["json"]),
+            *(["stream-json", "--verbose"] if streamed else ["json"]),
+            *(["--include-partial-messages"] if self.events_path is not None else []),
+            *(["--input-format", "stream-json"] if blocks else []),
             "--json-schema",
             json.dumps(schema),
             "--system-prompt",
@@ -345,11 +360,14 @@ class ClaudeCliTransport:
             *(["--effort", self.effort] if self.effort else []),
         ]
 
-    def environment(self) -> dict[str, str]:
+    def environment(self, *, blocks: bool = False) -> dict[str, str]:
         env = {k: v for k, v in os.environ.items() if not k.startswith(_DROPPED_ENV_PREFIXES)}
         env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         if self.short_cache:
             env["FORCE_PROMPT_CACHING_5M"] = "1"
+        if blocks:
+            # Removes only the host's markers; the request's own markers stay (at most 4 per request).
+            env["DISABLE_PROMPT_CACHING"] = "1"
         return env
 
     def invoke(
@@ -360,11 +378,20 @@ class ClaudeCliTransport:
         self.work_dir.mkdir(mode=0o700, exist_ok=True)
         if self.read_root is not None and not self.read_root.is_dir():
             raise TransportError("explore copy is missing")
+        blocks = getattr(prompt, "blocks", ()) if self.cache_blocks else ()
+        if len(blocks) > 1:
+            content = [{"type": "text", "text": block, "cache_control": {"type": "ephemeral"}} for block in blocks]
+            # The last block varies per call; a marker there would be written and never read.
+            del content[-1]["cache_control"]
+            message = {"type": "user", "message": {"role": "user", "content": content}}
+            data = (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
+        else:
+            blocks, data = (), prompt.encode("utf-8")
         try:
             proc = subprocess.Popen(
-                self.argv(system, schema),
+                self.argv(system, schema, blocks=bool(blocks)),
                 cwd=self.read_root or self.work_dir,
-                env=self.environment(),
+                env=self.environment(blocks=bool(blocks)),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -407,12 +434,12 @@ class ClaudeCliTransport:
         # communicate() must not compete with the dedicated stderr reader.
         api_error = resets_at = None
         try:
-            if self.events_path is None:
-                stdout, _ = _communicate(proc, prompt.encode("utf-8"), deadline, should_stop)
+            if self.events_path is None and not blocks:
+                stdout, _ = _communicate(proc, data, deadline, should_stop)
             else:
                 stdout, api_error, resets_at = _communicate_events(
                     proc,
-                    prompt.encode("utf-8"),
+                    data,
                     deadline,
                     should_stop,
                     self.events_path,
@@ -494,11 +521,11 @@ def _communicate_events(
     data: bytes,
     deadline: float,
     should_stop: Callable[[], bool],
-    events_path: Path,
+    events_path: Path | None,
     on_event: Callable[[dict], None] | None = None,
     max_thinking_tokens: int | None = None,
 ) -> tuple[bytes, str | None, float | None]:
-    """Record each event line with its elapsed seconds as it arrives.
+    """Record each event line with its elapsed seconds as it arrives; without `events_path`, only read them.
 
     Returns the result event, the host's error code for a call the API
     refused, which only the synthesized assistant message carries, and the
@@ -561,8 +588,9 @@ def _communicate_events(
             sink.write(f"{elapsed:.1f}\t".encode() + json.dumps({"type": "streamed", **streamed}).encode() + b"\n")
             sink.flush()
 
-    events_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with open(events_path, "wb") as sink:
+    if events_path is not None:
+        events_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with open(events_path if events_path is not None else os.devnull, "wb") as sink:
         reader = threading.Thread(target=pump, args=(proc.stdout, sink), daemon=True)
         reader.start()
         try:
