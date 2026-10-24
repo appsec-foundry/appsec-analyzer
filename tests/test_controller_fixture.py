@@ -637,6 +637,10 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     # REQ-040: the plan comes before the survey and ends with the job count the live progress weighs.
     planned = said.index(f"Verify planned · 1 component for AuthZ after the survey · {count} jobs")
     assert planned < min(said.index(text) for text in said if text.startswith("Surveying component"))
+    # The scanners name their hits before the survey, as the starting points of both approaches.
+    (scanners,) = [text for text in said if text.startswith("Scanners · ")]
+    assert scanners.endswith(" · starting points for survey and verify") and " no model calls" in scanners
+    assert said.index(scanners) < min(said.index(text) for text in said if text.startswith("Surveying component"))
     # Before the first job the run says whether the remaining budget covers them all.
     (start,) = [text for text in said if text.startswith("Verify start · ")]
     assert start.startswith("Verify start · 1 component · AuthZ · ≈ USD ") and " of the budget left" in start

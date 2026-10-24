@@ -255,6 +255,7 @@ class _AssessmentConsole:
         ("Reviewing trust crossing", "Trust boundaries"),
         ("Assessing controls", "Controls"),
         ("Running deterministic source scanners", "Threat analysis"),
+        ("Scanners · ", "Threat analysis"),
         ("Surveying component", "Threat analysis"),
         ("Finished survey job", "Threat analysis"),
         ("Independently verifying evidence", "Threat analysis"),
@@ -299,7 +300,7 @@ class _AssessmentConsole:
     # names every discovered repository, analyzed component and verified abuse case.
     LISTED = ("Discovering repository", "Surveying component", "Verifying abuse case")
     # Steps that state a result and start their phase if it has not started; each gets a permanent line as written.
-    STATED = ("Merge · ",)
+    STATED = ("Merge · ", "Scanners · ")
     # Listed names come from repository files and model output.
     _NAME_MAX = 100
     # What a phase's subjects are, for progress lines and the done line's count.
@@ -342,11 +343,10 @@ class _AssessmentConsole:
     # and 19 verification jobs 18), so it adds that share to threat analysis.
     VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 3
     # Survey and Verify are separate approaches, not steps that build on each other (REQ-040);
-    # each opens with how it examines the code.
+    # each opens with how it examines the code. The scanners' line before them names their shared starting points.
     SURVEY_METHOD = "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits"
     VERIFY_METHOD = (
-        "Approach 2 · Verify: checks predefined verification items at every code location they apply to, "
-        "independent of approach 1"
+        "Verify: checks predefined verification items at every code location they apply to, independent of the survey"
     )
     # The plan comes before the survey, the start after it; both name the components and end with the job count.
     # Only the start is shown: the plan only weighs the phase.
@@ -1159,10 +1159,8 @@ class _AssessmentConsole:
                 if "Survey" not in self.steps:
                     self.steps["Survey"] = now
                     self._mark_step("Survey")
-                    # With verification planned, the survey is the first of two approaches (REQ-040).
-                    method = ("Approach 1 · " if self.verify_jobs else "") + self.SURVEY_METHOD
                     count = f" · {_count_noun(int(position[2]), 'component')}" if position else ""
-                    self.record("·", method + count, now)
+                    self.record("·", self.SURVEY_METHOD + count, now)
                 if position:
                     self.count = (max(int(position[2]), self.count[0] if self.count else 0), "component")
                 self.units[name] = {"done": 0, "total": None, "stage": "STRIDE", "started": now}

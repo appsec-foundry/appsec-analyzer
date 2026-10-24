@@ -3357,6 +3357,10 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.step("Verify planned · 2 components for AuthZ after the survey · 3 jobs")
     # The plan widens the phase before any of it has finished, so the run's share holds.
     assert console.done == before
+    console.step(
+        "Scanners · 4 hits from deterministic code and configuration checks, no model calls · "
+        "starting points for survey and verify"
+    )
     console.step("Surveying component: API (1/2)")
     console.step("Surveying component: Web (2/2)")
     clock.tick(60)
@@ -3391,12 +3395,17 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.step("AuthZ · 3 findings · ≈ USD 1.10 · 2 items in 2 components: 1 with a finding, 1 partial, 2 no finding")
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
-    # The plan only weighs the phase; each approach opens with how it examines the code.
+    # The plan only weighs the phase; the scanners name their hits, each approach how it examines the code.
     assert [(event, detail) for _, event, _, _, _, detail in rows] == [
         ("start", ""),
         (
             "·",
-            "Approach 1 · Survey: STRIDE-based review of each component's entry points, outbound calls and "
+            "Scanners · 4 hits from deterministic code and configuration checks, no model calls · "
+            "starting points for survey and verify",
+        ),
+        (
+            "·",
+            "Survey: STRIDE-based review of each component's entry points, outbound calls and "
             "scanner hits · 2 components",
         ),
         ("·", "component 1/2 · API"),
@@ -3406,8 +3415,8 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
         ("·", "Survey done · 1m05s · 2 components · 3 findings"),
         (
             "·",
-            "Approach 2 · Verify: checks predefined verification items at every code location they apply to, "
-            "independent of approach 1",
+            "Verify: checks predefined verification items at every code location they apply to, "
+            "independent of the survey",
         ),
         ("·", "Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left"),
         ("·", "Verify component 1 started · API"),
@@ -3437,7 +3446,7 @@ def test_a_component_verified_for_several_aspects_is_one_step():
     console.step("Finished verifying component 1/1, part 1/2, AuthZ: API")
     details = [row[-1] for row in _rows(lines)]
     # One row once both aspects ended, naming them in the order their jobs started.
-    assert [detail for detail in details if detail.startswith("Verify: ")] == [
+    assert [detail for detail in details if detail.startswith("Verify: ") and " components done · " in detail] == [
         "Verify: 1/1 components done · API · AuthZ, InputVal · 20s"
     ]
 
@@ -3464,7 +3473,8 @@ def test_a_component_whose_every_job_was_reused_says_so():
     # One part of API ran again, so API as a whole was not reused.
     console.step("Finished verifying component 1/2, part 2/2, AuthZ: API")
     details = [row[-1] for row in _rows(lines)]
-    assert [detail for detail in details if detail.startswith(("Survey: ", "Verify: "))] == [
+    done = [detail for detail in details if " components done · " in detail]
+    assert [detail for detail in done if detail.startswith(("Survey: ", "Verify: "))] == [
         "Survey: 1/2 components done · API · 5s · 3 findings · reused",
         "Survey: 2/2 components done · Web · 5s · 0 findings",
         "Verify: 1/2 components done · Web · AuthZ · 5s · reused",
@@ -3560,12 +3570,12 @@ def test_without_verification_the_threat_analysis_has_no_steps():
     console.close()
     details = [row[-1] for row in _rows(lines)]
     assert details[-1] == "1m00s · 1 component"
-    # The survey still says how it examines the code, without a number when it is the only approach.
+    # The survey still says how it examines the code when it is the only approach.
     assert (
         "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits · 1 component"
         in details
     )
-    assert not any(detail.startswith(("Approach", "Survey done", "Verify")) for detail in details)
+    assert not any(detail.startswith(("Survey done", "Verify")) for detail in details)
 
 
 def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
@@ -3575,7 +3585,7 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     console.step("Surveying component: API (1/1)")
     clock.tick(60)
     console.step("Analyzed component: API")
-    console.step("Merge · 8 survey and 4 scanner findings merged into 9")
+    console.step("Merge · 8 survey findings and 4 scanner hits merged into 9")
     console.step("Building the assessment model")
     console.step("AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey")
     result = "7 of 9 findings in the report · 2 below the severity floor"
@@ -3587,7 +3597,7 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     consolidation = [row[1:] for row in rows if row[0].endswith("Consolidation")]
     assert consolidation[:3] == [
         ("start", ""),
-        ("·", "Merge · 8 survey and 4 scanner findings merged into 9"),
+        ("·", "Merge · 8 survey findings and 4 scanner hits merged into 9"),
         ("·", "AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey"),
     ]
     assert consolidation[-1][0] == "done" and consolidation[-1][1].endswith(f" · {result}")

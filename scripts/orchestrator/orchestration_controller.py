@@ -1855,6 +1855,14 @@ def _assessment_stride(
 
         # Decided before the survey, so the live progress weighs the verification from the start.
         planned = assessment_test_cases.plan_pilot(scope, architecture, scanned, test_cases, progress=progress)
+    # The scanners are no approach of their own: their hits are where the survey and verification start.
+    hits = sum(len(rows) for rows in scanned.values())
+    checks = "deterministic code and configuration checks, no model calls"
+    if hits:
+        starts = "survey and verify" if envelopes is not None and planned["work"] else "the survey"
+        progress(f"Scanners · {_count_noun(hits, 'hit')} from {checks} · starting points for {starts}")
+    else:
+        progress(f"Scanners · no hits from {checks}")
 
     # Completion order, which differs from component order under MR-16.
     import itertools
@@ -2191,8 +2199,8 @@ def _assessment_stride(
         started_at=started_at,
         review_groups=lambda verdict, groups: _assessment_merge_review(jobs, verdict, groups, progress=progress),
     )
-    scanner = sum(len(rows) for rows in scanned.values())
-    progress(f"Merge · {surveyed} survey and {scanner} scanner findings merged into {len(merged['threats'])}")
+    combined = f"{_count_noun(surveyed, 'survey finding')} and {_count_noun(hits, 'scanner hit')}"
+    progress(f"Merge · {combined} merged into {len(merged['threats'])}")
     return documents, reviews, merged
 
 
