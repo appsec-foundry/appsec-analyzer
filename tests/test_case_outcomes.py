@@ -680,6 +680,35 @@ def test_investigation_results_name_the_locations_of_evidenced_controls(catalog)
     assert result["results"][0]["control_locations"] == [{"file": "server.js", "line": 12}]
 
 
+def test_control_locations_stay_valid_when_the_combined_model_qualifies_them(catalog):
+    """A verified control stopped every combined run: qualification added fields the schema refused."""
+    from orchestrator.assessment_workspace import _qualify
+
+    class Names:
+        def split(self, file):
+            return "repo-" + "1" * 16, file
+
+        def sha256(self, repository_id, path):
+            return "a" * 64
+
+    control = {"status": "control", "control_kind": "code"}
+    reply = {"test_cases": [_answer(control, control)], "findings": []}
+    block = {
+        "catalog_version": "1",
+        "results": tcr.investigation_results(
+            reply, "api", precheck={"TC-AUTHZ-01": _PRECHECK}, facts=_FACTS, catalog=catalog
+        )["results"],
+    }
+    validator = _block_validator()
+    assert list(validator.iter_errors(block)) == []
+    qualified = _qualify(block, Names())
+    (spot,) = qualified["results"][0]["control_locations"]
+    assert spot == {"file": "server.js", "line": 12, "repository_id": "repo-" + "1" * 16, "sha256": "a" * 64}
+    assert list(validator.iter_errors(qualified)) == []
+    spot["extra"] = "field"
+    assert list(validator.iter_errors(qualified))
+
+
 def test_build_block_keeps_the_aspects_the_budget_left_incomplete(tmp_path):
     (tmp_path / tcr.PILOT_SIDECAR).write_text(json.dumps({"results": [], "incomplete_aspects": ["AuthZ"]}))
     assert tcr.build_block(tmp_path, [])["incomplete_aspects"] == ["AuthZ"]
