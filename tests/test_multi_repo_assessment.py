@@ -2147,11 +2147,14 @@ def test_job_timing_reaches_the_per_stage_table(tmp_path):
     timing = {
         "stride_analyzer": {"jobs": 2, "reused": 1, "calls": 5, "seconds": 12.5},
         "recon_scanner": {"jobs": 1, "reused": 0, "calls": 1, "seconds": 3.0},
+        "test_case_investigator": {"jobs": 3, "reused": 0, "calls": 4, "seconds": 7.0},
     }
     controller._write_assessment_stage_stats(tmp_path, timing)
     rows = _read_stage_stats(tmp_path)
-    assert [(row["stage"], row["duration_ms"]) for row in rows] == [(2, 3000), (9, 12500)]
+    assert [(row["stage"], row["duration_ms"]) for row in rows] == [(2, 3000), (9, 12500), (9, 7000)]
     assert "1 reused from an earlier run" in rows[1]["name"] and "reused" not in rows[0]["name"]
+    # REQ-040: verification follows the survey as its own step, not as part of the finalization.
+    assert rows[2]["name"].startswith("Verify: ")
     empty = tmp_path / "empty"
     empty.mkdir()
     controller._write_assessment_stage_stats(empty, {})

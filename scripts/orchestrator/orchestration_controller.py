@@ -3456,6 +3456,7 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
         "control_analyst": (8, "Controls"),
         "stride_analyzer": (9, "Survey"),
         "evidence_verifier": (9, "Survey"),
+        "test_case_investigator": (9, "Verify"),
         "threat_merger": (10, "Scan Synthesis"),
         "triage_validator": (10, "Scan Synthesis"),
         "architect_reviewer": (10, "Scan Synthesis"),
