@@ -898,7 +898,12 @@ def test_a_scanner_hit_inside_a_handler_gets_the_guards_of_the_routes_reaching_i
     rid = view.repository_id
     precheck = {case["id"]: [located["routes/order.js"]]}
     listed = pilot._context_candidates(precheck, rid, facts)[0]["candidates"]
-    assert listed[0]["reached_by"] == [{"route_id": checkout, "method": "POST", "path": "/rest/basket/:id/checkout"}]
+    # The context names where the route and the prefix guard before it are registered, whatever room the
+    # preload has left for their source.
+    registered = [{"repository_id": rid, "file": "server.js", "line": line} for line in (5, 6)]
+    assert listed[0]["reached_by"] == [
+        {"route_id": checkout, "method": "POST", "path": "/rest/basket/:id/checkout", "registered_at": registered}
+    ]
     allowed = frozenset((rid, path) for path in files)
     envelope = {"incident": [], "adjacent": [], "allowed": allowed, "job_allowed": allowed}
     architecture = {

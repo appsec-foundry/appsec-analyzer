@@ -50,8 +50,9 @@ _ADAPTATION = (
     "generator at its anchor and handled by library code: judge it by the generator call, the data model it names, "
     "and the registrations for the same path among its handler lines. A candidate's sinks are the lines in its "
     "handler where fixed patterns found the mechanism its test case asks about; they are hints, and other paths "
-    "count as well. A candidate inside a handler lists in reached_by the routes whose handlers reach it; their "
-    "registrations and guards decide it as well. When the context has candidate_jobs, other jobs answer the "
+    "count as well. A candidate inside a handler lists in reached_by the routes whose handlers reach it, each with "
+    "registered_at: the lines where the route and the guards that run before its handler are registered. Read "
+    "them before you judge the candidate; those guards decide it as well. When the context has candidate_jobs, other jobs answer the "
     "rest of the component's candidates: add model candidates only when adds_candidates is true, and never at a "
     "location that answered_elsewhere lists for the same test case."
 )
@@ -525,7 +526,8 @@ def _fixed(case, component_id: str, outcome: str, reason: str) -> dict:
 
 
 def _context_candidates(precheck, rid: str, facts) -> list[dict]:
-    """Candidates per test case as context data: qualified anchors, and each route's method and path."""
+    """Candidates per test case as context data: qualified anchors, each route's method and path, and for a
+    candidate inside a handler the routes that reach it with the lines where they and their guards are registered."""
     listed = []
     for case_id, rows in precheck.items():
         candidates = []
@@ -534,7 +536,7 @@ def _context_candidates(precheck, rid: str, facts) -> list[dict]:
             if "route_id" in row:
                 candidate["route"] = _route(facts, row["route_id"])
             if "reached_by" in row:
-                candidate["reached_by"] = [{"route_id": key, **_route(facts, key)} for key in row["reached_by"]]
+                candidate["reached_by"] = [_reaching_route(facts, rid, key) for key in row["reached_by"]]
             candidates.append(candidate)
         listed.append({"test_case_id": case_id, "candidates": candidates})
     return listed
@@ -565,6 +567,18 @@ def _locations(elsewhere, facts) -> list[dict]:
         }
         for case_id, rows in elsewhere.items()
     ]
+
+
+def _reaching_route(facts, rid: str, route_id: str) -> dict:
+    """A route whose handler reaches a candidate: its method and path, and where it and its guards are registered.
+
+    Locations only, without source: the preload serves the reaching routes' guards only from room the candidates
+    leave, so a job whose room the candidates fill still knows which lines decide the candidate.
+    """
+    route = facts["routes"][route_id]
+    lines = sorted({*route.get("guard_lines", []), route["handler_line"]})
+    registered = [{"repository_id": rid, "file": route["handler_file"], "line": line} for line in lines]
+    return {"route_id": route_id, **_route(facts, route_id), "registered_at": registered}
 
 
 def _route(facts, route_id: str) -> dict:
