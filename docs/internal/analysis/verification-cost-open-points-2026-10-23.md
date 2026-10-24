@@ -20,6 +20,26 @@ One Juice Shop run at standard depth with AuthZ only, a fresh output directory a
 
 The changes alter the survey and verification requests, so the run reuses no earlier accepted job of either. It is prepared as `bash /tmp/verify-cost-run/run.sh` with the profile beside it and writes into `/home/mrohr/appsec-reports/juice-verify-cost-1`.
 
+### Result
+
+The product owner ran it on 2026-10-24 at 288794a7. After its last model call the run stopped at publication: since 1c4d57f4 every run with a verified control broke the output schema, because the combined model qualifies each control location with its repository and hash (fixed in eac6f491, merged in e22b8796). A new start with the fix took all 122 accepted jobs from the cache without a model call and completed without a run issue. The whole run cost USD 12.96; the fourth run with four verified aspects cost USD 21.42 for 137 calls.
+
+| From the host events | Fourth run | This run |
+|---|---|---|
+| Verification calls, USD | 16, 4.45 | 16, 2.57 |
+| Calls that only asked for further source | 4 (baseline run: 6) | 5 |
+| Survey calls, USD | 28, 7.10 | 26, 5.27 |
+| Evidence review calls, USD | 27, 2.62 | 30, 2.02 |
+
+- Verification wrote 404,156 tokens into the cache, read 831,241 and sent 58,827 as plain input: USD 1.21 of input, against the estimate of USD 1.17. Its 135,475 output tokens cost USD 1.35 and are now more than half of its cost.
+- The later Express jobs read 34,932 tokens in their first call, the shared start; a job's later calls read 60,836 to 173,878. The Web3 job started together with the first Express job and read nothing.
+- The whole run still wrote 2.9 million tokens into the cache and read 1.7 million; the survey wrote 1.46 million of them, since its jobs of a component differ in their instructions (order step 4).
+- Both corrections concerned a finding outside the component; none named another job's test case.
+- Of 294 candidates, 226 got the same answer as in the fourth run; between the third and the fourth run it was 237 of 293. On the Express server weakness answers rose from 33 to 39, controls from 85 to 96, and undecidable answers fell from 20 to 6, mostly generated routes whose data model is now preloaded.
+- Verification found 18 findings the survey did not (fourth run 17, third 16). Two authorization findings of the fourth run are missing: order tracking without an owner check (`routes/trackOrder.ts:18`, found by verification in runs 2 to 4) and security answers with a caller-chosen UserId (`server.ts:501`, only in run 4); both were rejected as outside the objective. Such rejections fell from 46 to 38.
+- The survey reported 106 findings against 113; 77 percent of the fourth run's were found again, against 80 percent between the third and the fourth run. Critical and High stayed at 3 and 23 against 3 and 22.
+- The 11 additional control answers were not checked against the code. A wrong one would report a confirmed control and contradict a survey finding.
+
 ## 2. The component context dominates each call
 
 Of each call's 65,000 to 100,000 input tokens, the served source took 26 to 70 KB, roughly 10,000 to 23,000 tokens, and the system prompt about 11,000. The rest, roughly 45,000 to 60,000 tokens, is the component context that the survey job of the same component also receives, together with the candidate list. It is the same for every part of a component and for both calls of a job. These shares are estimates from served byte counts, not measured token counts.
@@ -162,6 +182,6 @@ Another session recommended splitting verification by size instead of by aspect:
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
 2. Rebuild the Express server's verification context offline and size its parts (point 2). Done: the generic path cut is worth more than a cut per aspect.
-3. Measure everything built so far in one run (point 1). Prepared; the product owner starts it.
+3. Measure everything built so far in one run (point 1). Done: verification cost USD 2.57 instead of USD 4.45, with answers within the usual run-to-run spread.
 4. Give the survey jobs of a component the same instructions, so they share their context too (point 3).
 5. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
