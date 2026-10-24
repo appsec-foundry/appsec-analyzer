@@ -624,10 +624,21 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert len(set(host.systems)) == 1 and len({blocks[:2] for blocks in host.blocks}) == 1
     assert all(len(blocks) == 4 for blocks in host.blocks) and host.blocks[0][1].endswith('"aspect": "AuthZ"')
     assert all(said.index(f"Verifying {job}") > said.index(f"Finished verifying {jobs[0]}") for job in jobs[1:])
-    summary = (
-        f"Verify done · AuthZ · {len(_component_rows(model))} results, {len(model['test_case_findings'])} findings"
-    )
-    assert said.index(summary) > max(said.index(f"Finished verifying {job}") for job in jobs)
+    # The survey says what it found before verification starts.
+    (survey,) = [text for text in said if text.startswith("Survey done · ")]
+    assert said.index(survey) < said.index(start) and " · by aspect AuthZ " in survey and " · ≈ USD " in survey
+    # Verification names its cost when it ends, then what each aspect found and cost.
+    (done,) = [text for text in said if text.startswith("Verify done · ")]
+    assert done.startswith("Verify done · AuthZ · ≈ USD ")
+    assert said.index(done) > max(said.index(f"Finished verifying {job}") for job in jobs)
+    found = len(model["test_case_findings"])
+    aspect = said[said.index(done) + 1]
+    assert aspect.startswith(f"AuthZ · {found} finding{'' if found == 1 else 's'}") and " · ≈ USD " in aspect
+    # The merge and the model build say what they kept, and the model build how the methods relate per aspect.
+    (merge,) = [text for text in said if text.startswith("Merge · ")]
+    (kept,) = [text for text in said if text.startswith("Consolidation · ")]
+    assert said.index(done) < said.index(merge) < said.index("Building the assessment model") < said.index(kept)
+    assert " findings after merge, " in kept and said[said.index(kept) + 1].startswith("AuthZ · Verify ")
 
     # Each pre-check candidate is answered in exactly one job; together the jobs answer all of them.
     answered = [cid for _, share in calls.values() for ids in share.values() for cid in ids]

@@ -52,6 +52,8 @@ from shared._source_lex import without_comments
 
 #: Candidates one model call receives; a component and aspect with more get several calls.
 MAX_CANDIDATES = 40
+#: Routes a candidate inside a handler names as reaching it; a helper many routes share names the first.
+MAX_REACHING_ROUTES = 3
 #: Larger files are generated or bundled code, not reviewed source.
 _MAX_FILE_BYTES = 1_000_000
 
@@ -265,6 +267,12 @@ _ROUTE_FACTS = {
     ),
     "route_inventory.reads_data": lambda row: row["method"].upper() == "GET" and row["reads_data"],
 }
+# Besides a database read, what a read route's response can carry: a record the handler creates or
+# saves, and configuration.
+_STORED_OR_CONFIGURED = re.compile(
+    r"\.(?:build|save|create|bulkCreate|upsert)\s*\("
+    r"|\bconfig\s*\.\s*(?:get|has|util)\b|\bprocess\.env\b|\bos\.(?:environ|getenv)\b|\bSystem\.getenv\s*\("
+)
 
 # Code sites a test case can name as ``code_sites.<kind>``, defined with their
 # examples in data/code-sites.yaml.
@@ -352,7 +360,8 @@ def route_facts(
             "handler_read": bool(body),
             "object_access": bool(body) and authz_confirm._object_access(body),
             "ownership_predicate": bool(body) and authz_confirm.has_ownership_predicate(body),
-            "reads_data": bool(body) and bool(_SIGNAL_CODE["database_access"].search(body)),
+            "reads_data": bool(body)
+            and bool(_SIGNAL_CODE["database_access"].search(body) or _STORED_OR_CONFIGURED.search(body)),
             "chain": [list(span) for span in chain],
             # Rules a scanner reports at the registration, such as authz_confirm's AUTHZ-301/302.
             "scanner_rules": sorted(rules_at.get((row["handler_file"], row["handler_line"]), ())),
@@ -402,7 +411,9 @@ def starting_candidates(
 
     Each candidate is ``{candidate_id, origin: "pre-check", anchor: {file, line}}``
     with ``route_id`` for a route registration and ``rule_ids`` for the
-    starting rules a scanner reported there. Scanner hits come first, then
+    starting rules a scanner reported there. A scanner hit inside a handler
+    lists in ``reached_by`` the routes whose resolved handler reaches it, at
+    most ``MAX_REACHING_ROUTES``, since their guards decide it. Scanner hits come first, then
     routes the inventory flags, then the other routes; ``overflow`` counts the
     candidates beyond ``cap``, without a cap none.
     """
@@ -464,10 +475,18 @@ def starting_candidates(
         anchor = (hit["file"], hit["line"])
         if anchor not in located:
             route_id = registered.get(anchor)
+            reaching = [
+                key
+                for key in component["route_ids"]
+                if any(
+                    file == anchor[0] and first <= anchor[1] <= last
+                    for file, first, last in facts["routes"][key]["chain"]
+                )
+            ][:MAX_REACHING_ROUTES]
             located[anchor] = (
                 _route_entry(route_id, facts)
                 if route_id
-                else {"key": ["location", *anchor], "flagged": False, "rule_ids": set()}
+                else {"key": ["location", *anchor], "flagged": False, "rule_ids": set(), "reached_by": reaching}
             )
         located[anchor]["rule_ids"].add(hit["rule_id"])
     ordered = sorted(located.items(), key=lambda item: (not item[1]["rule_ids"], not item[1]["flagged"], item[0]))
@@ -484,6 +503,8 @@ def starting_candidates(
             candidate["rule_ids"] = sorted(entry["rule_ids"])
         if entry.get("sinks"):
             candidate["sinks"] = [{"file": file, "line": line} for file, line in sorted(entry["sinks"])]
+        if entry.get("reached_by"):
+            candidate["reached_by"] = entry["reached_by"]
         candidates.append(candidate)
     return {"candidates": candidates, "overflow": len(ordered) - len(candidates)}
 

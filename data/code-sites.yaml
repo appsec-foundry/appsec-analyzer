@@ -133,6 +133,26 @@ kinds:
   ignores:
   - '  email: {'
   - 'const password = req.body.password'
+- kind: client_storage
+  description: browser code keeps a credential in storage that scripts can read
+  patterns:
+  - '\b(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*[''"`](?i:[\w.\-]{0,40}?(?:token|jwt|auth|session|passw|secret|credential|api_?key|bearer))'
+  - '\b(?:localStorage|sessionStorage)\s*(?:\[\s*[''"`]|\.\s*)(?i:[\w.\-]{0,40}?(?:token|jwt|auth|session|passw|secret|credential|api_?key|bearer))[\w.\-]*(?:[''"`]\s*\])?\s*=(?!=)'
+  - '\b(?:cookieService|Cookies)\s*\.\s*(?:put|set)\w*\s*\(\s*[''"`](?i:[\w.\-]{0,40}?(?:token|jwt|auth|session|passw|secret|credential|api_?key|bearer))'
+  - '\bdocument\.cookie\s*=\s*[''"`](?i:[\w.\-]{0,40}?(?:token|jwt|auth|session|passw|secret|credential|api_?key|bearer))'
+  matches:
+  - "localStorage.setItem('token', authentication.token)"
+  - "sessionStorage.setItem('refresh_token', data.refreshToken)"
+  - "localStorage['authToken'] = token"
+  - "this.cookieService.put('token', authentication.token, { expires })"
+  - "Cookies.set('jwt', token)"
+  - "document.cookie = 'session=' + id"
+  ignores:
+  - "sessionStorage.setItem('bid', authentication.bid)"
+  - "this.cookieService.put('language', langKey, { expires })"
+  - "const token = localStorage.getItem('token')"
+  - "if (localStorage.token === stored) {"
+  - "res.cookie('token', token, { httpOnly: true })"
 - kind: outbound_request
   description: an outbound call goes to a destination the request chooses
   source: egress_clients

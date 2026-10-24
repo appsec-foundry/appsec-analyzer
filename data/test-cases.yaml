@@ -255,7 +255,7 @@ test_cases:
     facts:
     - route_inventory.missing_authz_suspect
     - route_inventory.authn_signal
-  guidance: Start with the candidates. Also check other entry points of the component that reach the same data, such as WebSocket handlers, GraphQL resolvers, jobs, or exports. Consider compensating controls such as ORM scopes, policies, or row-level security that the repository enforces. Reject candidates that are public by design, with evidence. Routes that accept a request body are candidates as well, because the body can carry the object identifier, as in an update that takes the ID from the body. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
+  guidance: Start with the candidates. Also check other entry points of the component that reach the same data, such as WebSocket handlers, GraphQL resolvers, jobs, or exports. Consider compensating controls such as ORM scopes, policies, or row-level security that the repository enforces. A control must bind every lookup of user-owned data that the handler makes for the request; binding one query does not protect another. A lookup by a transformed or non-unique attribute of the caller, such as a masked or truncated e-mail address or a display name, does not bind the object to the caller. Reject candidates that are public by design, with evidence. Routes that accept a request body are candidates as well, because the body can carry the object identifier, as in an update that takes the ID from the body. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
   scope: component
   controls:
   - Object-Level Authorization
@@ -741,7 +741,7 @@ test_cases:
     rules: []
     facts:
     - route_inventory.reads_data
-  guidance: Check handlers that serialize whole database records, expose password hashes or tokens, or return internal fields to non-owners. The candidates are read routes whose handlers read stored data; examine other responses too.
+  guidance: Check handlers that serialize whole database records, expose password hashes or tokens, or return internal fields to non-owners. The candidates are read routes whose handlers read or save stored data or read configuration; examine other responses too.
   scope: component
   controls:
   - Input Schema Validation
@@ -773,6 +773,7 @@ test_cases:
     - MOBILE-RN-001
     facts:
     - code_sites.sensitive_field
+    - code_sites.client_storage
   guidance: Check databases, files, volumes, and client-side storage. Encryption outside the examined sources is not evidence. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:

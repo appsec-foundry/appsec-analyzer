@@ -672,6 +672,54 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
     assert all("verification_contradicted" not in threat for threat in threats[1:])
 
 
+def test_the_consolidation_counts_each_aspect_as_the_report_links_the_methods(catalog):
+    from orchestrator import assessment_test_cases
+
+    threats = [
+        _survey("T-001", "CWE-639", "routes/basket.ts", 19),
+        _survey("T-002", "CWE-639", "routes/payment.ts", 30),
+        _survey("T-003", "CWE-862", "routes/wallet.ts", 12),
+        # A scanner finding and a survey finding of another aspect count for no AuthZ line.
+        _survey("T-004", "CWE-639", "routes/order.ts", 35, source="source-scan"),
+        _survey("T-005", "CWE-89", "routes/search.ts", 23),
+    ]
+    findings = [
+        {**_verified("TCF-001", "CWE-639", "routes/basket.ts", 19), "aspect": "AuthZ"},
+        {**_verified("TCF-002", "CWE-639", "routes/order.ts", 50), "aspect": "AuthZ"},
+        {**_verified("TCF-003", "CWE-89", "routes/search.ts", 23, case="TC-INPUT-01"), "aspect": "InputVal"},
+    ]
+    results = [{"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 30}]}]
+    tcr.combine_methods(threats, findings, results, catalog)
+    assert assessment_test_cases.method_lines(threats, findings, ["AuthZ", "DataProt"], catalog) == [
+        "AuthZ · Verify 2 findings, 1 not found by the survey · Survey 3 findings, 2 not found by Verify"
+        " · 1 contradicted by a verified control",
+        "DataProt · Verify 0 findings, 0 not found by the survey · Survey 0 findings, 0 not found by Verify",
+    ]
+
+
+def test_the_survey_line_counts_what_the_evidence_review_kept_per_verified_aspect(catalog):
+    from orchestrator import assessment_test_cases
+
+    # Local IDs repeat across components: each component's review decides its own findings.
+    documents = [
+        {"threats": [{"local_id": "a", "cwe": "CWE-639"}, {"local_id": "b", "cwe": "CWE-200"}, {"local_id": "c"}]},
+        {"threats": [{"local_id": "a", "cwe": "CWE-862"}, {"local_id": "b", "cwe": "CWE-639"}]},
+    ]
+    reviews = [
+        {"decisions": [{"local_id": "a", "verdict": "verified"}, {"local_id": "b", "verdict": "ambiguous"}]},
+        {"decisions": [{"local_id": "a", "verdict": "verified"}, {"local_id": "b", "verdict": "refuted"}]},
+    ]
+    reviews[0]["decisions"].append({"local_id": "c", "verdict": "verified"})
+    line = assessment_test_cases.survey_line(documents, reviews, ["AuthZ", "DataProt"], catalog, 7.274)
+    assert (
+        line
+        == "Survey done · 4 findings and 1 refuted by the evidence review · by aspect AuthZ 2, DataProt 1 · ≈ USD 7.27"
+    )
+    # Without refuted findings or monetary accounting the line names neither.
+    line = assessment_test_cases.survey_line(documents[:1], reviews[:1], ["AuthZ"], catalog, None)
+    assert line == "Survey done · 3 findings · by aspect AuthZ 1"
+
+
 def test_investigation_results_name_the_locations_of_evidenced_controls(catalog):
     control = {"status": "control", "control_kind": "code"}
     reply = {"test_cases": [_answer(control, control)], "findings": []}
