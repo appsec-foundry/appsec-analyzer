@@ -454,6 +454,8 @@ Offline count with the components, route inventory, and scanner findings of `jui
 
 Open: the existing kind `sensitive_field` uses `^\s*` in a multiline pattern, which backtracks quadratically over a run of blank lines in a file that defines data models: 8,000 blank lines take about 5 seconds. The new kind `password_field` uses `^[ \t]*` and stays linear; a test checks the four new kinds on hostile input. SessionMgmt still has no starting points, and the catalog has no OAuth or OIDC item.
 
+Changed after the third measuring run, decided by the product owner on 2026-10-24: TC-AUTHN-01 moved to the aspect `AuthNRoutes`, `AuthN` gained items for SSO and OAuth sign-in and for insecure methods (TC-AUTHN-06, 07, catalog version 6), standard depth verifies `AuthN` with AuthZ, InputVal, DataProt and AI, and thorough depth adds `AuthNRoutes`. The reasons and figures are in point 10 of [the open points](verification-cost-open-points-2026-10-23.md).
+
 ## After the first run: decide with real results
 
 | Item | Becomes necessary when |
