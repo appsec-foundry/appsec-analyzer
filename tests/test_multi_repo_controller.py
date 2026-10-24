@@ -91,7 +91,14 @@ class Host:
             allowed = [(p["repository_id"], p["path"]) for c in ctx["components"] for p in c["paths"]]
         else:
             components = ctx.get("components", [ctx.get("component")])
-            allowed = [(p["repository_id"], p["path"]) for c in components if c for p in c["paths"]]
+            allowed = [(p["repository_id"], p["path"]) for c in components if c for p in c.get("paths", [])]
+            # A survey context names its component's paths only by owner in readable_sources.
+            own = (ctx.get("component") or {}).get("id")
+            allowed += [
+                (repository, path)
+                for repository, owners in ctx.get("readable_sources", {}).items()
+                for path in owners.get(own, [])
+            ]
             allowed += [(f["evidence"]["repository_id"], f["evidence"]["file"]) for f in ctx.get("findings", [])]
         if not slices:
             targets = ctx.get("investigation_targets", ctx.get("findings", []))
@@ -1896,10 +1903,15 @@ def test_control_and_stride_contexts_omit_path_hashes_and_controls_answer_in_one
     model_components = [
         component
         for role, ctx in host.calls
-        if role in ("control_analyst", "stride_analyzer", "evidence_verifier")
+        if role in ("control_analyst", "evidence_verifier")
         for component in [ctx["component"], *ctx.get("incident_components", [])]
     ]
     assert model_components and all("sha256" not in row for c in model_components for row in c["paths"])
+    # The survey lists each path once, by owner, in readable_sources instead.
+    surveyed = [ctx for role, ctx in host.calls if role == "stride_analyzer"]
+    assert surveyed and not any(
+        "paths" in c for ctx in surveyed for c in [ctx["component"], *ctx["incident_components"]]
+    )
     # Acceptance still sees the full inventory: the controller's own components keep their hashes.
     assert all(row["sha256"] for c in architecture["components"]["components"] for row in c["paths"])
 

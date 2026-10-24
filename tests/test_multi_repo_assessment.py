@@ -1103,11 +1103,15 @@ def test_stride_job_receives_the_evidence_tier_definition_and_exact_source_selec
     def execute(jobs, **kwargs):
         if kwargs["role"] == "stride_analyzer":
             selections.append(kwargs["allowed_sources"])
-            readable = kwargs["context"]["readable_sources"]
-            assert (
-                frozenset((rid, path) for rid, paths in readable.items() for path in paths) == kwargs["allowed_sources"]
-            )
-            assert sum(map(len, readable.values())) == len(kwargs["allowed_sources"])
+            context = kwargs["context"]
+            readable = context["readable_sources"]
+            pairs = [(rid, path) for rid, owners in readable.items() for paths in owners.values() for path in paths]
+            # Exactly the job's permitted sources, each once, grouped by a listed owner or `other`.
+            assert frozenset(pairs) == kwargs["allowed_sources"]
+            assert len(pairs) == len(kwargs["allowed_sources"])
+            listed = {row["id"] for row in [context["component"], *context["incident_components"]]}
+            assert {owner for owners in readable.values() for owner in owners} <= listed | {"other"}
+            assert not any("paths" in row for row in [context["component"], *context["incident_components"]])
         return real_execute(jobs, **kwargs)
 
     def invoke(role, system, prompt, schema, timeout_s, should_stop):

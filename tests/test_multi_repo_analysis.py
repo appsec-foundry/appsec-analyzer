@@ -2080,6 +2080,33 @@ def test_model_components_drop_only_the_path_hashes(tmp_path):
     )
 
 
+def test_owned_sources_list_each_readable_path_once_under_its_owner():
+    components = [
+        dict(
+            id="component-a",
+            name="API",
+            paths=[
+                dict(repository_id="repo-1", path="api/b.ts", sha256="1" * 64),
+                dict(repository_id="repo-1", path="api/a.ts", sha256="2" * 64),
+            ],
+        ),
+        dict(id="component-b", name="Web", paths=[dict(repository_id="repo-2", path="web/main.ts", sha256="3" * 64)]),
+    ]
+    original = copy.deepcopy(components)
+    readable = {("repo-1", "api/a.ts"), ("repo-1", "api/b.ts"), ("repo-1", "lib/shared.ts"), ("repo-2", "web/main.ts")}
+    assert stage.owned_sources(components, readable) == {
+        "repo-1": {"component-a": ["api/a.ts", "api/b.ts"], stage.OTHER_SOURCES: ["lib/shared.ts"]},
+        "repo-2": {"component-b": ["web/main.ts"]},
+    }
+    # Only readable sources are listed: a component's path outside them is not added.
+    assert stage.owned_sources(components, {("repo-1", "api/a.ts")}) == {"repo-1": {"component-a": ["api/a.ts"]}}
+    assert stage.listed_components(components) == [
+        dict(id="component-a", name="API"),
+        dict(id="component-b", name="Web"),
+    ]
+    assert components == original
+
+
 @pytest.mark.parametrize("line,problem", [(2, "blank"), (3, "comment")])
 def test_a_non_executable_finding_anchor_is_named_for_an_anchor_only_correction(tmp_path, line, problem):
     from runtime.assessment_host import Rejection
