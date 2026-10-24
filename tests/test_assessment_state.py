@@ -1089,6 +1089,8 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
     assert f"An unfinished assessment is stored in {scope.output}" in shown
     assert "Interrupted, started" in shown and "Spent so far: USD 0.00." in shown
     assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
+    # Reused steps are charged to the new run, so the default says so.
+    assert "their cost counts toward the new limit" in shown
 
 
 def test_the_question_omits_a_resume_that_cannot_succeed(scope):

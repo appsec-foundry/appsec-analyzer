@@ -196,6 +196,17 @@ class AssessmentBudget(DiscoveryBudget):
         allowance = 0.0 if self.subscription else (max(0.05, COST_HEADROOM * cost / jobs) if cost else self.call_usd)
         return allowance, 2 * seconds if seconds else MAX_CALL_SECONDS
 
+    def _optional_usd(self, role):
+        """What an optional job of ``role`` must find above the reserves before it starts."""
+        if self.observed.get(role, (0.0, 0, 0.0))[0]:
+            return self._estimate(role)[0]
+        # A cold optional role is expected to cost what this run's accepted
+        # jobs cost on average, so the money above the reserves is not held
+        # back for a full call allowance. Reserves keep the full allowance.
+        cost = sum(usd for usd, _jobs, _seconds in self.observed.values())
+        jobs = sum(count for _usd, count, _seconds in self.observed.values())
+        return min(self.call_usd, max(0.05, COST_HEADROOM * cost / jobs)) if cost else self.call_usd
+
     def _reserve(self):
         group, _role, optional = getattr(self._local, "job", (None, None, False))
         dollars, serial, parallel = 0.0, 0.0, 0.0
@@ -230,7 +241,7 @@ class AssessmentBudget(DiscoveryBudget):
         # the summary even below a full estimated job. Admission still caps
         # every exchange at the actual remainder and enforces time/call limits.
         finishing_summary = group == SUMMARY_JOB and role == "ms_renderer" and REPORT_JOB not in self.required
-        if optional and not finishing_summary and available + 1e-9 < self._estimate(role)[0]:
+        if optional and not finishing_summary and available + 1e-9 < self._optional_usd(role):
             return 0.0
         return available
 

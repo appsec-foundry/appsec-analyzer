@@ -129,6 +129,20 @@ appsec-analyzer assess --repo /path/to/project --profile release --assessment-de
 
 Explicit CLI values take precedence over scan defaults. `--outputs` replaces the profile's export list. Existing flags such as `--pdf` and `--sarif` add their format to that selection. The chosen scan profile controls exports even when an organization profile also supplies export defaults. Other organization settings continue to apply.
 
+### Use your profile by default
+
+Save a scan profile as `~/.config/appsec-analyzer/profiles/default.yaml` to use it for `assess` and `preflight` without `--profile`. This example keeps the Claude CLI and raises the budget of thorough runs:
+
+```yaml
+schema_version: 1
+model_profile: claude
+depths:
+  thorough:
+    budget: 40
+```
+
+The run header names the profile and its file. `--profile`, `--host`, a model prefix such as `lite claude`, and the launcher of an [organization distribution](organization-distributions.md) take precedence. With `--non-interactive`, `assess` still requires an explicit profile, so automation shows its profile and spending limit in the command. An invalid or unsafe `default.yaml` stops the command; Analyzer does not fall back to `claude`.
+
 ### What each depth does
 
 Each assessment depth has default settings, which Analyzer ships in [data/assessment-depths.yaml](../data/assessment-depths.yaml):
@@ -140,7 +154,7 @@ Each assessment depth has default settings, which Analyzer ships in [data/assess
 | `derived_abuse_cases` | 0 | 0 | 3 | Business abuse cases the model may add from the application's own rules, at most 6. |
 | `architect_review` | false | false | true | A second model call reviews the findings. |
 | `actor_discovery` | false | true | true | The assessment identifies the users and systems that interact with the application. |
-| `budget` | 10 | 20 | 40 | USD of a run started through the Claude Code assessment dialogue without a budget. |
+| `budget` | 10 | 20 | 40 | USD of a run started through the Claude Code assessment dialogue without a budget. `assess` uses a depth budget only when your scan profile sets it. |
 
 Each verified aspect, abuse case, and the architect review add model calls. Which model each step uses is set in the model profiles; technical limits, such as how often a model may read more code before it answers, are not settings.
 
@@ -161,6 +175,8 @@ skip_abuse_cases: [AC-T-004]
 `check_abuse_cases` lists abuse cases that every run checks, within the limit of 16 requested cases per run, and `skip_abuse_cases` those that no run checks; a skipped case appears in the report as not performed with the reason. A case cannot be on both lists. A shipped `AC-T-` or `AC-B-` ID that does not exist is refused before the first model call; an organization or repository case that is not active is skipped with a warning when the cases are matched. `--architect-review`, `--no-architect-review`, `--abuse-cases`, `--no-abuse-cases`, `--only-abuse-case`, and an explicit `--hard-budget` win over the depth settings. `profiles show` lists the resulting `depth_settings` of the selected depth and where each value came from.
 
 An [organization profile](org-profiles.md) can set its own defaults under the same `depths` key, which a team's scan profile can still change. The order is the shipped file, the organization profile, the scan profile, and the command line.
+
+For `assess` without `--budget`, a `budget` that the scan profile sets under `depths` applies to that depth, and other depths keep the profile's `budget`. The shipped and organization depth budgets apply only to the Claude Code assessment dialogue. `codex-cli` and `copilot-cli` use call limits instead of a USD budget.
 
 ### Verification settings
 

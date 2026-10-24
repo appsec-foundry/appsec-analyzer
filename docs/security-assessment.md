@@ -120,6 +120,8 @@ Interrupted runs retain accepted steps. `--resume` requires compatible source,
 settings, and limits; `--rebuild` discards earlier model work. A source change
 may require a fresh assessment. Without either flag, a new
 scan reuses compatible accepted steps of an unfinished run in the same output.
+What the reused steps cost counts toward the new run's spending or call limit,
+so a higher limit for the new run must cover them too.
 In an interactive terminal it first asks whether to continue that run, start
 such a new scan (the default for Enter or end of input), or rebuild; continuing
 is offered only while the run's limits, deadline, and accounting allow it.
