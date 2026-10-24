@@ -292,7 +292,47 @@ def combine_investigations(parts: list[dict]) -> dict:
                 combined["test_cases"].append(case)
     for case_id, case in cases.items():
         case["proposed_outcome"] = _combined_proposal(proposals[case_id])
+    _fold_duplicate_findings(combined)
     return combined
+
+
+def _fold_duplicate_findings(combined: dict) -> None:
+    """Report a weakness that several jobs found once, by the survey merge's identity: file, line, CWE family.
+
+    One location can reach two jobs, for example as its route's candidate in one and inside a handler another
+    job's route reaches in the other. As in the merge, the riskier finding stays, with the candidates and test
+    cases of both; the candidates that named the other one name it instead. Neighbouring lines stay apart.
+    """
+    from model.merge_threats import _evidence_identity_key, _risk_rank
+
+    kept: dict[tuple, dict] = {}
+    alias: dict[str, str] = {}
+    for finding in combined["findings"]:
+        evidence = finding.get("evidence")
+        evidence = evidence[0] if isinstance(evidence, list) and evidence else evidence
+        key = _evidence_identity_key({"evidence": evidence or {}, "cwe": finding.get("cwe")})
+        first = kept.get(key) if key is not None else None
+        if first is None:
+            if key is not None:
+                kept[key] = finding
+            continue
+        stays, goes = (
+            (finding, first) if _risk_rank(finding.get("risk")) < _risk_rank(first.get("risk")) else (first, finding)
+        )
+        for field in ("candidate_ids", "test_case_ids"):
+            stays[field] = list(dict.fromkeys([*first[field], *finding[field]]))
+        # A finding folded earlier into the one that goes now follows it.
+        for old, new in list(alias.items()):
+            if new == goes["local_id"]:
+                alias[old] = stays["local_id"]
+        alias[goes["local_id"]] = stays["local_id"]
+        kept[key] = stays
+    if not alias:
+        return
+    combined["findings"] = [finding for finding in combined["findings"] if finding["local_id"] not in alias]
+    for case in combined["test_cases"]:
+        for row in case["candidates"]:
+            row["finding_ids"] = list(dict.fromkeys(alias.get(value, value) for value in row["finding_ids"]))
 
 
 def _combined_proposal(outcomes: list[str]) -> str:

@@ -420,13 +420,13 @@ def test_combined_jobs_keep_their_answers_and_get_unique_finding_ids(job):
                     candidate_id=other,
                     origin="pre-check",
                     status="weakness",
-                    evidence=[job["at"]("server.js", 9)],
+                    evidence=[job["at"]("server.js", 4)],
                     finding_ids=["api-001"],
                 )
             ],
         )
     ]
-    second["findings"] = [finding(job["at"], candidate_ids=[other])]
+    second["findings"] = [finding(job["at"], candidate_ids=[other], evidence=job["at"]("server.js", 4))]
     combined = ca.combine_investigations([first, second])
     assert [case["test_case_id"] for case in combined["test_cases"]] == ["TC-AUTHZ-01", "TC-AUTHZ-02"]
     owner = combined["test_cases"][0]
@@ -440,6 +440,43 @@ def test_combined_jobs_keep_their_answers_and_get_unique_finding_ids(job):
     # The replies stay unchanged, and a single reply passes through.
     assert first["findings"][0]["local_id"] == second["findings"][0]["local_id"] == "api-001"
     assert ca.combine_investigations([first]) is first
+
+
+def test_a_weakness_two_jobs_found_at_one_line_is_reported_once(job):
+    """One location reaches two jobs, as its route's candidate and inside a handler another job's route reaches."""
+    first, second, third = reply(job), reply(job), reply(job)
+    other, near = "pc-" + "b" * 16, "pc-" + "d" * 16
+    for part, candidate, line in ((second, other, 9), (third, near, 10)):
+        part["test_cases"] = [
+            dict(
+                test_case_id="TC-AUTHZ-02",
+                proposed_outcome="finding",
+                reason="Another job.",
+                candidates=[
+                    dict(
+                        candidate_id=candidate,
+                        origin="pre-check",
+                        status="weakness",
+                        evidence=[job["at"]("server.js", line)],
+                        finding_ids=["api-001"],
+                    )
+                ],
+            )
+        ]
+    # The same line and CWE family in the second job, rated higher; the third job's finding is on the next line.
+    second["findings"] = [
+        finding(job["at"], candidate_ids=[other], test_case_ids=["TC-AUTHZ-02"], cwe="CWE-862", risk="Critical")
+    ]
+    third["findings"] = [
+        finding(job["at"], candidate_ids=[near], test_case_ids=["TC-AUTHZ-02"], evidence=job["at"]("server.js", 10))
+    ]
+    combined = ca.combine_investigations([first, second, third])
+    kept, neighbour = combined["findings"]
+    # The riskier finding stays with the candidates and test cases of both; the neighbouring line stays apart.
+    assert kept["risk"] == "Critical" and kept["candidate_ids"] == ["m-1", other]
+    assert kept["test_case_ids"] == ["TC-AUTHZ-01", "TC-AUTHZ-02"] and neighbour["candidate_ids"] == [near]
+    linked = {row["candidate_id"]: row["finding_ids"] for case in combined["test_cases"] for row in case["candidates"]}
+    assert linked["m-1"] == linked[other] == [kept["local_id"]] and linked[near] == [neighbour["local_id"]]
 
 
 @pytest.mark.parametrize(
