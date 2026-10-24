@@ -15,8 +15,10 @@
 #                        a budget
 #
 # The verified aspects follow the four Juice Shop pilot runs of 2026-10-22 and 2026-10-23
-# (docs/internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md). The other
-# values are the behavior of each depth before this file existed.
+# (docs/internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md) and the third
+# measuring run of 2026-10-24 (point 10 of
+# docs/internal/analysis/verification-cost-open-points-2026-10-23.md). The other values are the
+# behavior of each depth before this file existed.
 schema_version: 1
 depths:
   quick:
@@ -27,14 +29,14 @@ depths:
     actor_discovery: false
     budget: 10
   standard:
-    verify: [AuthZ]
+    verify: [AuthZ, InputVal, DataProt, AI]
     abuse_cases: 3
     derived_abuse_cases: 0
     architect_review: false
     actor_discovery: true
     budget: 20
   thorough:
-    verify: [AuthZ, InputVal, DataProt, AI]
+    verify: [AuthN, AuthZ, InputVal, DataProt, AI]
     abuse_cases: 8
     derived_abuse_cases: 3
     architect_review: true
