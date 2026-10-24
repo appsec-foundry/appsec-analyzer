@@ -24,6 +24,10 @@ Changes that leave every user outcome as it is need no new requirement. Examples
 4. Add the approved requirement to requirements.md with its acceptance section, binding, and proposal, as described above. Record the raised risks and the user's decisions in the proposal.
 5. Implement the feature only if the user asked for that. If the approved requirement cannot be met as written, propose a revision instead of deviating silently.
 
+## Choose the branch before editing
+
+Before the first edit to a tracked file for a change, ask the user whether to create a feature branch from `main` or to work directly on `main`, and wait for the answer. Recommend one option with a short reason, for example a branch for a feature implemented over several steps and `main` for a self-contained change of a few files. If the request already names the branch, use it without asking. The answer applies to that change only; ask again for the next change. Create a feature branch in a separate git worktree, because other sessions may use the shared checkout at the same time. The branch choice does not authorize commits, merges, or pushes.
+
 ## Architecture and change boundaries
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing module ownership or dependencies, and keep it aligned with structural changes. Read the [decision register](docs/internal/decisions.md) before changing a long-lived, cross-cutting technical choice, and follow its rules for adding, changing, or retiring entries. The application package owns the public CLI, application workflows, and shared services; the retained engine under `scripts/` owns assessment execution. Use the architecture document for module ownership and the linked contracts for execution rules. Only explicitly packaged resources are available after installation.
