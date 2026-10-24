@@ -6,16 +6,19 @@ Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4.
 
 Authorization verification ran 9 jobs with 16 calls for USD 4.28: 7 jobs for the Express server, one each for the Web3 surface and the authentication surface. 6 of the 16 calls only asked for 2 to 4 further source slices, at USD 1.34 together. Each call sent 65,000 to 100,000 input tokens, of which about 11,000 came from the prompt cache, and returned 1,000 to 20,000 tokens.
 
-## 1. Measure the two fixes in one run
+## 1. Measure the fixes in one run
 
-One Juice Shop run at standard depth, with a fresh output directory and a budget of about USD 25, should show:
+One Juice Shop run at standard depth with AuthZ only, a fresh output directory and a budget of USD 25 measures the preload fix, the progress per component, the path cut of point 2 and the caching of point 3 together. It should show:
 
 - how many authorization verification calls run, and how many of them only ask for further source (before: 16 and 6);
-- what verification costs (before USD 4.28; expected about USD 3);
+- what verification costs (before USD 4.28; expected about USD 2 to 2.5);
+- what the survey costs, which the path cut and the own cache markers change as well (fourth run: 28 calls, USD 7.10);
+- in the host events, cache reads in every AuthZ verification call after the first: the instructions and preamble, about 13,000 tokens, plus a component's shared context in its later jobs, and a job's context and preload in its later calls; in no call of any role a cache write of its varying rest;
+- no more rejections that name a test case of another job than before, since all jobs of a component now get the catalog text of all its test cases;
 - no fewer weakness answers and no more undecidable candidates than before (42 weakness answers on the Express server);
 - one console row per verified component instead of one per job.
 
-The added middleware spans change the survey requests, so the run cannot reuse earlier accepted survey jobs.
+The changes alter the survey and verification requests, so the run reuses no earlier accepted job of either. It is prepared as `bash /tmp/verify-cost-run/run.sh` with the profile beside it and writes into `/home/mrohr/appsec-reports/juice-verify-cost-1`.
 
 ## 2. The component context dominates each call
 
@@ -124,9 +127,13 @@ The stand-in cannot show whether the API accepts the four markers with the subsc
 
 The second call of each pair read the 9,478 tokens up to the own marker (tools, system prompt, shared block), so the marker works across separate `claude -p` processes. With the CLI's caching on, each call also wrote its varying rest at the write price; with it off, the rest was billed as plain input and nothing after the own marker was written. The shared block came out at about 9,000 tokens instead of the planned 5,000, which does not change the result.
 
-### Recommendation
+### Built
 
-Build option 2: stream-json input with own markers and `DISABLE_PROMPT_CACHING=1`, first for verification, then for every role. Give all parts of a component the same instructions and start the first part alone. Check the cache read counts in the measuring run of point 1.
+Option 2 is merged in d9ee6490. a26ac7b5 gives every exchange prompt its blocks and sends them from the assessment's CLI host as stream-json with own markers and `DISABLE_PROMPT_CACHING=1`, for every role. c7384e4d gives all verification jobs of a component and aspect the catalog text of all their test cases, marks the component's context and the aspect as shared, runs the first job of every component and aspect before all later ones, and starts a later job once its first has ended.
+
+Rebuilt offline the same way as in point 2, all 9 AuthZ jobs of the fourth run's three components get the same 17,001 bytes of instructions, and the 7 Express jobs share a block of 53,720 bytes after the 704-byte preamble. For the fourth run's call pattern of 16 AuthZ calls, the estimated input cost falls from about USD 2.49 after the path cut to about USD 1.17. The estimate assumes 2.3 bytes per token, 8,000 tokens of further reads per later call and no additional corrections; the output, USD 1.32 in that run, stays.
+
+The survey jobs of a component still differ in their instructions ("This is job 2 of 5"), so they share only the instructions entry with other components and reuse their own context within a job. Giving them the same instructions is the next caching step after the measuring run.
 
 ## 4. Larger verification jobs
 
@@ -155,5 +162,6 @@ Another session recommended splitting verification by size instead of by aspect:
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
 2. Rebuild the Express server's verification context offline and size its parts (point 2). Done: the generic path cut is worth more than a cut per aspect.
-3. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
-4. Measure everything built so far in one run (point 1).
+3. Measure everything built so far in one run (point 1). Prepared; the product owner starts it.
+4. Give the survey jobs of a component the same instructions, so they share their context too (point 3).
+5. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
