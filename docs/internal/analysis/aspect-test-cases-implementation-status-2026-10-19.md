@@ -1,6 +1,13 @@
 # Aspect test cases: implementation status
 
-Status: working document for REQ-040, written 2026-10-19. It records what the implementation branch contains, what is still missing, and the decisions made on the way, so that later sessions can continue. The design and its open questions are in the [proposal](aspect-test-cases-proposal-2026-10-19.md). Nothing here is released, pushed, or measured with a live model.
+Status: working document for REQ-040, written 2026-10-19 and last updated 2026-10-24. It records what the implementation contains, what is still missing, and the decisions made on the way, so that later sessions can continue. The design and its open questions are in the [proposal](aspect-test-cases-proposal-2026-10-19.md). The sections after the current state are dated records; where a later decision replaced one, it says so.
+
+## Current state (2026-10-24)
+
+- The work is on `main`. The branch `feat/aspect-test-cases` was merged in b6bf523c, and everything after it was built on `main`. Nothing is released.
+- Verification investigates the aspects AuthN, AuthNRoutes, AuthZ, InputVal, DataProt, and AI. SessionMgmt is accepted but has no starting points. The catalog is at version 6.
+- Shipped defaults in `data/assessment-depths.yaml`: quick runs the survey only, standard verifies AuthN, AuthZ, InputVal, DataProt, and AI, and thorough adds AuthNRoutes. The product owner chose them on 2026-10-24 from the third measuring run.
+- The four pilot runs are recorded below. The cost work since 2026-10-23, its three measuring runs, and the next steps are in [the open points](verification-cost-open-points-2026-10-23.md).
 
 ## Target picture
 
@@ -16,7 +23,7 @@ Starting points follow what made AuthZ work: the complete list of entry points a
 
 ## Where the work is
 
-The implementation lives on the branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc. It is pushed up to 22c65a4c; later commits are local only, and nothing is merged. Create a worktree to continue: `git worktree add <path> feat/aspect-test-cases`. Commit documentation and requirement changes on `main`, and the implementation on this one branch.
+The implementation was built on the branch `feat/aspect-test-cases`, derived from `main` at 356f0cfc, and merged into `main` in b6bf523c; later work is on `main`. The table lists the branch's commits up to 612811f1.
 
 | Commit | Content |
 | --- | --- |
@@ -42,8 +49,8 @@ The implementation lives on the branch `feat/aspect-test-cases`, derived from `m
 ## What works today
 
 - With `test_cases: true` in a scan profile, a run links scanner findings to test cases, records an outcome for each of the nine rules test cases, and shows them in the YAML, the report appendix, the completion summary, and SARIF. This makes no additional model calls.
-- With `test_cases: {aspects: [AuthZ]}`, the run also investigates the AuthZ test cases per component with the model, records one row per test case and component, and lists the investigation's findings apart from the threats. This is tested offline with a fake host only.
-- Without the setting, output is unchanged.
+- At standard and thorough depth, verification investigates the depth's aspects per component with the model, as `data/assessment-depths.yaml` and the profiles decide. It records one row per test case and component, links its findings with the survey's at the same line and CWE family, and the report lists the findings only verification made. Measured in four pilot runs and three measuring runs on Juice Shop.
+- At quick depth, or with `test_cases: false`, a run makes no verification jobs.
 
 ## First visible run
 
@@ -371,7 +378,7 @@ Decided by the product owner on 2026-10-23:
 
 - The methods are called Survey and Verify. Verification does not replace the survey: it covers only catalog aspects, costs far more per aspect, and missed survey findings in every run. Taking single aspects out of the survey waits until verification loses nothing over several runs and two repositories, and until it is measured whether the survey gets cheaper without them.
 - The requirements name both methods, and "test case" becomes "verification item" there (`15ab1c78`, proposal `specs/changes/survey-and-verify/proposal.md`). Code, catalog IDs, the `test_cases` key, and saved results keep the old names until a later change.
-- The verified aspects per depth are a setting, not a requirement. Shipped defaults: quick runs the survey only, standard verifies AuthZ, thorough verifies AuthZ, InputVal, DataProt, and AI. AuthZ alone at standard depth, because verification found 8 of 9 authorization challenges against 6 to 7 for the survey in the third and fourth runs, has deterministic post-checks, and found the weaknesses above; InputVal is the next candidate, measured in one run only, and standard depth with both would exceed the USD 20 standard limit already on Juice Shop. A scan profile changes the aspects per depth; an organization profile makes aspects mandatory.
+- The verified aspects per depth are a setting, not a requirement. Shipped defaults: quick runs the survey only, standard verifies AuthZ, thorough verifies AuthZ, InputVal, DataProt, and AI. AuthZ alone at standard depth, because verification found 8 of 9 authorization challenges against 6 to 7 for the survey in the third and fourth runs, has deterministic post-checks, and found the weaknesses above; InputVal is the next candidate, measured in one run only, and standard depth with both would exceed the USD 20 standard limit already on Juice Shop. A scan profile changes the aspects per depth; an organization profile makes aspects mandatory. Superseded on 2026-10-24 after the third measuring run, when the cost work had made verification cheaper: standard verifies AuthN, AuthZ, InputVal, DataProt, and AI, and thorough adds AuthNRoutes (point 10 of [the open points](verification-cost-open-points-2026-10-23.md)).
 - Findings of both methods at the same location and CWE are shown once and name both. A control that verification evidenced at a survey finding's location marks it contradicted and never removes it. Survey findings are not sent to verification as candidates: an independent second finding is stronger evidence than a model asked to confirm a presented claim, and it would add calls.
 - The run states before the first verification job, not before the first model call, whether the budget covers the jobs, because their number depends on the components the architecture analysis finds; aspects the budget cuts short are marked incomplete.
 - The console names the survey's progress lines "Survey" and counts the verification jobs in the progress share and remaining time.
@@ -391,7 +398,7 @@ Limits of this step:
 - Verification findings that the survey did not report still stay apart from the findings register and its totals, priorities, and mitigations. The full merge into `merge_assessment` is not built.
 - The defaults reach runs with a profile snapshot, which every `appsec-analyzer assess` run has. The internal controller without a run profile keeps verification off unless asked for it.
 - A run saved at standard or thorough depth before the defaults existed cannot resume and needs a new run; quick depth resumes.
-- `IAM` and `SessionMgmt` are accepted but not investigated, so the thorough default lists the four investigated aspects.
+- `IAM` and `SessionMgmt` are accepted but not investigated, so the thorough default lists the four investigated aspects. Superseded on 2026-10-24: `AuthN`, renamed from `IAM`, and `AuthNRoutes` are investigated; `SessionMgmt` still is not.
 - A job replaced by a model failure, not the budget, makes its candidates undecidable but does not mark the aspect incomplete.
 - The budget statement estimates verification jobs from the survey's reserve per job, which is 1.5 times its average cost; the fourth run's verification jobs cost USD 0.40 each against USD 0.28 per survey job.
 
@@ -444,7 +451,7 @@ Decided by the product owner on 2026-10-23: one finding needs the same file, lin
 
 Asked by the product owner on 2026-10-24: the aspect `IAM` is renamed `AuthN`, because its items TC-AUTHN-01 to 05 cover authentication only, and it gets starting points so that it can be verified. The control domain IAM of the report's security architecture section is a separate list and keeps its name. The aspect was never released, so profiles get no alias for the old name.
 
-- `AuthN` is an investigated aspect. No depth verifies it by default; a scan profile selects it, as `test_cases.aspects` or `depths.<depth>.verify`.
+- `AuthN` is an investigated aspect. No depth verifies it by default; a scan profile selects it, as `test_cases.aspects` or `depths.<depth>.verify`. Superseded the same day; see the end of this section.
 - TC-AUTHN-01 keeps every route as a candidate, as decided for AuthZ, and adds WebSocket, GraphQL, and message handlers (`code_sites.channel`). TC-AUTHN-02 and 03 start from token checks (`code_sites.token_handling`), TC-AUTHN-04 from password hashing, password fields in data models, and account routes, TC-AUTHN-05 from account routes. An account route is one whose path names login, registration, recovery, password, a second factor, or authentication (`route_inventory.credential_flow`).
 - A code site kind with `anchor: site` stays one candidate where routes reach it and lists them in `reached_by`, as a scanner hit does. Token checks, password hashing, and channels use it: a token check in a shared guard would otherwise make every route behind the guard a candidate for the same question.
 - The applicability signal `password_handling` also counts a hash call with a password argument, so a data model that hashes passwords with its own helper is examined. Before, TC-AUTHN-04 was not applicable there.
@@ -452,7 +459,7 @@ Asked by the product owner on 2026-10-24: the aspect `IAM` is renamed `AuthN`, b
 
 Offline count with the components, route inventory, and scanner findings of `juice-verify-cost-2`, without model calls: 9 AuthN jobs, against 8 before the change and 9 for AuthZ by the same count, which matches the fourth run. TC-AUTHN-01 drives the cost with 147 candidates on the Express server, 5 of its jobs. At USD 0.40 to 0.50 per verification job, AuthN would add about USD 3.60 to 4.50 per Juice Shop run. Not measured in a run.
 
-Open: the existing kind `sensitive_field` uses `^\s*` in a multiline pattern, which backtracks quadratically over a run of blank lines in a file that defines data models: 8,000 blank lines take about 5 seconds. The new kind `password_field` uses `^[ \t]*` and stays linear; a test checks the four new kinds on hostile input. SessionMgmt still has no starting points, and the catalog has no OAuth or OIDC item.
+Open: the existing kind `sensitive_field` uses `^\s*` in a multiline pattern, which backtracks quadratically over a run of blank lines in a file that defines data models: 8,000 blank lines take about 5 seconds. The new kind `password_field` uses `^[ \t]*` and stays linear; a test checks the four new kinds on hostile input. SessionMgmt still has no starting points, and the catalog had no OAuth or OIDC item until TC-AUTHN-06 below.
 
 Changed after the third measuring run, decided by the product owner on 2026-10-24: TC-AUTHN-01 moved to the aspect `AuthNRoutes`, `AuthN` gained items for SSO and OAuth sign-in and for insecure methods (TC-AUTHN-06, 07, catalog version 6), standard depth verifies `AuthN` with AuthZ, InputVal, DataProt and AI, and thorough depth adds `AuthNRoutes`. The reasons and figures are in point 10 of [the open points](verification-cost-open-points-2026-10-23.md).
 
@@ -497,7 +504,7 @@ Conditions:
 
 Decided by the product owner on 2026-10-23: what each depth runs is configuration, not code. The table above is the shipped default. A configuration states per depth which aspects get the verification-based method beside the STRIDE step, and whether the open review runs, in the way the model profiles already state per depth which model each role uses (`depths` in `data/model-profiles/*.yaml`). An operator's scan profile can override the default, and an organization profile can require aspects, as `test_cases.required` does today. The exact place and schema are part of the requirement proposal.
 
-Superseded after the fourth run: the shipped defaults are quick with the survey only, standard with AuthZ verification, and thorough with all four investigated aspects; see [Analysis after the fourth run](#analysis-after-the-fourth-run).
+Superseded after the fourth run: the shipped defaults are quick with the survey only, standard with AuthZ verification, and thorough with all four investigated aspects; see [Analysis after the fourth run](#analysis-after-the-fourth-run). Superseded again on 2026-10-24; see [Current state](#current-state-2026-10-24).
 
 ## Decisions taken during the implementation
 
@@ -547,7 +554,8 @@ Stricter than the plan on purpose:
 - At 612811f1, the tests of the changed modules and their direct consumers passed: case analysis, outcomes, candidates, post-checks, catalog, host, jobs, budget holds, multi-repository analysis, intermediate validation, and profiles (907 tests), and `make test-controller` (14 tests, including a new one with an AI job). The controller tests ran before two rejection texts and one comment were reworded; the case analysis and multi-repository analysis tests ran after (233 tests). `make check-analyzer` and `tests/test_multi_repo_assessment.py` were not run, because the change touches no public command, packaging, or requirement.
 - At 5e3f39bb, `make test-controller` passed with the new pilot tests (8 tests), as did the test case, compose, schema, and direct `_assessment_stride` controller tests. `tests/test_report_anatomy.py` fails because `specs/changes/report-anatomy/report-anatomy.md` exists in no commit; this is not caused by the branch.
 - Failures that exist on `main` and are not caused by this work: tests that need `.claude-plugin/plugin.json` (`test_export_sarif` tool version tests, `test_compose_threat_model_cov3::test_no_plugin_version_title_only`, one `test_figure1_dfd` case), `test_run_tests` for `config_iac_scanner.py`, `test_summarize_threat_model::test_render_text_names_the_ask_and_review_lanes`, seven progress-header tests in `test_multi_repo_assessment.py`, and `test_stage1_context_edge_inventory.py` (missing inventory document).
-- No live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
+- Until the first pilot run on 2026-10-22, no live model call was made. The measurement run needs explicit authorization of its model spending, and the cost limit is set after it.
+- Work after 612811f1 is not recorded here. The pilot runs above and the measuring runs in [the open points](verification-cost-open-points-2026-10-23.md) ran with live models, each started by the product owner; the open points and the commit messages name the checks of each change.
 
 ## Open questions from the proposal that still need an owner
 
