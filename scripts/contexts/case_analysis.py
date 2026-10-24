@@ -301,20 +301,30 @@ def _fold_duplicate_findings(combined: dict) -> None:
 
     One location can reach two jobs, for example as its route's candidate in one and inside a handler another
     job's route reaches in the other. As in the merge, the riskier finding stays, with the candidates and test
-    cases of both; the candidates that named the other one name it instead. Neighbouring lines stay apart.
+    cases of both; the candidates that named the other one name it instead. Neighbouring lines stay apart, and
+    so do findings whose candidates name different routes: a line that registers several routes, such as one
+    call of a REST resource generator, is no single location.
     """
     from model.merge_threats import _evidence_identity_key, _risk_rank
 
-    kept: dict[tuple, dict] = {}
+    route = {row["candidate_id"]: row.get("route_id") for case in combined["test_cases"] for row in case["candidates"]}
+
+    def apart(one: dict, other: dict) -> bool:
+        first, second = ({route[c] for c in row["candidate_ids"] if route.get(c)} for row in (one, other))
+        return bool(first and second and not first & second)
+
+    kept: dict[tuple, list[dict]] = {}
     alias: dict[str, str] = {}
     for finding in combined["findings"]:
         evidence = finding.get("evidence")
         evidence = evidence[0] if isinstance(evidence, list) and evidence else evidence
         key = _evidence_identity_key({"evidence": evidence or {}, "cwe": finding.get("cwe")})
-        first = kept.get(key) if key is not None else None
+        if key is None:
+            continue
+        group = kept.setdefault(key, [])
+        first = next((row for row in group if not apart(row, finding)), None)
         if first is None:
-            if key is not None:
-                kept[key] = finding
+            group.append(finding)
             continue
         stays, goes = (
             (finding, first) if _risk_rank(finding.get("risk")) < _risk_rank(first.get("risk")) else (first, finding)
@@ -326,7 +336,7 @@ def _fold_duplicate_findings(combined: dict) -> None:
             if new == goes["local_id"]:
                 alias[old] = stays["local_id"]
         alias[goes["local_id"]] = stays["local_id"]
-        kept[key] = stays
+        group[group.index(first)] = stays
     if not alias:
         return
     combined["findings"] = [finding for finding in combined["findings"] if finding["local_id"] not in alias]
