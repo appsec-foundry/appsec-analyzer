@@ -1888,8 +1888,9 @@ def _assessment_stride(
         allowed = analysis.source_selection(neighborhood)
         context = {
             **identity,
-            "component": analysis.model_components([component])[0],
-            "incident_components": analysis.model_components(neighborhood),
+            # Their paths appear once, by owner, in readable_sources.
+            "component": analysis.listed_components([component])[0],
+            "incident_components": analysis.listed_components(neighborhood),
             "incident_flows": incident,
             "adjacent_boundaries": adjacent,
             "existing_controls": [row for row in controls if component["id"] in row["component_ids"]],
@@ -1919,10 +1920,7 @@ def _assessment_stride(
         # MR-13: a route target reads its registration window even where
         # another component owns that file.
         job_allowed = allowed | analysis.related_sources(targets)
-        readable_sources = {}
-        for rid, path in sorted(job_allowed):
-            readable_sources.setdefault(rid, []).append(path)
-        context["readable_sources"] = readable_sources
+        context["readable_sources"] = analysis.owned_sources(neighborhood, job_allowed)
         if envelopes is not None:
             # Recorded, never changed: the STRIDE requests stay the same with and without the pilot.
             envelopes[component["id"]] = {
@@ -1962,7 +1960,8 @@ def _assessment_stride(
                     "when they fit; read any missing control or sink before leaving its target unresolved. "
                     "Request all further source you need in one read "
                     "action: the job allows one round of further reads, and each call re-analyzes the whole packet. "
-                    "readable_sources maps each repository_id to its permitted paths. "
+                    "readable_sources maps each repository_id to its permitted paths, grouped by the id of the "
+                    "listed component that owns them; other holds permitted paths of no listed component. "
                     "Read only exact repository_id and path pairs from readable_sources. Paths are relative to "
                     "their repository root; do not add a repository name, resolve imports to guessed filenames, "
                     "or use installed dependency paths. Names in source or earlier analysis do not grant access. "

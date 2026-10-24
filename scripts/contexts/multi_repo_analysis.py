@@ -151,6 +151,34 @@ def model_components(components: list[dict]) -> list[dict]:
     ]
 
 
+# Group of `owned_sources` for a readable path that no listed component owns.
+OTHER_SOURCES = "other"
+
+
+def listed_components(components: list[dict]) -> list[dict]:
+    """Components as a job sees them beside `owned_sources`, which names each path's owner: without paths."""
+    return [{k: v for k, v in component.items() if k != "paths"} for component in components]
+
+
+def owned_sources(components: list[dict], sources) -> dict:
+    """Each readable source once, by repository and by the id of the listed component that owns it.
+
+    A path that no listed component owns, such as a shared helper or a route's
+    registration window in another component's file, is grouped under
+    `OTHER_SOURCES`. Listing the components' paths beside the readable paths
+    repeated every path, about two fifths of a large component's context.
+    """
+    owners: dict[tuple[str, str], list[str]] = {}
+    for component in components:
+        for row in component["paths"]:
+            owners.setdefault((row["repository_id"], row["path"]), []).append(component["id"])
+    grouped: dict[str, dict[str, list[str]]] = {}
+    for rid, path in sorted(sources):
+        for owner in owners.get((rid, path), [OTHER_SOURCES]):
+            grouped.setdefault(rid, {}).setdefault(owner, []).append(path)
+    return grouped
+
+
 def route_resource(path) -> str:
     """A route path up to its first parameter, so collection and item routes form one resource."""
     parts = []
