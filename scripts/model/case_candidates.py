@@ -349,6 +349,8 @@ def route_facts(
             "framework": str(row.get("framework") or ""),
             "handler_file": row["handler_file"],
             "handler_line": row["handler_line"],
+            # Lines of the registration file where guards that run before the handler are registered.
+            "guard_lines": sorted({line for line in row.get("guard_lines") or [] if type(line) is int and line > 0}),
             "handler_module": row.get("handler_module") if isinstance(row.get("handler_module"), str) else None,
             "authn_signal": row.get("authn_signal") or "unknown",
             "authn_handler_signal": row.get("authn_handler_signal"),
@@ -831,6 +833,8 @@ def _generated_routes(
                     "framework": "rest-resource-generator",
                     "handler_file": rel,
                     "handler_line": line,
+                    # A generator registers its routes in one call; its chain holds the registrations.
+                    "guard_lines": [],
                     "handler_module": None,
                     "authn_signal": "unknown",
                     "authn_handler_signal": None,
