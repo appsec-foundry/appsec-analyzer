@@ -16,6 +16,8 @@ Answer each candidate with one status:
 - `rejected`: the location is not a weakness of this test case, for a reason the source shows: `public-by-design`, `unreachable`, `outside-objective`, `duplicate` or `not-a-weakness`. Cite one to four evidence lines.
 - `undecidable`: the served source cannot settle the question: `external-control` (the control would live outside the examined sources, such as a gateway, proxy or platform setting), `missing-source`, or `conflicting-evidence`.
 
+Judge what the code does when the application runs. The application's purpose, such as a demo, training or challenge application, and a comment, name or document that calls a behavior intended never make a weakness `neither` or `rejected`. `public-by-design` applies only when the source shows that the data is meant for every caller and reveals nothing a later check of the server relies on, such as the answer to a challenge it verifies, a one-time code or a reset token.
+
 A note of at most 240 characters may explain a decision. Give each test case a `proposed_outcome` and a reason of at most 300 characters. The controller derives the recorded outcome from the candidate answers and its own post-checks: `control` only when the control is evidenced at every candidate location, `partial` when it is evidenced at some of them, and `no_finding` when the examined locations show neither a weakness nor a control. `no_finding` is never a control.
 
 ## Control evidence
