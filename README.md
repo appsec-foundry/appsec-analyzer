@@ -116,7 +116,8 @@ With `--non-interactive`, `assess` requires `--repo` and an explicit `--profile`
 
 ```sh
 # Run in CI with a fixed provider profile and without questions
-appsec-analyzer assess --repo /path/to/project --profile claude --non-interactive
+appsec-analyzer assess --repo /path/to/project \
+  --profile claude --non-interactive
 ```
 
 ### `review`: discuss an assessment with your coding agent
@@ -169,15 +170,19 @@ This is more than pasting the question into a chat. The command reads only the f
 
 ```sh
 # Ask about one part of the code
-appsec-analyzer analyze-threats "Can a normal user read another tenant's records?" --path src/api
+appsec-analyzer analyze-threats \
+  "Can a normal user read another tenant's records?" --path src/api
 
 # Use case: before you commit, check whether the staged change breaks
 # a requirement or contradicts your threat model
-appsec-analyzer analyze-threats "Does this change violate our requirements?" --staged \
+appsec-analyzer analyze-threats \
+  "Does this change violate our requirements?" --staged \
   --context requirements.md --context docs/security/threatmodel.md
 
-# Review a GitHub pull request (GitLab: --mr); --preview shows the scope without a model call
-appsec-analyzer analyze-threats --pr https://github.com/team/app/pull/42 --preview
+# Review a GitHub pull request (GitLab: --mr);
+# --preview shows the scope without a model call
+appsec-analyzer analyze-threats \
+  --pr https://github.com/team/app/pull/42 --preview
 ```
 
 `--design-file`, `--context`, `--mr`, and `--pr` take documents or a remote change as input. Documents given with `--context` add background and do not replace the question or the change under review.
@@ -201,11 +206,13 @@ appsec-analyzer authnz-review --repo /path/to/project --save --gate
 ```sh
 # Try the audit with the bundled sample catalog
 mkdir /path/to/audit
-appsec-analyzer audit-requirements --repo /path/to/project --demo --output /path/to/audit --host claude-cli
+appsec-analyzer audit-requirements --repo /path/to/project --demo \
+  --output /path/to/audit --host claude-cli
 
 # Check your own catalog and write a Markdown report
 appsec-analyzer audit-requirements --repo /path/to/project \
-  --requirements /path/to/catalog.yaml --output /path/to/audit --host claude-cli --md
+  --requirements /path/to/catalog.yaml --output /path/to/audit \
+  --host claude-cli --md
 ```
 
 ### `export`: other report formats
@@ -214,7 +221,8 @@ appsec-analyzer audit-requirements --repo /path/to/project \
 
 ```sh
 # Create SARIF for code scanning and HTML for reading
-appsec-analyzer export --assessment /path/to/assessment --output /path/to/export --formats sarif html
+appsec-analyzer export --assessment /path/to/assessment \
+  --output /path/to/export --formats sarif html
 ```
 
 ### `abuse-cases`: list the defined cases
@@ -236,7 +244,8 @@ appsec-analyzer abuse-cases AC-B-001 --repo /path/to/project
 appsec-analyzer platform-settings https://github.com/your-org/your-project
 
 # With a read-only token held in an environment variable
-appsec-analyzer platform-settings https://github.com/your-org/your-project --token-env GITHUB_READ_TOKEN --json
+appsec-analyzer platform-settings https://github.com/your-org/your-project \
+  --token-env GITHUB_READ_TOKEN --json
 ```
 
 `assess` runs the same checks for repositories selected as a URL (add `--platform-token-env NAME` for a read-only token); local checkouts are skipped. Control analysis and the survey use the result as context, and the report shows it in a Platform Security Settings section.
@@ -265,7 +274,8 @@ pipx creates its own virtual environment and puts `appsec-analyzer` on your `PAT
 With `pip`, inside an activated virtual environment:
 
 ```sh
-python -m pip install "git+https://github.com/appsec-foundry/appsec-analyzer.git"
+python -m pip install \
+  "git+https://github.com/appsec-foundry/appsec-analyzer.git"
 ```
 
 From a local checkout, for example to install local changes:
@@ -323,14 +333,18 @@ appsec-analyzer assess --repo /path/to/project --profile codex
 
 # Codex CLI with a ChatGPT plan: counts model exchanges instead of USD
 codex login
-appsec-analyzer assess --repo /path/to/project --profile codex-cli --max-calls 1000
+appsec-analyzer assess --repo /path/to/project \
+  --profile codex-cli --max-calls 1000
 
-# GitHub Copilot CLI: model use is limited by calls/time and a per-session soft credit limit
+# GitHub Copilot CLI: model use is limited by calls/time
+# and a per-session soft credit limit
 copilot login
-appsec-analyzer assess --repo /path/to/project --profile copilot-cli --max-calls 1000
+appsec-analyzer assess --repo /path/to/project \
+  --profile copilot-cli --max-calls 1000
 
 # LiteLLM gateway: "claude" names the model entry in providers.yaml
-appsec-analyzer assess --repo /path/to/project --profile "lite claude" --budget 20
+appsec-analyzer assess --repo /path/to/project \
+  --profile "lite claude" --budget 20
 
 # Amazon Bedrock
 appsec-analyzer assess --repo /path/to/project --profile bedrock --budget 20
@@ -388,7 +402,9 @@ abuse_cases:
   - id: REPO-AC-001
     kind: descriptive
     title: Customer lowers the order total with a negative quantity
-    check: Check whether a customer can put a negative quantity of a product into the basket and so lower the order total.
+    check: >-
+      Check whether a customer can put a negative quantity of a product
+      into the basket and so lower the order total.
     scope_qualifier: {path_patterns: ["*cart*", "*order*"]}
 ```
 
