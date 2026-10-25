@@ -105,7 +105,8 @@ For OpenAI Responses, choose `--profile codex` and a separate `--assessment-dept
 `assess` also accepts the headless export options `--pentest-tasks`,
 `--pentest-format strix`, `--pentest-target URL`, and `--slug NAME`.
 `--keep-runtime-files` retains intermediate files for debugging; an explicit
-`--output` must already be a private directory (mode 0700).
+`--output` must be a private directory (mode 0700). A missing one is created
+that way unless its path leads through a link or into a source checkout.
 
 Without `--output`, results go to the application's private user-data directory
 under `appsec-analyzer/assessments`. An explicit output directory may not be

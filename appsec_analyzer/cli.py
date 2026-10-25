@@ -1146,6 +1146,16 @@ def _assess(ns: argparse.Namespace) -> int:
         raise ValueError(f"{host} has no configured model/depth profile")
     if ns.keep_runtime_files and ns.output:
         output = Path(ns.output).absolute()
+        # Claim a missing destination exclusively; one that exists, even if just
+        # planted by another user, still has to pass the check below. A path
+        # through a link or into a checkout is left to fail, not created.
+        if output.resolve() == output and not any(
+            os.path.lexists(parent / ".git") for parent in (output, *output.parents)
+        ):
+            try:
+                output.mkdir(mode=0o700, parents=True)
+            except OSError:
+                pass
         try:
             info = output.stat()
             private = (
@@ -1157,7 +1167,10 @@ def _assess(ns: argparse.Namespace) -> int:
         except OSError:
             private = False
         if not private:
-            raise ValueError("--keep-runtime-files requires an existing private --output directory (mode 0700)")
+            raise ValueError(
+                "--keep-runtime-files requires a private --output directory (mode 0700); "
+                "a missing one is created only outside source checkouts"
+            )
     # The host-specific preflight runs only after resolving the selected profile.
     from orchestrator.orchestration_controller import assess_main
     from runtime.remote_repositories import checkout_arguments

@@ -313,7 +313,47 @@ def test_assess_kept_runtime_files_require_private_output(tmp_path: Path, monkey
         )
         == 2
     )
-    assert "requires an existing private --output directory" in capsys.readouterr().err
+    assert "requires a private --output directory" in capsys.readouterr().err
+
+
+def test_assess_kept_runtime_files_create_missing_output_privately(tmp_path: Path, monkeypatch) -> None:
+    from appsec_analyzer import cli, hosts
+
+    cli._engine_imports()
+    from orchestrator import orchestration_controller
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    output = tmp_path / "runs" / "151"
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(orchestration_controller, "assess_main", lambda arguments, **kwargs: 0)
+    arguments = ["assess", "--repo", str(repo), "--output", str(output), "--hard-budget", "30", "--keep-runtime-files"]
+    assert cli.main(arguments) == 0
+    assert output.is_dir() and not output.is_symlink()
+    assert output.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize("placement", ["checkout", "link"])
+def test_assess_kept_runtime_files_never_create_output_in_checkout_or_through_link(
+    tmp_path: Path, monkeypatch, capsys, placement
+) -> None:
+    from appsec_analyzer import cli, hosts
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    if placement == "checkout":
+        created, output = repo / "runs", repo / "runs" / "151"
+    else:
+        (tmp_path / "real").mkdir(mode=0o700)
+        (tmp_path / "link").symlink_to(tmp_path / "real")
+        created, output = tmp_path / "real" / "151", tmp_path / "link" / "151"
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: pytest.fail("host must not be called"))
+    arguments = ["assess", "--repo", str(repo), "--output", str(output), "--hard-budget", "30", "--keep-runtime-files"]
+    assert cli.main(arguments) == 2
+    assert "requires a private --output directory" in capsys.readouterr().err
+    assert not created.exists()
 
 
 @pytest.mark.parametrize("command", ["assess"])
