@@ -96,6 +96,31 @@ def test_each_investigated_aspect_has_one_goal_test_case_without_a_cwe(catalog):
             assert case["cwe"], case["id"]
 
 
+def test_every_ai_test_case_but_the_goal_names_its_owasp_llm_categories(catalog):
+    # A goal finding may belong to any category; its own title decides where the AI exposure section lists it.
+    for case in catalog["test_cases"]:
+        if case["aspect"] == "AI":
+            assert bool(case.get("owasp_llm")) is not bool(case.get("goal")), case["id"]
+
+
+def test_a_verification_finding_carries_the_owasp_llm_categories_of_its_test_cases(catalog):
+    """The AI exposure section lists a finding only by its categories (juice-shop 2026-10: a TC-AI-01 finding was missing)."""
+    from orchestrator import assessment_test_cases as pilot
+
+    cases = {case["id"]: case for case in catalog["test_cases"]}
+
+    def row(test_case_ids, **reply):
+        finding = {"local_id": "F-1", "candidate_ids": [], "test_case_ids": test_case_ids, **reply}
+        return pilot._finding(finding, "TCF-001", "api", "AI", cases)
+
+    assert row(["TC-AI-01", "TC-AI-02"])["owasp_llm_ids"] == ["LLM01", "LLM05"]
+    # The reply's own categories come first, and each category appears once.
+    assert row(["TC-AI-01"], owasp_llm_ids=["LLM06", "LLM01"])["owasp_llm_ids"] == ["LLM06", "LLM01"]
+    # A goal or non-AI test case adds none.
+    assert "owasp_llm_ids" not in row(["TC-AI-05"])
+    assert "owasp_llm_ids" not in row(["TC-AUTHZ-01"])
+
+
 def test_every_route_and_site_fact_and_site_check_has_an_evaluator(catalog):
     from model import case_candidates
 
@@ -126,6 +151,7 @@ def test_rules_mode_cases_are_driven_by_rules_alone(catalog):
         lambda case: case.update(fixtures="elsewhere/"),
         lambda case: case["post"].append({"check": "run-model-written-regex"}),
         lambda case: case.update(unexpected="field"),
+        lambda case: case.update(owasp_llm=["LLM11"]),
         lambda case: case.pop("objective"),
     ],
 )

@@ -292,7 +292,7 @@ def run_pilot(
             for finding in reply["findings"]:
                 if finding["local_id"] not in outcome["dropped_finding_ids"]:
                     local[finding["local_id"]] = f"TCF-{len(findings) + 1:03d}"
-                    row = _finding(finding, local[finding["local_id"]], component["id"], entry["aspect"])
+                    row = _finding(finding, local[finding["local_id"]], component["id"], entry["aspect"], cases)
                     # The merge keeps findings on different routes apart and scores only checked ones (REQ-040).
                     findings.append({**row, **outcome["findings"][finding["local_id"]]})
             for row in outcome["results"]:
@@ -743,10 +743,18 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
     )
 
 
-def _finding(finding: dict, finding_id: str, component_id: str, aspect: str) -> dict:
-    """An accepted pilot finding for the model: the reply's STRIDE item under its model ID."""
+def _finding(finding: dict, finding_id: str, component_id: str, aspect: str, cases: dict) -> dict:
+    """An accepted pilot finding for the model: the reply's STRIDE item under its model ID.
+
+    The OWASP LLM categories of its test cases join the reply's own, because the AI exposure section lists a
+    finding only by its categories.
+    """
     row = {"id": finding_id, "component_id": component_id, "aspect": aspect, "test_case_ids": finding["test_case_ids"]}
     row.update(
         (key, value) for key, value in finding.items() if key not in ("local_id", "candidate_ids", "test_case_ids")
     )
+    categories = list(row.get("owasp_llm_ids") or [])
+    categories += [value for case_id in row["test_case_ids"] for value in cases[case_id].get("owasp_llm") or []]
+    if categories:
+        row["owasp_llm_ids"] = list(dict.fromkeys(categories))
     return row

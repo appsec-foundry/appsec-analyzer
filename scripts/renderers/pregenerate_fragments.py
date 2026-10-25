@@ -5088,28 +5088,29 @@ def gen_security_architecture(yaml_data: dict, depth: str = "standard") -> str:
 # also appear on non-LLM threats, so they only count when the threat carries an
 # LLM context (lives on an LLM component or names an LLM in its title). Rule
 # order is the scan precedence — the first matching rule wins per threat.
+#
+# Role-confusion is a prompt-injection VARIANT — a client-supplied
+# "system"/"assistant" role message overrides the server's own system prompt
+# without ever touching the literal phrase "prompt injection" (juice-shop
+# 2026-07-02: "Client-Supplied Message Array Accepted Without Role" fell through
+# every rule). The same words also name mass assignment of a user's role
+# (juice-shop 2026-10: "User registration accepts privileged role field" landed
+# in LLM01), so they count only with LLM context, like a weak rule's keywords.
+_ROLE_CONFUSION_KEYWORDS = (
+    "without role",
+    "message array",
+    "role field",
+    "role spoofing",
+    "role confusion",
+    "role injection",
+    "fabricate system",
+    "override system",
+)
 _LLM_TOP10_RULES = [
     (
         "LLM01",
         "Prompt Injection",
-        [
-            "prompt injection",
-            "prompt-injection",
-            "jailbreak",
-            # Role-confusion is a prompt-injection VARIANT — a client-supplied
-            # "system"/"assistant" role message overrides the server's own
-            # system prompt without ever touching the literal phrase "prompt
-            # injection" (juice-shop 2026-07-02: "Client-Supplied Message
-            # Array Accepted Without Role" fell through every rule).
-            "without role",
-            "message array",
-            "role field",
-            "role spoofing",
-            "role confusion",
-            "role injection",
-            "fabricate system",
-            "override system",
-        ],
+        ["prompt injection", "prompt-injection", "jailbreak", *_ROLE_CONFUSION_KEYWORDS],
         "Untrusted user input reaches the LLM prompt/context without sufficient "
         "trust separation, letting an attacker override system instructions, "
         "redirect tool calls, or coerce unintended model behaviour.",
@@ -5415,9 +5416,11 @@ def gen_ai_exposure(yaml_data: dict):
                     add_llm_bucket(llm_id, th)
             continue
         for llm_id, name, keywords, description, strong in _LLM_TOP10_RULES:
-            if not any(kw in title_lc for kw in keywords):
+            matched = [kw for kw in keywords if kw in title_lc]
+            if not matched:
                 continue
-            if not strong and not _llm_context(th, context_blob_lc):
+            weak = not strong or all(kw in _ROLE_CONFUSION_KEYWORDS for kw in matched)
+            if weak and not _llm_context(th, context_blob_lc):
                 continue
             add_llm_bucket(llm_id, th)
             break

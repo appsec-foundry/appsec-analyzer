@@ -499,6 +499,31 @@ class TestAiExposure:
         assert "LLM01" in by_id
         assert "T-028" in {f["ref"] for f in by_id["LLM01"]["findings"]}
 
+    def test_role_field_without_llm_context_is_not_prompt_injection(self):
+        """Regression (juice-shop 2026-10): "role field" also names mass
+        assignment of a user's role, which landed in LLM01. Role-confusion
+        words count only with LLM context, even on an LLM component."""
+        d = {
+            "components": [{"id": "llm-chatbot", "name": "AI Chatbot"}],
+            "threats": [
+                {
+                    "id": "T-026",
+                    "title": "Prompt Injection — routes/chat.ts:179",
+                    "component": "llm-chatbot",
+                    "risk": "High",
+                },
+                {
+                    "id": "T-057",
+                    "title": "User registration accepts privileged role field from request body — server.ts:422",
+                    "component": "llm-chatbot",
+                    "risk": "High",
+                    "impact_description": "Any visitor can register an administrator account.",
+                },
+            ],
+        }
+        refs = {f["ref"] for r in json.loads(pf.gen_ai_exposure(d))["ai_risks"] for f in r["findings"]}
+        assert "T-026" in refs and "T-057" not in refs
+
     def test_llm_context_found_in_impact_description_not_just_title(self):
         """Regression (juice-shop 2026-07-02): T-040 lived on the generic
         "backend-api" component (not the LLM component) and its title said

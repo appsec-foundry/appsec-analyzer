@@ -74,6 +74,13 @@ properties:
           items:
             type: string
             pattern: ^CWE-[0-9]+$
+        # The OWASP Top 10 for LLM Applications categories every finding of the test case belongs to.
+        owasp_llm:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            enum: [LLM01, LLM02, LLM03, LLM04, LLM05, LLM06, LLM07, LLM08, LLM09, LLM10]
         # A goal test case asks for an attacker goal by any path and names no CWE.
         goal:
           type: boolean

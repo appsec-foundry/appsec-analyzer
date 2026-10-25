@@ -1172,6 +1172,8 @@ test_cases:
   - Elevation of Privilege
   cwe:
   - CWE-1427
+  owasp_llm:
+  - LLM01
   mode: model
   objective: Determine whether untrusted content that reaches a model prompt can cause privileged actions.
   applies_when:
@@ -1204,6 +1206,8 @@ test_cases:
   - CWE-94
   - CWE-79
   - CWE-20
+  owasp_llm:
+  - LLM05
   mode: seeded
   objective: Determine whether model output is validated before it is rendered, executed, or parsed as structured data.
   applies_when:
@@ -1236,6 +1240,8 @@ test_cases:
   cwe:
   - CWE-285
   - CWE-918
+  owasp_llm:
+  - LLM06
   mode: seeded
   objective: Determine whether tools, objects, and destinations that a model selects are authorized for the caller and restricted by an allow-list.
   applies_when:
@@ -1266,6 +1272,8 @@ test_cases:
   cwe:
   - CWE-639
   - CWE-200
+  owasp_llm:
+  - LLM08
   mode: model
   objective: Determine whether retrieved documents and stored memories are limited to what the caller may access.
   applies_when:
