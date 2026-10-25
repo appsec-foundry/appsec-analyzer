@@ -428,7 +428,28 @@ The fixes of point 11:
 
 A defect the run showed: a verification job anchored a finding in a file of another component three times, as in the second and third runs. The decisive line lay there: the embedded key in `lib/insecurity.ts` from the data layer, the address update registered in `server.ts` from the authentication surface, and the role field in `models/user.ts` from the Express server. Acceptance rejects such anchors because the owning component's jobs report them, but the correction said "move or remove it" or "anchor it in one of them". Over the second, third and fifth runs, 4 of 9 corrections removed the finding and 5 moved it to a line of the job's own files that does not show the weakness. In this run that made T-058, the address update at `lib/insecurity.ts:178`, which repeats T-051 at `server.ts:426`, and moved the role field to `server.ts:422`, where several findings already report it. The diagnostic log read the apostrophe of "component's" as the start of a quoted value, so these rejections were unreadable there. Fixed in 80ca6d1d: the investigation policy says to leave such a weakness out, both corrections allow a new anchor only at a line that itself shows the weakness, and an apostrophe inside a word no longer opens a quote in the log. The next run measures it.
 
-The run also reports 113 findings in the register and 52 in the closing Findings row (Critical 3, High 18, Medium 31), 43 verification findings and 4 controls, and 5 confirmed and 5 unresolved abuse cases.
+The run also reports 113 findings in the register and 52 in the closing Findings row (Critical 3, High 18, Medium 31), 43 verification findings and 4 controls, and 5 confirmed and 5 unresolved abuse cases. Since f4692241 the closing summary names the register by severity beside that row when the two differ; the counting is unchanged.
+
+### Benefit per aspect
+
+"New" counts register findings that only verification reported and that share no line with a survey or scanner finding or with a finding of another aspect; "confirmed" means a post-check confirmed it.
+
+| Aspect | Findings | Also survey or scanner | New | New Critical or High | New confirmed | USD |
+| --- | --- | --- | --- | --- | --- | --- |
+| AuthZ | 27 | 9 | 13 | 6 | 0 | 2.49 |
+| InputVal | 18 | 14 | 4 | 3 | 4 | 1.33 |
+| DataProt | 14 | 8 | 5 | 1 | 5 | 1.10 |
+| AuthN | 12 | 8 | 4 | 1 | 0 | 0.81 |
+| AI | 1 | 0 | 0 | 0 | – | 0.18 |
+
+- The third and fourth runs had 32 and 25 new findings with 7 and 6 High ones, so the benefit is stable while severities vary between runs.
+- InputVal and DataProt add serious findings the survey missed, each confirmed by a post-check: XXE, directory listings with keys, the null-byte bypass of the FTP allow-list, TOTP secrets in plaintext and the captcha answers in responses.
+- AuthZ names single routes without an owner or role check, such as `GET /api/Users/:id`, `PUT /api/Products` and `POST /api/SecurityAnswers`, where the survey and the scanners report at most a systemic finding. Two of its 13 new findings are artifacts: T-058, the moved duplicate fixed in 80ca6d1d, and T-014, the role field anchored at `routes/verify.ts:53`, which repeats T-057.
+- No new AuthZ or AuthN finding has a post-check, so all of them stay unscored and outside the headline count, the Critical T-014 included. The value of the route-level findings shows only in the register.
+- AuthN mostly confirms: of its 4 new findings one is High, a Google profile accepted without checking the token audience. It stays at standard depth by the product owner's decision for SSO and OAuth.
+- About 40 findings were reported by two or more methods independently, which makes them more reliable without lengthening the list.
+
+The figures come from one deliberately vulnerable application. Whether the benefit holds on an ordinary application is open.
 
 ## Order
 
@@ -443,6 +464,8 @@ The run also reports 113 findings in the register and 52 in the closing Findings
 9. Measure the AuthN split, the combined register and the later place of business cases in a fourth run (point 11). Done: AuthN mostly confirms other methods for USD 0.99, the register combines 43 findings, and the business cases run as decided; combined texts with wrong counts and a data model missing from the preload are new defects.
 10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11). Done except the estimate, which is deferred.
 11. Measure the fixes of step 10 in a fifth run (point 12). Done: all three work; anchors in another component's file still made duplicates, fixed in 80ca6d1d.
-12. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11).
-13. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects. Measure them in one run together with 80ca6d1d, since every verification job runs again anyway.
-14. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
+12. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11). Decided: the counting stays, since it treats every method alike, and the row names the register by severity beside it (f4692241).
+13. Give AuthZ verification findings deterministic post-checks, such as a route without any guard or an owner field taken from the request body, so that route-level findings are confirmed and scored (point 12). The route inventory already knows each route's guards.
+14. Measure verification on a second application that is not deliberately vulnerable, together with step 13 and 80ca6d1d (point 12).
+15. Solve the open points of point 10 for any repository when one of them matters: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
+16. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
