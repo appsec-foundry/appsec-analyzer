@@ -269,7 +269,11 @@ def _test_low_cost_model(ns, *, api_profile, runtime):
         outcome = "no answer"
     else:
         if _valid(reply):
-            usd = f" · USD {reply.usd:.4f}" if reply.usd is not None else ""
+            from appsec_analyzer.assessment.console import api_billing
+
+            # Like the run's own costs: shown with API billing or --show-costs, never for a subscription.
+            shown = getattr(ns, "show_costs", False) or api_billing(host)
+            usd = f" · USD {reply.usd:.4f}" if shown and reply.usd is not None else ""
             _say(ns, "Model test", f"{field(model)} answered{usd}", status="ok")
             return "test_model_passed"
         outcome = "invalid_response"

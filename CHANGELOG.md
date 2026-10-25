@@ -44,6 +44,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Source analysis excludes archived reports as code evidence, avoids false wildcard-CORS findings without credentials, and detects OAuth implicit-flow tokens read from `location.hash`.
 - Reports handle empty registers and repair or stop on broken links. STRIDE mappings follow weakness classes, and the Figure 1 legend no longer claims per-element STRIDE coverage.
 - AI / LLM Exposure lists verification findings under the OWASP LLM categories of their verification items and no longer files a user role set from the request body under prompt injection.
+- The startup model test shows its cost only with API billing or `--show-costs`, like the run's own costs.
 
 ## 0.6.0-beta.4 (2026-10-06)
 

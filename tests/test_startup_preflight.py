@@ -426,6 +426,30 @@ def _record_assessment(monkeypatch, events):
     monkeypatch.setattr(orchestration_controller, "assess_main", assess)
 
 
+@pytest.mark.parametrize(
+    ("api_key", "flag", "shown"), [(True, False, True), (False, False, False), (False, True, True)]
+)
+def test_the_model_test_shows_its_cost_like_the_run_does(repository, model_test, monkeypatch, api_key, flag, shown):
+    """A subscription run prints no amount for the test, unless --show-costs asks for it."""
+    cli._engine_imports()
+    from runtime.analyst_host import ClaudeCliTransport, HostReply
+
+    events = []
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(
+        ClaudeCliTransport,
+        "invoke",
+        lambda self, system, prompt, schema, timeout_s, should_stop: HostReply(payload={"ok": True}, usd=0.0004),
+    )
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    if api_key:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
+    _record_assessment(monkeypatch, events)
+    assert cli.main(["assess", "--repo", str(repository), *(["--show-costs"] if flag else [])]) == 0
+    model_test = next(text for _, name, text in events[-1][1] if name == "Model test")
+    assert model_test == "haiku answered" + (" · USD 0.0004" if shown else "")
+
+
 def test_assess_tests_haiku_before_the_run_with_its_own_limit(repository, model_test, monkeypatch, capsys):
     cli._engine_imports()
     from runtime.analyst_host import ClaudeCliTransport, HostReply
@@ -441,6 +465,7 @@ def test_assess_tests_haiku_before_the_run_with_its_own_limit(repository, model_
         return HostReply(payload={"ok": True}, usd=0.0004)
 
     monkeypatch.setattr(ClaudeCliTransport, "invoke", invoke)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     _record_assessment(monkeypatch, events)
     # Thorough depth analyzes with Opus; the test still uses the low-cost model.
     assert cli.main(["assess", "--repo", str(repository), "--assessment-depth", "thorough"]) == 0
