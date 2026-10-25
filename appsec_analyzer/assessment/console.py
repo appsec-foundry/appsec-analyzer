@@ -533,11 +533,20 @@ class _AssessmentConsole:
     def _unit_rows(self) -> list[str]:
         """Component bars shared by ticker and model callbacks; caller holds the console lock."""
         spin = self.st(SPINNER[self.frame % len(SPINNER)], "accent")
-        return [
+        rows = [
             f"{'':10}{spin} {name[: self.UNIT_NAME]:<{self.UNIT_NAME}}  "
             f"{self.st.bar(self._unit_progress(unit), 100, self.BAR_WIDTH)}  {self._unit_label(unit)}"
             for name, unit in self.units.items()
         ]
+        # A component being verified shows its aspects at work and the share of its verification finished.
+        rows += [
+            f"{'':10}{spin} {unit['name'][: self.UNIT_NAME]:<{self.UNIT_NAME}}  "
+            f"{self.st.bar(round(100 * unit['done'] / unit['total']), 100, self.BAR_WIDTH)}  "
+            f"{', '.join(sorted(unit['active']))}"
+            for unit in self.verify_running.values()
+            if unit["running"]
+        ]
+        return rows
 
     @classmethod
     def planned_phases(cls, *, abuse_cases: bool) -> list[str]:
@@ -784,14 +793,29 @@ class _AssessmentConsole:
             # Names come from repository files and model output.
             name = "".join(char if char.isprintable() else "?" for char in name)[: self._NAME_MAX]
             unit = self.verify_running.setdefault(
-                number, {"started": now, "running": 0, "done": 0, "reused": 0, "aspects": [], "gaps": Counter()}
+                number,
+                {
+                    "started": now,
+                    "running": 0,
+                    "done": 0,
+                    "reused": 0,
+                    "aspects": [],
+                    "gaps": Counter(),
+                    "name": name,
+                    "total": total,
+                    "active": Counter(),
+                },
             )
             if aspect not in unit["aspects"]:
                 unit["aspects"].append(aspect)
             if started:
                 unit["running"] += 1
+                unit["active"][aspect] += 1
             else:
                 unit["running"] = max(0, unit["running"] - 1)
+                unit["active"][aspect] -= 1
+                if unit["active"][aspect] <= 0:
+                    del unit["active"][aspect]
                 unit["done"] += 1
                 unit["reused"] += reused
                 if cause:

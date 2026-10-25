@@ -3319,6 +3319,36 @@ def test_each_running_component_gets_its_own_bar_and_the_area_clears_whole(capsy
     controller._AssessmentConsole.clear_status()
 
 
+def test_each_component_in_verification_gets_its_own_bar_with_the_aspects_at_work(capsys, monkeypatch):
+    """REQ-040: components verified concurrently show like surveyed ones; a finished component's bar goes."""
+    monkeypatch.setenv("COLUMNS", "200")
+    console = controller._AssessmentConsole(False, [].append, live=True)
+    console.plan_components(2)
+    console.step("Verify planned · 2 components for AuthZ, DataProt after the survey · 4 jobs")
+    console.step("Surveying component: API (1/2)")
+    console.step("Surveying component: Web (2/2)")
+    console.step("Analyzed component: API · 2 findings")
+    console.step("Analyzed component: Web · 1 finding")
+    console.step("Survey done · 3 findings")
+    console.step("Verify start · 2 components · AuthZ, DataProt · 4 jobs")
+    console.step("Verifying component 1/2, part 1/3, AuthZ: API")
+    console.step("Verifying component 2/2, part 1/1, DataProt: Web")
+    console.step("Finished verifying component 1/2, part 1/3, AuthZ: API")
+    console.step("Verifying component 1/2, part 2/3, DataProt: API")
+    console.tick()
+    *above, bottom = _status_frames(capsys.readouterr().err)[-1]
+    assert len(above) == 2 and "API" in above[0] and "Web" in above[1]
+    # A third of the API's verification is done, and it now works on data protection; the Web has begun.
+    assert above[0].rstrip().endswith("DataProt") and above[1].rstrip().endswith("DataProt")
+    assert above[0] != above[1].replace("Web", "API")
+    assert "0/2 components done · 2 running" in bottom
+    console.step("Finished verifying component 2/2, part 1/1, DataProt: Web")
+    console.tick()
+    frame = _status_frames(capsys.readouterr().err)[-1]
+    controller._AssessmentConsole.clear_status()
+    assert len(frame) == 2 and "API" in frame[0] and "Web" not in frame[0] and "1/2 components done" in frame[1]
+
+
 @pytest.mark.parametrize(
     "message",
     ["starting model exchange", "1 min: model is thinking (~2,000 tokens)", "result: 2 threats (10 s)"],
