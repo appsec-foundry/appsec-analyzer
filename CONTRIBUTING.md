@@ -15,7 +15,9 @@ The Makefile prefers `.venv/bin/python3`. Ruff is configured in `pyproject.toml`
 
 ## Verification
 
-The public standalone contract checks are offline and use fake model hosts. Set `BASE` to the commit before the changes being reviewed, such as the merge-base with the target branch. The gate requires an explicit revision and fails if its history is unavailable. For uncommitted changes only:
+Choose checks by the effect of the change. Purely editorial changes to documentation, changelogs, or contributor instructions need diff, formatting, local-link, and consistency checks. They do not require pytest or the standalone gate merely because a file mentions commands or has a test route. Corrections to command examples need comparison with CLI help or implementation and any focused tests of the changed examples. Runtime agent and skill instructions that affect application behavior need the relevant prompt and behavior contract tests.
+
+Run the standalone gate when changing public command implementation or supported behavior, packaging, or requirements; specification-only changes use `make check-specs BASE=<base-commit>` as described below. Broader checks need an explicit request or another applicable rule for the affected behavior. The public standalone contract checks are offline and use fake model hosts. Set `BASE` to the commit before the changes being reviewed, such as the merge-base with the target branch. The gate requires an explicit revision and fails if its history is unavailable. For uncommitted changes only:
 
 ```sh
 make check-analyzer BASE=HEAD
@@ -32,7 +34,7 @@ Choose additional explicit test files for changed producers and consumers. Requi
 | Agent or skill instructions | Relevant prompt contracts and tests of the behavior they influence. These files are runtime inputs. |
 | Report, schema, or export | Producer and consumer tests, schema validation, and applicable golden replay. |
 | Requirements | Catalog, audit, and affected producer tests; record the change in `specs/changes/<name>/proposal.md`. |
-| Documentation | Check commands against CLI help and implementation, local links, and affected contracts. |
+| Documentation or contributor instructions | Review the diff, formatting, local links, and consistency. For changed command examples, compare CLI help or implementation and run only affected documentation contract tests. Editorial changes and historical command references need no broad gate. |
 
 The inherited group catalog in `scripts/run_tests.py` still reports missing tests and invalid routes. The inherited `make lint` and `make release-check` targets invoke missing Advisor files; use `make release-check-analyzer BASE=<base-commit>` for the standalone offline distribution gate. These are open extraction defects, not features to recreate automatically. The repository contains no `.github/` workflows or CODEOWNERS; earlier claims about a passing CI matrix did not apply here.
 

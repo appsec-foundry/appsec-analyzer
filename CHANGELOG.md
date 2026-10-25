@@ -1,334 +1,253 @@
 # Changelog
 
-All notable changes to this project are documented here.
+Notable changes, including development history inherited from AppSec Advisor. Historical entries retain their original command names; see the [README](README.md#commands) for current Analyzer commands.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
-<!-- Add entries here as work lands on dev; promote them into a dated heading at release. -->
+<!-- Add entries here as work lands; promote them into a dated heading at release. -->
 
 ### Added
 
-- Beside the STRIDE survey, assessments verify selected security aspects item by item (REQ-040): standard depth verifies authentication, including SSO and OAuth sign-in and insecure methods such as credentials in URLs, authorization, input validation, data protection, and language model use, and thorough depth also checks every route's authentication (`AuthNRoutes`). This adds model calls and cost. Before the first verification job the run states the planned jobs and their estimated cost, and the live progress shows the survey and the verification as separate steps, with one line per component once its verification has finished. A weakness both methods find is shown once, and a survey finding at a location where verification found a protecting control is marked as contradicted, not removed. The report gains the section Verification Findings and the appendix Verification Items, and SARIF names linked findings by verification item. `test_cases: true` in a scan profile links scanner findings to the verification items without model calls. A scan profile can also select the route check (`AuthNRoutes`) at standard depth.
-- What each assessment depth does is set in one shipped file, `data/assessment-depths.yaml`: the verified aspects, the number of business abuse cases and of cases the model may add, the architect review, actor discovery, and the dialogue budget (REQ-018). Organization and scan profiles can change single values under `depths`, and a scan profile can name abuse cases that every run checks or skips with `check_abuse_cases` and `skip_abuse_cases`.
-- `appsec-analyzer abuse-cases` lists the defined abuse cases, or shows one with the result a saved assessment records, without model calls.
-- `appsec-analyzer platform-settings` checks security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, using read requests to the platform API and no model calls (REQ-038).
-- `appsec-analyzer distribution init` creates the files of an organization's own Analyzer distribution under its name, and `distribution update-engine` aligns its engine pins after an engine update; both work on local files only (REQ-039).
-- `appsec-analyzer repo-profile` shows a local repository's size, languages, and build manifests before a scan, without model calls.
-- Experimental: repeat `--repo` in the headless runner to assess several local checkouts as one system, with evidenced cross-repository calls and repository attribution in the model, report, and Figure 1; replacing an earlier combined report requires `--rebuild`.
-- Standard and thorough runs check business abuse cases, thorough runs add application-specific cases, and repositories and organization profiles can supply their own checks; `/appsec-advisor:abuse-cases` lists cases and results or explains a selected case.
-- The Threat Analyst checks concrete hypotheses or a selected abuse case against code at a Git revision, answers change-specific questions with `--question`, and supports read-only repository exploration for design questions and reviews with `--explore`.
-- Experimental: `/appsec-advisor:create-threat-model2` runs a single-repository assessment in the background with business-context questions, depth-based cost limits, live progress, and `--stop`.
-- Headless assessments accept HTTPS and SSH Git URLs with token or SSH authentication and automatic temporary checkout cleanup.
-- Rerunning `/appsec-advisor:create-threat-model`, or passing `--incremental`, re-analyzes changed components and reuses unchanged STRIDE results, refusing the run before any change if the previous model cannot be carried forward.
-- `python -m appsec_analyzer` starts the same command as `appsec-analyzer`, for example from a checkout or when the command is not on the `PATH`. `python -m appsec_analyzer.cli` keeps working.
+- Standard and thorough assessments verify authentication, authorization, input validation, data protection, and language model use alongside STRIDE analysis; thorough also checks authentication on every route. Verification adds model cost, shown in advance, and produces item-level results with linked findings and explicit contradictions. Profiles can also record scanner-linked verification items without model calls; see [verification configuration](docs/security-assessment.md#configure-verification).
+- Assessment depths and business abuse cases are configurable through organization and scan profiles. Standard and thorough runs check business abuse cases; thorough adds application-specific cases. `appsec-analyzer abuse-cases` lists definitions and saved results without model calls.
+- `appsec-analyzer platform-settings` checks GitHub and GitLab repository security settings through read-only API requests, without model calls.
+- `appsec-analyzer distribution init` creates an organization's own Analyzer distribution; `distribution update-engine` aligns its engine pins. Both work on local files only.
+- `appsec-analyzer repo-profile` shows local repository size, languages, and build manifests without model calls.
+- Experimental: the headless runner accepts repeated `--repo` options to assess several checkouts as one system, with cross-repository evidence and attribution. Replacing a combined report requires `--rebuild`.
+- Threat Analyst supports code hypotheses, selected abuse cases, change-specific questions (`--question`), and read-only design exploration (`--explore`).
+- Headless assessments accept HTTPS and SSH Git URLs with authenticated access and automatic temporary checkout cleanup.
+- `python -m appsec_analyzer` starts the public CLI from a checkout or when the command is not on `PATH`; `python -m appsec_analyzer.cli` remains supported.
 
 ### Changed
 
-- At standard and thorough depth, built-in business abuse cases that a verified aspect already checks, such as other users' data under authorization verification, come after the other built-in cases, so the depth's limit reaches rules nothing else checks. Cases a team supplies or requests keep their place.
-- Started without a command, `appsec-analyzer` shows three example calls and points to `--help` instead of printing only the usage line. The exit code stays 2.
-- `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`) so unattended runs never start on the default provider.
-- The Management Summary groups remediation priorities by root cause and severity, and Critical Findings by Root Cause replaces the Critical Attack Tree with links to weakness records and structural fixes.
-- Headless controller assessments analyze up to four components concurrently within the same cost budget, reserve resources for required completion, and retain a clearly incomplete snapshot when required work cannot finish.
-- Headless findings count as confirmed exploitable when source evidence establishes insecure code, attacker reachability, and no stopping control; reports identify unresolved checks and source coverage gaps.
-- Figure 1 and Figure 1b show network and build trust boundaries more precisely, and Figure 1 distinguishes unauthenticated client requests and maps more client calls to their routes.
-- Threat Analyst design questions, reviews, and hypothesis checks use existing threat-model context unless `--isolated` is passed, and reviews also inspect relevant imports and files cited by earlier findings.
-- `scripts/run-headless.sh` uses the controller for single-repository assessments and rejects unsupported modes such as `--incremental`, `--rerender`, and `--pr-mode`; `--audit-requirements` audits the repository named by `--repo`.
-- Headless output shows component progress and delivered files, groups routine diagnostics unless `--verbose` is set, and supports fixed-width wrapping with `--width`.
-- Repository abuse cases now belong in `docs/security/abuse-cases/`; the legacy `.appsec/abuse-cases/` path remains supported.
+- `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`). Starting without a command shows examples and help guidance, with exit code 2.
+- Standard and thorough runs prioritize built-in business abuse cases not already covered by verification; team-supplied and explicitly requested cases keep their place.
+- Management summaries group remediation by root cause and severity. Critical Findings by Root Cause replaces the Critical Attack Tree.
+- Headless controller assessments analyze up to four components concurrently within the budget and retain an explicitly incomplete snapshot when required work cannot finish.
+- Headless findings count as confirmed exploitable only with source evidence of insecure code, attacker reachability, and no stopping control. Reports identify unresolved checks and coverage gaps.
+- Architecture diagrams distinguish network and build trust boundaries, unauthenticated requests, and client-to-route calls more precisely.
+- Threat Analyst uses existing threat-model context unless `--isolated` is passed; reviews follow relevant imports and earlier finding references.
+- `scripts/run-headless.sh` uses the controller for single-repository assessments and rejects `--incremental`, `--rerender`, and `--pr-mode`. `--audit-requirements` uses the repository named by `--repo`.
+- Headless output shows component progress and delivered files, with detailed diagnostics under `--verbose` and wrapping controlled by `--width`.
+- Repository abuse cases move to `docs/security/abuse-cases/`; `.appsec/abuse-cases/` remains supported.
 
 ### Fixed
 
-- The Figure 1 legend no longer claims a STRIDE analysis per element, and every source-scanner rule maps to a STRIDE category by its weakness class instead of defaulting to Tampering.
-- Hardcoded secrets cited by findings, including keys passed as call arguments, are masked in every report output, and the secret gate fails if one remains.
-- `appsec-reviewer-cli` rejects repository-local Claude Code configuration unless `--trust-mode trusted` is passed and no longer accepts checkout verdict files as its own results; the Threat Analyst honors organization Opus bans.
-- Authentication checks recognize more JavaScript middleware and imported handlers, and ownership middleware suppresses findings only when its binding and execution order protect every recognized handler registration.
-- Abuse-case verification no longer credits unrelated or non-runtime findings, marks confirmed findings as verified, reports unresolved checks, and rejects invalid case files without dropping valid ones.
-- Trust-boundary detection handles different source layouts, distinguishes separately deployed targets and build channels, and includes outbound calls to external services and request-chosen URLs.
-- Source analysis no longer cites archived reports as code evidence or misreports wildcard CORS without credentials, and now detects OAuth implicit-flow tokens read from `location.hash`.
-- Reports handle empty weakness and boundary registers without broken links or missing remediation tables, and remaining link defects are repaired or stopped after rendering.
+- Hardcoded secrets, including keys passed as arguments, are masked in all report outputs; the secret gate fails if one remains.
+- Threat Analyst honors organization Opus bans.
+- Authentication checks follow more JavaScript middleware and imported handlers; ownership controls count only when they protect every recognized handler registration.
+- Abuse-case verification excludes unrelated findings, distinguishes confirmed and unresolved results, and rejects invalid case files without dropping valid ones.
+- Trust-boundary detection covers varied layouts, separate deployments, build channels, and outbound calls, including request-chosen URLs.
+- Source analysis excludes archived reports as code evidence, avoids false wildcard-CORS findings without credentials, and detects OAuth implicit-flow tokens read from `location.hash`.
+- Reports handle empty registers and repair or stop on broken links. STRIDE mappings follow weakness classes, and the Figure 1 legend no longer claims per-element STRIDE coverage.
 
 ## 0.6.0-beta.4 (2026-10-06)
 
 ### Added
 
-- `/appsec-advisor:analyze-threats` and `scripts/appsec-analyst-cli` analyze a planned feature or a selected code change on request; the [Threat Analyst](docs/threat-analyst.md) is experimental.
-- Repositories with a build pipeline get Figure 1b, a supply-chain diagram linking build inputs and release artifacts to the most severe evidenced attack and the relevant controls.
-- GitLab CI pipelines get the same supply-chain facts, build trust-boundary signals and Figure 1b detail as GitHub workflows: job and service images, script installs, piped installers, external `include:` entries and registry pushes.
-- `scripts/analyzers/repo_scan.py` lists findings by severity, endpoints and detected technologies without a threat model; it and Security Score accept HTTPS GitHub/GitLab URLs and write YAML or JSON.
-- `.appsec/actors.yaml` accepts `legitimate_roles` for declared user roles whose login lives outside the repository.
-- Report figures ship with a dark-background variant that GitHub and browsers show automatically in dark mode.
-- `export-threat-model` and `authnz-review` accept `--slug` for naming exports and pentest task files.
+- Experimental [Threat Analyst](docs/threat-analyst.md) checks planned features and selected code changes through `/appsec-advisor:analyze-threats` and `scripts/appsec-analyst-cli`.
+- Figure 1b maps build inputs, release artifacts, evidenced attacks, and controls, with GitHub Actions and GitLab CI support.
+- `scripts/analyzers/repo_scan.py` lists findings, endpoints, and technologies without a threat model. It and Security Score accept HTTPS GitHub/GitLab URLs and YAML or JSON output.
+- `.appsec/actors.yaml` accepts `legitimate_roles` whose login is outside the repository.
+- Report figures support dark mode.
+- `export-threat-model` and `authnz-review` accept `--slug` for named exports.
 
 ### Changed
 
-- Malicious insiders and attackers holding a user's device require opt-in through `enable:` in `.appsec/actors.yaml` or `actors.enable` in the organization profile and are otherwise listed as not assessed.
-- Interactive runs ask users to confirm the application's purpose and worst plausible business impact, then save the answers in `docs/security/business-context.md` for use in scope and prioritization, with fallback to the legacy path.
-- `--stride-cap` and the quick profile never drop Critical or High findings.
-- `create-threat-model` runs in `auto` and `bypassPermissions` mode without a separate `Bash(*)` allow-list and says what to fix when it cannot read the settings.
-- The Management Summary identifies the modelled system and its confirmed use case and distinguishes findings confirmed in code from unverified findings without claiming exploitability or release readiness.
-- The architecture report combines C4 context, deployment details and component control coverage in §2.1–§2.3, replacing the separate Technology Architecture section.
-- Figure 1 adds technology and authentication labels, with linked detail views and a PDF appendix for large models; existing models need a new analysis to populate missing authentication evidence.
-- Figure 2 connects each attack route to its attacker, access prerequisites, findings and impact.
-- Reports show finding references as ID and title without file and line, give every fix a distinct title, and list controls, instance locations, findings and trust-boundary crossings instead of chaining them in prose.
-- The configuration scan finds secrets and exposed data ports in Kubernetes, Helm, Terraform and Compose, maps each workload to a component or exclusion, treats deployment networks as possible trust boundaries, and names the IaC files it cannot check.
-- Supply-chain controls are assessed from repository and CI evidence, with tools that may run elsewhere marked as not evidenced rather than missing.
-- Components analysed with the LLM or agentic lens get a coverage assessment for every OWASP LLM or Agentic Top-10 item.
-- Thorough assessments use more scanner evidence and source excerpts within the same token budget.
-- Architect review checks ratings and mitigations before prioritization, drops refuted and below-threshold findings, sends unsettled ones to manual review, and keeps accepted corrections when reports are rebuilt.
-- Completion summaries lead with the assessment and grouped P1 fixes, while open team questions focus on unresolved business and deployment decisions.
-- `/appsec-advisor:report-error` investigates suspected plugin errors and prepares anonymised GitHub issue drafts for explicit publication approval; `--bundle-only` keeps the local diagnostic workflow.
-- Run Issues flag duplicate findings, missing verification evidence, incomplete review coverage and sharp drops in Critical or High findings between comparable runs.
-- New aiscb installations load verified modules on demand, and `update-baseline` uses compatible signed installers while preserving installation scope and mode.
-- The bundled secure-coding baseline is updated to `aiscb-0.1.19`.
-- `/appsec-advisor:help` opens with a quick start and keeps the full reference behind `--all`.
+- Malicious insiders and attackers holding a user's device require explicit opt-in and otherwise appear as not assessed.
+- Interactive runs confirm application purpose and worst plausible business impact, saving answers in `docs/security/business-context.md` with legacy-path fallback.
+- `--stride-cap` and quick assessments retain all Critical and High findings.
+- `create-threat-model` uses `auto` and `bypassPermissions` mode without a separate `Bash(*)` allow-list and reports unreadable settings.
+- Management summaries identify the system and use case, distinguish confirmed from unverified findings, and avoid claims of exploitability or release readiness.
+- Reports consolidate architecture and control coverage, link attack routes to prerequisites and impact, and simplify finding and remediation tables. Figure 1 adds technology and authentication labels, detail views, and a PDF appendix; older models need reassessment for authentication evidence.
+- Configuration scans cover secrets and exposed data ports in Kubernetes, Helm, Terraform, and Compose, with workload attribution and explicit coverage limits. Supply-chain controls rely on repository and CI evidence; tools that may run elsewhere appear as not evidenced.
+- LLM and agentic assessments report coverage for each applicable OWASP Top-10 item.
+- Thorough assessments include more source evidence within the same token budget.
+- Architect review checks ratings and mitigations, removes refuted and below-threshold findings, and retains accepted corrections across report rebuilds.
+- Completion summaries prioritize grouped fixes and unresolved team decisions. Run Issues flag duplicate findings, missing evidence, incomplete reviews, and sharp drops in severe findings.
+- `/appsec-advisor:report-error` prepares anonymised issue drafts for explicit publication approval; `--bundle-only` keeps diagnostics local.
+- Baseline installations load verified modules on demand; updates use compatible signed installers and preserve installation scope and mode. The bundled baseline advances to `aiscb-0.1.19`.
+- `/appsec-advisor:help` starts with a quick guide; `--all` shows the full reference.
 
 ### Fixed
 
-- Security controls with a free-text domain such as "Input Handling" are placed in a §6 section instead of stopping the Security Architecture fragment.
-- The completion summary offers `/appsec-advisor:report-error` only for regressions, not for known open plugin defects.
-- Private keys are fully redacted from findings, and pentest task exports are checked for leaked secrets.
-- Config and IaC findings reach reports again with the correct STRIDE category and component attribution.
-- Full assessments confirm object-level authorization gaps and entity mass assignment again without importing stale results from earlier runs, and mass-assignment checks exclude code that only reads or rejects privileged fields.
-- Route authentication checks follow imported handlers and apply guards only to the routes they protect, so unrelated endpoints no longer appear authenticated.
-- HTTP handlers are included in STRIDE analysis even when their component is labelled internal, and large components retain their source coverage with the most severe scanner evidence first.
-- `authnz-review` retains scanner findings, checks unresolved operation permissions and disabled JWT claim validation, and fails its gate when analysis is incomplete.
-- Duplicate findings from different analyses are merged without losing the highest risk, evidence or scenario references, while distinct JWT signature failures remain separate.
-- Finding and abuse-case ratings respect policy limits, and verified attack chains raise finding severity only to their declared goal impact.
-- A confirmed worst-case business impact applies to every runtime component, with build and delivery components included only when named in the answer.
-- Findings count as verified from an earlier assessment only when they name that earlier finding; others are checked like new findings.
-- LLM analysis retains component-specific RAG and agentic evidence, and the AI / LLM Exposure section includes only findings with the relevant OWASP tags.
-- Config/IaC checks respect Git ignores and assess only tracked agent settings, while GitHub Actions checks recognise valid job-level permissions.
-- SBOM, image-signing and dependency-update checks account for coverage across the repository, and findings about missing controls identify the files searched.
-- Architecture diagrams and the trust-boundary catalogue distinguish unprotected endpoints from their hosts' controls and in-process interfaces from separate services.
-- Security Architecture includes all assessed controls and lists findings under the controls they concern.
-- Security Score withholds a score when a required scanner fails or returns invalid output, while retaining available findings and diagnostics.
-- Runs no longer abort on large component inventories, deployment topology, threat-category metadata or a STRIDE finding that cites a line past the end of its file, and report any context omitted because of size limits.
-- Declined analyses and exhausted agent budgets show up as coverage gaps without blocking other analyses, and retries resume saved work without duplicating a running attempt.
-- An aborted interactive run releases its lock, so the error report can be offered right away; `--rerender` no longer deletes another run's lock.
-- Run logs retain earlier events, and cost totals no longer double-count sub-agent tokens or conceal missing measurements.
-- Run plans warn when requested PDF or HTML exports cannot complete in the environment.
-- Plugin update checks advertise released versions only.
+- Private keys are fully redacted, and pentest exports are checked for leaked secrets.
+- Config/IaC findings reach reports with correct categories and components; checks respect Git ignores, tracked agent settings, and valid workflow permissions.
+- Authorization checks detect object-level gaps and mass assignment without stale results or read-only-field false positives. Route guards apply only to the handlers they protect.
+- HTTP handlers remain in scope even in internal components; large components retain source coverage and prioritize severe scanner evidence.
+- `authnz-review` retains scanner findings, checks unresolved permissions and disabled JWT validation, and fails its gate on incomplete analysis.
+- Finding merges preserve risk, evidence, and scenario references while keeping distinct JWT failures separate. Ratings respect policy limits and verified attack-chain impact.
+- Confirmed business impact reaches all runtime components; prior findings count as verified only when explicitly referenced.
+- LLM analysis retains component-specific RAG and agent evidence; AI / LLM Exposure includes only relevant OWASP-tagged findings.
+- Supply-chain findings account for repository-wide control coverage and identify searched files.
+- Architecture diagrams distinguish endpoint controls from host controls and in-process calls from separate services.
+- Reports retain assessed controls and handle free-text control domains without aborting.
+- Security Score withholds ratings when required scanners fail or return invalid output.
+- Large inventories, out-of-range evidence lines, and metadata no longer abort runs; omitted context and exhausted analysis budgets appear as coverage gaps.
+- Retries resume saved work without duplicate attempts; interrupted runs release their locks, and rerendering preserves other runs' locks.
+- Logs retain prior events, and cost totals avoid duplicate sub-agent usage while flagging missing measurements. Run plans warn when requested exports cannot complete.
+- Plugin update checks advertise released versions only; error-report prompts exclude known defects.
 
 ## 0.6.0-beta.3 (2026-09-14)
 
 ### Added
 
-- The Management Summary and completion summary give developers concrete starting points for manual threat modeling through up to three open questions about deployment assumptions, business decisions, or unresolved attack chains, with references to findings.
-- Cost budgets via `--soft-budget` or organization profiles, with spending warnings and per-phase cost totals in headless runs.
-- `/appsec-advisor:repo-profile` shows repository size, languages, and build manifests before a scan, without model calls or network access.
+- Summaries suggest up to three concrete questions for manual threat modeling, linked to findings.
+- `--soft-budget` and organization profiles provide cost budgets, spending warnings, and per-phase headless totals.
+- `/appsec-advisor:repo-profile` shows repository size, languages, and build manifests without model calls or network access.
 
 ### Changed
 
-- Figure 1 has been completely redesigned to show attack scenarios, grouped data flows, actors, and Critical/High weaknesses in a clearer architecture overview.
-- Scenario summaries show attack-path verification status in a compact table.
-- Actor grouping accounts for self-registration and public access while preserving login and privilege requirements.
-- `fix-run-issues` requires a diagnosis from the affected run and provides manual remediation guidance.
-- Threat model examples moved to the companion `appsec-advisor-examples` repository.
-- Baseline installation and updates use signed releases with signature and checksum verification.
+- Figure 1 groups attack scenarios, data flows, actors, and severe findings; scenario tables show verification status.
+- Actor grouping recognizes self-registration and public access while preserving login and privilege requirements.
+- `fix-run-issues` requires a diagnosis and gives manual remediation guidance.
+- Examples move to `appsec-advisor-examples`.
+- Baseline installations and updates verify release signatures and checksums.
 
 ### Fixed
 
-- Headless runs handle asynchronous agents, interruptions, and lock conflicts without premature completion or interference with other runs.
-- Progress displays track completed STRIDE components accurately and avoid repeated status messages.
-- Cost reports use the actual model's rates, retain usage from stopped agents, and flag missing measurements.
-- `--verbose` and tracing settings apply correctly to each run.
-- Unattended runs no longer prompt for business context, and discarding completed analysis with `--full` or `--rebuild` requires confirmation or `--force`.
-- Deeper scans reuse reconnaissance for unchanged repositories, and rebuilds preserve derived model details.
-- Injection analysis covers more NoSQL, code, and template sinks and distinguishes stored, reflected, and DOM-based XSS.
-- Reports retain applicable security controls, merge duplicate findings, and exclude refuted attack chains from open questions.
-- Report generation preserves valid editorial work and avoids false QA failures, broken code formatting, and secret masking that corrupts report content.
-- Completion summaries list all requested exports and the editorial outcome.
+- Headless runs handle asynchronous agents, interruptions, and lock conflicts; progress and tracing settings reflect the active run.
+- Cost reports use actual model rates, retain stopped-agent usage, and flag missing measurements.
+- Unattended runs no longer prompt for context. Discarding completed analysis with `--full` or `--rebuild` requires confirmation or `--force`.
+- Deeper scans reuse unchanged reconnaissance; rebuilds preserve model details.
+- Injection checks cover more NoSQL, code, and template sinks and distinguish stored, reflected, and DOM-based XSS.
+- Reports retain controls and editorial work, merge duplicates, exclude refuted chains from open questions, and avoid formatting and masking corruption. Completion summaries list all requested exports.
 
 ## 0.6.0-beta.2 (2026-09-04)
 
 ### Added
 
-- Findings now name the requirements they break, and mitigations quote the blueprint section that prescribes the fix.
-- The Management Summary states compliance and lists the failed requirements, and the requirements audit names the catalog it graded against and how old it is.
-- A blueprint source can write its blueprints into a catalog file of its own, named by `catalog_file`.
-- `threat-model.yaml` now keeps requirements provenance, verified abuse-case outcomes and business-context use, and the Threat Dragon export keeps applicable traces instead of dropping them.
-- `/appsec-advisor:status` shows the installed package, the core and baseline versions, the shipped skills and the organization profile in effect; `--check-updates` says whether baseline and core are still current.
-- `/appsec-advisor:security-score` scores a repository from 0 to 100 using the scanners alone, without running a threat model.
-- Source scans now flag LLM output that reaches rendering, interpreters or privileged actions unchecked.
-- `/appsec-advisor:update-baseline` refreshes an installed secure-coding baseline in place and reports when the published one has a new id; an organization profile can point it at its own source.
-- Headless runs can start Claude Code through a wrapper given by the environment.
-- Run Issues now reports a stage claiming more agent dispatches than the run spawned, a component analysed only from files the context routing never delivered, and a requirements assessment missing from the YAML export.
-- `/appsec-advisor:authnz-review` can export its findings as pentest tasks with `--pentest-tasks`, `--pentest-format` and `--pentest-target`, defaulting to the organization profile.
+- Findings and mitigations link to requirements and blueprint guidance. Summaries list failed requirements; audits identify the catalog and its age.
+- Blueprint sources support separate catalogs through `catalog_file`. YAML and Threat Dragon exports retain requirements provenance and applicable assessment traces.
+- `/appsec-advisor:status` reports installed versions, skills, and active profiles; `--check-updates` checks baseline and core updates.
+- `/appsec-advisor:security-score` rates repositories from scanner results without a threat model.
+- Scanners flag unchecked LLM output reaching rendering, interpreters, or privileged actions.
+- `/appsec-advisor:update-baseline` updates an installed baseline, including organization-defined sources.
+- Headless runs accept an environment-configured Claude Code wrapper.
+- `authnz-review` supports pentest-task exports and organization defaults.
+- Run Issues flag inconsistent agent counts, missing source context, and requirements results absent from YAML.
 
 ### Changed
 
-- A baseline that lags the configured one is now reported as outdated rather than foreign; both still fail an enforcing check.
-- The final stage now polishes the report's prose instead of reviewing it a second time, reverting any rewrite that would change a finding, rating, evidence locator, link or number.
-- A missing lockfile, an undigested base image, a missing workflow `permissions:` block and an unpinned action are now Medium instead of High.
-- Business context supplied with `--context` is now recorded with the run and named in the run statistics, and a source that cannot be read stops the run instead of being dropped in silence.
-- The completion summary's Next Steps now reads as self-contained alternatives, with the example questions on their own lines.
-- `/appsec-advisor:help` no longer wraps in a terminal, and no longer documents options the runtime rejects before a run starts.
+- Enforcing baseline checks distinguish outdated installations from foreign ones and reject both.
+- Final editing polishes prose while preserving findings, ratings, evidence, links, and numbers.
+- Missing lockfiles, image digests, workflow permissions, and action pins are rated Medium rather than High.
+- `--context` records its source and stops on unreadable input.
+- Help and completion guidance remove unsupported options and clarify next steps.
 
 ### Fixed
 
-- A hook firing from a subdirectory now writes to the run's own output directory instead of creating a stray one beside it.
-- A run that ends without releasing its lock no longer blocks later runs against the same output directory.
-- A plain-HTTP URL in a comment no longer produces a cleartext-transport verdict for a bundled third-party file.
-- An agent call the host answers asynchronously, and a subagent that ends its last turn on a tool call, are no longer recorded as failed and no longer hold turns and budget claims.
-- Abuse-case verification that did not run is now named as such in section 9, in a quick run's scope banner and in the receipts, instead of being reported as no abuse case identified.
-- A configured abuse-case release gate now ends the run only after section 9 and the finding ranking are written, so the chain that failed the gate is on disk.
-- The Stage 2 abort now names the step that actually blocked.
-- A run with the requirements check switched off no longer fails its finished report on an empty catalog, nor reports a disagreement from a stale count.
-- The requirements harvester now takes the whole requirement section, recognises IDs written without brackets, no longer duplicates entries, and writes every format a source declares.
-- Code references now use one formatter across report sections and dependency ecosystems, so packages and complete snippets stay intact.
-- A stored `docs/business-context.md` carrying a credential is now withheld from the analysis, the same way a supplied source is refused.
-- `--skip-context` now runs without business context, context from one run no longer leaks into the next run in the same output directory, and a declared context that maps to no component is reported as a run issue.
-- Run statistics no longer multiply or cap the stage count when measurement windows overlap.
-- A finished run now clears its transient files again; a run that ended with QA unclean keeps them for diagnosis.
-- A run with `--slug` now stamps the PDF and HTML exports as well.
+- Hooks use the run's output directory; stale locks and asynchronous agent completion no longer block later work.
+- Plain HTTP URLs in comments no longer cause transport findings for bundled third-party files.
+- Skipped abuse-case verification appears as a coverage gap. Release gates write the failed chains and ranking before stopping.
+- Disabled requirements checks ignore empty catalogs and stale counts; harvesting retains complete sections, unbracketed IDs, and declared formats without duplicates.
+- Stored business context containing credentials is withheld. `--skip-context` is honored, context cannot leak between runs, and unmatched context produces a run issue.
+- Reports preserve complete code references; `--slug` also names PDF and HTML exports. Run statistics, failure diagnostics, and temporary-file cleanup reflect the outcome.
 
 ## 0.6.0-beta.1 (2026-08-23)
 
-From this release a `-beta.N` suffix marks the Nth pre-release of the version in
-front of it, so 0.6.0 follows once the line is stable. In 0.4 and 0.5 `-beta`
-labelled the release line itself.
+From this release, `-beta.N` identifies a numbered prerelease of the upcoming version; in 0.4 and 0.5, `-beta` named the release line.
 
 ### Added
 
-- A scan now reports the sandbox, approval, hook and tool-trust posture set by a repository's committed coding-agent configuration for Claude Code, Codex, Copilot, Gemini CLI and Kiro.
-- The requirements harvester can emit selected functional requirements as single-file OpenSpec and SpecDD specifications.
-- New and rebuilt analyses can collect optional business context interactively or through `--context`, use it to keep named sensitive-asset components in scope and to weight finding impact and order, or leave it out with `--skip-context`.
-- LLM analysis now checks prompt-only behavioural limits, action auditability, permitted data classes, and approval gates, with organization policy supplied through `llm_policy`. See `docs/org-profiles.md`.
-- Threat models can now be exported as alpha OWASP Threat Dragon v2 JSON for Threat Dragon and ThreatAtlas with `--formats threatdragon` or `create-threat-model --threatdragon`. See `docs/threat-dragon-export.md`.
-- Trust boundaries now have stable IDs, can be declared in the repository, link to findings, and appear in the Markdown, YAML, query, and SARIF output.
-- New `install-baseline`, `verify-baseline` and `remove-baseline` skills manage a secure-coding baseline in Claude Code's instruction files, with `verify-baseline --enforce` as a CI gate.
-- New `help` skill lists available commands and the context, profile, and coach configuration in effect.
-- Organization profiles can ship custom skills, a secure-coding baseline, and a banner, and disable shipped skills.
-- A run that recorded an error now points at `/appsec-advisor:report-error`, which builds a local anonymised bundle and sends nothing.
+- Scans assess committed coding-agent permissions, approvals, hooks, and tool trust for Claude Code, Codex, Copilot, Gemini CLI, and Kiro.
+- Requirements harvesting exports selected functional requirements as OpenSpec and SpecDD files.
+- Optional business context, supplied interactively or with `--context`, guides scope and impact; `--skip-context` omits it.
+- LLM analysis checks prompt-only restrictions, action auditability, data permissions, and approval gates, with organization policy through `llm_policy`.
+- Alpha OWASP Threat Dragon v2 export supports Threat Dragon and ThreatAtlas.
+- Stable trust-boundary IDs link declarations and findings across Markdown, YAML, query, and SARIF output.
+- Baseline install, verification, and removal skills include `verify-baseline --enforce` for CI. Organization profiles can ship skills, baselines, and banners or disable shipped skills.
+- Help shows active configuration.
+- `/appsec-advisor:report-error` creates a local anonymised diagnostic bundle without sending it.
 
 ### Changed
 
-- Threat analysis now costs 39.8% less at quick depth and 26.8% less at thorough depth in reference runs.
-- Live progress now shows each analysis step and current STRIDE component without duplicate or stale agent statuses or internal watchdog identifiers.
-- Quick scans now use the Management Summary format, and report summaries and scope sections now explain the implementation-level limits of a code-derived threat model.
-- The risk distribution now reports Low as `n/a` and names the reporting threshold when Low findings were excluded, instead of showing `0`.
-- Critical attack walkthroughs now cover a broader mix of threat categories, prioritising Access Control and LLM Abuse when present.
-- Verified findings at confirmed internet entry points can now be raised by one severity level, up to High.
-- Findings of the same kind at different trust boundaries now stay separate instead of being consolidated into one row.
-- Every finding in the register now names its STRIDE category next to the weakness class.
-- The report verdict now appears in `threat-model.yaml` and leads `show-threat-model`, which also reports worst-case scenarios, matching finding IDs and severity counts, and stale-model warnings.
+- Reference runs cost 39.8% less at quick depth and 26.8% less at thorough depth.
+- Progress identifies active steps and components; summaries explain code-derived assessment limits and reporting thresholds.
+- Attack walkthroughs cover more threat categories. Verified findings at confirmed internet entry points may rise one severity level, up to High.
+- Findings remain separate across trust boundaries and show STRIDE categories. `show-threat-model` includes the saved verdict, worst-case scenarios, severity counts, and stale-model warnings.
 
 ### Removed
 
-- Threat-model runs now support only full, rebuild, and rerender, while incremental, resume, PR mode, assessment dry runs, baseline restore, `--max-wall-time`, `--max-cost`, and `APPSEC_LIVE_PHASE=1` are rejected before a run starts. Reassess a changed repository with `--full`, which preserves report history.
-- The retired `--qa-scan-repo` option is no longer accepted.
+- Runs support only full, rebuild, and rerender. Incremental, resume, PR mode, assessment dry runs, baseline restore, `--max-wall-time`, `--max-cost`, and `APPSEC_LIVE_PHASE=1` are rejected; use `--full` to reassess while preserving report history.
+- The retired `--qa-scan-repo` option is rejected.
 
 ### Fixed
 
-- A scan no longer aborts when a component's analysis scope does not match its declared source paths; the scope is narrowed instead, cited evidence is preserved, and what changed is recorded.
-- Architecture diagrams now place components in their declared tiers, include every folded component in tier finding counts, and identify components omitted from shortened labels.
-- Finding registers and tables now classify scanner findings, avoid duplicate workflow-permission entries, sort by severity, keep risk labels consistent, and preserve finding references when IDs have gaps.
-- Long, retried, interrupted, or partially malformed scans now recover or terminate cleanly without discarding completed work, while lock conflicts identify their owner and offer wait or takeover.
-- Run summaries now distinguish analyzed components from the full inventory, include all completed agents in token and cost totals, and flag incomplete accounting.
-- Per-run abuse-case selections now work at every depth and explain when they cannot be used.
-- LLM endpoints are now included in the architecture, and prompt text alone no longer counts as a control against prompt injection.
-- Cross-repository expectations and earlier assessment output no longer count as target-repository evidence.
-- Client-side code is no longer modelled as a trust zone, preventing invalid browser-boundary crossings.
-- Supply-chain analysis now rates only scanners the project actually runs and retains dependencies whose names begin with `php`, including vulnerable PHPUnit versions.
-- Requested exports are now always written and listed, and invalid generated YAML can no longer replace the last valid report artifact.
-- Large repositories can no longer crowd required security sections out of reconnaissance results.
-- Reconnaissance now detects predictable OAuth-derived and bundled client credentials.
-- A run can no longer walk past abuse-case verification into report rendering, which left the verified attack chains out of the report without saying so.
-- A run now says when it analysed a component from only a fraction of its files, and keeps focus paths that the source-slice budget used to drop.
-- A component that overshot its turn budget but finished its analysis is no longer reported as an error.
-- The closing summary now splits mitigations by priority and offers its follow-ups as choices.
-- Attack arrows in the architecture diagram now land on the tier band instead of inside it.
-- The pre-render gate no longer rejects reports the composer accepts.
+- Scope mismatches narrow analysis without losing cited evidence; large repositories retain required sections and report partial source coverage.
+- Diagrams honor component tiers and counts, include LLM endpoints, and avoid treating browser code as a trust zone.
+- Finding tables preserve references, categories, locations, and consistent severity without duplicate workflow findings.
+- Long, interrupted, and malformed runs retain completed work or terminate cleanly; lock conflicts offer recovery, and cost summaries flag incomplete accounting.
+- Abuse-case selection works at every depth, and verification cannot be silently skipped before rendering.
+- Prompt text alone no longer counts as an injection control. Other repositories and earlier reports cannot stand in for target-source evidence.
+- Supply-chain checks assess tools actually run and retain PHP dependencies. Reconnaissance detects predictable OAuth-derived and bundled client credentials.
+- Requested exports are written and listed; invalid YAML cannot replace the last valid artifact. Report gates and rendering accept the same valid output.
 
 ## 0.5.1-beta (2026-07-26)
 
 ### Added
 
-- Authentication scans now detect security-question password resets and password policies that allow fewer than eight characters.
-- `ask-threat-model` can now filter findings by severity, component, and evidence state.
-- Headless runs now end with a per-model token and cost breakdown, taken from Claude Code's own accounting and matching what `/cost` reports in an interactive session.
-- New screening depth tier that analyzes the internal tail on a smaller budget while everything carrying attack surface or data keeps full depth — on by default in quick and standard scans, off in thorough, overridable with `--cheap-stride` and `--no-cheap-stride`. On the reference OWASP Juice Shop at standard depth this reduced the API cost from $33.21 to $30.83.
-- Scans of agentic applications now check Claude Code permissions and hooks for unsafe behavior.
+- Authentication scans detect security-question resets and password policies allowing fewer than eight characters.
+- `ask-threat-model` filters by severity, component, and evidence state.
+- Headless runs report per-model token usage and cost from Claude Code accounting.
+- Smaller-budget screening for internal components is enabled at quick and standard depth, configurable with `--cheap-stride` and `--no-cheap-stride`.
+- Agentic assessments check Claude Code permissions and hooks.
 
 ### Changed
 
-- Large scans now analyze components in resumable batches, improving speed without sacrificing coverage.
-- Supply-chain scoring now focuses on exploitable risks and better recognizes common Python and npm safeguards.
-- Clean reports now skip redundant semantic review, reducing run time and cost.
-- Architecture and evidence checks are now faster on larger repositories.
-- Attack walkthroughs now present attacker actions in a clearer order and format technical details more consistently.
-- The pre-flight now reports the STRIDE threat cap and tail screening in one shorter `STRIDE depth` row.
+- Large assessments use resumable component batches. Evidence checks and report review take less time and cost; supply-chain scoring better recognizes Python and npm safeguards.
+- Attack walkthroughs clarify action order and technical details; preflight summarizes STRIDE depth and screening.
 
 ### Fixed
 
-- Full and rebuild scans are now more reliable on long runs without weakening final checks.
-- Evidence results are no longer lost while abuse cases are processed.
-- Merged findings now retain their locations and sources, while unrelated architectural risks remain separate.
-- Stored XSS is now reported as confirmed only when data is persisted and later reaches an unsafe HTML output.
-- Headless runs can resume after analysis and provide clearer failure details and recovery guidance.
-- Component analysis no longer runs serially by mistake, and concurrent runs no longer interfere with each other.
-- Packaged plugins now work correctly with custom namespaces in headless mode.
-- Security architecture reports no longer contain empty control sections or broken two-factor authentication links.
-- Container diagrams now stay within their size limit on larger models.
-- A finding now carries the same severity everywhere in the report; the attack-path table no longer disagrees with the rest of the document.
-- An attack chain is rated fully viable only when every assessed step is confirmed, and its control assessment follows the verifier's reading of the code instead of a keyword guess.
-- Attack demonstrations containing an unsigned token or an SQL-injection payload no longer trip the secret gate or get masked into an unusable reproduction step.
+- Long runs preserve evidence and completed work, resume after analysis, and isolate concurrent runs. Component analysis no longer runs serially by mistake.
+- Findings retain locations, sources, and consistent severity; stored XSS requires evidence of persistence and unsafe HTML output.
+- Attack chains count as fully viable only when every step is confirmed; control assessments use verifier evidence.
+- Report diagrams and control sections handle large models without broken links. Secret masking preserves unsigned-token and SQL-injection reproduction payloads.
+- Packaged plugins support custom namespaces in headless mode.
 
 ## 0.5.0-beta (2026-07-18)
 
 ### Added
 
-- `/appsec-advisor:ask-threat-model` answers free-form questions about an existing threat model ("what should I fix first?", "does it cover SSRF?") — no report to re-read, no export to grep. Answers are grounded in the model and cite finding IDs.
-- `/appsec-advisor:review-threat-model` is now a guided triage console: a short risk verdict, then work through findings by top risk, fix, or area and decide fix / accept / defer in bulk. Writes a prioritised `remediation-plan.md` and remembers your decisions across re-scans.
-- Weakness Register: systemic and design-level weaknesses get their own chapter, grouped by evidence strength and by how a control is built (home-grown, misused, or missing), and summarised as a security-principles verdict. Flags supply-chain risks (mutable GitHub Actions refs) and committed secrets; broad CWE families no longer merge unrelated issues.
-- Access-control, crypto, and mass-assignment scanners now cover Java, Python, Go, PHP, C#/.NET, Ruby/Rails, and mobile — not just JavaScript/TypeScript.
-- Headless runs can use a Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`), so CI works without an API key.
-- Abuse cases can be picked from repo signals, path patterns, or a source probe, and gated on verified chains. A confirmed probe can turn into a regular finding.
-- Figure 1 shows missing architecture tiers as transparent placeholders instead of leaving them out.
-- MCP servers from an org profile are shipped in the packaged plugin.
-- Org profiles can package the requirements gate policy per preset (`requirements.gate`), so a CI preset gates on requirements by default. Per-run `--gate` / `--gate-on` / `--priority-floor` still overrides.
-- Org profiles can define custom Security Coach steering rules (a baseline plus topics) without forking the plugin.
-- Org profiles can package run policy: a per-preset CI severity gate (`guardrails.fail_on`) and an org-wide remote-fetch allowlist (`policy.url_allowlist`), which now also covers the previously-unguarded requirements-catalog fetch.
-- Org profiles can bundle their own Claude Code hooks, merged into the built `hooks.json` and recorded for audit. Org hooks run at the event layer only — never touching findings, severity, or schemas.
-- OWASP Top 10 for Agentic Applications (2026): on an agentic surface (LLM wired to tools, memory, or other agents), adds an Agentic-Top-10 lens and tags each AI/LLM risk with a linked `ASIxx` badge.
+- `/appsec-advisor:ask-threat-model` answers questions about saved models with finding references.
+- `/appsec-advisor:review-threat-model` supports bulk triage, saves a remediation plan, and retains decisions across reassessments.
+- A Weakness Register groups systemic and design weaknesses by evidence and control implementation, including supply-chain risks and committed secrets.
+- Access-control, cryptography, and mass-assignment scanners extend beyond JavaScript/TypeScript to Java, Python, Go, PHP, C#/.NET, Ruby/Rails, and mobile.
+- Headless runs accept Claude subscription authentication through `CLAUDE_CODE_OAUTH_TOKEN`.
+- Abuse cases can be selected from repository signals, paths, or source probes and gated on verified chains.
+- Organization profiles can package MCP servers, requirements and severity gates, remote-fetch allowlists, Security Coach rules, and event hooks. Per-run gate options remain available.
+- Agentic applications gain OWASP Agentic Top-10 coverage and linked finding tags.
+- Architecture diagrams show missing tiers as placeholders.
 
 ### Changed
 
-- OWASP Top 10 references updated from the 2021 to the **2025** edition (SSRF folded into A01, new A03 Software Supply Chain Failures and A10 Mishandling of Exceptional Conditions, categories re-lettered). Finding badges, coverage-gap checks, and the CWE mapping now target 2025.
-- Management Summary reads in plain language — no finding IDs, file paths, or abuse-case IDs.
-- Report order: Security Architecture before the Weakness Register, and leaner tables.
+- OWASP Top-10 mappings and coverage checks target the 2025 edition.
+- Management summaries use plain language; Security Architecture precedes the Weakness Register, with shorter tables.
 
 ### Fixed
 
-- Refuted findings are dropped before output; threat merging no longer loses locations or scenarios.
-- Scanner findings now get full remediation steps instead of failing the mitigation check.
-- Abuse-case verification skips expensive web-auth checks on weak matches, and chains cut off mid-way are marked provisional instead of "viable".
-- IAC-005 no longer fires an npm `--ignore-scripts` finding on non-JavaScript images (e.g. Java/Maven).
-- Cut-off runs now say what happened, and tell an API stall apart from a lost session. Retries reuse the existing context instead of rebuilding it.
-- Long runs keep their place when the context window is compacted.
-- `--slug` now also stamps the pentest-tasks export (`pentest-tasks-<slug>.yaml`), so several models with pentest tasks can share one output directory without overwriting each other.
+- Refuted findings are removed; merging preserves locations and scenarios, and scanner findings receive remediation guidance.
+- Abuse-case verification avoids weak matches and marks incomplete chains provisional.
+- npm install-script checks exclude non-JavaScript images.
+- Interrupted runs explain failures and retain context across retries and compaction.
+- `--slug` names pentest-task exports to prevent overwrites.
 
 ## 0.4.0-beta (2026-07-07)
 
-First public release. Still a beta: good for guided use, but not ready to run unattended in CI yet.
+First public release, intended for guided use rather than unattended CI.
 
 ### Added
 
-- Generate STRIDE threat models from a Git repository with `/appsec-advisor:create-threat-model`: architecture diagrams, trust boundaries, risk-ranked findings, affected components, and remediation guidance.
-- Three analysis depths: `quick`, `standard`, and `thorough`.
-- Reports export to Markdown, YAML, PDF, HTML, SARIF, and pentest task lists.
-- Each finding is attributed to the threat actors who could realistically reach it.
-- Abuse cases chain individual findings into end-to-end attack scenarios.
-- Incremental scans re-analyze only what changed since the last run.
-- Feed in project context (business context, known threats, related repositories) or shared organization profiles to improve results.
-- Audit a repository against a security-requirements catalog as a standalone check (`/appsec-advisor:audit-security-requirements`).
-- Publish a reviewed report with `/appsec-advisor:publish-threat-model`; reports are git-ignored by default.
+- `/appsec-advisor:create-threat-model` generates STRIDE models with architecture diagrams, trust boundaries, risk-ranked findings, and remediation guidance at quick, standard, or thorough depth.
+- Markdown, YAML, PDF, HTML, SARIF, and pentest-task exports; findings link to reachable threat actors, and abuse cases combine findings into attack scenarios.
+- Incremental scans reuse unchanged analysis. Business context, related repositories, and organization profiles guide assessments.
+- Standalone security-requirements audits and publication of reviewed reports; generated reports are git-ignored by default.
 
 ### Known limitations
 
-- Run `/appsec-advisor:check-permissions --update` once after installing.
-- Large repositories (more than ~8–10 components) are slower and not yet parallelized.
-- Supply-chain risk is reported as posture only, not per-CVE. Use a dedicated scanner such as Dependabot, Snyk, or Trivy for that.
+- Run `/appsec-advisor:check-permissions --update` after installation.
+- Large repositories (roughly 8–10 or more components) are slower and not yet parallelized.
+- Supply-chain assessment covers posture, not known CVEs; use a dedicated dependency scanner.
