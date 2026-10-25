@@ -836,8 +836,9 @@ def _generated_routes(
             continue
         newlines = [match.start() for match in re.finditer("\n", code)]
         registrations = _registrations(code, newlines)
-        # Per file: each registration's guard definitions and each model name's site, resolved once.
-        guarded: dict[tuple[int, str], list[list]] = {}
+        # Per file: each registration's guard definitions per method, as a route chain differs by method, and each
+        # model name's site, resolved once.
+        guarded: dict[tuple[int, str, str], list[list]] = {}
         sites: dict[str, list | None] = {}
         call_re = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\s*\.\s*resource\s*\(\s*\{")
         for call in call_re.finditer(code):
@@ -874,10 +875,10 @@ def _generated_routes(
                     if _runs_for(verb, registered, method, path)
                 ][:_MAX_CHAIN_SPANS]
                 for first, _last, registered in runs:
-                    if (first, registered) not in guarded:
-                        guarded[first, registered] = [
+                    if (first, registered, method) not in guarded:
+                        guarded[first, registered, method] = [
                             list(site)
-                            for site in resolver.registration_middleware(rel, first, registered)
+                            for site in resolver.registration_middleware(rel, first, registered, method)
                             if site[0] in admitted
                         ]
                 generated[route_id] = known[(rel, method, path)] = {
@@ -909,7 +910,9 @@ def _generated_routes(
                     "guards": [
                         list(site)
                         for site in dict.fromkeys(
-                            tuple(site) for first, _last, registered in runs for site in guarded[first, registered]
+                            tuple(site)
+                            for first, _last, registered in runs
+                            for site in guarded[first, registered, method]
                         )
                     ],
                 }

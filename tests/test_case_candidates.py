@@ -650,6 +650,29 @@ def test_generated_routes_name_their_guards_and_data_model(tmp_path, style):
     json.dumps(facts)
 
 
+def test_a_route_chain_gives_each_generated_route_the_guards_of_its_own_method(tmp_path):
+    """``app.route(path).get(a).put(b)`` guards GET with a and PUT with b; a method the chain omits gets none."""
+    header, guards = SERVED["import"]
+    files = {
+        "repo/server.ts": header + "const app = express()\n"
+        "app.route('/api/Orders/:id')\n"
+        "  .get(requireLogin())\n"
+        "  .put(denyAll())\n"
+        "finale.resource({ model: Order, endpoints: ['/api/Orders', '/api/Orders/:id'] })\n",
+        "repo/lib/guards.ts": guards,
+        "repo/models/order.ts": "class Order extends Model {}\nOrder.init({ role: DataTypes.STRING })\n",
+    }
+    repo = write_repo(tmp_path, files) / "repo"
+    owned = [path.removeprefix("repo/") for path in files]
+    facts = cc.route_facts(repo, build_inventory(repo), [], components={"api": owned})
+    rows = {(row["method"], row["path"]): row for row in facts["routes"].values()}
+    starts = {key: [(path, first) for path, first, _ in rows[key]["guards"]] for key in rows}
+    assert starts["GET", "/api/Orders/:id"] == [("lib/guards.ts", 1)]
+    assert starts["PUT", "/api/Orders/:id"] == [("lib/guards.ts", 5)]
+    assert starts["DELETE", "/api/Orders/:id"] == []
+    assert starts["GET", "/api/Orders"] == []
+
+
 def test_a_string_model_option_names_no_data_model(generated):
     facts, _ = generated
     assert all(row["data_model"] is None for row in facts["routes"].values())

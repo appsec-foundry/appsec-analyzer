@@ -173,6 +173,12 @@ _JS_REQUEST_END_RE = re.compile(
     r"|\bthrow\b|\bnext\s*\(\s*[^)\s]"
 )
 _JS_BARE_NEXT_RE = re.compile(r"\bnext\s*\(\s*\)")
+# One method call of a route chain, `app.route(path).get(...)`, after comments or line breaks. Each character has
+# one way to match, so a long run of blanks before something other than a call cannot backtrack exponentially.
+_JS_CHAIN_CALL_RE = re.compile(
+    r"(?:\s|//[^\n]*|/\*(?:[^*]|\*(?!/))*\*/)*\.\s*(?P<verb>get|post|put|patch|delete|head|options|all)\s*\(",
+    re.IGNORECASE,
+)
 _JS_CALLBACK_RE = re.compile(r"=>|\bfunction\b")
 _JS_IMPORT_RE = re.compile(
     r"\bimport\s+(?:type\s+)?(?:(?P<default>[\w$]+)\s*,?\s*)?"
@@ -955,26 +961,41 @@ class HandlerResolver:
         if route.get("framework") not in _CALL_FRAMEWORKS:
             return []
         return self.registration_middleware(
-            route.get("handler_file") or "", route.get("handler_line"), route.get("path")
+            route.get("handler_file") or "", route.get("handler_line"), route.get("path"), route.get("method")
         )
 
-    def registration_middleware(self, rel: str, line: int, path: str | None) -> list[tuple[str, int, int]]:
+    def registration_middleware(
+        self, rel: str, line: int, path: str | None, method: str | None = None
+    ) -> list[tuple[str, int, int]]:
         """``middleware_definitions`` of the call registration at ``rel:line`` for ``path``.
 
         A last argument that hands the request on, an authentication package
         guard or code that calls ``next()``, is a guard registered for the path,
         not its handler: a later registration or a REST resource generator
         handles the request, as after ``app.get('/api/Users', isAuthorized())``.
+        A route chain, ``app.route(path).get(a).put(b)``, registers its guards
+        per method, so only its calls for ``method`` and ``all`` count.
         """
         found = self._js_registration({"handler_file": rel, "handler_line": line})
+        groups = None
         if found is None:
-            return []
-        rel, line, text, call, args = found
+            found = self._js_route_chain(rel, line, method)
+            if found is None:
+                return []
+            rel, line, text, call, groups = found
+        else:
+            rel, line, text, call, args = found
+            # The path is the registration's first argument; the arguments after it run in order.
+            groups = [args[1:]]
         obj, path = call.group("obj"), (path or "").rstrip("/") or "/"
-        elements = [self._js_element(rel, line, arg) for arg in args[1:-1]]
-        ok, last = self._js_element(rel, line, args[-1])
-        if ok and (isinstance(last, _PackageGuard) or any(_JS_BARE_NEXT_RE.search(body) for _rel, _line, body in last)):
-            elements.append((ok, last))
+        elements = []
+        for args in groups:
+            elements += [self._js_element(rel, line, arg) for arg in args[:-1]]
+            ok, last = self._js_element(rel, line, args[-1])
+            if ok and (
+                isinstance(last, _PackageGuard) or any(_JS_BARE_NEXT_RE.search(body) for _rel, _line, body in last)
+            ):
+                elements.append((ok, last))
         for use in re.finditer(rf"\b{re.escape(obj)}\s*\.\s*use\s*\(", text[: call.start()]):
             mounted = _split_args(text[use.end() : _matching(text, use.end() - 1) - 1])
             if not mounted or mounted[0][:1] not in "'\"`[":
@@ -993,3 +1014,22 @@ class HandlerResolver:
                 rel, line, body = code[0]
                 spans.append((rel, line, line + body.count("\n")))
         return list(dict.fromkeys(spans))
+
+    def _js_route_chain(self, rel: str, line: int, method: str | None) -> tuple[str, int, str, re.Match, list] | None:
+        """(file, line, text, ``route`` call, argument lists of its chained calls for ``method``) at ``rel:line``.
+
+        Without a method no chained call can be chosen, so a chain yields nothing.
+        """
+        text = self._text(rel)
+        if text is None or not isinstance(line, int) or not method:
+            return None
+        call = re.compile(r"\b(?P<obj>[\w$]+)\s*\.\s*route\s*\(").search(text, _line_offset(text, line))
+        if not call or _line_of(text, call.start()) != line:
+            return None
+        groups, at = [], _matching(text, call.end() - 1)
+        while step := _JS_CHAIN_CALL_RE.match(text, at):
+            at = _matching(text, step.end() - 1)
+            args = _split_args(text[step.end() : at - 1])
+            if args and step["verb"].lower() in (method.lower(), "all"):
+                groups.append(args)
+        return rel, line, text, call, groups
