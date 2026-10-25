@@ -129,10 +129,11 @@ Keys pressed before the question appears do not answer it, and the chosen start
 is confirmed in one line.
 `--non-interactive`, `--quiet`, `--json`, and CI runs never ask. A continued run's
 header names its start, working time, spending so far, and deadline; a new scan
-names the unfinished run whose accepted steps it reuses. Both run every phase
-again, and only steps without a matching accepted result call a model: the
-progress display marks reused components, and each phase's end line says
-whether its steps were reused. For a continued run, ELAPSED shows the current
+names the unfinished run whose accepted steps it reuses, under "Earlier run".
+Both run every phase again, and only steps without a matching accepted result
+call a model: the end lines of each phase, the survey, and verification say how
+much came from the earlier run, and a component taken from it shows no
+duration. For a continued run, ELAPSED shows the current
 attempt and, in parentheses, the working time of all attempts. Earlier results
 stay in the output until a new run completes; that run removes the ones it did
 not replace. Inspect `status` or `progress`
@@ -202,9 +203,9 @@ A model writes a combined finding's title, scenario, and remediation from the te
 | standard | yes | `AuthN`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 | thorough | yes | `AuthN`, `AuthNRoutes`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 
-These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth leaves out `AuthNRoutes`, because in a measuring run on Juice Shop this route-by-route check of authentication cost about as much as `AuthZ` and most of its findings repeated what authorization verification, the scanners or the survey already reported. `AI` gets jobs only for components that call a language model. The run header shows the methods, such as `Survey · Verify AuthZ`.
+These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth leaves out `AuthNRoutes`, because in a measuring run on Juice Shop this route-by-route check of authentication cost about as much as `AuthZ` and most of its findings repeated what authorization verification, the scanners or the survey already reported. `AI` gets jobs only for components that call a language model. Under "Threat analysis methods", the run header says how the scanners, the survey, and verification examine the code, and which aspects verification covers.
 
-Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the survey starts, the run names the components it will verify. Before the first verification job, it states the estimated cost of all jobs and whether the remaining budget covers them; jobs with an accepted result of an earlier attempt need no new model call and stay out of the estimate. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis from its start. It shows the survey and the verification as two steps, each with its own start and end. It lists each component once its verification has finished, with its duration, however many jobs the component needed, and names the jobs without a result.
+Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the survey starts, the run names the components it will verify. Before the first verification job, it states the estimated cost of all jobs and whether the remaining budget covers them; jobs with an accepted result of an earlier attempt need no new model call and stay out of the estimate. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis from its start. Each threat analysis line names its method, Scanners, Survey, or Verify, in a column of its own, and the survey and the verification each have their own start and end. It lists each component once its verification has finished, with its duration unless its result came from an earlier run, however many jobs the component needed, and names the jobs without a result.
 
 ### Configure verification
 

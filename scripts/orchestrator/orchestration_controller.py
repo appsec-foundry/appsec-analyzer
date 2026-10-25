@@ -1855,14 +1855,9 @@ def _assessment_stride(
 
         # Decided before the survey, so the live progress weighs the verification from the start.
         planned = assessment_test_cases.plan_pilot(scope, architecture, scanned, test_cases, progress=progress)
-    # The scanners are no approach of their own: their hits are where the survey and verification start.
+    # Their hits are where the survey and verification start; the run header says what the scanners check.
     hits = sum(len(rows) for rows in scanned.values())
-    checks = "deterministic code and configuration checks, no model calls"
-    if hits:
-        starts = "survey and verify" if envelopes is not None and planned["work"] else "the survey"
-        progress(f"Scanners · {_count_noun(hits, 'hit')} from {checks} · starting points for {starts}")
-    else:
-        progress(f"Scanners · no hits from {checks}")
+    progress(f"Scanners · {_count_noun(hits, 'hit') if hits else 'no hits'}")
 
     # Completion order, which differs from component order under MR-16.
     import itertools
@@ -2997,12 +2992,17 @@ def _assessment_options(ns, cfg: dict[str, Any]) -> str:
     return "\n".join(options)
 
 
-def _methods_label(test_cases) -> str:
-    """The analysis methods of a run for its header: the survey, and the aspects verification covers (REQ-040)."""
-    if not test_cases:
-        return "Survey"
-    aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
-    return "Survey · Verify (" + (", ".join(aspects) if aspects else "scanner rules only") + ")"
+def _method_rows(test_cases) -> list[tuple[str, str]]:
+    """The header's threat analysis methods: how each examines the code, and the aspects verification covers (REQ-040)."""
+    methods = _AssessmentConsole.METHODS
+    rows = [
+        ("Scanners", methods["Scanners"].format(starts="survey and verify" if test_cases else "the survey")),
+        ("Survey", methods["Survey"]),
+    ]
+    if test_cases:
+        aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
+        rows.append(("Verify", f"{methods['Verify']} · " + (", ".join(aspects) if aspects else "scanner rules only")))
+    return rows
 
 
 def _assessment_intro(
@@ -3091,7 +3091,7 @@ def _assessment_intro(
         ("Time limit", limit),
         ("Depth", depth),
         ("Max parallel", str(budget.max_parallel)),
-        ("Methods", _methods_label((cfg or {}).get("test_cases", getattr(ns, "test_case_config", ns.test_cases)))),
+        *_method_rows((cfg or {}).get("test_cases", getattr(ns, "test_case_config", ns.test_cases))),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
         *(scope_facts or []),
         ("Trust mode", trust),
@@ -3114,8 +3114,6 @@ def _assessment_intro(
                     value += f" (1.25 × deprecated --soft-budget USD {ns.soft_budget:g})"
         elif key == "Time limit":
             key, value = "Settings", f"{depth} depth · {limit} limit · max parallel: {budget.max_parallel}"
-        elif key == "Methods":
-            value = value.replace(" · ", ", ")
         elif key in ("Depth", "Max parallel"):
             continue
         elif key == "Billing":
@@ -3153,7 +3151,7 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, 
         "Repositories",
         "Output",
         "Resumed",
-        "Reuses",
+        "Earlier run",
         "Profile",
         "Depth",
         "Budget",
@@ -3192,9 +3190,9 @@ def _assessment_continuation(state, budget) -> tuple[str, str] | None:
         # A reused step is charged to this run, so it counts toward the new limit.
         counted = "model calls count" if budget.subscription else "cost counts"
         return (
-            "Reuses",
-            f"accepted steps of the unfinished run started {utc(state.reused_run_started)} that still match; "
-            f"their {counted} toward the limit",
+            "Earlier run",
+            f"results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
+            f"changed; they need no new model calls, but their {counted} toward the limit",
         )
     return None
 

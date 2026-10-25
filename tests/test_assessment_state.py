@@ -447,10 +447,10 @@ def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
     with lifecycle(scope).hold() as fresh:
         assert fresh.state["run_id"] != first.state["run_id"]
         assert _assessment_continuation(fresh, fresh.budget) == (
-            "Reuses",
+            "Earlier run",
             # Reused steps are charged to the new run, so the header says so.
-            f"accepted steps of the unfinished run started {_utc(started)} that still match; "
-            "their cost counts toward the limit",
+            f"results of the unfinished run started {_utc(started)} are taken over where nothing changed; "
+            "they need no new model calls, but their cost counts toward the limit",
         )
     # A run without earlier accepted jobs, and one that rebuilt, reuse nothing.
     with lifecycle(scope, replace=True).hold() as rebuilt:

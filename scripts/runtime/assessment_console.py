@@ -31,7 +31,9 @@ from pathlib import Path
 # Longest text taken from one record field.
 _FIELD_MAX = 300
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-_FINISHED = re.compile(r"(\d+)/(\d+|\?) components done\b")
+_FINISHED = re.compile(r"(\d+)/(\d+|\?) ")
+# What a finished component's method did to it; the threat analysis names its method on each record.
+_FINISHED_BY = {"Survey": "surveyed", "Verify": "verified"}
 # Lines of the command's output shown when no summary exists.
 LOG_LINES = 40
 
@@ -86,7 +88,8 @@ def render(record: dict) -> list[str]:
         finished = _FINISHED.match(_text(record.get("detail")))
         if not finished:
             return []
-        return [f"  · {finished[1]}/{finished[2]} components analyzed{_run_state(record)}"]
+        done = _FINISHED_BY.get(_text(record.get("method")), "analyzed")
+        return [f"  · {finished[1]}/{finished[2]} components {done}{_run_state(record)}"]
     if event == "warning":
         detail = _text(record.get("detail"))
         return [f"⚠ {detail}"] if detail else []

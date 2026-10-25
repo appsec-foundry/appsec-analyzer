@@ -392,7 +392,7 @@ def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, 
     subject = f"Verify start · {_count_components(components)} · {', '.join(aspects)}"
     budget = jobs.budget
     if reused >= count:
-        return f"{subject} · reuses accepted results, no model calls expected · {_count_jobs(count)}"
+        return f"{subject} · results of an earlier run are taken over, no model calls expected · {_count_jobs(count)}"
     if budget.subscription:
         return f"{subject} · the run's call and time limits apply · {_count_jobs(count)}"
     needed = (count - reused) * budget.job_usd("test_case_investigator", "stride_analyzer")

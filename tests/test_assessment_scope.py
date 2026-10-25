@@ -292,7 +292,15 @@ def test_a_run_that_disables_nothing_is_not_refused(tmp_path, test_cases):
         assert bool(cfg["test_cases"]) is bool(test_cases)
 
 
-def test_the_methods_row_puts_the_verified_aspects_under_verify():
-    assert controller._methods_label(None) == "Survey"
-    assert controller._methods_label({"aspects": ["AuthZ", "DataProt"]}) == "Survey · Verify (AuthZ, DataProt)"
-    assert controller._methods_label({"aspects": []}) == "Survey · Verify (scanner rules only)"
+def test_the_method_rows_explain_each_method_and_put_the_verified_aspects_under_verify():
+    methods = controller._AssessmentConsole.METHODS
+    survey = ("Survey", methods["Survey"])
+    # Without verification the scanners' hits are starting points for the survey alone, and no Verify row follows.
+    assert controller._method_rows(None) == [
+        ("Scanners", methods["Scanners"].format(starts="the survey")),
+        survey,
+    ]
+    rows = controller._method_rows({"aspects": ["AuthZ", "DataProt"]})
+    assert rows[0] == ("Scanners", methods["Scanners"].format(starts="survey and verify"))
+    assert rows[1:] == [survey, ("Verify", f"{methods['Verify']} · AuthZ, DataProt")]
+    assert controller._method_rows({"aspects": []})[-1] == ("Verify", f"{methods['Verify']} · scanner rules only")

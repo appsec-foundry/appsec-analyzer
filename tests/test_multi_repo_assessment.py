@@ -493,7 +493,7 @@ def test_a_resumed_run_estimates_left_from_this_attempt_alone():
     clock.tick(60)
     console.step("Analyzed component: API (1/2)")
     header = next(line for line in lines if line.startswith("TIME"))
-    finished = next(line for line in lines if "Survey: 1/2 components done" in line)
+    finished = next(line for line in lines if "Survey    1/2 API" in line)
     assert _column(header, finished, "ELAPSED") == "1m (3h01m)"
     assert _column(header, finished, "LEFT") == "~1m"
 
@@ -570,24 +570,23 @@ def test_default_console_writes_every_line_in_one_column_grid():
         ("3/8 Trust boundaries", "start", "~12%", "1m", "~16m", "3 crossings"),
         ("3/8 Trust boundaries", "done", "~34%", "2m", "~12m", "1m00s · 3 crossings"),
         ("5/8 Threat analysis", "start", "~36%", "2m", "~11m", "2 components"),
-        # The survey first says how it examines the code.
-        (
-            "5/8 Threat analysis",
-            "·",
-            "~36%",
-            "2m",
-            "~11m",
-            "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits · "
-            "2 components",
-        ),
+        # Each threat analysis line names its method; the run header says how the survey examines the code.
+        ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "Survey    start · 2 components"),
         # Every STRIDE component gets its own line, so a model status within
         # the heartbeat interval adds none.
-        ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "component 1/2 · API"),
-        ("5/8 Threat analysis", "⚠", "~36%", "3m", "~11m", "1 min: no model activity for 95 s (waiting for the API)"),
+        ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "Survey    component 1/2 · API"),
+        (
+            "5/8 Threat analysis",
+            "⚠",
+            "~36%",
+            "3m",
+            "~11m",
+            "Survey    1 min: no model activity for 95 s (waiting for the API)",
+        ),
         # A finished component gets its own event, so `done` marks only a
         # phase's end; the share follows completions, not starts.
-        ("5/8 Threat analysis", "✓", "~46%", "4m", "~5m", "Survey: 1/2 components done · API · 2m00s"),
-        ("5/8 Threat analysis", "·", "~46%", "4m", "~5m", "component 2/2 · Store"),
+        ("5/8 Threat analysis", "✓", "~46%", "4m", "~5m", "Survey    1/2 API · 2m00s"),
+        ("5/8 Threat analysis", "·", "~46%", "4m", "~5m", "Survey    component 2/2 · Store"),
         # MR-17: a successful correction is counted on the done line, its reason only under --verbose.
         ("5/8 Threat analysis", "done", "~56%", "7m", "~5m", "4m30s · 2 components · 1 answer corrected (survey 1)"),
         ("8/8 Finalization", "start", "~79%", "7m", "~1m", ""),
@@ -628,10 +627,12 @@ def test_the_progress_file_names_every_row_field_by_field(tmp_path):
     # appsec-analyzer's monitor greps this exact spelling for its milestones.
     assert path.read_text().startswith('{"event": "phase_start", ')
 
-    # The earlier run's records are gone; every grid row has its record, in order.
-    assert [(r["event"], r["detail"]) for r in records[:-1]] == [
-        (controller._AssessmentConsole.EVENTS[event], detail) for _, event, _, _, _, detail in _rows(lines)
-    ]
+    # The earlier run's records are gone; every grid row has its record, in order. A threat analysis record
+    # names its method in a field of its own instead of the grid's padded column.
+    width = controller._AssessmentConsole._METHOD_WIDTH
+    assert [
+        (r["event"], (f"{r['method']:<{width}}  " if "method" in r else "") + r["detail"]) for r in records[:-1]
+    ] == [(controller._AssessmentConsole.EVENTS[event], detail) for _, event, _, _, _, detail in _rows(lines)]
     finished = next(r for r in records if r["event"] == "component_done")
     assert finished == {
         "event": "component_done",
@@ -642,7 +643,8 @@ def test_the_progress_file_names_every_row_field_by_field(tmp_path):
         "progress": "~46%",
         "elapsed": "4m",
         "left": "~5m",
-        "detail": "Survey: 1/2 components done · API · 2m00s",
+        "method": "Survey",
+        "detail": "1/2 API · 2m00s",
     }
     assert [r["detail"] for r in records if r["event"] == "warning"] == [
         "1 min: no model activity for 95 s (waiting for the API)"
@@ -839,7 +841,8 @@ def test_verbose_console_keeps_the_grid_and_adds_every_step_and_call():
     console.call("result: 3 threats (134 s)", "stride_analyzer", "sonnet")
     console.close()
     details = [(row[1], row[5]) for row in _rows(verbose)]
-    for shown in ("reads app/server.ts:1-200 (3 s)", "component 1/2 · API", "survey [sonnet] answered — 2m14s"):
+    survey = ("Survey    component 1/2 · API", "Survey    survey [sonnet] answered — 2m14s")
+    for shown in ("reads app/server.ts:1-200 (3 s)", *survey):
         assert ("·", shown) in details
     assert details[-1] == ("done", "0s · 2 components")
 
@@ -2223,17 +2226,17 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     # A control subject stays a status or heartbeat; terminal escapes from a name never print.
     # Components run concurrently (MR-16): a log lists each start, every console each finish
     # in completion order; a terminal shows the running ones as bars instead of start lines.
-    started = ["component 1/2 · Gateway", "component 2/2 · Ledger ?[2J?"]
+    started = ["Survey    component 1/2 · Gateway", "Survey    component 2/2 · Ledger ?[2J?"]
     assert listed == [
-        controller._AssessmentConsole.SURVEY_METHOD + " · 2 components",
+        "Survey    start · 2 components",
         *([] if live else started),
         "abuse case 1/2 · AC-901 — Replay a signed callback",
         "abuse case 2/2 · AC-902",
     ]
     # A finish counts completions, never a start slot: Ledger started second but finished first.
     assert [row[5] for row in rows if row[1] == "✓"] == [
-        "Survey: 1/2 components done · Ledger ?[2J? · 0s",
-        "Survey: 2/2 components done · Gateway · 10s",
+        "Survey    1/2 Ledger ?[2J? · 0s",
+        "Survey    2/2 Gateway · 10s",
     ]
     assert [(row[0], row[5]) for row in _rows(lines) if row[1] == "done"][-1] == (
         "7/8 Abuse cases",
@@ -2520,7 +2523,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     status = _status_frames(capsys.readouterr().err)[-1][-1]
     # Oldest first, at most TICK_CALLS named; the rest counted.
     assert status.endswith(
-        "Survey: 0/3 components done · survey 2m10s model is thinking (~9,000 tokens)"
+        "Survey    0/3 components done · survey 2m10s model is thinking (~9,000 tokens)"
         " · controls 20s model is writing its result (~1,200 characters) · +1 more"
     )
     # Without a call in flight, the running controller step and its age.
@@ -2528,7 +2531,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
     console.activity_started = clock.monotonic() - 45
     console.tick()
     status = _status_frames(capsys.readouterr().err)[-1][-1]
-    assert status.endswith("Survey: 0/3 components done · Surveying component: Gateway (1/3) · 45s")
+    assert status.endswith("Survey    0/3 components done · Surveying component: Gateway (1/3) · 45s")
     controller._AssessmentConsole.clear_status()
 
 
@@ -3188,7 +3191,8 @@ def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
     controller._AssessmentConsole.clear_status()
     frame = lambda status: status[10 + controller._AssessmentConsole._PHASE_WIDTH + 2]  # noqa: E731 - the event column
     assert "━" in first and "─" in first
-    assert first.endswith("Survey: 0/4 components done · Surveying component: Gateway (2/4) · 0s")
+    # The method column comes before the bar, so it stays aligned with the permanent lines.
+    assert re.search(r"  Survey    \S+  0/4 components done · Surveying component: Gateway \(2/4\) · 0s$", first)
     # The running component has its own line and bar above the run's row.
     assert len(above) == 1 and "Gateway" in above[0] and above[0].rstrip().endswith("Survey")
     assert {frame(first), frame(second)} <= set(SPINNER) and frame(first) != frame(second)
@@ -3209,13 +3213,11 @@ def test_each_running_component_gets_its_own_bar_and_the_area_clears_whole(capsy
     *above, bottom = _status_frames(capsys.readouterr().err)[-1]
     assert len(above) == 2 and "Gateway" in above[0] and "Ledger" in above[1]
     assert above[0].rstrip().endswith(f"{done}/{total} Survey jobs") and above[1].rstrip().endswith("evidence review")
-    assert "Survey: 0/4 components done" in bottom
+    assert "Survey    " in bottom and "0/4 components done" in bottom
     console.step("Analyzed component: Ledger (1/4)")
     written = capsys.readouterr().err
     # Three status lines are cleared from the bottom up before the permanent line.
-    assert written == "\r\033[K" + "\033[1A\033[K" * 2 and lines[-1].endswith(
-        "Survey: 1/4 components done · Ledger · 0s"
-    )
+    assert written == "\r\033[K" + "\033[1A\033[K" * 2 and lines[-1].endswith("Survey    1/4 Ledger · 0s")
     console.tick()
     assert len(_status_frames(capsys.readouterr().err)[-1]) == 2
     controller._AssessmentConsole.clear_status()
@@ -3373,10 +3375,7 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.step("Verify planned · 2 components for AuthZ after the survey · 3 jobs")
     # The plan widens the phase before any of it has finished, so the run's share holds.
     assert console.done == before
-    console.step(
-        "Scanners · 4 hits from deterministic code and configuration checks, no model calls · "
-        "starting points for survey and verify"
-    )
+    console.step("Scanners · 4 hits")
     console.step("Surveying component: API (1/2)")
     console.step("Surveying component: Web (2/2)")
     clock.tick(60)
@@ -3388,60 +3387,52 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     # The survey says what it found; the console adds its duration and component count.
     console.step("Survey done · 3 findings")
     console.step("Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left · 3 jobs")
-    assert console.done == survey and console.current == "Verify: 0/2 components done"
+    assert console.done == survey and console.current == "0/2 components done"
     console.step("Verifying component 1/2, part 1/2, AuthZ: API")
     console.step("Verifying component 1/2, part 2/2, AuthZ: API")
     # Jobs run concurrently: a start finishes nothing, and two parts are one running component.
-    assert console.done == survey and console.current == "Verify: 0/2 components done · 1 running"
+    assert console.done == survey and console.current == "0/2 components done · 1 running"
     clock.tick(30)
     console.step("Finished verifying component 1/2, part 2/2, AuthZ: API · no result (budget)")
     first = console.done
     # A finished part advances the share but finishes no component.
-    assert first > survey and console.current == "Verify: 0/2 components done · 1 running"
+    assert first > survey and console.current == "0/2 components done · 1 running"
     console.step("Verifying component 2/2, part 1/1, AuthZ: Web")
-    assert console.current == "Verify: 0/2 components done · 2 running"
+    assert console.current == "0/2 components done · 2 running"
     clock.tick(30)
     console.step("Finished verifying component 1/2, part 1/2, AuthZ: API")
     second = console.done
-    assert second > first and console.current == "Verify: 1/2 components done · 1 running"
+    assert second > first and console.current == "1/2 components done · 1 running"
     clock.tick(10)
     console.step("Finished verifying component 2/2, part 1/1, AuthZ: Web")
-    assert console.done > second and console.current == "Verify: 2/2 components done"
+    assert console.done > second and console.current == "2/2 components done"
     console.step("Verify done")
     console.step("AuthZ · 3 findings · ≈ USD 1.10 · 2 items in 2 components: 1 with a finding, 1 partial, 2 no finding")
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
-    # The plan only weighs the phase; the scanners name their hits, each approach how it examines the code.
+    # The plan only weighs the phase. Each line names its method; the run header says how each examines the code,
+    # so the start line names only the components and the budget.
     assert [(event, detail) for _, event, _, _, _, detail in rows] == [
         ("start", ""),
-        (
-            "·",
-            "Scanners · 4 hits from deterministic code and configuration checks, no model calls · "
-            "starting points for survey and verify",
-        ),
-        (
-            "·",
-            "Survey: STRIDE-based review of each component's entry points, outbound calls and "
-            "scanner hits · 2 components",
-        ),
-        ("·", "component 1/2 · API"),
-        ("·", "component 2/2 · Web"),
-        ("✓", "Survey: 1/2 components done · API · 1m00s · 2 findings"),
-        ("✓", "Survey: 2/2 components done · Web · 1m00s · 1 finding"),
-        ("·", "Survey done · 1m05s · 2 components · 3 findings"),
-        (
-            "·",
-            "Verify: checks predefined verification items at every code location they apply to, "
-            "independent of the survey",
-        ),
-        ("·", "Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left"),
-        ("·", "Verify component 1 started · API"),
-        ("·", "Verify component 2 started · Web"),
-        ("⚠", "Verify: 1/2 components done · API · AuthZ · 1 of 2 parts without result (budget) · 1m00s"),
-        ("✓", "Verify: 2/2 components done · Web · AuthZ · 40s"),
+        ("·", "Scanners  4 hits · 0s"),
+        ("·", "Survey    start · 2 components"),
+        ("·", "Survey    component 1/2 · API"),
+        ("·", "Survey    component 2/2 · Web"),
+        ("✓", "Survey    1/2 API · 2 findings · 1m00s"),
+        ("✓", "Survey    2/2 Web · 1 finding · 1m00s"),
+        ("·", "Survey    done · 2 components · 3 findings · 1m05s"),
+        ("·", "Verify    start · 2 components · ≈ USD 1.20, USD 3.00 of the budget left"),
+        ("·", "Verify    component 1 started · API"),
+        ("·", "Verify    component 2 started · Web"),
+        ("⚠", "Verify    1/2 API · AuthZ · 1 of 2 parts without result (budget) · 1m00s"),
+        ("✓", "Verify    2/2 Web · AuthZ · 40s"),
         # The end, then what each aspect found and what its items showed.
-        ("·", "Verify done · 1m10s"),
-        ("·", "AuthZ · 3 findings · ≈ USD 1.10 · 2 items in 2 components: 1 with a finding, 1 partial, 2 no finding"),
+        ("·", "Verify    done · 1m10s"),
+        (
+            "·",
+            "Verify    AuthZ · 3 findings · ≈ USD 1.10 · 2 items in 2 components: 1 with a finding, 1 partial, "
+            "2 no finding",
+        ),
         ("done", "2m15s · Survey 1m05s · Verify 1m10s · 2 components"),
     ]
     shares = [int(row[2].strip("~%")) for row in rows]
@@ -3462,13 +3453,16 @@ def test_a_component_verified_for_several_aspects_is_one_step():
     console.step("Finished verifying component 1/1, part 1/2, AuthZ: API")
     details = [row[-1] for row in _rows(lines)]
     # One row once both aspects ended, naming them in the order their jobs started.
-    assert [detail for detail in details if detail.startswith("Verify: ") and " components done · " in detail] == [
-        "Verify: 1/1 components done · API · AuthZ, InputVal · 20s"
+    assert [detail for detail in details if detail.startswith("Verify    1/1 ")] == [
+        "Verify    1/1 API · AuthZ, InputVal · 20s"
     ]
 
 
 def test_a_component_whose_every_job_was_reused_says_so():
-    """REQ-016: a step taken from an earlier attempt's accepted jobs reads as reused, not as new work."""
+    """REQ-016: steps taken from an earlier run's accepted jobs read as taken over, not as new work.
+
+    Their component lines show no duration, and the survey's and verification's done lines count them.
+    """
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
     console.plan_components(2)
@@ -3479,7 +3473,8 @@ def test_a_component_whose_every_job_was_reused_says_so():
     clock.tick(5)
     console.step("Analyzed component: API · 3 findings (1/2)" + console.REUSED)
     console.step("Analyzed component: Web · 0 findings (2/2)")
-    console.step("Verify start · 2 components · AuthZ · reuses accepted results, no model calls expected · 3 jobs")
+    taken = "results of an earlier run are taken over, no model calls expected"
+    console.step(f"Verify start · 2 components · AuthZ · {taken} · 3 jobs")
     console.step("Verifying component 1/2, part 1/2, AuthZ: API")
     console.step("Verifying component 1/2, part 2/2, AuthZ: API")
     console.step("Verifying component 2/2, part 1/1, AuthZ: Web")
@@ -3488,15 +3483,18 @@ def test_a_component_whose_every_job_was_reused_says_so():
     console.step("Finished verifying component 2/2, part 1/1, AuthZ: Web · reused")
     # One part of API ran again, so API as a whole was not reused.
     console.step("Finished verifying component 1/2, part 2/2, AuthZ: API")
+    console.step("Verify done")
     details = [row[-1] for row in _rows(lines)]
-    done = [detail for detail in details if " components done · " in detail]
-    assert [detail for detail in done if detail.startswith(("Survey: ", "Verify: "))] == [
-        "Survey: 1/2 components done · API · 5s · 3 findings · reused",
-        "Survey: 2/2 components done · Web · 5s · 0 findings",
-        "Verify: 1/2 components done · Web · AuthZ · 5s · reused",
-        "Verify: 2/2 components done · API · AuthZ · 5s",
+    assert [detail for detail in details if re.match(r"(Survey|Verify) +(\d+/\d+ |done)", detail)] == [
+        "Survey    1/2 API · 3 findings",
+        "Survey    2/2 Web · 0 findings · 5s",
+        "Survey    done · 2 components · 5s · 1 of 2 from the earlier run",
+        "Verify    1/2 Web · AuthZ",
+        "Verify    2/2 API · AuthZ · 5s",
+        "Verify    done · 5s · 1 of 2 from the earlier run",
     ]
-    assert "Verify start · 2 components · AuthZ · reuses accepted results, no model calls expected" in details
+    assert f"Verify    start · 2 components · {taken}" in details
+    assert not any("reused" in detail for detail in details)
 
 
 def test_a_phase_done_line_says_whether_its_jobs_were_reused():
@@ -3513,7 +3511,12 @@ def test_a_phase_done_line_says_whether_its_jobs_were_reused():
     console.step("Assessing controls: API (1/1)")
     console.close()
     done = [detail for _, event, _, _, _, detail in _rows(lines) if event == "done"]
-    assert done == ["0s · reused, no model calls", "0s · 1 repository · partly reused", "0s", "0s · 1 component"]
+    assert done == [
+        "0s · from the earlier run, no model calls",
+        "0s · 1 repository · partly from the earlier run",
+        "0s",
+        "0s · 1 component",
+    ]
 
 
 def test_usage_text_shows_tokens_only_when_every_call_was_itemised():
@@ -3553,11 +3556,11 @@ def test_a_phase_and_the_survey_and_verify_steps_end_with_what_they_cost():
     console.step("Verify done · 1 finding")
     console.close()
     details = [row[-1] for row in _rows(lines)]
-    assert next(d for d in details if d.startswith("Survey done")).startswith(
-        "Survey done · 0s · ≈ USD 0.50 · 42k tokens"
+    assert next(d for d in details if d.startswith("Survey    done")) == (
+        "Survey    done · 1 component · 3 findings · 0s · ≈ USD 0.50 · 42k tokens"
     )
-    assert next(d for d in details if d.startswith("Verify done")).startswith(
-        "Verify done · 0s · ≈ USD 0.25 · 8k tokens"
+    assert next(d for d in details if d.startswith("Verify    done")).startswith(
+        "Verify    done · 0s · ≈ USD 0.25 · 8k tokens"
     )
     # The phase's own line carries the sum of its steps.
     done = [row[-1] for row in _rows(lines) if row[1] == "done"]
@@ -3586,12 +3589,9 @@ def test_without_verification_the_threat_analysis_has_no_steps():
     console.close()
     details = [row[-1] for row in _rows(lines)]
     assert details[-1] == "1m00s · 1 component"
-    # The survey still says how it examines the code when it is the only approach.
-    assert (
-        "Survey: STRIDE-based review of each component's entry points, outbound calls and scanner hits · 1 component"
-        in details
-    )
-    assert not any(detail.startswith(("Survey done", "Verify")) for detail in details)
+    # The survey still names its method and opens with a start line when it is the only approach.
+    assert details[1:3] == ["Survey    start · 1 component", "Survey    component 1/1 · API"]
+    assert not any(detail.startswith(("Survey    done", "Verify")) for detail in details)
 
 
 def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
@@ -3630,7 +3630,7 @@ def test_a_terminal_shows_running_verification_jobs_on_the_status_line_only():
     console.step("Analyzed component: API")
     console.step("Verify start · 1 component for AuthZ · the run's call and time limits apply · 1 job")
     console.step("Verifying component 1/1, part 1/1, AuthZ: API")
-    assert console.current == "Verify: 0/1 components done · 1 running"
+    assert console.current == "0/1 components done · 1 running" and console.method == "Verify"
     assert not any("started" in line for line in lines)
 
 
