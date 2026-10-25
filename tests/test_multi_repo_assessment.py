@@ -72,6 +72,22 @@ class FullHost:
             ]
             artifact = {"version": 2, "generated_at": "now", "model": "test", "decisions": decisions}
             return HostReply(dict(action="complete", reads=[], artifact=artifact), 0.01)
+        if role == "finding_combiner":
+            # REQ-040: a combined text that cites every part's location.
+            context = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])["context"]
+            findings = [
+                dict(
+                    key=row["key"],
+                    title=row["parts"][0]["title"],
+                    scenario="Combined from every method that found it: " + "; ".join(row["locations"]) + ".",
+                    remediation=dict(
+                        steps=["Apply the fix every part names.", "Add a regression test for every part."],
+                        verification="Repeat each part's attack and assert that it fails.",
+                    ),
+                )
+                for row in context["findings"]
+            ]
+            return HostReply(dict(action="complete", reads=[], artifact={"findings": findings}), 0.01)
         if role in ("ms_renderer", "secarch_renderer"):
             context = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])["context"]
             return HostReply(dict(action="complete", reads=[], artifact=self.stage2(role, context)), 0.01)
@@ -3585,6 +3601,8 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     console.step("Surveying component: API (1/1)")
     clock.tick(60)
     console.step("Analyzed component: API")
+    # The text combination runs inside the merge; it opens the consolidation without a row of its own.
+    console.step("Combining the texts of 2 findings that several methods found")
     console.step("Merge · 8 survey findings and 4 scanner hits merged into 9")
     console.step("Building the assessment model")
     console.step("AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey")
@@ -3614,3 +3632,41 @@ def test_a_terminal_shows_running_verification_jobs_on_the_status_line_only():
     console.step("Verifying component 1/1, part 1/1, AuthZ: API")
     assert console.current == "Verify: 0/1 components done · 1 running"
     assert not any("started" in line for line in lines)
+
+
+def test_the_combination_job_sends_only_the_parts_and_returns_its_entries():
+    """REQ-040: findings of several methods are rewritten in batches, without source, from their parts."""
+    from runtime.assessment_host import Rejection
+
+    calls = []
+
+    def entry(key):
+        return dict(
+            key=key,
+            title="Combined title",
+            scenario="Combined scenario that cites a.ts:1 for every part.",
+            remediation=dict(steps=["Fix it.", "Test it."], verification="Repeat the attack and see it fail."),
+        )
+
+    class Jobs:
+        def execute(self, **kwargs):
+            calls.append(kwargs)
+            artifact = {"findings": [entry(row["key"]) for row in kwargs["context"]["findings"]]}
+            kwargs["validate"](artifact, [])
+            return artifact
+
+    requests = [dict(key=f"c-{n:03d}", risk="High", locations=["a.ts:1"], parts=[]) for n in range(1, 14)]
+    said = []
+    replies = controller._assessment_finding_combination(Jobs(), requests, progress=said.append)
+    assert said == ["Combining the texts of 13 findings that several methods found"]
+    assert [call["selector"] for call in calls] == ["combine:1/2", "combine:2/2"]
+    assert [len(call["context"]["findings"]) for call in calls] == [12, 1]
+    assert all(call["role"] == "finding_combiner" and call["allowed_sources"] == frozenset() for call in calls)
+    assert [row["key"] for row in replies] == [row["key"] for row in requests]
+    # A reply that names an unknown or a repeated finding goes back for correction.
+    validate = calls[0]["validate"]
+    for keys in (["c-099"], ["c-001", "c-001"]):
+        with pytest.raises(Rejection):
+            validate({"findings": [entry(key) for key in keys]}, [])
+    # A failed or unaffordable job leaves every finding of its batch with the fallback text.
+    assert calls[0]["on_failure"]("budget") == {"findings": []}

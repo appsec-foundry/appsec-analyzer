@@ -87,6 +87,12 @@ agents:
     purpose: Review bounded candidate groups without reading the complete architecture or source tree.
     scope: whole_run
     stage: Threat consolidation
+  - id: finding_combiner
+    name: Finding combiner
+    purpose: Rewrite the title, scenario, and remediation of a finding that several methods found from the texts of
+      its parts, without source files.
+    scope: whole_run
+    stage: Threat consolidation
   - id: architect_reviewer
     name: Architect reviewer
     purpose: Review the ratings and fixes of one component's evidenced findings through bounded correction proposals.
@@ -359,6 +365,11 @@ contexts:
     name: Merge review candidate groups
     category: threat_analysis
     description: Bounded candidate groups projected from the complete deterministic merge state.
+    scope: whole_run
+  - id: threats.combination
+    name: Parts of combined findings
+    category: threat_analysis
+    description: The method, location, and texts of each part of the findings that several methods found.
     scope: whole_run
   - id: threats.merge_scope
     name: Merge decision scope
@@ -806,6 +817,14 @@ assignments:
     importance: essential
     applies_to: whole_run
     reason: Merge review operates only on the bounded candidate projection.
+  - id: combined-finding-parts
+    context: threats.combination
+    agents:
+      - finding_combiner
+    delivery: required
+    importance: essential
+    applies_to: whole_run
+    reason: The combiner writes only from the parts' texts and locations; the controller keeps every other field.
   - id: merge-decision-scope
     context: threats.merge_scope
     agents:
@@ -947,6 +966,7 @@ assignments:
       - test_case_investigator
       - open_reviewer
       - threat_merger
+      - finding_combiner
       - triage_validator
     delivery: forbidden
     importance: essential
@@ -959,6 +979,7 @@ assignments:
       - test_case_investigator
       - open_reviewer
       - threat_merger
+      - finding_combiner
       - triage_validator
     delivery: forbidden
     importance: essential

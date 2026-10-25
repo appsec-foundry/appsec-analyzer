@@ -354,3 +354,231 @@ def test_qualified_merge_links_only_the_root_whose_line_the_boundary_cites(tmp_p
     }
     assert linked[ids[owner_index]] == ["tb-1"]
     assert linked[ids[1 - owner_index]] == []
+
+
+def _verification(tmp_path, *changes, verdicts=("verified", "verified"), scanner=False, combine_texts=None):
+    """One survey finding per component and verification findings of the first component at its location.
+
+    Each of ``changes`` edits one verification finding; ``scanner`` makes the first component's finding a
+    scanner finding instead of a survey finding.
+    """
+    from model.finding_intake import apply_intake
+
+    # A second line, so that a neighbouring line holds code.
+    text = "return_value = validate_request(payload)\nreturn_value = validate_request(other)\n"
+    scope, components, receipt, flows, _ = crossing_input(
+        tmp_path, files={name: {"app.py": text} for name in ("edge", "service")}
+    )
+    identity = dict(
+        schema_version=2,
+        source_scope_sha256=components["source_scope_sha256"],
+        component_inventory_fingerprint=receipt["component_inventory_fingerprint"],
+    )
+    documents, reviews, scanned = [], [], {}
+    for component, evidence, verdict in zip(
+        components["components"], flows["data_flows"][0]["evidence"], verdicts, strict=True
+    ):
+        document = stride(component, evidence, identity)
+        local_id = "issue-1"
+        if scanner and not documents:
+            row = dict(document["threats"].pop(), local_id="deterministic-scan-001", source="source-scan")
+            row.update(source_check_id="INJ-001", architectural_violation=False)
+            apply_intake(row, dispatch_component=component["id"], component_name=component["name"])
+            scanned[component["id"]] = [row]
+            for coverage in document["coverage"]:
+                coverage.update(disposition="no-evidence", finding_ids=[])
+            local_id = row["local_id"]
+        documents.append(document)
+        decision = dict(local_id=local_id, verdict=verdict, reason="Source review decision.", evidence=[evidence])
+        reviews.append(dict(**identity, decisions=[decision]))
+    first = components["components"][0]
+    survey = copy.deepcopy(stride(first, flows["data_flows"][0]["evidence"][0], identity)["threats"][0])
+    findings = []
+    for number, change in enumerate(changes, 1):
+        finding = {key: value for key, value in copy.deepcopy(survey).items() if key != "local_id"}
+        finding.update(
+            id=f"TCF-{number:03d}",
+            component_id=first["id"],
+            aspect="InputVal",
+            test_case_ids=["TC-INPUT-01"],
+            title="Verification: request handler accepts unvalidated input",
+            remediation=dict(
+                effort="Low",
+                steps=["Validate the input against the accepted data type.", "Log each rejected request."],
+                verification="Submit malformed input and assert that the endpoint rejects it.",
+            ),
+            route_ids=[],
+            post_check_confirmed=False,
+        )
+        change(finding)
+        findings.append(finding)
+    merged = merge_assessment(
+        scope,
+        components,
+        documents,
+        reviews,
+        boundaries=[],
+        scanner_threats=scanned,
+        verification_threats={first["id"]: findings},
+        combine_texts=combine_texts,
+    )
+    return merged, first["id"]
+
+
+def _held(merged, finding_id):
+    (threat,) = [t for t in merged["threats"] if finding_id in (t.get("verification") or {}).get("finding_ids", [])]
+    return threat
+
+
+@pytest.mark.parametrize("category", ["TH-01", "TH-02"])
+def test_a_verification_finding_on_a_survey_line_becomes_part_of_it(tmp_path, category):
+    """REQ-040: same line and CWE family make one finding, whatever category each method assigned."""
+    merged, first = _verification(tmp_path, lambda f: f.update(threat_category_id=category))
+    assert len(merged["threats"]) == 2
+    threat = _held(merged, "TCF-001")
+    assert threat["component_id"] == first and threat["found_by"] == ["survey", "verification"]
+    assert threat["verification"] == {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-INPUT-01"]}
+    assert threat["test_case_ids"] == ["TC-INPUT-01"]
+    # Equal risk keeps the reviewed finding's text and verdict; the steps of both parts are listed once each.
+    assert threat["title"] == "Unvalidated input reaches the request handler"
+    assert (threat["evidence_check"], threat["evidence_basis"]) == ("verified", "llm-verified")
+    assert threat["remediation"]["steps"] == [
+        "Validate the input against the accepted data type.",
+        "Reject requests that fail validation.",
+        "Log each rejected request.",
+    ]
+    assert [i["source_ref"] for i in threat["instances"]] == ["issue-1", "TCF-001"]
+    (other,) = [t for t in merged["threats"] if t is not threat]
+    assert other["found_by"] == ["survey"] and "verification" not in other
+
+
+def test_a_riskier_verification_finding_stays_with_the_reviewed_verdict(tmp_path):
+    merged, _ = _verification(tmp_path, lambda f: f.update(likelihood="High", impact="High", risk="High"))
+    threat = _held(merged, "TCF-001")
+    assert threat["title"].startswith("Verification:") and threat["risk"] == "High"
+    assert (threat["evidence_check"], threat["evidence_basis"]) == ("verified", "llm-verified")
+    assert threat["found_by"] == ["survey", "verification"]
+    assert {i["source_ref"] for i in threat["instances"]} == {"issue-1", "TCF-001"}
+
+
+def test_a_verification_finding_on_a_scanner_line_names_the_scanner_rule(tmp_path):
+    merged, _ = _verification(tmp_path, lambda f: None, scanner=True)
+    assert len(merged["threats"]) == 2
+    threat = _held(merged, "TCF-001")
+    assert threat["found_by"] == ["scanners", "verification"]
+    assert any(i.get("source_check_id") == "INJ-001" for i in threat["instances"])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda f: f["evidence"].update(line=f["evidence"]["line"] + 1),
+        lambda f: f.update(cwe="CWE-798"),
+    ],
+    ids=["neighbouring line", "other family"],
+)
+@pytest.mark.parametrize("confirmed", [False, True])
+def test_a_verification_finding_elsewhere_stays_a_finding_of_its_own(tmp_path, change, confirmed):
+    """REQ-040: without a reviewed partner, a post-check scores it; model review alone leaves it unscored."""
+    merged, first = _verification(tmp_path, lambda f: (change(f), f.update(post_check_confirmed=confirmed)))
+    assert len(merged["threats"]) == 3
+    threat = _held(merged, "TCF-001")
+    assert threat["found_by"] == ["verification"] and threat["component_id"] == first
+    assert "post_check_confirmed" not in threat and "aspect" not in threat
+    if confirmed:
+        assert (threat["evidence_check"], threat["evidence_basis"]) == ("verified", "pointer-resolved")
+    else:
+        assert threat["evidence_check"] == "ambiguous" and threat["evidence_tier"] == "insecure-practice"
+        assert "cvss_v4" not in threat
+
+
+def test_a_refuted_finding_never_absorbs_a_verification_finding(tmp_path):
+    merged, _ = _verification(tmp_path, lambda f: None, verdicts=("refuted", "verified"))
+    assert len(merged["threats"]) == 3
+    threat = _held(merged, "TCF-001")
+    assert threat["found_by"] == ["verification"] and threat["evidence_check"] == "ambiguous"
+    (refuted,) = [t for t in merged["threats"] if t["evidence_check"] == "refuted"]
+    assert refuted["found_by"] == ["survey"] and "verification" not in refuted
+
+
+def test_verification_findings_about_different_routes_on_one_line_stay_apart(tmp_path):
+    """REQ-040: one line can register several routes; the second route's finding is no repeat."""
+    merged, _ = _verification(
+        tmp_path, lambda f: f.update(route_ids=["route-1"]), lambda f: f.update(route_ids=["route-2"])
+    )
+    assert len(merged["threats"]) == 3
+    joined, alone = _held(merged, "TCF-001"), _held(merged, "TCF-002")
+    assert joined["found_by"] == ["survey", "verification"] and alone is not joined
+    assert alone["found_by"] == ["verification"]
+    # The routes only kept them apart; the merged findings do not carry them.
+    assert all("route_ids" not in t for t in merged["threats"])
+
+
+def test_verification_findings_must_belong_to_their_component(tmp_path):
+    with pytest.raises(ValueError, match="verification finding under another component"):
+        _verification(tmp_path, lambda f: f.update(component_id="foreign-component"))
+
+
+def _rewrite(scenario):
+    """A combiner that rewrites every requested finding with ``scenario(request)``."""
+    requests = []
+
+    def combine(batch):
+        requests.extend(batch)
+        return [
+            {
+                "key": request["key"],
+                "title": "Combined: request handler accepts unvalidated input",
+                "scenario": scenario(request),
+                "remediation": {
+                    "steps": ["Validate the input against the accepted data type.", "Log each rejected request."],
+                    "verification": "Submit malformed input and assert a rejection and a log entry.",
+                },
+            }
+            for request in batch
+        ]
+
+    return combine, requests
+
+
+def test_a_finding_of_several_methods_gets_a_text_written_from_its_parts_only(tmp_path):
+    """REQ-040: the model writes title, scenario and remediation; the code keeps every other field."""
+    combine, requests = _rewrite(lambda r: "An attacker sends malformed input to " + " and ".join(r["locations"]) + ".")
+    merged, _ = _verification(tmp_path, lambda f: None, combine_texts=combine)
+    threat = _held(merged, "TCF-001")
+    (request,) = requests
+    # The request names each part's method, location and texts, never a repository ID or source.
+    assert request["locations"] == ["app.py:1"] and [p["methods"] for p in request["parts"]] == [
+        ["survey"],
+        ["verification"],
+    ]
+    assert {p["location"] for p in request["parts"]} == {"app.py:1"} and "repository_id" not in str(request)
+    assert threat["title"] == "Combined: request handler accepts unvalidated input"
+    assert threat["scenario"] == "An attacker sends malformed input to app.py:1."
+    assert threat["remediation"]["verification"] == "Submit malformed input and assert a rejection and a log entry."
+    assert threat["risk"] == "Medium" and threat["found_by"] == ["survey", "verification"]
+    assert all("_combination_parts" not in t for t in merged["threats"])
+
+
+@pytest.mark.parametrize("combine", [None, "uncited", "failed"])
+def test_without_a_faithful_rewrite_the_most_severe_part_keeps_its_text(tmp_path, combine):
+    """REQ-040: no call, a text that drops a location, or no reply keep the fallback."""
+    if combine == "uncited":
+        combine, _ = _rewrite(lambda r: "An attacker sends malformed input to the request handler.")
+    elif combine == "failed":
+        combine = lambda batch: []  # noqa: E731
+    merged, _ = _verification(tmp_path, lambda f: f.update(risk="High", impact="High"), combine_texts=combine)
+    threat = _held(merged, "TCF-001")
+    assert threat["title"].startswith("Verification:") and threat["risk"] == "High"
+    assert threat["remediation"]["steps"] == [
+        "Validate the input against the accepted data type.",
+        "Log each rejected request.",
+        "Reject requests that fail validation.",
+    ]
+    assert all("_combination_parts" not in t for t in merged["threats"])
+
+
+def test_a_finding_of_one_method_is_never_rewritten(tmp_path):
+    combine, requests = _rewrite(lambda r: " ".join(r["locations"]))
+    merged, _ = _verification(tmp_path, lambda f: f.update(cwe="CWE-798"), combine_texts=combine)
+    assert requests == [] and all(t["found_by"] in (["survey"], ["verification"]) for t in merged["threats"])

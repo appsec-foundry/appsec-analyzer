@@ -94,7 +94,8 @@ def annotate_threats(threats: list[dict[str, Any]], catalog: dict[str, Any]) -> 
         for rule in rules:
             cases.extend(case for case in index[rule] if case not in cases)
         threat["rule_ids"] = rules
-        threat["test_case_ids"] = cases
+        # The items of verification findings that are part of the threat stay (REQ-040).
+        threat["test_case_ids"] = list(dict.fromkeys([*(threat.get("test_case_ids") or []), *cases]))
         linked += 1
     return linked
 
@@ -216,68 +217,28 @@ def build_block(
     return block
 
 
-def pilot_findings(workspace: Path) -> list[dict[str, Any]]:
-    """The findings of the verification sidecar, which ``combine_methods`` links with the survey's."""
-    return list((_read_json(workspace / PILOT_SIDECAR) or {}).get("findings") or [])
-
-
 def _survey_locations(threat: Mapping[str, Any]) -> list[tuple[str, int]]:
     rows = [row for row in threat.get("evidence") or [] if isinstance(row, dict)]
     rows += [row for row in threat.get("instances") or [] if isinstance(row, dict)]
     return [(row["file"], row["line"]) for row in rows if row.get("file") and isinstance(row.get("line"), int)]
 
 
-def _identity(file: Any, line: Any, cwe: Any) -> tuple | None:
-    """The survey merge's identity of a weakness: file, line, and CWE family."""
-    from model.merge_threats import _evidence_identity_key
-
-    return _evidence_identity_key({"evidence": {"file": file, "line": line}, "cwe": cwe})
-
-
-def combine_methods(
+def mark_contradicted(
     threats: list[dict[str, Any]],
-    findings: list[dict[str, Any]],
     results: list[dict[str, Any]],
     catalog: dict[str, Any] | None = None,
-) -> dict[str, int]:
-    """Link the survey's findings with verification's at the same code location (REQ-040).
+) -> int:
+    """Mark survey findings at a line where verification evidenced a control for their CWE (REQ-040).
 
-    A verification finding names a survey finding in ``survey_finding_ids`` when one of the survey
-    finding's locations is the same weakness by the survey merge's own identity: the same file and
-    line and the same CWE family. The survey finding names the verification finding and items in
-    ``verification``, so the report shows the weakness once. Neighbouring lines stay apart, because
-    they are often other routes of one route table. A survey finding at a line where a verification
-    item evidenced a control for its CWE records the item and location in
-    ``verification_contradicted`` and stays in the report. Survey findings at locations verification
-    did not examine stay unchanged. Returns how many findings were linked and contradicted."""
-    survey = [threat for threat in threats if threat.get("source") == "stride" and threat.get("id")]
-    linked = 0
-    for finding in findings:
-        evidence = finding.get("evidence") or {}
-        identity = _identity(evidence.get("file"), evidence.get("line"), finding.get("cwe"))
-        if identity is None:
-            continue
-        matches = [
-            threat
-            for threat in survey
-            if any(_identity(file, line, threat.get("cwe")) == identity for file, line in _survey_locations(threat))
-        ]
-        if not matches:
-            continue
-        finding["survey_finding_ids"] = [threat["id"] for threat in matches]
-        linked += 1
-        for threat in matches:
-            block = threat.setdefault("verification", {"finding_ids": [], "test_case_ids": []})
-            block["finding_ids"].append(finding["id"])
-            for case_id in finding.get("test_case_ids") or []:
-                if case_id not in block["test_case_ids"]:
-                    block["test_case_ids"].append(case_id)
-                if case_id not in threat.setdefault("test_case_ids", []):
-                    threat["test_case_ids"].append(case_id)
+    The merge already made each verification finding part of the finding it repeats. A survey finding
+    that holds no verification finding and has a location where a verification item with its CWE
+    evidenced a control records the item and location in ``verification_contradicted`` and stays in the
+    report, so that a reader can check it. Survey findings at locations verification did not examine
+    stay unchanged. Returns how many findings were marked."""
     cwes = {case["id"]: set(case["cwe"]) for case in (catalog or load_catalog())["test_cases"]}
     contradicted = 0
-    for threat in survey:
-        if threat.get("verification"):
+    for threat in threats:
+        if "survey" not in (threat.get("found_by") or []) or not threat.get("id") or threat.get("verification"):
             continue
         rows = [
             {"test_case_id": result["test_case_id"], "file": file, "line": line}
@@ -291,7 +252,7 @@ def combine_methods(
             unique = {(row["test_case_id"], row["file"], row["line"]): row for row in rows}
             threat["verification_contradicted"] = list(unique.values())
             contradicted += 1
-    return {"linked": linked, "contradicted": contradicted}
+    return contradicted
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -540,7 +501,7 @@ def investigation_results(
     catalog: dict[str, Any] | None = None,
     replaced: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """``{results, dropped_finding_ids}`` of an accepted investigation reply for one component.
+    """``{results, dropped_finding_ids, findings}`` of an accepted investigation reply for one component.
 
     ``precheck`` and ``overflow`` map each test case ID to the controller's
     pre-check candidates and the number left out of the packet. When several
@@ -550,7 +511,9 @@ def investigation_results(
     cause's fixed reason. A finding is dropped from the merge input when
     every weakness candidate it reports was contradicted by a post-check.
     ``finding_ids`` of a result are the reply's local IDs of the findings
-    kept for it.
+    kept for it. ``findings`` maps each kept finding's local ID to the routes
+    its candidates name and whether a post-check confirmed one of them, which
+    the merge reads (REQ-040).
     """
     from model.case_postchecks import variant_search
 
@@ -610,7 +573,17 @@ def investigation_results(
         if controlled:
             row["control_locations"] = [{"file": file, "line": line} for file, line in sorted(controlled)]
         results.append(row)
-    return {"results": results, "dropped_finding_ids": dropped}
+    findings = {
+        finding["local_id"]: {
+            "route_ids": sorted(
+                {records[c]["route_id"] for c in finding["candidate_ids"] if records.get(c, {}).get("route_id")}
+            ),
+            "post_check_confirmed": any(records.get(c, {}).get("confirmed") for c in finding["candidate_ids"]),
+        }
+        for finding in reply["findings"]
+        if finding["local_id"] not in dropped
+    }
+    return {"results": results, "dropped_finding_ids": dropped, "findings": findings}
 
 
 def _replaced_record(row: Mapping[str, Any], cause: str) -> dict[str, Any]:

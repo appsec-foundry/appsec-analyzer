@@ -426,6 +426,8 @@ requirements:
       - scripts/runtime/resolve_org_profile.py
       - appsec_analyzer/assessment/console.py
       - scripts/model/merge_threats.py
+      - data/finding-combination-policy.md
+      - schemas/finding-combination.schema.json
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -465,7 +467,7 @@ requirements:
       - tests/test_case_outcomes.py::test_test_case_findings_are_listed_apart_and_their_model_text_stays_text
       - tests/test_controller_fixture.py::test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
       - tests/test_controller_fixture.py::test_test_cases_stay_out_of_the_model_and_report_by_default
-      - tests/test_controller_fixture.py::test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_its_findings_apart
+      - tests/test_controller_fixture.py::test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_its_findings_into_the_register
       - tests/test_controller_fixture.py::test_a_failed_investigation_records_undecidable_with_a_warning_and_the_run_completes
       - tests/test_controller_fixture.py::test_a_control_cited_from_a_comment_never_becomes_a_control
       - tests/test_controller_fixture.py::test_resume_replays_accepted_investigations_without_new_model_calls
@@ -550,9 +552,22 @@ requirements:
       - tests/test_profiles.py::test_test_cases_default_follows_the_depth
       - tests/test_profiles.py::test_required_aspects_join_the_selected_aspects_and_cannot_be_removed
       - tests/test_resolve_org_profile.py::test_required_aspects_reach_the_effective_profile_sorted
-      - tests/test_case_outcomes.py::test_a_verification_finding_at_a_survey_location_with_the_same_weakness_is_shown_once
-      - tests/test_case_outcomes.py::test_unclassified_cwes_link_only_when_they_are_identical
+      - tests/test_case_outcomes.py::test_a_verification_finding_at_a_survey_or_scanner_location_with_the_same_weakness_is_shown_once
+      - tests/test_case_outcomes.py::test_unclassified_cwes_join_only_when_they_are_identical
       - tests/test_case_outcomes.py::test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_keeps_it
+      - tests/test_case_outcomes.py::test_the_consolidation_counts_each_aspect_as_the_report_combines_the_methods
+      - tests/test_multi_repo_builder.py::test_a_verification_finding_on_a_survey_line_becomes_part_of_it
+      - tests/test_multi_repo_builder.py::test_a_riskier_verification_finding_stays_with_the_reviewed_verdict
+      - tests/test_multi_repo_builder.py::test_a_verification_finding_on_a_scanner_line_names_the_scanner_rule
+      - tests/test_multi_repo_builder.py::test_a_verification_finding_elsewhere_stays_a_finding_of_its_own
+      - tests/test_multi_repo_builder.py::test_a_refuted_finding_never_absorbs_a_verification_finding
+      - tests/test_multi_repo_builder.py::test_verification_findings_about_different_routes_on_one_line_stay_apart
+      - tests/test_multi_repo_builder.py::test_verification_findings_must_belong_to_their_component
+      - tests/test_multi_repo_builder.py::test_a_finding_of_several_methods_gets_a_text_written_from_its_parts_only
+      - tests/test_multi_repo_builder.py::test_without_a_faithful_rewrite_the_most_severe_part_keeps_its_text
+      - tests/test_multi_repo_builder.py::test_a_finding_of_one_method_is_never_rewritten
+      - tests/test_multi_repo_assessment.py::test_the_combination_job_sends_only_the_parts_and_returns_its_entries
+      - tests/test_triage_validate_ratings.py::test_step3_no_criticals_many_highs
       - tests/test_case_outcomes.py::test_investigation_results_name_the_locations_of_evidenced_controls
       - tests/test_case_outcomes.py::test_build_block_keeps_the_aspects_the_budget_left_incomplete
       - tests/test_case_outcomes.py::test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect

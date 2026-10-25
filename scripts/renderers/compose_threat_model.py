@@ -16591,11 +16591,19 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         found = [row for row in rows if row.get("scope") == "component" and row.get("outcome") == "not_applicable"]
         return found if len(found) > 1 else []
 
-    # A verification finding that the survey reported too is shown under the survey's ID.
+    # A saved model from before verification findings joined the register lists them apart; one that the
+    # survey reported too is shown under the survey's ID.
+    apart = [row for row in ctx.yaml_data.get("test_case_findings") or [] if isinstance(row, dict)]
     survey_ids = {
         str(row.get("id")): [str(v) for v in row.get("survey_finding_ids") or [] if re.fullmatch(r"T-\d{3,}", str(v))]
-        for row in ctx.yaml_data.get("test_case_findings") or []
-        if isinstance(row, dict)
+        for row in apart
+    }
+    # Otherwise each verification finding is part of one finding of the register (REQ-040).
+    register = {
+        str(value): str(t["id"])
+        for t in ctx.yaml_data.get("threats") or []
+        if isinstance(t, dict) and re.fullmatch(r"T-\d{3,}", str(t.get("id")))
+        for value in (t.get("verification") or {}).get("finding_ids") or []
     }
     lines += ["| Verification item | Aspect | Outcome | Reason |", "|---|---|---|---|"]
     for case in cases:
@@ -16642,10 +16650,17 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
                 lines += [f"Outcome for {component(row)}: {outcome} {_candidate_counts(candidates)}", ""]
                 if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
                     lines += ["Evidenced by model review only; no post-check confirmed it.", ""]
+                values = [v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v)]
+                if not apart:
+                    shown = list(dict.fromkeys(register[value] for value in values if value in register))
+                    if missing := sum(1 for value in values if value not in register):
+                        shown.append(f"{missing} not in the findings register")
+                    if shown:
+                        lines += [f"Findings: {', '.join(shown)}.", ""]
+                    continue
                 linked = [
                     f"{value} (as {', '.join(survey_ids[value])})" if survey_ids.get(value) else value
-                    for value in map(str, row.get("finding_ids") or [])
-                    if _TEST_CASE_FINDING_ID.fullmatch(value)
+                    for value in values
                 ]
                 if linked:
                     lines += [
@@ -16680,11 +16695,23 @@ def _candidate_counts(candidates: dict) -> str:
     return f"Candidate locations: {candidates.get('applicable', 0)}" + (f" ({', '.join(parts)})." if parts else ".")
 
 
+_METHOD_NAMES = {"survey": "survey", "scanners": "scanners", "verification": "verification"}
+
+
 def _verification_card(t: dict) -> str:
-    """REQ-040: whether verification found this survey finding too, or evidenced a control at its location."""
+    """REQ-040: the methods that found this finding, or whether verification evidenced a control at its location.
+
+    A finding names its methods when more than one found it or verification did, with the verification
+    items behind it. A saved model from before ``found_by`` names verification findings linked to it.
+    """
     cases = [
         str(c) for c in (t.get("verification") or {}).get("test_case_ids") or [] if _TEST_CASE_ID.fullmatch(str(c))
     ]
+    methods = [_METHOD_NAMES[m] for m in _METHOD_NAMES if m in (t.get("found_by") or [])]
+    if len(methods) > 1 or "verification" in methods:
+        named = methods[0] if len(methods) == 1 else ", ".join(methods[:-1]) + " and " + methods[-1]
+        links = ", ".join(f"[{c}](#{c.lower()})" for c in cases)
+        return f"**Found by:** {named}" + (f" ({links})" if links else "")
     found = [
         str(f)
         for f in (t.get("verification") or {}).get("finding_ids") or []

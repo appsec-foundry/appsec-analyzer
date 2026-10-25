@@ -89,6 +89,13 @@ SEMANTIC_ROLE_REGISTRY: dict[str, dict[str, Any]] = {
         "tools": (),
         "output_contracts": ("schemas/open-review.schema.json",),
     },
+    # REQ-040: the title, scenario and remediation of a finding that several methods found, from its parts.
+    "finding_combiner": {
+        "agent": "appsec-finding-combiner",
+        "instruction": PLUGIN_ROOT / "data" / "finding-combination-policy.md",
+        "tools": (),
+        "output_contracts": ("schemas/finding-combination.schema.json",),
+    },
     "threat_merger": {
         "agent": "appsec-threat-merger",
         "instruction": PLUGIN_ROOT / "agents" / "appsec-threat-merger.md",
@@ -125,6 +132,7 @@ SEMANTIC_ROLE_MODEL_KEYS = {
     "stride_analyzer": "stride_model",
     "test_case_investigator": "stride_model",
     "open_reviewer": "stride_model",
+    "finding_combiner": "merger_model",
     "threat_merger": "merger_model",
     "triage_validator": "triage_model",
     "trust_boundary_analyst": "orchestrator_model",
@@ -134,7 +142,11 @@ RENDERER_MODEL_KEYS = {"ms_renderer": "renderer_model", "secarch_renderer": "ren
 
 # Roles that run with another role's model settings. They are not profile roles:
 # adding them to the scan profiles would change every profile's identity.
-PROFILE_ROLE_ALIASES = {"test_case_investigator": "stride_analyzer", "open_reviewer": "stride_analyzer"}
+PROFILE_ROLE_ALIASES = {
+    "test_case_investigator": "stride_analyzer",
+    "open_reviewer": "stride_analyzer",
+    "finding_combiner": "threat_merger",
+}
 
 
 def profile_role(role: str) -> str:

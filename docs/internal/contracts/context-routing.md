@@ -145,6 +145,9 @@ Verification (REQ-040) adds two agents of one component each. The
 instructions and its component's starting candidates as untrusted context; the
 planned `open_reviewer` receives the component's verification results and
 business context. Their catalog IDs keep the earlier "test case" wording.
+The whole-run `finding_combiner` receives only the parts of findings that
+several methods found, their texts and locations, and no source or
+architecture.
 
 Repository declarations remain data inputs. They cannot edit the core catalog,
 assign agents, choose paths or schemas, change models or tools, relax limits,

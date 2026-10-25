@@ -368,7 +368,22 @@ def _component_rows(model, case_id=None):
     return [row for row in rows if case_id in (None, row["test_case_id"])]
 
 
-def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_its_findings_apart(
+def _pilot_findings(output):
+    """The verification findings a run recorded, under their run-wide ``TCF-`` IDs."""
+    (sidecar,) = output.rglob(".test-case-pilot.json")
+    return json.loads(sidecar.read_text())["findings"]
+
+
+def _verified(model):
+    """The findings of the register that hold a verification finding, by its ``TCF-`` ID (REQ-040)."""
+    return {
+        value: threat
+        for threat in model["threats"]
+        for value in (threat.get("verification") or {}).get("finding_ids", [])
+    }
+
+
+def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_its_findings_into_the_register(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
@@ -400,13 +415,21 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
     assert owner["evidence_basis"] == "model" and owner["post_checks"]
     assert all(row["outcome"] != "control" for row in _component_rows(model))
 
-    # Pilot findings stay a separate list: the threats are those of the run without the pilot.
-    (finding,) = model["test_case_findings"]
+    # REQ-040: the verification finding joins the register, as part of the finding it repeats or on its own.
+    (finding,) = _pilot_findings(tmp_path / "pilot")
     assert finding["id"] == "TCF-001" and finding["component_id"] == service["id"]
     assert finding["test_case_ids"] == ["TC-AUTHZ-01"] and finding["evidence"]["file"] == "server.js"
+    assert "test_case_findings" not in model
+    threat = _verified(model)["TCF-001"]
+    assert "verification" in threat["found_by"] and "TC-AUTHZ-01" in threat["test_case_ids"]
+    assert threat["component"] == service["id"] and threat["id"].startswith("T-")
     without = yaml.safe_load((plain / "security-assessment.yaml").read_text())
-    assert sorted(t["title"] for t in model["threats"]) == sorted(t["title"] for t in without["threats"])
-    assert not any(t["id"].startswith("TCF-") or t["title"] == finding["title"] for t in model["threats"])
+    added = 0 if "survey" in threat["found_by"] or "scanners" in threat["found_by"] else 1
+    assert len(model["threats"]) == len(without["threats"]) + added
+    if not added:
+        # The combiner wrote the text from the parts; the controller kept severity, IDs and methods.
+        assert threat["scenario"].startswith("Combined from every method that found it: server.js:")
+    assert all("verification" not in t.get("found_by", []) for t in without["threats"])
 
     (sidecar,) = (tmp_path / "pilot").rglob(".test-case-pilot.json")
     document = json.loads(sidecar.read_text())
@@ -417,8 +440,10 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_lists_i
 
     report = (tmp_path / "pilot" / "security-assessment.md").read_text()
     assert f"| [TC-AUTHZ-01](#tc-authz-01) · {service['name']} | AuthZ | Finding |" in report
-    assert "## Verification Findings" in report and "do not count in the totals of the findings register" in report
-    assert "| TCF-001 | [TC-AUTHZ-01](#tc-authz-01) |" in report
+    assert "## Verification Findings" not in report and "**Found by:** " in report
+    # The appendix names the verification finding by the register's finding it is part of.
+    number = threat["id"].removeprefix("T-")
+    assert f"Findings: 🟠 [F-{number}](#f-{number})" in report.split("## Appendix: Verification Items")[1]
 
 
 def test_a_profile_that_selects_authentication_gets_its_verification_jobs(tmp_path, monkeypatch):
@@ -496,8 +521,7 @@ def test_resume_replays_accepted_investigations_without_new_model_calls(tmp_path
     outcome = _assess_again(tmp_path, host, tmp_path / "out", (*_PILOT, "--resume"))
     assert outcome["status"] == "complete"
     assert "test_case_investigator" not in host.roles and "stride_analyzer" not in host.roles
-    model = yaml.safe_load((tmp_path / "out" / "security-assessment.yaml").read_text())
-    ids = [row["id"] for row in model["test_case_findings"]]
+    ids = [row["id"] for row in _pilot_findings(tmp_path / "out")]
     assert ids == [f"TCF-{number:03d}" for number in range(1, len(ids) + 1)] and (len(ids) > 1) is batched
 
 
@@ -662,7 +686,7 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     # Verification ends, then says per aspect what it found and cost and what each item showed.
     (done,) = [text for text in said if text.startswith("Verify done")]
     assert done == "Verify done"
-    found = len(model["test_case_findings"])
+    found = len(_pilot_findings(tmp_path / "pilot"))
     (aspect,) = [text for text in said if text.startswith("AuthZ · ") and " only by Verify" not in text]
     assert aspect.startswith(f"AuthZ · {found} finding{'' if found == 1 else 's'} · ≈ USD ") and " in " in aspect
     assert said.index(aspect) == said.index(done) + 1
@@ -699,7 +723,7 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     )
 
     # Every job reports its finding as authz-1; the pilot findings keep distinct IDs and links.
-    ids = [row["id"] for row in model["test_case_findings"]]
+    ids = [row["id"] for row in _pilot_findings(tmp_path / "pilot")]
     assert len(ids) > 1 and ids == [f"TCF-{number:03d}" for number in range(1, len(ids) + 1)]
     assert sorted(value for row in _component_rows(model) for value in row["finding_ids"]) == sorted(ids)
 
@@ -727,4 +751,4 @@ def test_a_failed_job_makes_only_its_candidates_undecidable(tmp_path, monkeypatc
         if row["outcome"] == "undecidable":
             assert row["reason"].endswith(f"candidate locations undecidable: {reason}")
     # The first job's finding survives the failure of the second.
-    assert model["test_case_findings"][0]["test_case_ids"] == ["TC-AUTHZ-01"]
+    assert _pilot_findings(out)[0]["test_case_ids"] == ["TC-AUTHZ-01"]

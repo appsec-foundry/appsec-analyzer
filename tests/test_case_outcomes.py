@@ -223,14 +223,12 @@ def test_build_block_appends_the_pilot_rows_after_the_unchanged_rules_rows(catal
     block = tcr.build_block(tmp_path, [])
     assert block["results"] == rules + document["results"]
     assert list(_block_validator().iter_errors(block)) == []
-    assert tcr.pilot_findings(tmp_path) == document["findings"]
+    # Saved models from before verification findings joined the register list them apart.
     schema = yaml.safe_load((tcr.ROOT / "schemas" / "threat-model.output.schema.yaml").read_text(encoding="utf-8"))
     findings = schema["properties"]["test_case_findings"]
     assert list(Draft202012Validator(schema).descend(document["findings"], findings)) == []
     malformed = [{**document["findings"][0], "id": "T-001", "test_case_ids": []}]
     assert len(list(Draft202012Validator(schema).descend(malformed, findings))) == 2
-    (tmp_path / tcr.PILOT_SIDECAR).unlink()
-    assert tcr.pilot_findings(tmp_path) == []
 
 
 def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_finding_as_a_control(catalog, tmp_path):
@@ -240,14 +238,23 @@ def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_find
 
     _pilot(catalog, tmp_path)
     model = {"test_case_results": tcr.build_block(tmp_path, []), "components": [{"id": "api", "name": "Order API"}]}
+    # The verification finding is part of a finding of the register (REQ-040).
+    model["threats"] = [{"id": "T-001", "verification": {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}}]
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
     assert "| [TC-AUTHZ-01](#tc-authz-01) · Order API | AuthZ | Finding |" in out
     assert "| [TC-AUTHZ-02](#tc-authz-02) · Order API | AuthZ | Partial, not a control |" in out
     assert "| [TC-AUTHZ-03](#tc-authz-03) · Order API | AuthZ | No finding, no control |" in out
     assert "| [TC-AUTHZ-04](#tc-authz-04) | AuthZ | Not examined |" in out
     assert "Control evidenced" not in out and "Partial control" not in out
-    assert "Outcome for Order API: Finding." in out and "Findings: TCF-001" in out
+    assert "Outcome for Order API: Finding." in out and "Findings: T-001.\n" in out
     assert "Evidenced by model review only" in out
+    # One below the register's floor is counted, and a saved model that lists them apart keeps its IDs.
+    model["threats"] = []
+    out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
+    assert "Findings: 1 not in the findings register.\n" in out
+    model["test_case_findings"] = [{"id": "TCF-001", "test_case_ids": ["TC-AUTHZ-01"]}]
+    out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
+    assert "Findings: TCF-001 (see [Verification Findings](#verification-findings))." in out
 
 
 def test_appendix_lists_components_a_test_case_does_not_apply_to_in_one_row(catalog, tmp_path):
@@ -579,25 +586,53 @@ def test_the_output_schema_rejects_malformed_component_results(catalog, change):
 # --- survey and verification combined (REQ-040) -------------------------------------
 
 
-def _survey(threat_id, cwe, file, line, *instances, source="stride"):
+def _survey(threat_id, cwe, file, line, *instances, found_by="survey"):
     return {
         "id": threat_id,
-        "source": source,
+        "found_by": [found_by],
         "cwe": cwe,
+        "risk": "Medium",
+        "evidence_check": "verified",
+        "evidence_basis": "llm-verified",
         "evidence": [{"file": file, "line": line}],
         "instances": [{"file": f, "line": n} for f, n in instances],
     }
 
 
 def _verified(finding_id, cwe, file, line, case="TC-AUTHZ-01"):
-    return {"id": finding_id, "cwe": cwe, "evidence": {"file": file, "line": line}, "test_case_ids": [case]}
+    return {
+        "local_id": finding_id,
+        "found_by": ["verification"],
+        "verification": {"finding_ids": [finding_id], "test_case_ids": [case]},
+        "test_case_ids": [case],
+        "cwe": cwe,
+        "risk": "Medium",
+        "evidence": {"file": file, "line": line},
+    }
 
 
-def test_a_verification_finding_at_a_survey_location_with_the_same_weakness_is_shown_once(catalog):
+def _joined(threats, findings):
+    """The merge's step that makes each verification finding part of the finding it repeats."""
+    from model.merge_threats import _join_verification
+
+    for threat in threats:
+        # The merge reads a finding's anchor as one record; the model holds a list of them.
+        threat["evidence"] = threat["evidence"][0]
+    merged = _join_verification(threats, findings)
+    for threat in merged:
+        threat["evidence"] = [threat["evidence"]]
+    return merged
+
+
+def _held(threats, finding_id):
+    return [t.get("id") for t in threats if finding_id in (t.get("verification") or {}).get("finding_ids", [])]
+
+
+def test_a_verification_finding_at_a_survey_or_scanner_location_with_the_same_weakness_is_shown_once():
     threats = [
         _survey("T-001", "CWE-639", "routes/basket.ts", 19, ("server.ts", 426)),
         _survey("T-002", "CWE-79", "routes/basket.ts", 20),
-        _survey("T-003", "CWE-639", "routes/order.ts", 35, source="source-scan"),
+        _survey("T-003", "CWE-639", "routes/order.ts", 35, found_by="scanners"),
         _survey("T-004", "CWE-95", "routes/profile.ts", 61),
     ]
     findings = [
@@ -606,45 +641,43 @@ def test_a_verification_finding_at_a_survey_location_with_the_same_weakness_is_s
         # Another CWE of the same family at the same line is the same weakness.
         _verified("TCF-003", "CWE-862", "routes/basket.ts", 19, case="TC-AUTHZ-02"),
         _verified("TCF-004", "CWE-94", "routes/profile.ts", 61, case="TC-INPUT-03"),
-        # A neighbouring line, another family at the same line, and a scanner finding stay apart.
+        # A neighbouring line and another family at the same line stay apart.
         _verified("TCF-005", "CWE-639", "routes/basket.ts", 20),
         _verified("TCF-006", "CWE-943", "routes/basket.ts", 19, case="TC-INPUT-02"),
+        # A scanner finding at the same place is the same weakness too.
         _verified("TCF-007", "CWE-639", "routes/order.ts", 35),
     ]
-    assert tcr.combine_methods(threats, findings, [], catalog) == {"linked": 4, "contradicted": 0}
-    assert threats[0]["verification"] == {
+    merged = _joined(threats, findings)
+    assert merged[0]["verification"] == {
         "finding_ids": ["TCF-001", "TCF-002", "TCF-003"],
         "test_case_ids": ["TC-AUTHZ-01", "TC-AUTHZ-02"],
     }
-    assert threats[0]["test_case_ids"] == ["TC-AUTHZ-01", "TC-AUTHZ-02"]
-    assert [row.get("survey_finding_ids") for row in findings] == [
+    assert merged[0]["test_case_ids"] == ["TC-AUTHZ-01", "TC-AUTHZ-02"]
+    assert merged[0]["found_by"] == ["survey", "verification"]
+    assert [_held(merged, f"TCF-{n:03d}") for n in range(1, 8)] == [
         ["T-001"],
         ["T-001"],
         ["T-001"],
         ["T-004"],
-        None,
-        None,
-        None,
+        [None],
+        [None],
+        ["T-003"],
     ]
-    assert "verification" not in threats[1] and "verification" not in threats[2]
+    assert merged[2]["found_by"] == ["scanners", "verification"]
+    assert "verification" not in merged[1] and len(merged) == 6
 
 
-def test_unclassified_cwes_link_only_when_they_are_identical(catalog):
-    threats = [_survey("T-001", "CWE-359", "routes/memory.ts", 24)]
+def test_unclassified_cwes_join_only_when_they_are_identical():
     findings = [
         _verified("TCF-001", "CWE-200", "routes/memory.ts", 24, case="TC-DATA-01"),
         _verified("TCF-002", "CWE-359", "routes/memory.ts", 24, case="TC-DATA-01"),
         # Neither a verification nor a survey finding without a CWE matches anything.
         _verified("TCF-003", None, "routes/memory.ts", 24, case="TC-DATA-01"),
     ]
-    assert tcr.combine_methods(threats, findings, [], catalog) == {"linked": 1, "contradicted": 0}
-    assert [row.get("survey_finding_ids") for row in findings] == [None, ["T-001"], None]
-    assert tcr.combine_methods(
-        [_survey("T-002", None, "a.ts", 1)], [_verified("TCF-004", None, "a.ts", 1)], [], catalog
-    ) == {
-        "linked": 0,
-        "contradicted": 0,
-    }
+    merged = _joined([_survey("T-001", "CWE-359", "routes/memory.ts", 24)], findings)
+    assert [_held(merged, f"TCF-{n:03d}") for n in range(1, 4)] == [[None], ["T-001"], [None]]
+    merged = _joined([_survey("T-002", None, "a.ts", 1)], [_verified("TCF-004", None, "a.ts", 1)])
+    assert _held(merged, "TCF-004") == [None]
 
 
 def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_keeps_it(catalog):
@@ -654,6 +687,8 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
         _survey("T-003", "CWE-639", "routes/wallet.ts", 12),
         _survey("T-004", "CWE-862", "routes/payment.ts", 30),
         _survey("T-005", "CWE-639", "routes/refund.ts", 40),
+        # Only a survey finding is contradicted, not a scanner finding at the same place.
+        _survey("T-006", "CWE-639", "routes/payment.ts", 30, found_by="scanners"),
     ]
     results = [
         {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 30}]},
@@ -662,8 +697,8 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
         {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/refund.ts", "line": 41}]},
     ]
     # A weakness that verification found at the same place outweighs its control elsewhere.
-    findings = [_verified("TCF-001", "CWE-639", "routes/wallet.ts", 12)]
-    assert tcr.combine_methods(threats, findings, results, catalog) == {"linked": 1, "contradicted": 1}
+    threats[2]["verification"] = {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}
+    assert tcr.mark_contradicted(threats, results, catalog) == 1
     assert threats[0]["verification_contradicted"] == [
         {"test_case_id": "TC-AUTHZ-01", "file": "routes/payment.ts", "line": 30}
     ]
@@ -672,7 +707,7 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
     assert all("verification_contradicted" not in threat for threat in threats[1:])
 
 
-def test_the_consolidation_counts_each_aspect_as_the_report_links_the_methods(catalog):
+def test_the_consolidation_counts_each_aspect_as_the_report_combines_the_methods(catalog):
     from orchestrator import assessment_test_cases
 
     threats = [
@@ -680,17 +715,19 @@ def test_the_consolidation_counts_each_aspect_as_the_report_links_the_methods(ca
         _survey("T-002", "CWE-639", "routes/payment.ts", 30),
         _survey("T-003", "CWE-862", "routes/wallet.ts", 12),
         # A scanner finding and a survey finding of another aspect count for no AuthZ line.
-        _survey("T-004", "CWE-639", "routes/order.ts", 35, source="source-scan"),
+        _survey("T-004", "CWE-639", "routes/order.ts", 35, found_by="scanners"),
         _survey("T-005", "CWE-89", "routes/search.ts", 23),
     ]
     findings = [
-        {**_verified("TCF-001", "CWE-639", "routes/basket.ts", 19), "aspect": "AuthZ"},
-        {**_verified("TCF-002", "CWE-639", "routes/order.ts", 50), "aspect": "AuthZ"},
-        {**_verified("TCF-003", "CWE-89", "routes/search.ts", 23, case="TC-INPUT-01"), "aspect": "InputVal"},
+        _verified("TCF-001", "CWE-639", "routes/basket.ts", 19),
+        _verified("TCF-002", "CWE-639", "routes/order.ts", 50),
+        _verified("TCF-003", "CWE-89", "routes/search.ts", 23, case="TC-INPUT-01"),
     ]
+    threats = _joined(threats, findings)
+    threats[5]["id"] = "T-006"
     results = [{"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 30}]}]
-    tcr.combine_methods(threats, findings, results, catalog)
-    assert assessment_test_cases.method_lines(threats, findings, ["AuthZ", "DataProt"], catalog) == [
+    tcr.mark_contradicted(threats, results, catalog)
+    assert assessment_test_cases.method_lines(threats, ["AuthZ", "DataProt"], catalog) == [
         "AuthZ · 1 found by both · 1 only by Verify · 2 only by the survey · 1 contradicted",
         "DataProt · 0 found by both · 0 only by Verify · 0 only by the survey",
     ]
@@ -791,8 +828,20 @@ def test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect(
 
     from tests.test_compose_threat_model_cov import _mk_ctx
 
-    both = {"verification": {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}}
-    assert compose._verification_card(both) == (
+    block = {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}
+    # A finding names its methods when several or verification found it, with the verification items.
+    assert compose._verification_card({"found_by": ["survey", "verification"], "verification": block}) == (
+        "**Found by:** survey and verification ([TC-AUTHZ-01](#tc-authz-01))"
+    )
+    assert compose._verification_card({"found_by": ["verification"], "verification": block}) == (
+        "**Found by:** verification ([TC-AUTHZ-01](#tc-authz-01))"
+    )
+    every = {"found_by": ["survey", "scanners", "verification"], "verification": block}
+    assert compose._verification_card(every).startswith("**Found by:** survey, scanners and verification (")
+    assert compose._verification_card({"found_by": ["survey", "scanners"]}) == "**Found by:** survey and scanners"
+    assert compose._verification_card({"found_by": ["survey"]}) == ""
+    # A saved model from before names the linked verification findings.
+    assert compose._verification_card({"verification": block}) == (
         "**Found by:** survey and verification (TCF-001; [TC-AUTHZ-01](#tc-authz-01))"
     )
     disputed = {"verification_contradicted": [{"test_case_id": "TC-AUTHZ-01", "file": "routes/a.ts", "line": 3}]}
@@ -804,6 +853,8 @@ def test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect(
         {**_verified("TCF-001", "CWE-639", "a.ts", 1), "survey_finding_ids": ["T-001"], "title": "x", "risk": "High"},
         {**_verified("TCF-002", "CWE-639", "b.ts", 1), "title": "Only verification", "risk": "High"},
     ]
+    for row in findings:
+        row["id"] = row.pop("local_id")
     out = compose._render_test_case_findings(_mk_ctx(tmp_path, yaml_data={"test_case_findings": findings}), None, {})
     assert "| TCF-002 |" in out and "| TCF-001 |" not in out
     assert "1 further verification finding matched a survey finding" in out

@@ -183,16 +183,16 @@ In a pilot run on Juice Shop, the survey reported that a user can change another
 
 ### How the results come together
 
-While they run, the two methods do not see each other's results. Verification starts from the routes and scanner hits, not from survey findings, because a weakness that two methods find independently is better supported than one a model was asked to confirm. After both have finished, Analyzer compares their findings by code line and CWE:
+While they run, the two methods do not see each other's results. Verification starts from the routes and scanner hits, not from survey findings, because a weakness that two methods find independently is better supported than one a model was asked to confirm. After both have finished, verification findings join the findings register with the survey's and the scanners' findings, and Analyzer compares them by code line and CWE:
 
 | Case | What the report shows |
 | --- | --- |
-| Both found the weakness on the same line, with the same CWE or a CWE of the same weakness family, such as CWE-639 and CWE-862 for missing authorization. | One finding. Its card says "Found by: survey and verification" and names the verification items. |
+| Verification found the weakness on the same line as a survey or scanner finding, with the same CWE or a CWE of the same weakness family, such as CWE-639 and CWE-862 for missing authorization. | One finding. Its card names the methods, such as "Found by: survey and verification", and the verification items. It keeps every location, item, and scanner rule, the severity of its most severe part, and the evidence review verdict of the survey or scanner finding. |
 | Verification found a protecting control on the line where the survey reported a weakness with the same CWE. | The survey finding stays and is marked "Contradicted by verification". Check the code before you close it. |
-| Only verification found the weakness. | The finding is listed in the section Verification Findings. These findings do not count in the totals of the findings register yet. |
+| Only verification found the weakness. | A finding of its own, with an ID, a priority, and a mitigation like any other. Its card says "Found by: verification". If no post-check confirmed it, it is labelled as unproven and left unscored. |
 | Only the survey found the weakness, or verification did not examine the location. | The survey finding stays unchanged. |
 
-Findings on neighbouring lines stay separate, because a route table often registers a different route on the next line. The same weakness therefore appears twice when the two methods anchor it on different lines or label it with CWEs of different families, for example missing authorization in verification and information disclosure in the survey.
+A model writes a combined finding's title, scenario, and remediation from the texts of its parts and their locations; it receives no source files. This is one more model call in the consolidation, on the model of the merge review. If the call fails, the budget does not cover it, or the text leaves out a part's location, the finding keeps the text of its most severe part and lists the remediation steps of all parts. Findings on neighbouring lines stay separate, because a route table often registers a different route on the next line, and so do verification findings about different routes registered on one line. The same weakness therefore appears twice when the methods anchor it on different lines or label it with CWEs of different families, for example missing authorization in verification and information disclosure in the survey. A refuted survey or scanner finding never absorbs a verification finding.
 
 ### What each depth verifies
 
@@ -231,9 +231,8 @@ With verification on:
 
 - Findings from scanner rules carry `rule_ids` and `test_case_ids` in `security-assessment.yaml`, and their details link the verification items and rules.
 - `security-assessment.yaml` gains a `test_case_results` block, with `incomplete_aspects` when the budget ended verification early.
-- Survey findings that verification found too carry `verification`, and those it contradicts carry `verification_contradicted`.
+- Every finding names the methods that found it in `found_by`: `survey`, `scanners`, or `verification`. Findings that hold verification findings carry `verification` with their `TCF-` IDs and verification items, and survey findings that verification contradicts carry `verification_contradicted`.
 - The report gains the appendix Verification Items, which lists every catalog item and its outcome, with one row per component for model-investigated items.
-- With a verified aspect, `security-assessment.yaml` gains `test_case_findings`, and the report the section Verification Findings with those the survey did not report. They do not count in the totals of the findings register yet.
 - The completion summary shows a Verification row with the outcome counts.
 - In SARIF, a linked finding uses the verification item ID as `ruleId`. The finding ID moves to the result property `findingId`.
 

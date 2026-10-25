@@ -2189,6 +2189,10 @@ def _assessment_stride(
             )
         )
         scope.verify_unchanged()
+    # REQ-040: verification findings join the register with the survey's and the scanners'.
+    verified = {}
+    for row in (pilot or {}).get("findings") or []:
+        verified.setdefault(row["component_id"], []).append(row)
     merged = merge_assessment(
         scope,
         components,
@@ -2196,10 +2200,15 @@ def _assessment_stride(
         reviews,
         boundaries=boundaries,
         scanner_threats=scanned,
+        verification_threats=verified,
         started_at=started_at,
         review_groups=lambda verdict, groups: _assessment_merge_review(jobs, verdict, groups, progress=progress),
+        combine_texts=lambda requests: _assessment_finding_combination(jobs, requests, progress=progress),
     )
-    combined = f"{_count_noun(surveyed, 'survey finding')} and {_count_noun(hits, 'scanner hit')}"
+    sources = [_count_noun(surveyed, "survey finding"), _count_noun(hits, "scanner hit")]
+    if verified:
+        sources.append(_count_noun(sum(len(rows) for rows in verified.values()), "verification finding"))
+    combined = ", ".join(sources[:-1]) + " and " + sources[-1]
     progress(f"Merge · {combined} merged into {len(merged['threats'])}")
     return documents, reviews, merged
 
@@ -2244,6 +2253,8 @@ def _assessment_components_concurrently(jobs, components, analyze):
 
 # Candidate groups per merger exchange; the legacy merger admits at most 64.
 MERGE_REVIEW_GROUPS = 32
+# REQ-040: findings whose texts one combination job rewrites (the reply schema's limit).
+COMBINATION_FINDINGS = 12
 
 
 def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress, late: bool = False) -> list[dict]:
@@ -2297,6 +2308,48 @@ def _assessment_merge_review(jobs, verdict: str, groups: list[dict], *, progress
         )
         decisions += artifact["decisions"]
     return decisions
+
+
+def _assessment_finding_combination(jobs, requests: list[dict], *, progress) -> list[dict]:
+    """REQ-040: rewrite the texts of findings that several methods found, from their parts only.
+
+    A job receives no source; a reply that names an unknown or repeated finding is returned for
+    correction. A failed or unaffordable job returns nothing, so its findings keep the text of their
+    most severe part with the remediation steps of all parts.
+    """
+    from runtime.assessment_host import Rejection
+
+    schema = json.loads((PLUGIN_ROOT / "schemas/finding-combination.schema.json").read_text(encoding="utf-8"))
+    batches = [requests[n : n + COMBINATION_FINDINGS] for n in range(0, len(requests), COMBINATION_FINDINGS)]
+    progress(f"Combining the texts of {_count_noun(len(requests), 'finding')} that several methods found")
+    replies: list[dict] = []
+    for number, batch in enumerate(batches, 1):
+        keys = {request["key"] for request in batch}
+
+        def validate(artifact, ranges, keys=keys):
+            named = [row["key"] for row in artifact["findings"]]
+            errors = [f"{key} names no supplied finding" for key in named if key not in keys]
+            errors += [f"{key} appears more than once" for key in sorted(set(named)) if named.count(key) > 1]
+            if errors:
+                raise Rejection("Combined finding texts violate their contract", errors)
+
+        artifact = jobs.execute(
+            role="finding_combiner",
+            selector=f"combine:{number}/{len(batches)}",
+            instructions=_assessment_role_instructions(
+                "finding_combiner",
+                "Return one entry per supplied finding you can combine faithfully. No source files are available "
+                "in this job; write only from the supplied parts.",
+            ),
+            context={"findings": batch},
+            schema=schema,
+            allowed_sources=frozenset(),
+            validate=validate,
+            # Without a reply, every finding of the batch keeps its fallback text (OR-39).
+            on_failure=lambda reason: {"findings": []},
+        )
+        replies += artifact["findings"]
+    return replies
 
 
 def _assessment_evidence_review(
@@ -3465,6 +3518,7 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
         "evidence_verifier": (9, "Survey"),
         "test_case_investigator": (9, "Verify"),
         "threat_merger": (10, "Scan Synthesis"),
+        "finding_combiner": (10, "Scan Synthesis"),
         "triage_validator": (10, "Scan Synthesis"),
         "architect_reviewer": (10, "Scan Synthesis"),
         "post_stride_synthesizer": (10, "Scan Synthesis"),
@@ -3516,9 +3570,7 @@ def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> 
         aspects = [
             aspect for aspect in cfg["test_cases"]["aspects"] if aspect in assessment_test_cases.INVESTIGATED_ASPECTS
         ]
-        for line in assessment_test_cases.method_lines(
-            model.get("threats") or [], model.get("test_case_findings") or [], aspects, load_catalog()
-        ):
+        for line in assessment_test_cases.method_lines(model.get("threats") or [], aspects, load_catalog()):
             progress(line)
     _phase_result(progress, "Consolidation", " · ".join(parts))
 
@@ -3635,10 +3687,8 @@ def _assessment_render(
                 model.get("threats") or [],
                 {row["id"]: row["reason"] for row in cfg["test_cases"]["disable"]},
             )
-            if findings := case_outcomes.pilot_findings(workspace):
-                model["test_case_findings"] = findings
-            # The survey's findings name verification's at the same location, and verified controls contradict them.
-            case_outcomes.combine_methods(model.get("threats") or [], findings, model["test_case_results"]["results"])
+            # The merge made verification findings part of the register; verified controls contradict survey findings.
+            case_outcomes.mark_contradicted(model.get("threats") or [], model["test_case_results"]["results"])
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://appsec-advisor/schemas/finding-combination.schema.json",
+  "title": "Combined finding texts",
+  "description": "REQ-040: the rewritten title, scenario and remediation of findings that several methods found. The controller keeps every other field.",
+  "type": "object",
+  "required": ["findings"],
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "scenario", "remediation"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string", "pattern": "^c-[0-9]{3}$" },
+          "title": { "type": "string", "minLength": 8, "maxLength": 200 },
+          "scenario": { "type": "string", "minLength": 40, "maxLength": 4000 },
+          "remediation": {
+            "type": "object",
+            "required": ["steps", "verification"],
+            "additionalProperties": false,
+            "properties": {
+              "steps": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 12,
+                "items": { "type": "string", "minLength": 4, "maxLength": 600 }
+              },
+              "verification": { "type": "string", "minLength": 10, "maxLength": 1000 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

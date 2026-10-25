@@ -288,7 +288,9 @@ def run_pilot(
             for finding in reply["findings"]:
                 if finding["local_id"] not in outcome["dropped_finding_ids"]:
                     local[finding["local_id"]] = f"TCF-{len(findings) + 1:03d}"
-                    findings.append(_finding(finding, local[finding["local_id"]], component["id"], entry["aspect"]))
+                    row = _finding(finding, local[finding["local_id"]], component["id"], entry["aspect"])
+                    # The merge keeps findings on different routes apart and scores only checked ones (REQ-040).
+                    findings.append({**row, **outcome["findings"][finding["local_id"]]})
             for row in outcome["results"]:
                 row["finding_ids"] = [local[value] for value in row["finding_ids"]]
                 derived[row["test_case_id"]] = row
@@ -458,26 +460,32 @@ def aspect_line(aspect: str, results, findings, usd) -> str:
     )
 
 
-def method_lines(threats, findings, aspects, catalog) -> list[str]:
+def method_lines(threats, aspects, catalog) -> list[str]:
     """For each verified aspect, how many findings both methods and only one method found (REQ-040).
 
-    Reads the model after ``case_outcomes.combine_methods`` linked them, so the counts are the report's: a
-    verification finding names the survey findings at its location, a survey finding the verification findings,
-    and a survey finding at a verified control is contradicted. "Found by both" counts the verification findings
-    that name a survey finding. A survey finding counts for an aspect when its CWE is one of the aspect's
-    verification items, so one finding can count for several aspects.
+    Reads the model after the merge made each verification finding part of the finding it repeats, so the
+    counts are the report's findings: one with a ``verification`` block holds verification findings, its
+    ``found_by`` says whether the survey found it too, and a survey finding at a verified control is
+    contradicted. A finding counts for an aspect when one of its verification items belongs to it, and a
+    finding of the survey alone when its CWE is one of the aspect's verification items, so one finding can
+    count for several aspects.
     """
+    items = {case["id"]: case["aspect"] for case in catalog["test_cases"]}
     lines = []
     for aspect in aspects:
         cwes = aspect_cwes(catalog, aspect)
-        survey = [row for row in threats if row.get("source") == "stride" and row.get("cwe") in cwes]
-        verified = [row for row in findings if row.get("aspect") == aspect]
-        both = sum(1 for row in verified if row.get("survey_finding_ids"))
-        parts = [
-            f"{both} found by both",
-            f"{len(verified) - both} only by Verify",
-            f"{sum(1 for row in survey if not row.get('verification'))} only by the survey",
+        verified = [
+            row
+            for row in threats
+            if aspect in {items.get(case) for case in (row.get("verification") or {}).get("test_case_ids") or []}
         ]
+        both = sum(1 for row in verified if "survey" in (row.get("found_by") or []))
+        survey = [
+            row
+            for row in threats
+            if "survey" in (row.get("found_by") or []) and not row.get("verification") and row.get("cwe") in cwes
+        ]
+        parts = [f"{both} found by both", f"{len(verified) - both} only by Verify", f"{len(survey)} only by the survey"]
         if contradicted := sum(1 for row in survey if row.get("verification_contradicted")):
             parts.append(f"{contradicted} contradicted")
         lines.append(f"{aspect} · " + " · ".join(parts))

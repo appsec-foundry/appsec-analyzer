@@ -41,6 +41,7 @@ if not __package__:
 
 
 import argparse
+import contextvars
 import datetime as _dt
 import functools
 import hashlib
@@ -1390,6 +1391,7 @@ def _consolidate_config_checks(threats: list[dict]) -> list[dict]:
         survivor["title"] = _declassify_config_title(survivor.get("title", ""))
         _union_lens_ids(survivor, members)
         _union_violated_requirements(survivor, members)
+        _union_methods(survivor, members)
         # Record the consolidated local_ids for traceability.
         refs = [m.get("config_scan_ref") for m in members if m.get("config_scan_ref")]
         if refs:
@@ -1654,6 +1656,7 @@ def _consolidate_by_group(threats: list[dict]) -> list[dict]:
         survivor["consolidation_group"] = g["id"]
         _union_lens_ids(survivor, members)
         _union_violated_requirements(survivor, members)
+        _union_methods(survivor, members)
         if g.get("title"):
             survivor["title"] = g["title"]
             # Survivors of one group that differ only by their object would
@@ -2249,6 +2252,98 @@ def _union_violated_requirements(survivor: dict, members: list[dict]) -> None:
         survivor["violated_requirements"] = ids
 
 
+# REQ-040: the methods that find weaknesses, in the order the report names them.
+_METHODS = ("survey", "scanners", "verification")
+# The scanner rule fields of a finding, as case_outcomes reads them.
+_SCANNER_RULE_FIELDS = ("source_check_id", "config_check_id", "rule_id")
+_VERIFICATION_FINDING_ID = re.compile(r"TCF-[0-9]{3,}")
+# While merge_assessment runs, a finding of several methods keeps the texts of its parts until they are combined.
+_COMBINING = contextvars.ContextVar("combining", default=False)
+_PARTS = "_combination_parts"
+_MAX_PARTS = 6
+
+
+def _part(member: dict) -> dict:
+    """The method, anchor and texts of one part of a combined finding."""
+    evidence = _primary_evidence(member)
+    remediation = member.get("remediation") if isinstance(member.get("remediation"), dict) else {}
+    return {
+        "methods": list(member.get("found_by") or []),
+        "file": evidence.get("file"),
+        "line": evidence.get("line"),
+        "title": member.get("title"),
+        "scenario": member.get("scenario"),
+        "attack_steps": list(member.get("attack_steps") or []),
+        "controls_in_place": member.get("controls_in_place"),
+        "remediation": {"steps": list(remediation.get("steps") or []), "verification": remediation.get("verification")},
+    }
+
+
+def _union_methods(survivor: dict, members: list[dict]) -> None:
+    """Keep the methods, verification findings, items and routes of every member on the survivor (REQ-040).
+
+    When the members come from more than one method, the survivor's remediation
+    also lists the steps the other members recommend, so a combined finding
+    covers what each method found.
+    """
+    methods = {method for member in members for method in member.get("found_by") or []}
+    # The parts are taken before the survivor's own fields change.
+    parts: list[dict] = []
+    if len(methods) > 1 and _COMBINING.get():
+        for member in members:
+            for part in member.get(_PARTS) or [_part(member)]:
+                if part not in parts:
+                    parts.append(part)
+    if methods:
+        survivor["found_by"] = [method for method in _METHODS if method in methods]
+    finding_ids: list[str] = []
+    verified_cases: list[str] = []
+    cases: list[str] = []
+    routes: set[str] = set()
+    for member in members:
+        block = member.get("verification") if isinstance(member.get("verification"), dict) else {}
+        for value in block.get("finding_ids") or []:
+            if value not in finding_ids:
+                finding_ids.append(value)
+        for value in block.get("test_case_ids") or []:
+            if value not in verified_cases:
+                verified_cases.append(value)
+        for value in [*verified_cases, *(member.get("test_case_ids") or [])]:
+            if value not in cases:
+                cases.append(value)
+        routes.update(member.get("route_ids") or [])
+    if finding_ids:
+        survivor["verification"] = {"finding_ids": finding_ids, "test_case_ids": verified_cases}
+    if cases:
+        survivor["test_case_ids"] = cases
+    if routes:
+        survivor["route_ids"] = sorted(routes)
+    if len(methods) > 1:
+        _union_remediation_steps(survivor, members)
+    if parts:
+        survivor[_PARTS] = parts[:_MAX_PARTS]
+
+
+def _step_key(step: str) -> str:
+    return " ".join(step.lower().split()).rstrip(".")
+
+
+def _union_remediation_steps(survivor: dict, members: list[dict]) -> None:
+    """Append the remediation steps of the other members that the survivor does not list yet."""
+    remediations = [m.get("remediation") for m in [survivor, *members] if isinstance(m.get("remediation"), dict)]
+    if not remediations:
+        return
+    base = remediations[0]
+    steps = [step.strip() for step in base.get("steps") or [] if isinstance(step, str) and step.strip()]
+    seen = {_step_key(step) for step in steps}
+    for remediation in remediations[1:]:
+        for step in remediation.get("steps") or []:
+            if isinstance(step, str) and step.strip() and _step_key(step) not in seen:
+                steps.append(step.strip())
+                seen.add(_step_key(step))
+    survivor["remediation"] = {**base, "steps": steps}
+
+
 def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: bool) -> None:
     """Preserve merged metadata and bounded boundary traceability on survivor."""
     instances: list[dict] = []
@@ -2276,6 +2371,10 @@ def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: boo
                 instance.setdefault("scenario", scenario.strip())
             instance.setdefault("component_id", member.get("component_id"))
             for field in ("evidence_tier", "evidence_check", "threat_category_id"):
+                if member.get(field):
+                    instance.setdefault(field, member[field])
+            # Each part keeps its scanner rule, so a combined finding names every rule behind it (REQ-040).
+            for field in _SCANNER_RULE_FIELDS:
                 if member.get(field):
                     instance.setdefault(field, member[field])
             source_ref = member.get("local_id") or member.get("source_scan_ref") or member.get("config_scan_ref")
@@ -2320,6 +2419,7 @@ def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: boo
         survivor["additional_categories"] = additional_categories
     _union_lens_ids(survivor, members)
     _union_violated_requirements(survivor, members)
+    _union_methods(survivor, members)
     # A folded scanner member carries the anchors the deterministic remediation
     # backfill keys off. Losing them to an LLM-authored survivor would downgrade
     # the fix card to generic prose for a finding a check catalog can answer.
@@ -3338,6 +3438,137 @@ def _reconcile_actor_attribution(out_dir: Path, threats: list[dict]) -> list[dic
 _REVIEW_BASIS = {"verified": "llm-verified"}
 
 
+def _unscored(threat: dict) -> None:
+    """An ambiguous finding is labelled insecure practice and carries no score."""
+    threat["evidence_tier"] = "insecure-practice"
+    threat.pop("cvss_v4", None)
+
+
+def _locations(threat: dict) -> list[tuple]:
+    """The file and line of a finding's evidence and of each of its instances."""
+    rows = [_primary_evidence(threat), *(row for row in threat.get("instances") or [] if isinstance(row, dict))]
+    return [(row.get("file"), row.get("line")) for row in rows]
+
+
+def _cited(file, line) -> str | None:
+    """A part's anchor as the combined text cites it: the repository-relative path and line."""
+    if not isinstance(file, str) or not file:
+        return None
+    path = file.split("/", 1)[1] if "/" in file else file
+    return f"{path}:{line}" if type(line) is int else path
+
+
+def _combine_texts(threats: list[dict], combine) -> None:
+    """Rewrite the text of each finding that several methods found from its parts (REQ-040).
+
+    ``combine`` receives one request per such finding, with its parts' methods,
+    cited locations and texts and no source, and returns entries with a
+    rewritten title, scenario and remediation. The code keeps every other
+    field. An entry is applied only when its scenario cites every part's
+    location; otherwise, and without ``combine``, the finding keeps the text of
+    its most severe part with the remediation steps of all parts.
+    """
+    pending, requests = [], []
+    for threat in threats:
+        parts = threat.pop(_PARTS, None)
+        if not parts:
+            continue
+        cited = [
+            {
+                **{k: v for k, v in part.items() if k not in ("file", "line")},
+                "location": _cited(part["file"], part["line"]),
+            }
+            for part in parts
+        ]
+        pending.append(threat)
+        requests.append(
+            {
+                "key": f"c-{len(requests) + 1:03d}",
+                "risk": threat.get("risk"),
+                "locations": list(dict.fromkeys(part["location"] for part in cited if part["location"])),
+                "parts": cited,
+            }
+        )
+    if not requests or combine is None:
+        return
+    replies = {row.get("key"): row for row in combine(requests) or [] if isinstance(row, dict)}
+    for request, threat in zip(requests, pending, strict=True):
+        reply = replies.get(request["key"])
+        if reply is None or not all(location in reply["scenario"] for location in request["locations"]):
+            continue
+        threat["title"], threat["scenario"] = reply["title"], reply["scenario"]
+        remediation = threat.get("remediation") if isinstance(threat.get("remediation"), dict) else {}
+        threat["remediation"] = {
+            **remediation,
+            "steps": list(reply["remediation"]["steps"]),
+            "verification": reply["remediation"]["verification"],
+        }
+
+
+def _join_verification(threats: list[dict], verification: list[dict]) -> list[dict]:
+    """Make each verification finding part of the survey or scanner finding it repeats (REQ-040).
+
+    A verification finding repeats a finding when one of that finding's
+    locations is the same weakness by the merge's evidence identity: the same
+    file and line and a CWE of the same family. Threat categories need not
+    match, a refuted finding never absorbs one, and findings whose routes
+    differ stay apart, because one line can register several routes. The
+    riskier finding stays, on equal risk the reviewed one; a systemic finding
+    always stays and takes the riskier rating. The finding takes the reviewed
+    finding's verdict. A verification finding that repeats none stays
+    a finding of its own, verified as a resolved pointer when a post-check
+    confirmed it and ambiguous otherwise. Such findings are never offered to
+    the merge review: a wrong merge would hide a finding only verification
+    reported. Returns the threats followed by the remaining verification findings.
+    """
+    threats = list(threats)
+    index: dict[tuple, list[int]] = {}
+    for position, threat in enumerate(threats):
+        if is_refuted(threat):
+            continue
+        for file, line in _locations(threat):
+            key = _evidence_identity_key({"evidence": {"file": file, "line": line}, "cwe": threat.get("cwe")})
+            if key is not None and position not in index.setdefault(key, []):
+                index[key].append(position)
+
+    def apart(one: dict, other: dict) -> bool:
+        first, second = set(one.get("route_ids") or []), set(other.get("route_ids") or [])
+        return bool(first and second and not first & second)
+
+    alone = []
+    for finding in verification:
+        confirmed = finding.pop("post_check_confirmed", False)
+        key = _evidence_identity_key({"evidence": _primary_evidence(finding), "cwe": finding.get("cwe")})
+        partners = [p for p in index.get(key, []) if key is not None and not apart(threats[p], finding)]
+        if not partners:
+            if confirmed:
+                record_evidence(finding, "verified", "pointer-resolved")
+            else:
+                record_evidence(finding, "ambiguous")
+                _unscored(finding)
+            alone.append(finding)
+            continue
+        # A reviewed partner with established evidence first, then the riskiest.
+        position = min(
+            partners,
+            key=lambda p: (threats[p].get("evidence_check") != "verified", _risk_rank(threats[p].get("risk"))),
+        )
+        partner = threats[position]
+        record_evidence(finding, partner.get("evidence_check") or "unchecked", partner.get("evidence_basis"))
+        if finding["evidence_check"] == "ambiguous":
+            _unscored(finding)
+        riskier = _risk_rank(finding.get("risk")) < _risk_rank(partner.get("risk"))
+        # A systemic finding keeps its title and group; it takes the riskier part's rating instead.
+        survivor = finding if riskier and not partner.get("systemic") else partner
+        _merge_member_metadata(survivor, [partner, finding], systemic=False)
+        if riskier and survivor is partner:
+            for field in ("risk", "likelihood", "impact"):
+                if finding.get(field):
+                    partner[field] = finding[field]
+        threats[position] = survivor
+    return threats + alone
+
+
 def single_repository_groups(groups: list[dict], components: list[dict]) -> list[dict]:
     """Candidate groups whose members all belong to components of one repository.
 
@@ -3429,8 +3660,10 @@ def merge_assessment(
     *,
     boundaries: list[dict],
     scanner_threats: dict[str, list[dict]] | None = None,
+    verification_threats: dict[str, list[dict]] | None = None,
     started_at=None,
     review_groups=None,
+    combine_texts=None,
 ) -> dict:
     """Validate v2 sources, then run the legacy merge chain on them.
 
@@ -3444,8 +3677,16 @@ def merge_assessment(
     ``scanner_threats`` holds deterministic scanner findings per component; the
     component's evidence review decides them together with its STRIDE findings.
     They are the only scanner input: no sidecar on disk is read again.
+    ``verification_threats`` holds the REQ-040 verification findings per
+    component, under their ``TCF-`` IDs; no evidence review decided them, so
+    ``_join_verification`` makes them part of the finding they repeat after
+    the merge chain, or keeps them as findings of their own. Every finding
+    names the methods that found it in ``found_by``.
     ``review_groups`` receives the candidate groups no deterministic rule
     decides and returns merger decisions; without it those groups stay unmerged.
+    ``combine_texts`` receives the parts of every finding that several methods
+    found and returns their rewritten texts (``_combine_texts``); without it
+    such a finding keeps the text of its most severe part.
     """
     import copy
 
@@ -3474,6 +3715,9 @@ def merge_assessment(
     scanner_threats = scanner_threats or {}
     if not set(scanner_threats) <= expected:
         raise ValueError("Assessment merge received scanner findings for an unknown component")
+    verification_threats = verification_threats or {}
+    if not set(verification_threats) <= expected:
+        raise ValueError("Assessment merge received verification findings for an unknown component")
     pairs, scanned_threats, locations = [], [], {}
     boundary_view = copy.deepcopy(boundaries)
     for row in source_rows(boundary_view):
@@ -3522,8 +3766,41 @@ def merge_assessment(
             # control name. Actual shared mechanisms need a separate review.
             if threat.get("control_scope"):
                 threat["control_scope"] = document["component_id"] + ":" + threat["control_scope"]
+        for threat in normalized["threats"]:
+            threat["found_by"] = ["survey"]
+        for threat in scanned:
+            threat["found_by"] = ["scanners"]
         pairs.append((document["component_id"], normalized))
         scanned_threats.extend(scanned)
+    verified = []
+    names = {row["id"]: row["name"] for row in components["components"]}
+    for component_id, rows in verification_threats.items():
+        rows = copy.deepcopy(rows)
+        if any(
+            row.get("component_id") != component_id or not _VERIFICATION_FINDING_ID.fullmatch(str(row.get("id")))
+            for row in rows
+        ):
+            raise ValueError("Assessment merge received a verification finding under another component")
+        seen = set()
+        for row in source_rows(rows):
+            if id(row) in seen:
+                continue
+            seen.add(id(row))
+            validate_source(scope, row, path_key="file")
+            key = source_key(row)
+            locations[key] = {k: row[k] for k in ("repository_id", "sha256")}
+            row["file"] = key
+        document = {"component_id": component_id, "component_name": names[component_id], "threats": []}
+        for row in rows:
+            threat = {key: value for key, value in row.items() if key not in ("id", "aspect")}
+            threat["local_id"] = row["id"]
+            threat["found_by"] = ["verification"]
+            threat["verification"] = {"finding_ids": [row["id"]], "test_case_ids": list(row["test_case_ids"])}
+            if threat.get("control_scope"):
+                threat["control_scope"] = component_id + ":" + threat["control_scope"]
+            document["threats"].append(threat)
+        verified += _flatten_threats([(component_id, document)], assessment_boundaries=boundary_view)
+    normalize_risks(verified)
     flat = _flatten_threats(pairs, assessment_boundaries=boundary_view)
     # Scanner findings already passed intake when they were converted.
     flat.extend(scanned_threats)
@@ -3535,17 +3812,26 @@ def merge_assessment(
     for threat in flat:
         by_verdict.setdefault(threat["evidence_check"], []).append(threat)
     threats = []
-    for verdict, rows in sorted(by_verdict.items()):
-        rows = consolidate_findings(rows)
-        # Group IDs hash the group key, so two verdicts can share one: each
-        # partition is grouped, reviewed and decided on its own.
-        pending, decisions = _split_auto_decisions(_group_candidates(rows))
-        pending = single_repository_groups(pending, components["components"])
-        # Refuted findings never reach the model, so merging them changes nothing.
-        if pending and review_groups is not None and verdict != "refuted":
-            decisions += review_groups(verdict, pending)
-        normalize_risks(rows)
-        threats += _apply_decisions(rows, decisions)
+    combining = _COMBINING.set(True)
+    try:
+        for verdict, rows in sorted(by_verdict.items()):
+            rows = consolidate_findings(rows)
+            # Group IDs hash the group key, so two verdicts can share one: each
+            # partition is grouped, reviewed and decided on its own.
+            pending, decisions = _split_auto_decisions(_group_candidates(rows))
+            pending = single_repository_groups(pending, components["components"])
+            # Refuted findings never reach the model, so merging them changes nothing.
+            if pending and review_groups is not None and verdict != "refuted":
+                decisions += review_groups(verdict, pending)
+            normalize_risks(rows)
+            threats += _apply_decisions(rows, decisions)
+        threats = _join_verification(threats, verified)
+    finally:
+        _COMBINING.reset(combining)
+    _combine_texts(threats, combine_texts)
+    for threat in threats:
+        # Routes keep verification findings apart only while they are joined.
+        threat.pop("route_ids", None)
     normalize_risks(threats)
     threats = _assign_t_ids(threats)
     threats = _remap_scenario_local_refs(threats)

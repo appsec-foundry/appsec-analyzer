@@ -1318,10 +1318,19 @@ properties:
         id:
           type: string
           pattern: "^T-\\d{3,}$"
+        found_by:
+          description: >-
+            REQ-040: the methods that found this weakness. Absent on threats of saved models from before the
+            field and on threats that abuse case verification added.
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, enum: [survey, scanners, verification] }
         verification:
           description: >-
-            REQ-040: verification findings with a CWE of the same family on a line of this survey threat, and
-            their test cases. The report shows the weakness once and names both methods.
+            REQ-040: the verification findings that are part of this threat, and their verification items.
+            In saved models from before verification findings joined the register, the verification findings
+            with a CWE of the same family on a line of this survey threat.
           type: object
           additionalProperties: false
           required: [finding_ids, test_case_ids]
