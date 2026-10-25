@@ -82,6 +82,8 @@ Run the deterministic source, configuration, and architecture-coverage rules on 
 
 Define each catalog verification item in versioned YAML that Analyzer owns and packages, with a stable ID, aspect, STRIDE tag, CWE, mode, objective, deterministic applicability, starting points from scanner rules and facts, guidance, matching control catalog entries, required evidence, deterministic post-checks, and fixtures. Repository content cannot define, select, or disable catalog verification items.
 
+A verification item asks whether one security property holds within a component, at every place where it matters; a path through several weaknesses or a rule of the application's business flow is an abuse case (REQ-011).
+
 Map every shipped scanner rule to a verification item as a starting point, or record why a rule has none. A verification item in rules mode takes its outcome from its rules and makes no model call unless the operator enables a context review, which cannot remove a finding.
 
 Pre-checks provide starting points, not limits. Within the verification item's objective and a bounded search, the model may reject candidates with evidence, add its own, and follow data flows beyond them; each candidate records whether it came from a pre-check or the model. Weaknesses found while working on a verification item belong to the matching verification item or are reported as outside the verification catalog.
@@ -129,6 +131,8 @@ Base severity and scores on supported security impact and policy limits. Busines
 Accept validated business and organization context as data, identify its source and influence, and allow unattended use without questions. Honor a request to skip stored business context. Explain when relevant business or deployment facts remain unknown.
 
 ## REQ-011: Look for misuse of business features
+
+An abuse case asks whether an attacker or user can reach a goal in the application from start to end: a technical case rates a path through several weaknesses, and a business case checks a rule of the application's flow. A built-in business case whose question a verified aspect already asks comes after the other built-in cases.
 
 Let users configure abuse-case sources. Include enabled business cases at standard and thorough depth, with at most three model-derived cases at thorough depth. Distinguish confirmed, unproven, mitigated, unresolved, inapplicable, and unchecked cases; create findings only when supported by evidence. An unproven case has evidence that indicates the problem without proving it and stays an unproven, unscored finding. An unresolved case is neither confirmed nor ruled out by the examined code and is not a safe result.
 
