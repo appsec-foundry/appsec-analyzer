@@ -120,7 +120,7 @@ def test_verified_scanner_sink_joins_traced_finding_across_categories(mt):
     assert {i["evidence_tier"] for i in finding["instances"]} == {"confirmed-exploitable", "insecure-practice"}
 
 
-@pytest.mark.parametrize("change", ["other_repo", "other_sink", "other_cwe", "unverified", "no_trace", "two_models"])
+@pytest.mark.parametrize("change", ["other_repo", "other_sink", "other_cwe", "unverified", "no_trace"])
 def test_scanner_sink_reconciliation_preserves_distinct_or_unproven_findings(mt, change):
     traced, scanner = _reviewed_template_pair()
     if change == "other_repo":
@@ -133,9 +133,37 @@ def test_scanner_sink_reconciliation_preserves_distinct_or_unproven_findings(mt,
         scanner["evidence_check"] = "ambiguous"
     elif change == "no_trace":
         traced.pop("mechanism_trace")
-    else:
-        scanner["source"] = "stride"
     assert len(mt.consolidate_findings([scanner, traced])) == 2
+
+
+def test_survey_findings_of_one_cwe_at_one_line_are_one_finding_across_categories(mt):
+    """The same CWE at one line is one survey finding whatever category each job gave it; the other is kept."""
+    evidence = {"file": "frontend/src/app/Services/user.service.ts", "line": 54}
+
+    def finding(local_id, category, title):
+        return _threat(
+            local_id=local_id,
+            component_id="web",
+            cwe="CWE-598",
+            stride="Information Disclosure",
+            threat_category_id=category,
+            title=title,
+            evidence=dict(evidence),
+            evidence_check="verified",
+        )
+
+    def pair(**change):
+        return [
+            finding("s-1", "TH-17", "Current and new passwords sent in GET query string"),
+            {**finding("s-2", "TH-02", "Passwords sent in GET query string on password change"), **change},
+        ]
+
+    (merged,) = mt.consolidate_findings(pair())
+    assert merged["threat_category_id"] == "TH-17" and merged["additional_categories"] == ["TH-02"]
+    assert {i["source_ref"] for i in merged["instances"]} == {"s-1", "s-2"}
+    # Another verdict, another CWE of the family, or a scanner finding keeps the pair apart.
+    for change in ({"evidence_check": "ambiguous"}, {"cwe": "CWE-319"}, {"source": "source-scan"}):
+        assert len(mt.consolidate_findings(pair(**change))) == 2
 
 
 class TestExactDedup:

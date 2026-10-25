@@ -1819,10 +1819,48 @@ def _dedupe_title_locator(threats: list[dict]) -> list[dict]:
     and every other primary category is kept in ``additional_categories`` so no
     classification is lost. Runs after ``_dedupe_evidence``; the LLM merger
     still never joins categories (``_same_primary_threat_category``)."""
+    return _collapse_located(threats, _title_locator_key)
+
+
+def _survey_cwe_locator_key(t: dict) -> tuple | None:
+    """Identity key for ``_dedupe_survey_cwe_locator``: a survey finding's concrete location, exact CWE and
+    evidence verdict, or ``None``."""
+    ev = t.get("evidence") or {}
+    if t.get("source") != "stride" or not isinstance(ev, dict):
+        return None
+    file_path = (ev.get("file") or "").strip()
+    line = ev.get("line")
+    cwe = (t.get("cwe") or "").strip().upper()
+    if not file_path or not cwe or not isinstance(line, int) or isinstance(line, bool) or line <= 0:
+        return None
+    return (file_path, line, cwe, t.get("evidence_check"))
+
+
+def _dedupe_survey_cwe_locator(threats: list[dict]) -> list[dict]:
+    """Collapse survey findings with the same exact CWE and evidence verdict at
+    the same concrete location, across threat category, component and STRIDE.
+
+    The same weakness at one line is one finding (REQ-008) even when two survey
+    jobs file it under different threat categories, as passwords sent in a GET
+    query string once were under TH-17 and TH-02. ``_dedupe_evidence`` keeps
+    such pairs apart because a CWE family alone does not prove one category;
+    the identical CWE at one line does. A scanner finding keeps the stricter
+    bridge of ``_dedupe_reviewed_scanner_sinks``. Merged as
+    ``_dedupe_title_locator`` merges; the LLM merger still never joins categories."""
+    return _collapse_located(threats, _survey_cwe_locator_key)
+
+
+def _collapse_located(threats: list[dict], identity) -> list[dict]:
+    """Merge the findings that share ``identity``'s key into the riskiest of them.
+
+    The higher-risk member stays primary (tie → first seen) in the slot of the
+    group's first member, the others become ``instances[]``, and every other
+    primary category is kept in ``additional_categories``. A finding without a
+    key stays as it is."""
     order: list[tuple[str, Any]] = []
     groups: dict[tuple, list[dict]] = {}
     for t in threats:
-        key = _title_locator_key(t)
+        key = identity(t)
         if key is None:
             order.append(("threat", t))
             continue
@@ -2704,6 +2742,9 @@ def consolidate_findings(threats: list[dict]) -> list[dict]:
     # Title-at-location identity: the same title at the same concrete line is
     # one finding even when analyzers disagree on CWE and derived category.
     deduped = _dedupe_title_locator(deduped)
+    # Exact-CWE-at-location identity: the same CWE at the same concrete line is
+    # one survey finding even when survey jobs file it under different categories.
+    deduped = _dedupe_survey_cwe_locator(deduped)
     # Systemic config-scan consolidation (2026-06-13): collapse N hits of one
     # IaC/CI check (same config_check_id, across many files or many stages of
     # one Dockerfile) into a single finding whose instances[] lists every hit.
