@@ -383,7 +383,11 @@ def test_a_model_candidate_stays_in_the_component(job):
     artifact = reply(job)
     artifact["test_cases"][0]["candidates"][1].update(anchor=job["at"]("admin/app.js", 1))
     artifact["test_cases"][0]["candidates"][1].pop("route_id")
-    with pytest.raises(Rejection, match="candidate m-1 lies outside the component's own files and the shared files"):
+    # The correction never invites moving the candidate to a line that does not show the weakness.
+    with pytest.raises(
+        Rejection,
+        match="candidate m-1 lies outside the component's own files and the shared files .* otherwise remove it",
+    ):
         validate(
             job,
             artifact,
@@ -586,6 +590,7 @@ def test_one_rejection_names_every_independent_class_within_the_feedback_limit(j
     reason = str(error.value)[:MAX_FEEDBACK_CHARS]
     assert "discovery_escapes[0] lists a file this job did not read beyond its starting files" in reason
     assert "findings[1].evidence lies in admin/app.js, outside the component's own files" in reason
+    assert "otherwise remove it, because another component's file is covered by that component's own jobs" in reason
     assert "findings[0].mechanism_trace.control.location must equal the sink" in reason
     # The escape is no finding's violation, so no finding alone can be dropped for it.
     assert error.value.findings == ()

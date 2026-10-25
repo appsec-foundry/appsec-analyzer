@@ -1613,7 +1613,9 @@ def validate_stride(
                 (
                     index,
                     f"{findings_label}[{index}].evidence lies in {anchor['file']}, outside the component's own "
-                    "files and the shared files of no component that you read; anchor it in one of them",
+                    "files and the shared files of no component that you read; anchor it in one of them only at "
+                    "a line that itself shows the weakness, otherwise remove it, because another component's "
+                    "file is covered by that component's own jobs",
                 )
             )
         if set(finding.get("violated_requirements") or ()) - set(allowed_requirement_ids):

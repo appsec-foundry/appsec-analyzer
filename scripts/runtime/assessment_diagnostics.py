@@ -90,7 +90,8 @@ def safe_reason(reason: str) -> str:
     if len(raw) > 16384:
         return "Validation detail omitted: diagnostic input limit exceeded [reason truncated]"
     text, _ = mask_text(raw)
-    text = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "[value]", text)
+    # An apostrophe after a letter or digit, as in "component's", opens no quoted value.
+    text = re.sub(r"(?<![A-Za-z0-9])'[^']*'|\"[^\"]*\"|`[^`]*`", "[value]", text)
     text = re.sub(r"https?://\S+|(?<!\w)/(?:[^\s:]+/)+[^\s:]*", "[location]", text)
     text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
     if len(text) > MAX_REASON:

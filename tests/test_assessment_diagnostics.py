@@ -182,6 +182,18 @@ def test_reasons_keep_structural_detail_and_remove_values_locations_and_control_
     assert diagnostics.identifier("/private/location").startswith("id-")
 
 
+def test_an_apostrophe_inside_a_word_is_no_quote_and_quoted_values_stay_hidden():
+    """A possessive such as "component's" kept a rejection unreadable: the text up to the next apostrophe vanished."""
+    reason = diagnostics.safe_reason(
+        "The investigation's findings[3].evidence lies outside the component's own files; "
+        "expected 'PRIVATE_SOURCE' near the job's anchor"
+    )
+    assert "The investigation's findings[3].evidence lies outside the component's own files" in reason
+    assert "PRIVATE_SOURCE" not in reason and "expected [value] near the job's anchor" in reason
+    # A quoted value right after a possessive is hidden as well; before, the possessive opened the quote.
+    assert "PRIVATE" not in diagnostics.safe_reason("the component's 'PRIVATE' value")
+
+
 def test_oversized_rejection_marks_truncation_and_keeps_the_tail():
     reason = diagnostics.safe_reason("start " + "invalid anchor; " * 600 + "decisive final violation")
     assert "[reason truncated]" in reason and reason.endswith("decisive final violation")

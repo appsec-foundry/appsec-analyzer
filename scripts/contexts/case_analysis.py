@@ -543,7 +543,8 @@ def _candidate_errors(artifact, expected, component, facts, adds_candidates, els
             elif (anchor["repository_id"], anchor["file"]) not in own:
                 errors.append(
                     f"{case_id}: candidate {candidate} lies outside the component's own files and the shared files "
-                    "of no component that you read; move or remove it"
+                    "of no component that you read; move it only to a line of those files that itself shows the "
+                    "weakness, otherwise remove it"
                 )
             elif row.get("route_id") in routes or (anchor["repository_id"], anchor["file"], anchor["line"]) in anchors:
                 errors.append(
