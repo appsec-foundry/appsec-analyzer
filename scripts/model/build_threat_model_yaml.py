@@ -2960,12 +2960,17 @@ def build_assessment_model(
         owned = source_selection([by_id[key] for key in control["component_ids"]])
         if any((e["repository_id"], e["file"]) not in owned for e in control["evidence"]):
             raise ValueError("Security control evidence is outside its component ownership")
+    # REQ-040: verification may anchor a finding in a file of no component, such as a shared helper its job
+    # read; a file of another component stays foreign to every method.
+    owned_by_any = source_selection(components["components"])
     for row in merged["threats"]:
         if row["component_id"] not in component_ids:
             raise ValueError("Merged finding refers to an unknown component")
         anchor = row.get("evidence")
-        if anchor and (anchor["repository_id"], anchor["file"]) not in source_selection([by_id[row["component_id"]]]):
-            raise ValueError("Merged finding anchor is outside its component ownership")
+        location = (anchor["repository_id"], anchor["file"]) if anchor else None
+        if location and location not in source_selection([by_id[row["component_id"]]]):
+            if "verification" not in (row.get("found_by") or ()) or location in owned_by_any:
+                raise ValueError("Merged finding anchor is outside its component ownership")
     finding_ids = [row["t_id"] for row in merged["threats"]]
     if len(finding_ids) != len(set(finding_ids)):
         raise ValueError("Merged finding identities are not unique")

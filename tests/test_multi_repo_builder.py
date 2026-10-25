@@ -1,6 +1,7 @@
 """The canonical assembler preserves scoped evidence and existing policy gates."""
 
 import copy
+import hashlib
 import sys
 from pathlib import Path
 
@@ -45,7 +46,12 @@ def inputs(tmp_path, *, names=("edge", "service")):
             )
         )
     merged = merge_assessment(scope, components, documents, reviews, boundaries=[])
-    return scope, dict(
+    return scope, _assembly(components, receipt, flows, merged)
+
+
+def _assembly(components, receipt, flows, merged):
+    """The assembler's inputs besides the scope."""
+    return dict(
         skill_cfg=dict(
             assessment_scope="multiple-repositories",
             source_scope_sha256=components["source_scope_sha256"],
@@ -356,19 +362,22 @@ def test_qualified_merge_links_only_the_root_whose_line_the_boundary_cites(tmp_p
     assert linked[ids[1 - owner_index]] == []
 
 
-def _verification(tmp_path, *changes, verdicts=("verified", "verified"), scanner=False, combine_texts=None):
+def _verification(
+    tmp_path, *changes, verdicts=("verified", "verified"), scanner=False, combine_texts=None, assemble=False
+):
     """One survey finding per component and verification findings of the first component at its location.
 
     Each of ``changes`` edits one verification finding; ``scanner`` makes the first component's finding a
-    scanner finding instead of a survey finding.
+    scanner finding instead of a survey finding. The first repository also holds ``SHARED``, a file of no
+    component. ``assemble`` returns the scope and the assembler's inputs instead of the merge alone.
     """
     from model.finding_intake import apply_intake
 
     # A second line, so that a neighbouring line holds code.
     text = "return_value = validate_request(payload)\nreturn_value = validate_request(other)\n"
-    scope, components, receipt, flows, _ = crossing_input(
-        tmp_path, files={name: {"app.py": text} for name in ("edge", "service")}
-    )
+    files = {name: {"app.py": text} for name in ("edge", "service")}
+    files["edge"][SHARED] = SHARED_TEXT
+    scope, components, receipt, flows, _ = crossing_input(tmp_path, files=files)
     identity = dict(
         schema_version=2,
         source_scope_sha256=components["source_scope_sha256"],
@@ -422,7 +431,20 @@ def _verification(tmp_path, *changes, verdicts=("verified", "verified"), scanner
         verification_threats={first["id"]: findings},
         combine_texts=combine_texts,
     )
+    if assemble:
+        return scope, _assembly(components, receipt, flows, merged), first["id"]
     return merged, first["id"]
+
+
+# A shared helper of the first repository that no component owns.
+SHARED = "lib/shared.py"
+SHARED_TEXT = "def parse(document):\n    return load(document)\n"
+
+
+def _in_shared_file(finding):
+    finding["evidence"] = dict(
+        finding["evidence"], file=SHARED, line=2, sha256=hashlib.sha256(SHARED_TEXT.encode()).hexdigest()
+    )
 
 
 def _held(merged, finding_id):
@@ -517,6 +539,29 @@ def test_verification_findings_about_different_routes_on_one_line_stay_apart(tmp
 def test_verification_findings_must_belong_to_their_component(tmp_path):
     with pytest.raises(ValueError, match="verification finding under another component"):
         _verification(tmp_path, lambda f: f.update(component_id="foreign-component"))
+
+
+def test_a_verification_finding_in_a_file_of_no_component_stays_with_its_component(tmp_path):
+    """REQ-040: verification may anchor in a shared helper its job read, and the model keeps the finding there."""
+    scope, kwargs, first = _verification(tmp_path, _in_shared_file, assemble=True)
+    document, _ = build_assessment_model(scope, **kwargs)
+    (threat,) = [t for t in document["threats"] if t["evidence"][0]["file"] == SHARED]
+    assert threat["component"] == first
+
+
+@pytest.mark.parametrize("case", ["survey finding", "file of another component"])
+def test_a_finding_anchor_outside_its_component_is_still_refused(tmp_path, case):
+    """Only a verification finding may anchor in a file of no component; a file another component owns is foreign."""
+    scope, kwargs, _ = _verification(tmp_path, _in_shared_file, assemble=True)
+    threats = kwargs["merged"]["threats"]
+    (shared,) = [t for t in threats if t["evidence"]["file"] == SHARED]
+    if case == "survey finding":
+        shared["found_by"] = ["survey"]
+    else:
+        (other,) = [t for t in threats if t["component_id"] != shared["component_id"]]
+        shared["evidence"] = dict(other["evidence"])
+    with pytest.raises(ValueError, match="anchor is outside its component ownership"):
+        build_assessment_model(scope, **kwargs)
 
 
 def _rewrite(scenario):

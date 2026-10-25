@@ -173,13 +173,18 @@ def validate_portable_model(document: dict) -> None:
     for row in source_rows(document):
         check(row, "file")
     by_component = {row["id"]: row for row in components}
+    # REQ-040: verification may anchor a finding in a file of no component, such as a shared helper its job
+    # read; a file of another component stays foreign to every method.
+    owned_by_any = {(p["repository_id"], p["path"]) for row in components for p in row["paths"]}
     for finding in document["threats"]:
         if finding["component"] not in component_ids:
             raise ValueError("Finding refers to an unknown component")
         anchor = (finding.get("evidence") or [None])[0]
         owned = {(p["repository_id"], p["path"]) for p in by_component[finding["component"]]["paths"]}
-        if anchor and (anchor["repository_id"], anchor["file"]) not in owned:
-            raise ValueError("Finding anchor is outside its component ownership")
+        location = (anchor["repository_id"], anchor["file"]) if anchor else None
+        if location and location not in owned:
+            if "verification" not in (finding.get("found_by") or ()) or location in owned_by_any:
+                raise ValueError("Finding anchor is outside its component ownership")
         for instance in finding.get("instances") or []:
             cid = instance.get("component_id") or finding["component"]
             if cid not in component_ids:
