@@ -164,7 +164,7 @@ A job takes at most 40 candidates (`MAX_CANDIDATES` in `scripts/model/case_candi
 
 ## 5. Limits of the preload fix
 
-- Route chains such as `app.route(path).get(guard)` still resolve no guard definition.
+- Route chains such as `app.route(path).get(guard)` resolved no guard definition. Fixed in 0e9aed1d: each method of a chain gets the guards of its own call, so on Juice Shop PUT and DELETE `/api/Users/:id` now carry `denyAll()`.
 - A middleware passed through a wrapper, such as `asyncHandler(check())`, yields only the wrapper's first body as its span.
 - A data model defined as a class or behind an export alias is served from its module's first line, at most `MAX_MODEL_LINES` (120) lines; a longer model file may be cut off.
 - Only `finale-rest` and `epilogue` resource generators get data models.
@@ -465,7 +465,7 @@ The figures come from one deliberately vulnerable application. Whether the benef
 10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11). Done except the estimate, which is deferred.
 11. Measure the fixes of step 10 in a fifth run (point 12). Done: all three work; anchors in another component's file still made duplicates, fixed in 80ca6d1d.
 12. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11). Decided: the counting stays, since it treats every method alike, and the row names the register by severity beside it (f4692241).
-13. Give AuthZ verification findings deterministic post-checks, such as a route without any guard or an owner field taken from the request body, so that route-level findings are confirmed and scored (point 12). The route inventory already knows each route's guards.
+13. Give AuthZ verification findings deterministic post-checks, such as a route without any guard or an owner field taken from the request body, so that route-level findings are confirmed and scored (point 12). An offline probe on the fifth run showed that a check inferring a missing control from a missing guard is only as good as the guard resolution: the facts missed the guards of route chains, so PUT `/api/Users/:id` behind `denyAll()` looked unguarded, and a guard's code cannot tell an authentication from `denyAll()`, which Juice Shop builds as a JWT check with a random secret. Route chains are resolved since 0e9aed1d. What remains safe is a narrow rule: a generated route with no guard at all and no hook before the write, such as PUT `/api/Products/:id`, PUT `/api/Hints/:id` and POST `/api/SecurityAnswers` on Juice Shop. The alternative is to send findings only verification reported through the evidence review, which changes model use and needs an approved requirement.
 14. Measure verification on a second application that is not deliberately vulnerable, together with step 13 and 80ca6d1d (point 12).
 15. Solve the open points of point 10 for any repository when one of them matters: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
 16. Build pooling by size into the next batching step and measure it in a thorough run (point 7).

@@ -10,11 +10,12 @@ Das Messprogramm zu Survey und Verify ist abgeschlossen. Ergebnis und Reihenfolg
 - Die Korrekturen aus Lauf 4 wirken: Combiner-Texte nennen keine falschen Anzahlen mehr (22f10c00), der Preload liefert die meistgebrauchten Datenmodelle zuerst (eb1e49c4), die Token-Zeile nennt ihre Aufrufe (db8ca15e).
 - Behoben, aber noch nicht live gemessen: Funde in Dateien einer anderen Komponente werden entfernt statt an eine falsche Zeile verschoben, und Ablehnungen sind im Diagnoseprotokoll wieder lesbar (80ca6d1d).
 - Die Abschlusszeile nennt neben der Kopfzahl das Register nach Schweregrad, wenn beide abweichen (f4692241).
-- `main` ist 9 Commits vor `origin/main` (12ffc0bf bis 14a50cf3). Gepusht wird nur auf Anweisung.
+- Routenketten wie `app.route(path).get(a).put(b)` liefern ihre Guards jetzt je Methode (0e9aed1d). Vorher sahen auf Juice Shop PUT und DELETE `/api/Users/:id` ungeschützt aus, obwohl `denyAll()` sie sperrt. Verify-Jobs bekommen diese Guards nun in den Preload; die Verify-Anfragen ändern sich dadurch.
+- `main` ist dem Remote voraus, von 12ffc0bf bis zum Commit dieser Übergabe. Gepusht wird nur auf Anweisung.
 
 ## Nächste Schritte (Reihenfolge im Statusdokument)
 
-13. Post-Checks für AuthZ-Funde, damit konkrete Routenfunde bestätigt und bewertet werden. In Lauf 5 sind alle 13 neuen AuthZ-Funde unbestätigt und fallen deshalb aus der Kopfzahl.
+13. Post-Checks für AuthZ-Funde, damit konkrete Routenfunde bestätigt und bewertet werden. In Lauf 5 sind alle 13 neuen AuthZ-Funde unbestätigt und fallen deshalb aus der Kopfzahl. Ein Offline-Test zeigte, dass ein Check, der aus einem fehlenden Guard auf eine Schwäche schließt, nur so gut ist wie die Guard-Auflösung: Routenketten fehlten (inzwischen behoben), und am Code eines Guards lässt sich eine Authentifizierung nicht von `denyAll()` unterscheiden. Vertretbar ist nur eine enge Regel: generierte Route ganz ohne Guard und ohne Hook vor dem Schreiben (auf Juice Shop PUT `/api/Products/:id`, PUT `/api/Hints/:id`, POST `/api/SecurityAnswers`). Die Alternative, reine Verify-Funde durch die Evidenzprüfung zu schicken, ändert die Modellnutzung und braucht eine freigegebene Anforderung. Entscheidung offen.
 14. Ein Messlauf auf einer zweiten Anwendung, die nicht absichtlich verwundbar ist, zusammen mit Schritt 13 und 80ca6d1d.
 15. Die offenen Punkte aus Punkt 10, sobald einer davon stört.
 16. Pooling nach Größe mit einem thorough-Lauf.
@@ -46,4 +47,4 @@ Auf `main` auch ohne die Änderungen dieses Tages rot:
 
 Weiterarbeit an Survey und Verify (REQ-040) im appsec-analyzer. AGENTS.md beachten. Keine Modellaufrufe und keine Live-Läufe ohne Freigabe. Nur erforderliche Tests. Vor der ersten Änderung an einer versionierten Datei fragen, ob Feature-Branch oder main. Committen nur auf Nachfrage.
 
-Zuerst lesen: `docs/internal/analysis/verification-run-5-handoff-2026-10-25.md` und `docs/internal/analysis/verification-cost-open-points-2026-10-23.md` (Punkte 11 und 12, Reihenfolge). Dann Schritt 13 der Reihenfolge: Post-Checks für AuthZ-Funde.
+Zuerst lesen: `docs/internal/analysis/verification-run-5-handoff-2026-10-25.md` und `docs/internal/analysis/verification-cost-open-points-2026-10-23.md` (Punkte 11 und 12, Reihenfolge). Dann Schritt 13 der Reihenfolge: mit dem Nutzer entscheiden, ob die enge Regel für generierte Routen ohne Guard gebaut wird oder eine Anforderung für die Evidenzprüfung reiner Verify-Funde entworfen wird.
