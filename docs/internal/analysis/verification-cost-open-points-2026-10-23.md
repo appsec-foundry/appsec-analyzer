@@ -1,6 +1,6 @@
 # Verification cost: open points
 
-Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main. Point 10 was added the same day after the third measuring run. Point 11 was added on 2026-10-25 after the fourth measuring run, from its receipts, model and merge artifacts, without new model calls.
+Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main. Point 10 was added the same day after the third measuring run. Point 11 was added on 2026-10-25 after the fourth measuring run, from its receipts, model and merge artifacts, without new model calls. Point 12 was added the same day after the fifth measuring run.
 
 ## Baseline
 
@@ -406,6 +406,30 @@ Each to be solved for any repository:
 - Deferred: let the `Verify start` estimate leave out receipts whose request changed. The estimate is made before the requests are built; telling a changed request apart needs a hash of the role instructions in every receipt or building all requests first. It matters only when the catalog or a policy changes between an interrupted run and its continuation.
 - Let a run finish on its snapshot when the source changes, once the drafted requirement is approved.
 
+## 12. Fifth measuring run
+
+Juice Shop at standard depth with the shipped default aspects and a budget of USD 25, started from a copy of the fourth measuring run (output `juice-verify-cost-5`, code d1429c36, the fixes of point 11). Recon, architecture, controls, boundaries, the survey and the evidence review came from the fourth run's accepted jobs; every verification job ran again, since the preload fix changes its instructions and candidates. The run completed without an abort or a run issue. It cost USD 15.59 for 147 calls; 83 calls for USD 8.24 were reused, and the 64 new calls cost about USD 7.35.
+
+| Accepted jobs, USD | Fourth run | Fifth run |
+| --- | --- | --- |
+| Verify AuthZ | 2.54 | 2.49 |
+| Verify InputVal | 1.37 | 1.33 |
+| Verify DataProt | 1.10 | 1.10 |
+| Verify AuthN | 0.99 | 0.81 |
+| Verify AI | 0.19 | 0.18 |
+| Finding combination | 0.30 | 0.25 |
+| All jobs | 15.91 | 15.59 |
+
+The fixes of point 11:
+
+- No combined text states a wrong number of places. Of the 10 combined findings with more than two places, T-004 says "6 locations" for its 6 places, T-081 says that it "holds a further place", and the others name no number.
+- The Express AuthZ job that lacked `models/securityAnswer.ts` got it, among the six data models its candidates need most. POST /api/SecurityAnswers is a finding again (T-115, CWE-639, a caller-chosen UserId), and the three findings at `server.ts:501` stay apart (T-056, T-072, T-115).
+- The closing line reads "≈ USD 15.59 · 147 model calls · 3.2M tokens in 64 of them".
+
+A defect the run showed: a verification job anchored a finding in a file of another component three times, as in the second and third runs. The decisive line lay there: the embedded key in `lib/insecurity.ts` from the data layer, the address update registered in `server.ts` from the authentication surface, and the role field in `models/user.ts` from the Express server. Acceptance rejects such anchors because the owning component's jobs report them, but the correction said "move or remove it" or "anchor it in one of them". Over the second, third and fifth runs, 4 of 9 corrections removed the finding and 5 moved it to a line of the job's own files that does not show the weakness. In this run that made T-058, the address update at `lib/insecurity.ts:178`, which repeats T-051 at `server.ts:426`, and moved the role field to `server.ts:422`, where several findings already report it. The diagnostic log read the apostrophe of "component's" as the start of a quoted value, so these rejections were unreadable there. Fixed in 80ca6d1d: the investigation policy says to leave such a weakness out, both corrections allow a new anchor only at a line that itself shows the weakness, and an apostrophe inside a word no longer opens a quote in the log. The next run measures it.
+
+The run also reports 113 findings in the register and 52 in the closing Findings row (Critical 3, High 18, Medium 31), 43 verification findings and 4 controls, and 5 confirmed and 5 unresolved abuse cases.
+
 ## Order
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
@@ -417,7 +441,8 @@ Each to be solved for any repository:
 7. Decide the default aspects of `standard` from the cost and benefit per aspect (point 10). Done: standard verifies AuthZ, InputVal, DataProt and AI; thorough adds AuthN.
 8. Split AuthN so that its token, password and recovery items, and new items for SSO and OAuth integration and for insecure authentication methods, can run at standard depth while the route item stays at thorough depth (point 10). Done: `AuthN` at standard, `AuthNRoutes` at thorough; at standard depth `AuthN` cost USD 0.99 in the fourth run (point 11).
 9. Measure the AuthN split, the combined register and the later place of business cases in a fourth run (point 11). Done: AuthN mostly confirms other methods for USD 0.99, the register combines 43 findings, and the business cases run as decided; combined texts with wrong counts and a data model missing from the preload are new defects.
-10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11). Done except the estimate, which is deferred; the next run measures the fixes.
-11. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11).
-12. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
-13. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
+10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11). Done except the estimate, which is deferred.
+11. Measure the fixes of step 10 in a fifth run (point 12). Done: all three work; anchors in another component's file still made duplicates, fixed in 80ca6d1d.
+12. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11).
+13. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects. Measure them in one run together with 80ca6d1d, since every verification job runs again anyway.
+14. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
