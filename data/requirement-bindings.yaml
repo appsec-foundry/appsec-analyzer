@@ -428,6 +428,8 @@ requirements:
       - scripts/model/merge_threats.py
       - data/finding-combination-policy.md
       - schemas/finding-combination.schema.json
+      - scripts/contexts/multi_repo_analysis.py
+      - schemas/multi-repo-evidence-review.schema.json
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
