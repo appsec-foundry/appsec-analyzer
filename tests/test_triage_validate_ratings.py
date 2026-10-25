@@ -248,7 +248,9 @@ def test_step3_known_vuln_critical_info():
 def test_step3_no_criticals_many_highs():
     threats = [_threat(t_id=f"T-00{i}", risk="High") for i in range(3)]
     flags = tvr._step3_priority_validation(threats, "standard")
-    assert any("No Critical threats found" in f["message"] for f in flags)
+    (flag,) = [f for f in flags if "No Critical threats found" in f["message"]]
+    # The flag schema requires the threats a flag is about.
+    assert flag["threat_ids"] == ["T-000", "T-001", "T-002"]
 
 
 def test_step3_rce_not_highest_ranked_thorough():

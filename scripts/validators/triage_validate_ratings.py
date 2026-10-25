@@ -363,13 +363,14 @@ def _step3_priority_validation(threats: list[dict], depth: str) -> list[dict]:
                     }
                 )
 
-    # Informational: no Criticals but multiple Highs
+    # Informational: no Criticals but multiple Highs. The flag names those Highs:
+    # the flag schema requires at least one threat ID.
     if not criticals and len(highs) >= 3:
         flags.append(
             {
                 "type": "priority",
                 "severity": "info",
-                "threat_ids": [],
+                "threat_ids": [t.get("t_id", "?") for t in highs],
                 "message": (f"No Critical threats found, but {len(highs)} High threats present. None qualify for P1."),
                 "suggested_action": "Confirm P1 is not applicable; ensure High threats are tracked as P2.",
             }
