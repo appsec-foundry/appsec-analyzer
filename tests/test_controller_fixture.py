@@ -691,7 +691,8 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert said.index(survey) < said.index(start) and " findings" in survey and "USD" not in survey
     # Verification ends, then says per aspect what it found and cost and what each item showed.
     (done,) = [text for text in said if text.startswith("Verify done")]
-    assert done == "Verify done"
+    # The aspects that had a job; the header names the configured ones.
+    assert done == "Verify done · AuthZ"
     found = len(_pilot_findings(tmp_path / "pilot"))
     (aspect,) = [text for text in said if text.startswith("AuthZ · ") and " only by Verify" not in text]
     assert aspect.startswith(f"AuthZ · {found} finding{'' if found == 1 else 's'} · ≈ USD ") and " in " in aspect

@@ -376,10 +376,9 @@ class _AssessmentConsole:
     # How each threat analysis method examines the code, for the run header (REQ-040). Survey and Verify are
     # separate approaches, not steps that build on each other; the scanners' hits are where both start.
     METHODS = {
-        "Scanners": "deterministic code and configuration checks, no model calls; "
-        "their hits are starting points for {starts}",
-        "Survey": "STRIDE-based review of each component's entry points, outbound calls and scanner hits",
-        "Verify": "checks predefined verification items at every code location they apply to, independent of the survey",
+        "Scanners": "deterministic code and configuration checks, no model calls; hits feed {starts}",
+        "Survey": "STRIDE-based review per component: entry points, outbound calls, scanner hits",
+        "Verify": "fixed verification catalog",
     }
     # Width of the method column that starts DETAIL in the threat analysis.
     _METHOD_WIDTH = max(len(name) for name in METHODS)

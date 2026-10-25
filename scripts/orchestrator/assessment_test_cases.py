@@ -327,7 +327,7 @@ def run_pilot(
     # a replaced job's cost is in the run's total only. The console adds the step's duration and cost.
     progress(
         "Verify done"
-        + ("" if aspects else " · no aspect verified")
+        + (f" · {', '.join(planned['worked'])}" if planned["worked"] else " · no aspect verified")
         + (f" · incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
     )
     for aspect in aspects:
