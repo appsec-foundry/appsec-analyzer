@@ -741,12 +741,7 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
     if summary.get("test_case_counts"):
-        rows.append(
-            (
-                "Verification",
-                closing_test_case_line(summary["test_case_counts"], summary.get("test_case_unexamined", 0)),
-            )
-        )
+        rows.append(("Verification", closing_test_case_line(summary["test_case_counts"])))
     if summary.get("abuse_case_line"):
         rows.append(("Abuse cases", summary["abuse_case_line"]))
     if summary.get("incomplete_aspects"):
@@ -784,18 +779,17 @@ def test_case_line(counts: dict[str, int], unexamined: int = 0) -> str:
 _CLOSING_LEAD = ("finding", "control", "partial", "undecidable")
 
 
-def closing_test_case_line(counts: dict[str, int], unexamined: int = 0) -> str:
+def closing_test_case_line(counts: dict[str, int]) -> str:
     """The closing console's line of verification outcomes (REQ-040): what needs a look first, the rest in brackets.
 
-    Every outcome still appears; only the order and the grouping differ from ``test_case_line``.
+    Every outcome still appears, ordered and grouped unlike ``test_case_line``. The undecidable items without
+    a location to examine are left to the report, which keeps the line short.
     """
     lead, rest = [], []
     for key, singular, plural in _TEST_CASE_WORDS:
         if not counts.get(key):
             continue
         text = f"{counts[key]} {singular if counts[key] == 1 else plural}"
-        if key == "undecidable" and unexamined:
-            text += f" ({unexamined} without a location to examine)"
         (lead if key in _CLOSING_LEAD else rest).append(text)
     if not lead:
         return ", ".join(rest)
@@ -868,18 +862,6 @@ def _completion_summary(output_dir: Path) -> dict | None:
                 counts[row["outcome"]] = counts.get(row["outcome"], 0) + 1
         if counts:
             summary["test_case_counts"] = counts
-        # An undecidable item with no candidate location had nothing to examine, which differs from a location
-        # whose question the examined source could not settle.
-        unexamined = sum(
-            1
-            for row in results
-            if isinstance(row, dict)
-            and row.get("outcome") == "undecidable"
-            and isinstance(row.get("candidates"), dict)
-            and row["candidates"].get("applicable") == 0
-        )
-        if unexamined:
-            summary["test_case_unexamined"] = unexamined
         incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
         if incomplete:
             summary["incomplete_aspects"] = incomplete

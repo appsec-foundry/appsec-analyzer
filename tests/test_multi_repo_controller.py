@@ -505,7 +505,7 @@ def test_toolless_architect_receives_the_shared_remediation_policy():
     assert "fix.effect: prevents-mechanism" in instructions
 
 
-def test_coverage_statements_collapse_to_one_line_unless_verbose():
+def test_coverage_statements_reach_the_console_only_with_verbose():
     entries = [
         {
             "component": "Order store",
@@ -519,12 +519,7 @@ def test_coverage_statements_collapse_to_one_line_unless_verbose():
         },
     ]
     assert controller._coverage_infos(entries, verbose=True) == [entry["text"] for entry in entries]
-    assert controller._coverage_infos(entries, verbose=False) == [
-        "15 source files without a route, lead or security signal in 2 components were not individually "
-        "examined; --verbose lists them"
-    ]
-    assert controller._coverage_infos(entries[:1], verbose=False) == [entries[0]["text"]]
-    assert controller._coverage_infos([], verbose=False) == []
+    assert controller._coverage_infos([], verbose=True) == []
     undecided = [
         {
             "undecided": {"component": "Web", "target": f"lib/{n}.ts: helper not read"},
@@ -532,16 +527,7 @@ def test_coverage_statements_collapse_to_one_line_unless_verbose():
         }
         for n in ("a", "b")
     ]
-    # Undecided targets are coverage statements: one line unless verbose, each line with --verbose.
-    assert controller._coverage_infos(undecided, verbose=False) == [
-        "2 security-relevant code locations stayed open: the model read them but could not judge them; "
-        "security-assessment.yaml and --verbose list them"
-    ]
     assert controller._coverage_infos(undecided, verbose=True) == [row["text"] for row in undecided]
-    assert controller._coverage_infos(undecided[:1], verbose=False) == [
-        "1 security-relevant code location stayed open: the model read it but could not judge it; "
-        "security-assessment.yaml and --verbose list it"
-    ]
     unowned = {
         "unowned": {"files": 3, "by_directory": []},
         "files": 3,
@@ -557,16 +543,14 @@ def test_coverage_statements_collapse_to_one_line_unless_verbose():
         "  lib/ 5: lib/a.ts, lib/b [31m.ts, … 3 more",
         "  (repository root) 1: top.js",
     ]
-    # The summary line gives the count; the directory split belongs to --verbose and the report.
-    assert controller._coverage_infos([listed], verbose=False) == [
-        "3 program files belong to no component and were not analysed; --verbose names the first ones in each directory"
-    ]
-    # Files outside every component stay their own line and never join the per-component count.
-    assert controller._coverage_infos([unowned, *entries], verbose=False) == [
+    # Files outside every component come first, then the locations not judged, then the components' files.
+    assert controller._coverage_infos([*entries, *undecided, unowned], verbose=True) == [
         unowned["text"],
-        "15 source files without a route, lead or security signal in 2 components were not individually "
-        "examined; --verbose lists them",
+        *(row["text"] for row in undecided),
+        *(entry["text"] for entry in entries),
     ]
+    # Without --verbose the closing block names none of them; the report keeps them (REQ-003).
+    assert controller._coverage_infos([listed, *undecided, *entries], verbose=False) == []
 
 
 @pytest.mark.parametrize("role", ["stride_analyzer", "evidence_verifier"])

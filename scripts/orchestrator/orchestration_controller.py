@@ -2755,50 +2755,25 @@ def _assessment_host_root_outside(work_root: Path, scope) -> None:
 
 
 def _coverage_infos(entries: list[dict], verbose: bool) -> list[str]:
-    """Per-component coverage statements with --verbose, otherwise one summary line.
+    """The coverage statements of the closing block, only with --verbose; the report names them in every run.
 
-    The statement about files outside every component is always its own line;
-    with --verbose it is followed by the first files of each directory.
+    The statement about files outside every component comes first, followed by
+    the first files of each directory.
     """
     from appsec_analyzer.terminal import field
 
+    if not verbose:
+        return []
     unowned = []
     for entry in entries:
         if "unowned" not in entry:
             continue
-        if not entry.get("listing"):
-            unowned.append(entry["text"])
-        elif not verbose:
-            # The count and the way to the names; the directory split belongs to --verbose and the report.
-            unowned.append(
-                f"{_count_noun(entry['files'], 'program file')} belong to no component and were not analysed; "
-                "--verbose names the first ones in each directory"
-            )
-        else:
-            unowned.append(entry["text"])
-            for directory, files, paths in entry["listing"]:
-                more = f", … {files - len(paths)} more" if files > len(paths) else ""
-                unowned.append(f"  {field(directory)} {files}: {', '.join(field(path) for path in paths)}{more}")
+        unowned.append(entry["text"])
+        for directory, files, paths in entry.get("listing") or []:
+            more = f", … {files - len(paths)} more" if files > len(paths) else ""
+            unowned.append(f"  {field(directory)} {files}: {', '.join(field(path) for path in paths)}{more}")
     undecided = [entry["text"] for entry in entries if "undecided" in entry]
-    if undecided and not verbose:
-        many = len(undecided) > 1
-        undecided = [
-            f"{_count_noun(len(undecided), 'security-relevant code location')} stayed open: the model read "
-            f"{'them' if many else 'it'} but could not judge {'them' if many else 'it'}; "
-            f"{MODEL} and --verbose list {'them' if many else 'it'}"
-        ]
-    entries = [entry for entry in entries if "component" in entry]
-    if verbose or len(entries) <= 1:
-        return unowned + undecided + [entry["text"] for entry in entries]
-    files = sum(entry["files"] for entry in entries)
-    return (
-        unowned
-        + undecided
-        + [
-            f"{_count_noun(files, 'source file')} without a route, lead or security signal in "
-            f"{_count_noun(len(entries), 'component')} were not individually examined; --verbose lists them"
-        ]
-    )
+    return unowned + undecided + [entry["text"] for entry in entries if "component" in entry]
 
 
 def _assessment_gap_message(gap: dict) -> str:
