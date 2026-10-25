@@ -70,13 +70,13 @@ Use `standard` as a starting point, including for business logic analysis. `thor
 
 For `claude` and `codex`, the spending limit defaults to USD 20 for `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 
-Control analysis and the survey each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
+Control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run at most two jobs in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
 
 ### Rate limits and connection failures
 
 When a provider rate-limits a call, Analyzer pauses all new model calls. Calls already running may finish. Failures with no charge allow up to three retries after 15, 60, and 180 seconds, or a valid HTTP `Retry-After` delay. Calls that incur a charge have stricter retry limits. CLI providers without structured reset information use the fallback delays.
 
-The run pauses with exit code 3 if a wait would exceed three minutes, time is insufficient, or retries are exhausted. This also applies to optional jobs. Accepted work is saved. Wait for capacity, then repeat the command with `--resume`. The original deadline and compatibility checks still apply.
+The run pauses with exit code 3 if a wait would exceed three minutes, time is insufficient, or retries are exhausted. This also applies to optional jobs. Accepted work is saved. Wait for capacity, then repeat the command with `--resume`. The original deadline and compatibility checks still apply. If rate limits recur, run fewer jobs in parallel instead: repeat the command without `--resume` and with the smaller `--max-parallel` value that the pause message names. A changed `max_parallel` cannot resume the paused run, but the new run reuses its accepted jobs.
 
 If a provider connection drops or cannot open, Analyzer retries after 15 seconds. A failed call without a cost report is retried at most once, including subscription calls. These retries count toward the stricter paid retry limits.
 

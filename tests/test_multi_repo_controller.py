@@ -1078,6 +1078,42 @@ def test_boundary_batches_cover_seventeen_crossings_in_two_calls_and_resume(tmp_
     assert {s["id"] for batch in batches for s in batch["signals"]} == {s["id"] for s in assessment["signals"]}
 
 
+def test_boundary_batches_run_concurrently_within_the_limit(tmp_path):
+    """Each batch's candidate share is reserved before any job starts, so no batch waits for another."""
+    import threading
+    import time
+
+    scope, architecture, context = _many_boundary_crossings(tmp_path)
+    inner, lock = BoundaryHost(), threading.Lock()
+    running, peak = [0], [0]
+
+    class Overlapping:
+        def invoke(self, *args):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            time.sleep(0.05)
+            try:
+                return inner.invoke(*args)
+            finally:
+                with lock:
+                    running[0] -= 1
+
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(1, 0.05, 20, 60, max_parallel=2),
+        lambda role, ceiling: Overlapping(),
+        lambda: False,
+        lambda: None,
+    )
+    assessment, candidates = controller._assessment_boundary_candidates(
+        scope, jobs, architecture, context, "standard", progress=lambda text: None
+    )
+    assert peak[0] == 2
+    assert len(assessment["signals"]) == len(candidates["dispositions"]) == 17
+
+
 def test_boundary_batch_progress_counts_batches_without_claiming_completed_signals():
     console = controller._AssessmentConsole(False, write=lambda text: None, live=False)
     console.step("Reviewing trust crossing batch: 12 signals (1/2)")
@@ -1545,6 +1581,26 @@ def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch,
     assert ("cooldown of 3600 s" in error) == (reset is not None)
     record = json.loads(path.read_text().splitlines()[-1])
     assert record["status"] == "paused" and record["resumable"] is True
+
+
+@pytest.mark.parametrize(
+    ("parallel", "advice"), [(4, "--max-parallel 2 (this run used 4)"), (3, "--max-parallel 1"), (1, None)]
+)
+def test_a_rate_limit_stop_advises_fewer_parallel_jobs_in_a_new_run(monkeypatch, capsys, parallel, advice):
+    """The setting is part of the run's identity, so the advice is a new run, not --resume."""
+    from runtime.analyst_host import TransportError
+
+    def rate_limited(argv):
+        controller._AssessmentProgress.max_parallel = parallel
+        raise TransportError("host text", reason="rate_limit", usd=0.0)
+
+    monkeypatch.setattr(controller, "assess_repositories", rate_limited)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == controller.ASSESS_PAUSED_EXIT
+    error = capsys.readouterr().err
+    if advice is None:
+        assert "--max-parallel" not in error
+    else:
+        assert advice in error and "without --resume" in error and "reuses the accepted steps" in error
 
 
 @pytest.mark.parametrize("names", [("edge", "service"), ("west", "east")])

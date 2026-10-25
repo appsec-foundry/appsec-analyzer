@@ -1639,22 +1639,27 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
     candidate_schema = analysis.contract("fragments/trust-boundary-candidates-v2.schema.json")
     context_limit = jobs.context_limit(instructions, candidate_schema)
     batches = _assessment_boundary_batches(assessment, architecture["data_flows"]["data_flows"], context_limit)
-
-    candidates, dispositions, ranges = [], [], []
+    # Each batch's candidate share is reserved before any job starts, so the batches run concurrently (MR-16)
+    # and their concatenation still fits the combined contract.
+    schemas, reserved = [], 0
     for index, projection in enumerate(batches):
-        batch_id = _id("batch", *(row["id"] for row in projection["signals"]))
-        allowed = analysis.source_selection(projection["components"])
-        cited = list(source_rows(projection))
-        view = {**projection, "components": analysis.model_components(projection["components"])}
-        progress(f"Reviewing trust crossing batch: {len(projection['signals'])} signals ({index + 1}/{len(batches)})")
         schema = analysis.job_share(
             candidate_schema,
             "fragments/trust-boundary-candidates-v2.schema.json",
             jobs=len(batches) - index,
-            used={"candidates": len(candidates)},
+            used={"candidates": reserved},
         )
         # Unequal batches still account for every signal; only candidates share capacity.
         schema["properties"]["dispositions"]["maxItems"] = len(projection["signals"])
+        reserved += schema["properties"]["candidates"]["maxItems"]
+        schemas.append(schema)
+
+    def review(position, projection, jobs):
+        batch_id = _id("batch", *(row["id"] for row in projection["signals"]))
+        allowed = analysis.source_selection(projection["components"])
+        cited = list(source_rows(projection))
+        view = {**projection, "components": analysis.model_components(projection["components"])}
+        progress(f"Reviewing trust crossing batch: {len(projection['signals'])} signals ({position}/{len(batches)})")
         signal_scopes = {
             row["id"]: project_assessment_signal(assessment, row["id"], architecture["data_flows"]["data_flows"])
             for row in projection["signals"]
@@ -1686,7 +1691,7 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
             selector="boundary:" + batch_id,
             instructions=instructions,
             context=view,
-            schema=schema,
+            schema=schemas[position - 1],
             allowed_sources=allowed,
             preload=analysis.evidence_preload(
                 scope,
@@ -1700,6 +1705,10 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
             ),
             validate=validate,
         )
+        return batch_id, exchange
+
+    candidates, dispositions, ranges = [], [], []
+    for batch_id, exchange in _assessment_components_concurrently(jobs, batches, review):
         document = exchange.artifact
         ranges.extend(exchange.source_slices)
         keys = {
@@ -3790,6 +3799,7 @@ def _assessment_render(
             jobs, verdict, groups, progress=progress, late=True
         ),
         progress=progress,
+        concurrently=_assessment_components_concurrently,
     )
     if json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")).get("threats"):
         _assessment_synthesis(jobs, workspace, progress=progress)
@@ -4034,6 +4044,7 @@ def assess_repositories(
         subscription=adapter in ("codex-cli", "copilot-cli"),
         subscription_label="GitHub Copilot account allowance" if adapter == "copilot-cli" else "ChatGPT subscription",
     )
+    _AssessmentProgress.max_parallel = budget.max_parallel
     if run_profile is not None and run_profile["adapter"] in ("openai", "lite", "bedrock"):
         from appsec_analyzer.profiles import call_reservation
 
@@ -5003,6 +5014,7 @@ def assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     """Command-line entry for `assess`; prints a short summary and returns an exit code."""
     code = 1
     _AssessmentProgress.last_retry = None
+    _AssessmentProgress.max_parallel = None
     # REQ-035: every file the run creates is readable by the current user only.
     umask = os.umask(0o077)
     try:
@@ -5097,6 +5109,14 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                 "  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
                 file=sys.stderr,
             )
+            # The setting is part of the run's identity, so a lower value needs a new run, which reuses accepted steps.
+            if (parallel := _AssessmentProgress.max_parallel or 1) > 1:
+                print(
+                    "  Fewer parallel model jobs make another rate limit less likely: rerun the same command without "
+                    f"--resume and with --max-parallel {parallel // 2} (this run used {parallel}); it reuses the "
+                    "accepted steps.",
+                    file=sys.stderr,
+                )
             return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason in NETWORK_FAILURES:
             print(

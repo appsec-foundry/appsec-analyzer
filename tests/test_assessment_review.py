@@ -78,6 +78,11 @@ def instructions(role, adaptation):
     return f"{role}: {adaptation}"
 
 
+def serially(jobs, items, work):
+    """The controller's pool contract, one item after another."""
+    return [work(position, item, jobs) for position, item in enumerate(items, 1)]
+
+
 # --------------------------------------------------------------------------- abuse cases
 
 CASE = "AC-T-901"
@@ -216,6 +221,7 @@ def _abuse(ctx, jobs, **kwargs):
         run_script=kwargs.pop("run_script", None) or _run_script(ctx),
         rebuild=lambda: ctx.calls.append(("rebuild", "")),
         progress=lambda text: None,
+        concurrently=kwargs.pop("concurrently", serially),
     )
 
 
@@ -260,11 +266,25 @@ def test_each_verified_case_is_reported_with_its_title_and_position(abuse):
         run_script=_run_script(abuse),
         rebuild=lambda: None,
         progress=shown.append,
+        concurrently=serially,
     )
     assert f"Verifying abuse case: {CASE} — Expression evaluation leads to code execution (1/1)" in shown
     # The numbered steps count the checked cases; no second count as a phase result.
     assert not any(text.startswith("Phase result: Abuse cases") for text in shown)
     assert any(text.startswith("Review coverage: abuse-case verification:") for text in shown)
+
+
+def test_abuse_cases_are_verified_on_the_controllers_pool(abuse):
+    """The candidates are independent, so they share the bounded pool instead of running one by one."""
+    pooled = []
+
+    def pool(jobs, items, work):
+        pooled.append(list(items))
+        return serially(jobs, items, work)
+
+    jobs = Jobs(_verifier())
+    _abuse(abuse, jobs, concurrently=pool)
+    assert pooled == [[CASE]] and [call["selector"] for call in jobs.calls] == [f"abuse:{CASE}"]
 
 
 def test_abuse_coverage_distinguishes_checked_partial_and_missing_results(tmp_path):
@@ -622,6 +642,7 @@ def test_a_sole_repository_selects_shipped_business_and_per_scan_cases_with_the_
             run_script=run,
             rebuild=lambda: None,
             progress=lambda text: None,
+            concurrently=serially,
         )
     assert ("AC-B-001" in listed) == (depth == "standard")
     assert "REPO-AC-901" in listed

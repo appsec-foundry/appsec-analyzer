@@ -122,9 +122,9 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `budget` is always USD and is available for `claude` and `codex`; `codex-cli` uses `max_calls` instead. `outputs` selects exports; Markdown and structured YAML are always retained as the base result. Supported formats are `markdown`, `yaml`, `html`, `pdf`, `sarif`, `threatdragon`, and `pentest-tasks`. HTML and PDF still need the export tools described in the [assessment guide](security-assessment.md). An unavailable optional export produces a warning.
 
-`max_parallel` limits how many components control analysis and the survey each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
+`max_parallel` limits how many jobs control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
-Provider rate limits pause new calls and can pause the run with exit code 3. Accepted work stays saved. Wait for capacity, then repeat the command with `--resume`; the original deadline still applies. See [retry rules and recovery](security-assessment.md#rate-limits-and-connection-failures).
+Provider rate limits pause new calls and can pause the run with exit code 3. Accepted work stays saved. Wait for capacity, then repeat the command with `--resume`; the original deadline still applies. If rate limits recur, repeat the command without `--resume` and with the smaller `--max-parallel` value that the pause message names; the new run reuses the accepted jobs. See [retry rules and recovery](security-assessment.md#rate-limits-and-connection-failures).
 
 Persistent connection failures pause required work with exit code 3; optional jobs record a coverage gap. Login, quota, certificate, configuration, and request errors are not retried. See [connection failure recovery](security-assessment.md#rate-limits-and-connection-failures).
 

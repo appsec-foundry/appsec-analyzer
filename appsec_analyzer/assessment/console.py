@@ -146,6 +146,8 @@ class _AssessmentProgress:
 
     path: Path | None = None
     last_retry: tuple[str, float] | None = None
+    # The run's parallel model jobs, which a rate-limit stop advises lowering.
+    max_parallel: int | None = None
     # Exit code -> the end record's status; any other code failed.
     STATUS = {0: "complete", 20: "complete", ASSESS_PAUSED_EXIT: "paused", 130: "interrupted"}
 

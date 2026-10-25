@@ -310,14 +310,27 @@ def _derive(jobs, workspace: Path, *, instructions) -> list[str]:
 
 
 def run_abuse_cases(
-    scope, jobs, names, workspace, root, cfg, *, instructions, run_script, rebuild, progress, merge_review=None
+    scope,
+    jobs,
+    names,
+    workspace,
+    root,
+    cfg,
+    *,
+    instructions,
+    run_script,
+    rebuild,
+    progress,
+    concurrently,
+    merge_review=None,
 ) -> list[str]:
     """Stage 1d on the workspace: match, verify per candidate, finalize, render and gate.
 
     ``rebuild()`` is the controller's own model build, so a rebuild with the
     verified chains keeps every field the controller adds to the model.
     ``merge_review(verdict, groups)`` is the controller's merger review for the
-    findings that promotion adds after the merge.
+    findings that promotion adds after the merge. ``concurrently(jobs, items,
+    work)`` is the controller's bounded pool.
     """
     if cfg.get("skip_abuse_case_verification"):
         return ["Abuse verification disabled"]
@@ -371,10 +384,14 @@ def run_abuse_cases(
             + [arg for candidate in candidates for arg in ("--candidate", candidate)],
         )
         titles = _candidate_titles(workspace)
-        for position, candidate in enumerate(candidates, 1):
+
+        def verify(position, candidate, jobs):
             title = f" — {titles[candidate]}" if titles.get(candidate) else ""
             progress(f"Verifying abuse case: {candidate}{title} ({position}/{len(candidates)})")
             _verify_candidate(scope, jobs, names, workspace, candidate, instructions=instructions)
+
+        # Each candidate reads its own context and writes its own verdict, so the candidates run concurrently.
+        concurrently(jobs, candidates, verify)
     run_script("validators/verify_abuse_cases.py", ["merge", "--output-dir", str(workspace)])
     run_script("model/match_abuse_cases.py", ["finalize", "--output-dir", str(workspace)])
     before = _threat_ids(workspace)
