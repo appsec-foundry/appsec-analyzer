@@ -588,8 +588,8 @@ def test_completion_rows_share_the_overview_numbers(tmp_path):
     assert stm.completion_rows(tmp_path) == []
 
 
-def test_completion_rows_leave_out_the_register_count_when_practice_sites_fold(tmp_path):
-    """The closing console states one finding count; the report section's own count stays in the report."""
+def test_completion_rows_name_the_register_when_practice_sites_fold(tmp_path):
+    """The headline counts practice sites under their weakness, so the console also names what the register holds."""
     body = """\
         meta: {project: {name: Demo}}
         threats:
@@ -603,7 +603,10 @@ def test_completion_rows_leave_out_the_register_count_when_practice_sites_fold(t
     """
     _write_model(tmp_path, body)
     rows = stm.completion_rows(tmp_path)
-    assert rows[0] == ("Findings", "1 · High 1")
+    assert rows[:2] == [
+        ("Findings", "1 · High 1"),
+        ("", "2 in the register · High 2; insecure-practice findings count under their weakness class"),
+    ]
     assert all("§8" not in text for _, text in rows)
 
 

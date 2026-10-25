@@ -733,6 +733,11 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
     rows.append(
         ("Findings", " · ".join([str(sum(counts.values())), *(f"{sev} {n}" for sev, n in counts.items() if n)]))
     )
+    register = summary["register_counts"]
+    if register != counts:
+        # Without this row the console understates what the report lists, Critical findings included.
+        parts = [f"{sum(register.values())} in the register", *(f"{sev} {n}" for sev, n in register.items() if n)]
+        rows.append(("", " · ".join(parts) + "; insecure-practice findings count under their weakness class"))
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
     if summary.get("test_case_counts"):
@@ -845,6 +850,13 @@ def _completion_summary(output_dir: Path) -> dict | None:
     if not isinstance(data, dict):
         return None
     summary = build_summary(data, Path(output_dir))
+    # The §8 register by severity: the headline counts practice sites under their weakness instead.
+    register = {label: 0 for label in summary["severity_counts"]}
+    for threat in _severity_rollup.register_threats(data):
+        label = _severity_label(threat)
+        if label in register:
+            register[label] += 1
+    summary["register_counts"] = register
     if line := abuse_case_line(data.get("abuse_case_analysis")):
         summary["abuse_case_line"] = line
     block = data.get("test_case_results")
