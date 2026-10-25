@@ -200,6 +200,17 @@ $defs:
         description: Business facts the code cannot answer.
         $ref: "#/$defs/prose_list"
         maxItems: 8
+      verified_by:
+        description: >
+          Verification aspects that ask the same question. When the run
+          verifies one of them, the case gives its place among the optional
+          cases of a depth to cases that no verified aspect covers; a case a
+          run requests explicitly keeps its place.
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          enum: [AuthN, AuthNRoutes, SessionMgmt, AuthZ, InputVal, DataProt, AI]
       finding:
         type: object
         description: >

@@ -1422,6 +1422,69 @@ def test_descriptive_limits_follow_depth_and_record_omissions():
         assert len(omitted) == 5 - expected and all(m["reason"] for m in omitted)
 
 
+def test_optional_cases_that_a_verified_aspect_covers_give_their_place_to_others():
+    limits = {
+        "descriptive_candidates_standard": 2,
+        "descriptive_candidates_thorough": 4,
+        "descriptive_candidates_explicit": 1,
+        "descriptive_candidates_derived": 1,
+    }
+    # The case with the most evidence asks what authorization verification asks.
+    matches = _candidates(3)
+    matches[2]["case"] = {"verified_by": ["AuthZ"]}
+    mac.apply_descriptive_limits(matches, set(), "standard", limits, verified={"AuthZ", "InputVal"})
+    verdicts = {m["abuse_case_id"]: m["structural_verdict"] for m in matches}
+    assert verdicts == {"REPO-AC-100": "candidate", "REPO-AC-101": "candidate", "REPO-AC-102": "not_performed"}
+    assert "verification of AuthZ asks the same question" in matches[2]["reason"]
+
+    # Without that aspect verified, the strongest evidence wins as before.
+    matches = _candidates(3)
+    matches[2]["case"] = {"verified_by": ["AuthZ"]}
+    mac.apply_descriptive_limits(matches, set(), "standard", limits, verified={"InputVal"})
+    assert [m["structural_verdict"] for m in matches] == ["not_performed", "candidate", "candidate"]
+
+
+def test_a_requested_case_keeps_its_place_although_a_verified_aspect_covers_it():
+    limits = {
+        "descriptive_candidates_standard": 0,
+        "descriptive_candidates_thorough": 0,
+        "descriptive_candidates_explicit": 1,
+        "descriptive_candidates_derived": 1,
+    }
+    matches = _candidates(2)
+    for match in matches:
+        match["case"] = {"verified_by": ["AuthZ"]}
+    matches[0]["preselected_sources"] = ["a", "b"]
+    mac.apply_descriptive_limits(matches, {"REPO-AC-100", "REPO-AC-101"}, "standard", limits, verified={"AuthZ"})
+    # The explicit limit decides by evidence alone, and the omission names that limit.
+    assert [m["structural_verdict"] for m in matches] == ["candidate", "not_performed"]
+    assert "explicitly requested" in matches[1]["reason"]
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({"test_cases": {"aspects": ["AuthN", "AuthZ"], "disable": []}}, {"AuthN", "AuthZ"}),
+        ({"test_cases": True}, set()),
+        ({}, set()),
+    ],
+)
+def test_the_verified_aspects_come_from_the_run_configuration(tmp_path: Path, config, expected):
+    (tmp_path / ".skill-config.json").write_text(json.dumps(config), encoding="utf-8")
+    assert mac._verified_aspects(tmp_path) == expected
+    assert mac._verified_aspects(tmp_path / "missing") == set()
+
+
+def test_the_built_in_cases_name_the_aspects_that_ask_their_question():
+    library = yaml.safe_load((REPO_ROOT / "data/abuse-cases/business.yaml").read_text(encoding="utf-8"))
+    cases = {case["id"]: case for case in library["abuse_cases"]}
+    assert {cid: case.get("verified_by") for cid, case in cases.items() if case.get("verified_by")} == {
+        "AC-B-001": ["AuthZ"],
+        "AC-B-002": ["AuthZ"],
+        "AC-B-003": ["AuthN"],
+    }
+
+
 @pytest.mark.parametrize(("depth", "expected"), [("quick", 0), ("standard", 0), ("thorough", 2)])
 def test_derived_cases_run_only_at_thorough_within_their_own_limit(depth: str, expected: int):
     """Model-derived cases neither take library slots nor run below thorough."""

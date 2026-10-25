@@ -1054,6 +1054,17 @@ def _depth_settings(output_dir: Path) -> tuple[dict | None, list[str], list[str]
     return settings, *lists
 
 
+def _verified_aspects(output_dir: Path) -> set[str]:
+    """The aspects the run verifies beside the survey (REQ-040); empty without verification."""
+    try:
+        cfg = json.loads((output_dir / ".skill-config.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    test_cases = cfg.get("test_cases") if isinstance(cfg, dict) else None
+    aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
+    return {aspect for aspect in aspects if isinstance(aspect, str)} if isinstance(aspects, list) else set()
+
+
 def apply_descriptive_limits(
     matches: list[dict],
     requested: set[str],
@@ -1061,15 +1072,19 @@ def apply_descriptive_limits(
     limits: dict[str, int],
     derived: set[str] = frozenset(),
     settings: dict | None = None,
+    verified: set[str] = frozenset(),
 ) -> None:
     """Bound model work on descriptive candidates; record every omission.
 
     Explicitly requested cases run at every depth up to their own limit.
     Optional ones run from standard depth up to the depth's limit, strongest
-    preselection evidence first. Model-derived cases run only at thorough
-    depth, within their own limit (AC-12). An omitted candidate becomes
-    ``not_performed`` with its reason, so it is reported rather than lost.
-    The run's depth ``settings`` (REQ-018), when present, give both counts.
+    preselection evidence first; an optional case whose ``verified_by``
+    names an aspect the run ``verified`` comes after the others, because
+    verification already asks its question. Model-derived cases run only at
+    thorough depth, within their own limit (AC-12). An omitted candidate
+    becomes ``not_performed`` with its reason, so it is reported rather than
+    lost. The run's depth ``settings`` (REQ-018), when present, give both
+    counts.
     """
     optional_cap = {
         "quick": 0,
@@ -1091,9 +1106,22 @@ def apply_descriptive_limits(
             match["structural_verdict"] = "candidate"
             match["reason"] = f"explicitly requested; preselection found no match ({match.get('reason')})"
     candidates = [m for m in matches if m.get("kind") == "descriptive" and m.get("structural_verdict") == "candidate"]
+
+    def kind_of(match):
+        if match["abuse_case_id"] in requested:
+            return "explicit"
+        return "derived" if match["abuse_case_id"] in derived else "optional"
+
+    def covering(match):
+        """The verified aspects that ask an optional case's question; requested and derived cases keep their place."""
+        if kind_of(match) != "optional":
+            return []
+        return sorted(set((match.get("case") or {}).get("verified_by") or []) & set(verified))
+
     ranked = sorted(
         candidates,
         key=lambda m: (
+            bool(covering(m)),
             -len(m.get("related_finding_ids") or []),
             -len(m.get("preselected_sources") or []),
             m["abuse_case_id"],
@@ -1103,12 +1131,7 @@ def apply_descriptive_limits(
     caps = {"explicit": explicit_cap, "derived": derived_cap, "optional": optional_cap}
     for match in ranked:
         match["requested"] = match["abuse_case_id"] in requested
-        if match["requested"]:
-            kind = "explicit"
-        elif match["abuse_case_id"] in derived:
-            kind = "derived"
-        else:
-            kind = "optional"
+        kind = kind_of(match)
         if used[kind] < caps[kind]:
             used[kind] += 1
             continue
@@ -1125,6 +1148,11 @@ def apply_descriptive_limits(
             )
         elif not optional_cap:
             match["reason"] = f"{depth} depth verifies business abuse cases only on explicit request"
+        elif aspects := covering(match):
+            match["reason"] = (
+                f"exceeds the limit of {optional_cap} business abuse cases at {depth} depth, which go first to cases"
+                f" that no verified aspect covers; verification of {', '.join(aspects)} asks the same question"
+            )
         else:
             match["reason"] = f"exceeds the limit of {optional_cap} business abuse cases at {depth} depth"
 
@@ -1253,7 +1281,9 @@ def cmd_match(args: argparse.Namespace) -> int:
             match["reason"] = "the scan profile skips this abuse case"
     requested = {cid for cid, origin in origins.items() if origin == "explicit"} | only_ids | (set(check_ids) & active)
     derived = {cid for cid, origin in origins.items() if origin == "derived"}
-    apply_descriptive_limits(matches, requested, _assessment_depth(out_dir), limits, derived, settings)
+    apply_descriptive_limits(
+        matches, requested, _assessment_depth(out_dir), limits, derived, settings, _verified_aspects(out_dir)
+    )
     result = {"schema_version": 1, "matches": matches}
     if rejected:
         result["rejected_case_files"] = rejected

@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- At standard and thorough depth, built-in business abuse cases that a verified aspect already checks, such as other users' data under authorization verification, come after the other built-in cases, so the depth's limit reaches rules nothing else checks. Cases a team supplies or requests keep their place.
 - Started without a command, `appsec-analyzer` shows three example calls and points to `--help` instead of printing only the usage line. The exit code stays 2.
 - `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`) so unattended runs never start on the default provider.
 - The Management Summary groups remediation priorities by root cause and severity, and Critical Findings by Root Cause replaces the Critical Attack Tree with links to weakness records and structural fixes.
