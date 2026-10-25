@@ -1,6 +1,6 @@
 # Verification cost: open points
 
-Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main. Point 10 was added the same day after the third measuring run.
+Status: working document, written 2026-10-23 after merges 34da4812 and 72c57eb4. The first lets the authorization verification preload the guards of guard-only registrations and the data models of generated REST routes (2e56eb65). The second shows verification progress as one step per component (09f256e0). The points below are left open. The figures come from the receipts and host events of one interrupted Juice Shop run at standard depth, without new model calls. Points 2 and 3 were updated on 2026-10-24 with an offline rebuild of the verification context, an offline check of the CLI, a live check of a few cents, and the host events of the fourth pilot run. Points 1, 3 and 8 were updated the same day with offline checks of the measuring run's answers and an offline rebuild of its survey requests. Point 9 and the order were added the same day after the second measuring run; everything built for it is merged into main. Point 10 was added the same day after the third measuring run. Point 11 was added on 2026-10-25 after the fourth measuring run, from its receipts, model and merge artifacts, without new model calls.
 
 ## Baseline
 
@@ -324,6 +324,87 @@ The overlap lies in three built-in business cases that ask a verification questi
 
 Abuse cases still bind only to survey and scanner findings, because verification findings are not in the findings register yet; in the third run AC-T-003 (JWT algorithm confusion) stayed inconclusive although AuthN had found the unpinned algorithm (TCF-077). The planned combined register (be4dbc35) would let the chains use them.
 
+## 11. Fourth measuring run
+
+Juice Shop at standard depth with the shipped default aspects AuthN, AuthZ, InputVal, DataProt and AI and a budget of USD 25, started from a copy of the third measuring run (output `juice-verify-cost-4`). The completing attempt ran on 34ab1527. Its verification jobs came from an earlier attempt on b41a37be; no change between the two alters a model request. The run recorded no run issue. It cost USD 15.91 for 149 calls: 125 calls for USD 14.72 were reused from earlier attempts and the third run, and the last attempt made 24 calls for USD 1.19, for abuse cases and the report. The attempts are listed in [the run's handoff](verification-run-4-handoff-2026-10-25.md).
+
+### Aborted attempts
+
+Three attempts stopped before the fourth completed:
+
+- The first started 25 seconds after a restart, and systemd then emptied `/tmp` together with the host directory. It stopped after four minutes without a new model call. The run script now sets `TMPDIR` outside `/tmp`; the analyzer is unchanged.
+- The second stopped after verification with "Selected source state changed", because another agent wrote into the Juice Shop checkout during the run. Every receipt is bound to the fingerprint of the whole source, although the analysis reads only the snapshot taken at the start. A requirement that lets such a run finish on its snapshot and name the changed files is drafted; its wording awaits approval.
+- The third stopped after the merge with "Merged finding anchor is outside its component ownership". Verification accepted the XXE finding TCF-045 at `lib/xml.ts:35`, a file of no component, and the merge's ownership check rejected it. Fixed at both checks in 34ab1527.
+
+### Cost
+
+| Accepted jobs, USD | Third run | Fourth run |
+| --- | --- | --- |
+| Survey jobs | 4.24 | 4.24, reused |
+| Evidence review | 2.00 | 2.00, reused |
+| Verify AuthZ | 2.30 | 2.54 |
+| Verify InputVal | 1.30 | 1.37 |
+| Verify DataProt | 1.02 | 1.10 |
+| Verify AuthN | 2.09, with TC-AUTHN-01 | 0.99 |
+| Verify AI | 0.19 | 0.19 |
+| Finding combination | – | 0.30 |
+| Other jobs, reused ones included | 3.09 | 3.19 |
+| All jobs | 16.24 | 15.91 |
+
+- Catalog version 6 changed every verification request, so no verification job was reused from the third run. Verification ran 25 jobs with 38 calls, against 30 and 43: AuthN 4 jobs and 6 calls instead of 9 and 13, AuthZ 9 and 15, DataProt 6 and 9, InputVal 5 and 7, AI 1 and 1.
+- AuthN without TC-AUTHN-01 cost USD 0.99, slightly above the offline estimate of USD 0.6 to 0.9. AuthZ, InputVal and DataProt cost 5 to 11 percent more than in the third run; AuthZ made one call more.
+- Verification at standard depth now costs USD 6.18 on Juice Shop, against USD 6.90 for the five aspects of the third run.
+- The new finding_combiner role made 4 calls for USD 0.30 and wrote 44 combined texts; about two thirds of its cost is output.
+
+### Results
+
+- TC-AUTHN-06 reported the hand-built implicit flow at `login.component.ts:148`, and the register made it one finding with the survey's (CWE-352, High). TC-AUTHN-07 reported the password built from the e-mail address (`oauth.component.ts:30`, used for the login at line 46) and the token in the userinfo URL (`user.service.ts:68`). Both joined survey findings, the second also a DataProt finding. All three confirm survey findings; none is new.
+- At `server.ts:501` the product update (T-057) and the hint update (T-072) stay separate findings, so the fix of fa4e2924 holds. The security answers with a caller-chosen UserId (R-256) are missing again, for another reason: the Express job answered "undecidable, missing-source" because the `SecurityAnswer` data model was not served. The job's served ranges list six data models of generated routes but not `models/securityAnswer.ts`, and the job made one call without asking for it. The third run's job did not get that file either and answered with a weakness.
+- AC-B-001, AC-B-002 and AC-B-003 were not performed, each naming the verified aspect that asks its question. AC-B-004, AC-B-005 and AC-B-007 ran, and AC-B-006 exceeded the limit. This is the order 6a02d919 set.
+- AC-T-003 (JWT algorithm confusion) stays inconclusive, for another reason than assumed. Its first step, the unpinned algorithm, was already confirmed in the third run through the scanner finding at `routes/verify.ts:120`, which now also carries AuthN's finding. The open second step asks whether a forged role claim is accepted without reading the role from the database, and no method reports a finding about it.
+- The merge made 154 findings from 110 survey findings, 101 scanner hits and 91 verification findings. 121 are in the report, 10 were refuted and 23 fell below the severity floor. 43 of the 121 name more than one method. TCF-045 is T-038, a High finding of the Express server.
+- The pairs that point 10 left apart are one finding each now: the embedded private key at `lib/insecurity.ts:21` (AuthN and DataProt with the survey), the unpinned token algorithm (survey, scanners and AuthN), the Pug template, the layout path and `routes/memory.ts:24`.
+- Of 44 combined texts, 43 were applied. The 44th belonged to a Low finding that the severity floor removed afterwards, because the combination runs before the floor.
+
+Defects and inconsistencies found:
+
+- A combined text can state a wrong number of places. T-058 has 15 locations and says "Two route registrations in server.ts are weak", T-053 has 9 and says "Two routes", and T-003 has 10 and says "Three frontend components". `_part` in `scripts/model/merge_threats.py` gives the combiner only each part's primary location, so the model counts parts instead of locations. 18 of the 43 combined findings have more than two locations.
+- A verification finding joins a scanner finding at any of the scanner finding's locations, so one finding can hold different weaknesses. T-001 combines the scanner's trusted owner field at `routes/dataExport.ts:26` with verification's basket item update at `routes/basketItems.ts:68`, and T-058 the registration without authentication at `server.ts:598` with the feedback UserId at `server.ts:402`. This follows the rule of f08b618e, but the combined text then describes two weaknesses.
+- The consolidation's "121 of 154 findings in the report" and the closing summary's "Findings 55" are two counts. The closing row counts the Management Summary's risk distribution: it leaves out the 69 findings that fold into a weakness as insecure practice and adds the 3 design-risk weaknesses, 52 plus 3. The third run counted the same way, 79 findings and 39 in the row. Unlike the overview that `summarize_threat_model.py` renders, the closing row does not name the register count.
+- Since f08b618e a verification finding without a partner and without a confirming post-check is labelled insecure practice, so it folds as well. 26 of the 41 findings only verification reported are outside the 55, among them the Critical registration with a client-chosen role (T-013, the report's scenario 3.3) and 7 High ones. The row says "Critical 3" while the register holds 5 Critical findings.
+- The closing line's "≥ 639k tokens" counts only the last attempt's 24 calls, while its cost covers all 149.
+- The `Verify start` line estimated about USD 0.58 instead of about USD 6, because `has_accepted` in `scripts/runtime/assessment_jobs.py` counts a receipt whose request changed, here after the catalog change.
+
+### Benefit per aspect
+
+"Only Verify" and "only survey" are the consolidation lines, from the third attempt's console and an offline replay of the same jobs. "New" counts register findings that only verification reported and that share no line with a survey or scanner finding or a finding of another aspect.
+
+| Aspect | Findings | Only Verify | Only survey | New | USD |
+| --- | --- | --- | --- | --- | --- |
+| AuthZ | 34 | 28 | 4 | 14, 1 of them High | 2.54 |
+| InputVal | 27 | 6 | 4 | 5, 4 of them High | 1.37 |
+| DataProt | 14 | 6 | 3 | 3, 1 of them High | 1.10 |
+| AuthN | 14 | 4 | 3 | 3, none High | 0.99 |
+| AI | 2 | 1 | 9 | none | 0.19 |
+
+- AuthN's new findings are the missing password strength rule on change and on reset, which the third run found too, and account enumeration through the security question lookup (`routes/securityQuestion.ts:21`). Its other 11 findings include all 8 High ones, each also reported by the survey or the scanners: MD5 twice, the unpinned algorithm, the embedded key, the password change without the current password, the reset by security answer, the implicit flow and the password built from the e-mail address. The token check without expiry, issuer or audience (`lib/insecurity.ts:55`) is reported only by verification, on a line where the algorithm finding also lies.
+- At standard depth AuthN therefore mostly confirms other methods, for half the third run's cost. Per new finding AuthN costs about USD 0.33, AuthZ USD 0.18, InputVal USD 0.27 and DataProt USD 0.37.
+- AuthZ's new High finding is the product update at `server.ts:501`. Of the third run's four new High ones, the basket item's BasketId and the address update are Medium this time, and the user list joined a survey finding (T-055).
+- InputVal's new findings are the XXE, the browsable ftp folder and key directory and the null-byte bypass, all High, and the fetched profile image written to a public folder.
+- DataProt's new findings are the TOTP secrets stored in plaintext (High), the application configuration served to anonymous callers and the full user record in the login IP response.
+
+The figures come from one run of a deliberately vulnerable application.
+
+### Open from this run
+
+Each to be solved for any repository:
+
+- Give the combiner each part's locations or their number, and let the policy forbid counts the context does not give.
+- Find out why the Express job's preload served six data models but not `models/securityAnswer.ts`, and why the job answered undecidable instead of reading the file.
+- Decide whether verification findings without a confirming post-check count in the closing summary's Findings row, and let the row name the register count when the two differ.
+- Let the closing line's token count cover the same calls as its cost, and find a way for the `Verify start` estimate to leave out receipts whose request changed.
+- Let a run finish on its snapshot when the source changes, once the drafted requirement is approved.
+
 ## Order
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
@@ -333,6 +414,9 @@ Abuse cases still bind only to survey and scanner findings, because verification
 5. Measure step 4 and the verification fixes of point 8 in a second run (point 9). Done: AuthZ and DataProt cost about what AuthZ alone cost before; the fixes found the missing places, and five defects it showed are fixed.
 6. Measure the fixes of point 9 in a third run with all five aspects (point 10). Done: all fixes work; the new fold merged findings of different routes at one line, which is fixed.
 7. Decide the default aspects of `standard` from the cost and benefit per aspect (point 10). Done: standard verifies AuthZ, InputVal, DataProt and AI; thorough adds AuthN.
-8. Split AuthN so that its token, password and recovery items, and new items for SSO and OAuth integration and for insecure authentication methods, can run at standard depth while the route item stays at thorough depth (point 10). Done: `AuthN` at standard, `AuthNRoutes` at thorough; the cost at standard depth is still to be measured in the next run.
-9. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
-10. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
+8. Split AuthN so that its token, password and recovery items, and new items for SSO and OAuth integration and for insecure authentication methods, can run at standard depth while the route item stays at thorough depth (point 10). Done: `AuthN` at standard, `AuthNRoutes` at thorough; at standard depth `AuthN` cost USD 0.99 in the fourth run (point 11).
+9. Measure the AuthN split, the combined register and the later place of business cases in a fourth run (point 11). Done: AuthN mostly confirms other methods for USD 0.99, the register combines 43 findings, and the business cases run as decided; combined texts with wrong counts and a data model missing from the preload are new defects.
+10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11).
+11. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11).
+12. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
+13. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
