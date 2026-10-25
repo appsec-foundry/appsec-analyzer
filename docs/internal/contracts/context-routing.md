@@ -1,9 +1,10 @@
 # Context Routing Contract
 
-The separate focused analyst also accepts bounded document context through `scripts/contexts/analyst_documents.py`. These documents do not change assessment role routing: they enter only the analyst's untrusted data envelope, with path, digest, role, revision and baseline/proposed identity. Explicit selections precede automatic threat-model, requirements and specification discovery. Model-proposed document references are exact-line validated separately from implementation evidence; a specification cannot satisfy a code-evidence requirement. Resume uses persisted context rather than rediscovering documents.
+The focused analyst receives size-limited document context through `scripts/contexts/analyst_documents.py`. This does not change assessment-role routing. Documents remain untrusted input and carry their path, hash, role, revision, and baseline/proposed identity. Explicit files take priority over automatically discovered threat models, requirements, and specifications.
 
-`data/context-routing-catalog.yaml` is the reviewable context map of the analysis roles. It
-answers four questions without requiring knowledge of controller code:
+Document citations must match exact delivered lines and are checked separately from implementation evidence. A specification cannot satisfy a code-evidence requirement. Resume uses saved context rather than discovering documents again.
+
+`data/context-routing-catalog.yaml` shows which context each analysis role receives. Reviewers can use it to answer four questions without reading controller code:
 
 1. What kind of context is this?
 2. Which named agent receives or must not receive it?

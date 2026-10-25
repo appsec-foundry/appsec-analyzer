@@ -1,10 +1,10 @@
 # Runtime Cleanup Whitelist
 
-Files and directories that `scripts/runtime/runtime_cleanup.py` always wipes from `$OUTPUT_DIR/` after a successful run (unless `--keep-runtime-files` / `KEEP_RUNTIME_FILES=true` is set).
+After a successful run, `scripts/runtime/runtime_cleanup.py` removes the files and directories listed here from `$OUTPUT_DIR/`. Set `--keep-runtime-files` or `KEEP_RUNTIME_FILES=true` to retain them.
 
-The pipeline invokes `--stage post-qa`, which carries this wave when QA came back clean. A run that ended with QA unclean keeps every artifact below, because that is what a diagnosis reads.
+The pipeline uses `--stage post-qa` after QA passes. If QA fails, it keeps all files below for diagnosis.
 
-Single source of truth: `scripts/runtime/runtime_cleanup.py` (`ALWAYS_FILES`, `ALWAYS_DIRS` constants). This file mirrors the same list and is pinned by `tests/test_runtime_cleanup.py::TestCleanupWhitelistDoc::test_filename_mentioned_in_docs` so the two cannot drift.
+The `ALWAYS_FILES` and `ALWAYS_DIRS` constants in `scripts/runtime/runtime_cleanup.py` define the list. This document mirrors it. `tests/test_runtime_cleanup.py::TestCleanupWhitelistDoc::test_filename_mentioned_in_docs` checks that the documented filenames match.
 
 Audit artifacts (`docs/internal/contracts/audit-artifacts.md`) and incremental anchors (`.appsec-cache/baseline.json`) are **never** in this list.
 

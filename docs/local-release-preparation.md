@@ -2,9 +2,7 @@
 
 For a separate internal package that includes organization defaults and pins this engine, follow [organization distribution packaging](organization-distributions.md). The source and wheel include the complete example under `examples/organization-distribution/`.
 
-This is an unpublished Phase A preview. Phase B Advisor integration is outside
-this repository's current assignment. Build from the `dev` branch in a separate
-temporary clone so checkout files and test artifacts cannot enter the archive:
+This is an unpublished development preview. Later Advisor integration is outside this repository’s current scope. Build from the `dev` branch in a separate temporary clone to keep local files and test output out of the archive:
 
 Run `make release-check-analyzer BASE=<base-commit>` before building, replacing `<base-commit>` with the commit before the release changes under review. The comparison commit must be available in the checkout; using `HEAD` checks only uncommitted changes. The gate checks requirement changes and the public standalone contracts, and inventories a wheel and source archive, including incremental build cleanup and installed guide links. The inherited whole-suite and test-route catalog still need separate reconciliation before a full repository release gate can be claimed.
 
@@ -16,21 +14,11 @@ python3 -m venv /tmp/analyzer-install-test
 /tmp/analyzer-install-test/bin/appsec-analyzer version
 ```
 
-The wheel and source distribution include the Apache-2.0 license and preserve
-the source provenance in the Git repository. The wheel includes the CLI,
-engine-owned code, schemas, catalog data, templates, the thin Analyzer skill,
-and user documentation. The source archive includes historical and technical
-documentation; it does not include local assessment output or fixture data.
-Declared Python dependencies are PyYAML 6.x, jsonschema 4.x, and Jinja2 3.x;
-the optional requirements extra adds requests and BeautifulSoup for retained
-catalog-fetch tooling. Git is needed for local source admission. PDF, HTML,
-and diagram exports may require separate external tools.
+The wheel and source archive include the Apache-2.0 license; Git preserves source history. The wheel contains the CLI, engine, schemas, catalogs, templates, entry skill, and user documentation. The source archive also contains historical and technical documentation. Neither should include local assessment output or fixture data.
 
-Inspect both archives before distribution. In particular, do not include the
-temporary `scripts/run-headless.sh` compatibility wrapper, retired plugin
-metadata and gates, test runner, source fixture `.env` files, or generated
-reports. Check exact hashes in a local `SHA256SUMS` file beside the artifacts.
-No push, tag, package upload, or release publication is part of this step.
+Runtime dependencies are PyYAML 6.x, jsonschema 4.x, and Jinja2 3.x. The optional requirements extra adds requests and BeautifulSoup for catalog tools. Git is required for local source checks. Document and diagram exports can need additional tools.
+
+Inspect both archives before distribution. Exclude the temporary `scripts/run-headless.sh` wrapper, retired plugin metadata and gates, test runner, fixture `.env` files, and generated reports. Record hashes in a local `SHA256SUMS` file beside the artifacts. Pushing, tagging, uploading, and publication are separate steps.
 
 ## Qualification and compatibility limits
 

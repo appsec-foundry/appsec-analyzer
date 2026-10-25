@@ -1,6 +1,6 @@
 # Weakness derivation
 
-The merger owns the weakness register. Architecture observations, reviewed source practices, and verified finding mechanisms provide its backing. A CWE alone does not establish a shared cause or application-wide control absence.
+The merger builds and maintains the weakness register from architecture observations, reviewed source patterns, and verified findings. A shared CWE alone does not prove a common cause or a missing application-wide control.
 
 ## Producer and consumer boundaries
 
@@ -13,7 +13,7 @@ The merger owns the weakness register. Architecture observations, reviewed sourc
 | `.finding-design-signals.json` | `schemas/weakness-signals.schema.json` | Verified finding mechanisms with source locations and finding IDs |
 | `.impl-strategy.json` | `schemas/impl-strategy.schema.json` | Runtime dependency inventory and bounded source evidence |
 
-`weakness_signals.validate_document` validates emitted and consumed observation documents. Invalid documents stop reconciliation. Refresh replaces stale source observations. Runtime cleanup preserves these audit artifacts. Missing repository configuration permits architecture-only reconciliation; a configured but unavailable repository fails instead of claiming a source inspection.
+`weakness_signals.validate_document` checks observations when written and read. Invalid documents stop reconciliation. Refresh replaces stale source observations, and cleanup preserves the audit files. Without repository configuration, reconciliation can use architecture evidence alone. A configured but unavailable repository causes failure; Analyzer must not claim it inspected source.
 
 ## Evidence and scope
 

@@ -4,17 +4,9 @@ The public source scan uses `deterministic-scan-result.schema.json`; full-assess
 
 The detailed table below also includes retained Advisor and context-v2 contracts. Inclusion here does not mean a standalone command produces that artifact. Check its current producer and consumer before changing or removing it.
 
-JSONSchema (Draft 2020-12) contracts for structured artifacts the engine
-produces or consumes. The schemas are the **single source of truth** for the
-data contracts; `scripts/validators/validate_intermediate.py` loads them at runtime
-and enforces runtime artifacts via `jsonschema`; plugin-shipped config/data
-catalogs are checked by dedicated validators such as `scripts/validators/validate_config.py`.
-The numbered Markdown API in `.recon-summary.md` is defined by
-`agents/shared/recon-output-template.md` and validated by the producer and
-controller through `scripts/validators/validate_recon_summary.py`. The ordered Markdown
-API in `.threat-modeling-context.md` is defined by the legacy resolver's output
-template, emitted deterministically on context-v2, and validated through
-`scripts/validators/validate_threat_modeling_context.py`; neither contract is JSONSchema.
+The schemas use JSON Schema Draft 2020-12 to define structured input and output. `scripts/validators/validate_intermediate.py` checks runtime files; dedicated validators check configuration and catalogs.
+
+Two Markdown interfaces use separate validators: `.recon-summary.md` follows `agents/shared/recon-output-template.md` and `validate_recon_summary.py`; `.threat-modeling-context.md` follows the legacy resolver template and `validate_threat_modeling_context.py`. Neither is a JSON Schema contract.
 
 | Schema | Artifact | Written by | Read by |
 |--------|----------|------------|---------|

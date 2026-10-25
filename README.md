@@ -157,7 +157,7 @@ appsec-analyzer scan-sources --repo /path/to/project
 
 ### `repo-profile`: size, languages, and layout
 
-`repo-profile` shows what a scan would have to read: working-tree size, how much of it is installed dependencies or build output, the language split by bytes, the build manifests and whether they sit in one root or several, and tracked versus untracked content. It reads directory entries only and passes no judgement on security.
+`repo-profile` shows working-tree size, dependency and build-output size, languages by bytes, build manifests, and tracked versus untracked content. It also shows whether manifests belong to one root or several. It reads directory entries only and makes no security judgement.
 
 ```sh
 # Profile the current directory, or print JSON for scripts
@@ -168,7 +168,7 @@ appsec-analyzer repo-profile /path/to/project --json
 
 `analyze-threats` answers one security question about the current code, a planned design, or a selected change. It needs no prior assessment. See [Threat Analyst](docs/threat-analyst.md).
 
-This is more than pasting the question into a chat. The command reads only the files or the change you select, takes your requirements and threat model into account, and reports a finding only when the source code backs it up. The report lists the documents it used.
+The command reads the files or change you select and uses your requirements and threat model as context. Findings require source evidence. The report lists the documents used.
 
 ```sh
 # Ask about one part of the code
@@ -386,7 +386,7 @@ Each verified aspect adds model calls. A scan or organization profile can change
 
 An abuse case is something an attacker or a user must not be able to do. Analyzer comes with two sets. [business.yaml](data/abuse-cases/business.yaml) has seven business rules: a user must not, for example, see other users' data, give themselves a higher role, approve their own request, or redeem a coupon twice. [technical.yaml](data/abuse-cases/technical.yaml) has attack chains such as account takeover through XSS or admin access through a forged JWT.
 
-Abuse cases and [verification](docs/security-assessment.md#survey-and-verification) ask different questions. Verification checks a general security property at every place of a component where it matters, for example that every route returning a user's data checks that it belongs to the caller. An abuse case starts from a goal and asks whether it can be reached in this application from start to end, also over several steps or components. An attack chain links existing findings into a path and rates the path as a whole. A business rule states what users of this application must not be able to do. The built-in rules cover what most applications must prevent, and your own rules add what only your application knows and verification cannot.
+[Verification](docs/security-assessment.md#survey-and-verification) checks a general security property wherever it applies in a component, such as whether routes check who owns the requested data. An abuse case asks whether an attacker can reach a particular goal, possibly across several steps or components. Attack chains connect existing findings into a path. Business cases check rules such as who may approve a payment. Add your own cases for rules specific to your application.
 
 `assess` checks the cases that fit the code, except at `quick` depth. By default, a standard run checks up to three business rules, a thorough run up to eight. Built-in rules that a verified aspect already checks, such as access to other users' data under authorization verification, come after the others. Rules you supply or request are not affected. A scan profile can change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does). If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
 

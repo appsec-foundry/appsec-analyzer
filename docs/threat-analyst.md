@@ -34,7 +34,9 @@ appsec-analyzer analyze-threats "Can this endpoint bypass authentication?" \
 
 The context is limited to 24 document versions, 64 KiB per file and 192 KiB overall. A comparison can use two versions of each document. Automatic selection prioritizes explicit files, threat models and requirements over specs, and current specs over `specs/changes/`; omitted paths are counted. Select fewer documents when a byte limit is exceeded. Sensitive automatic documents are withheld visibly; unavailable or sensitive explicit documents stop the request before a model call. Symlinks, traversal and unsupported file types are refused. Discovery does not follow links or fetch links embedded in documents.
 
-Context records the path, content hash, role and revision. Hypothesis checks read committed documents at the selected revision; staged reviews retain the committed and index versions; worktree reviews retain committed and current versions. The report lists the sources and validates every structured document citation against its delivered ID and exact lines. Existing requirement and threat IDs can be quoted from documents, but documents never substitute for code evidence of a vulnerability or working control.
+For each context document, the result records its path, hash, role, and revision. Hypothesis checks use the selected committed version. Staged and worktree reviews also include the corresponding index or current version.
+
+The report lists these sources. Structured citations must match the delivered document and exact lines. A document can supply requirement or threat IDs, but cannot prove that code is vulnerable or that a control works.
 
 The existing structured YAML adapters remain available through `--threat-model FILE` and `--requirements FILE`. Markdown/text files supplied through these flags enter the document adapter. In commit and MR/PR reviews, relative paths refer to both selected document revisions, including YAML files as document context; absolute YAML paths select an explicit external structured catalog/model. Other relative document paths are relative to `--repo`; `--design-file`, external YAML files, output and state paths use the invocation's filesystem context. Outside commit reviews, an existing structured Analyzer assessment is used when no document threat model was selected, unless `--isolated` or `--no-context` is given.
 
@@ -62,7 +64,9 @@ appsec-analyzer analyze-threats --repo /path/to/project --resume JOB
 
 Replace `JOB` with the printed `aj-` job ID. For a remote job, repeat its original `--mr URL` or `--pr URL` with `--resume JOB`. The temporary checkout is recreated, but the analysis continues with its stored frozen inputs. Ctrl+C cancels an active job; `appsec-analyzer analyst cancel --repo /path/to/project --job JOB` also supports explicit cancellation. The existing `analyst answer` command accepts answer files or explicitly saved feature answers; no answers are automatically copied into project documents.
 
-Use `--non-interactive` for CI and agent-driven calls. Ambiguous scope fails instead of prompting; required unanswered questions produce an incomplete result. Exit codes are 0 for complete analysis or preview, 2 for rejected/incomplete/failed work, and 130 for cancellation. Findings alone do not change the exit code. The printed `State:` distinguishes outcomes. Private analyst state is retained under `$XDG_STATE_HOME/appsec-analyzer/analyst`, or the usual user state directory. `--output DIR` additionally publishes `analyst-result.json` and `analyst-result.md` to an existing private directory outside the repository.
+Use `--non-interactive` for CI and agent calls. Ambiguous scope fails without a prompt; required unanswered questions leave the result incomplete. Exit 0 means completed analysis or preview, 2 means rejected, incomplete, or failed work, and 130 means cancellation. Findings alone do not change the exit code. Check the printed `State:`.
+
+Private state stays under `$XDG_STATE_HOME/appsec-analyzer/analyst`, or the usual user state directory. `--output DIR` also writes `analyst-result.json` and `analyst-result.md` to an existing private directory outside the repository.
 
 ## Model, costs and compatibility
 

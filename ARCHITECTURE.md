@@ -1,82 +1,99 @@
 # Architecture
 
-AppSec Analyzer is a standalone Python CLI with an analysis engine extracted from AppSec Advisor. This document describes the current module ownership and dependency boundaries for contributors. User-facing behavior is described in the [README](README.md) and [current guides](docs/README.md); detailed data and execution rules live in the [technical contracts](docs/internal/contracts/).
+AppSec Analyzer is a Python command-line application. Its analysis engine was extracted from AppSec Advisor. This guide explains which modules own each workflow and how they may depend on one another. For usage, see the [README](README.md) and [user guides](docs/README.md). Detailed execution and data rules live in the [technical contracts](docs/internal/contracts/).
 
 ## Application and engine
 
-The supported user entry is `appsec-analyzer`, implemented in [appsec_analyzer/cli.py](appsec_analyzer/cli.py); `python -m appsec_analyzer` starts the same entry through [appsec_analyzer/__main__.py](appsec_analyzer/__main__.py). The application package owns command adaptation, scoring and focused-analysis workflows, assessment requests and presentation, and shared application services. The retained engine under `scripts/` owns assessment orchestration, analysis, source admission, state, model execution, validation, and report generation. See the [script layout](scripts/README.md) for its domains.
+The public command is `appsec-analyzer`. [cli.py](appsec_analyzer/cli.py) parses its arguments; [__main__.py](appsec_analyzer/__main__.py) starts the same command through `python -m appsec_analyzer`.
 
-The main execution paths are:
+The `appsec_analyzer/` package owns command handling, scoring, focused analysis, assessment requests, terminal output, and shared services. The engine under `scripts/` runs assessments, admits source files, manages state and model calls, validates results, and creates reports. The [script layout](scripts/README.md) describes its modules.
+
+The main workflows are:
 
 ```mermaid
 flowchart TD
-    CLI[appsec-analyzer CLI] --> Score[score: application workflow]
-    CLI --> Analyst[analyze-threats: terminal adapter and preparation]
-    CLI --> Request[assess: AssessmentRequest]
-    CLI --> Scanners[scan-sources: deterministic scanners]
-    CLI --> Export[export: validated saved artifacts and deterministic converters]
-    CLI --> Review[review: saved assessment and interactive assistant handoff]
+    CLI[appsec-analyzer CLI] --> Score[score: collect and calculate]
+    CLI --> Analyst[analyze-threats: select scope and ask questions]
+    CLI --> Request[assess: validate request]
+    CLI --> Scanners[scan-sources: run fixed checks]
+    CLI --> Export[export: convert saved results]
+    CLI --> Review[review: open assessment in an assistant]
     Score --> Collection[Scanner collection and score calculation]
-    Analyst --> AnalystController[Retained analyst controller]
-    Request --> AssessmentController[Retained assessment controller]
+    Analyst --> AnalystController[Analyst controller]
+    Request --> AssessmentController[Assessment controller]
     AssessmentController --> Console[Assessment console]
 ```
 
-This diagram shows workflow ownership rather than every Python import. `scan-sources` and `score` run without model calls. `assess` uses the same model-backed assessment pipeline; focused analysis uses its own analyst lifecycle.
+The diagram shows who owns each workflow, rather than every import. `scan-sources` and `score` make no model calls. `assess` runs the model-backed assessment pipeline. Focused analysis uses a separate controller and job state.
 
 ## Workflow ownership
 
-Keep orchestration, computation, and presentation separate within each workflow. Reusable modules must work without importing the public command parser.
+Keep workflow coordination, calculation, and presentation separate. Reusable modules must work without importing the public command parser.
 
-| Area | Owner and responsibility |
+| Area | Responsibility |
 | --- | --- |
-| Score workflow | [score/service.py](appsec_analyzer/score/service.py) coordinates source admission, scanner results, evidence checks, and the result contract. |
-| Score collection | [score/collection.py](appsec_analyzer/score/collection.py) selects and runs the scoring scanners and collects their signals. |
-| Score calculation | [score/calculation.py](appsec_analyzer/score/calculation.py) computes scores from rules, findings, and a `ScoringPolicy`. Passing a loaded policy avoids file access and process execution during calculation. |
-| Score presentation | [score/render.py](appsec_analyzer/score/render.py) renders results; [score/progress.py](appsec_analyzer/score/progress.py) presents structured `ScoreEvent` progress and accepts legacy text callbacks through its adapter. |
-| Focused analysis | [analyze_threats/cli.py](appsec_analyzer/analyze_threats/cli.py) owns terminal interaction; [preparation.py](appsec_analyzer/analyze_threats/preparation.py) prepares scope and project documents. |
-| Analyst lifecycle | [analyst_controller.py](scripts/orchestrator/analyst_controller.py) owns job state and exposes `waiting_job`, `run`, `answer`, and `cancel`. The terminal adapter obtains pending questions through that interface rather than reading checkpoints. Analyst jobs retain their separate state directory. |
-| Host assessment preparation | [assessment_entry.py](appsec_analyzer/assessment_entry.py) exposes the retained launch/dialog, live-holder and stale-cleanup implementations to an installed host without private-state parsing in the host. |
-| Assessment invocation | [assessment/request.py](appsec_analyzer/assessment/request.py) carries validated options in `AssessmentRequest` from the public CLI to the retained controller. It preserves original configuration arguments and argument-list compatibility for direct script callers. |
-| Assessment execution and presentation | [orchestration_controller.py](scripts/orchestrator/orchestration_controller.py) owns pipeline execution; [assessment/console.py](appsec_analyzer/assessment/console.py) owns terminal progress. |
-| Platform security settings | [platform_settings/](appsec_analyzer/platform_settings/) checks GitHub and GitLab repository settings with read requests. `service.py` runs the checks, `phase.py` runs them as the scan phase and stores the result, and `projection.py` produces the fixed-value forms for model roles and for the report. The controller calls the phase after context capture and before the architecture analysis. |
-| Survey and verification | The survey is the STRIDE analysis per component. Verification uses the catalog of verification items in [data/test-cases.yaml](data/test-cases.yaml), validated by [schemas/test-cases.schema.yaml](schemas/test-cases.schema.yaml); [data/assessment-depths.yaml](data/assessment-depths.yaml) holds what each depth does, including the verified aspects; [depth_settings.py](appsec_analyzer/depth_settings.py) layers an organization's and a team's `depths` over it, [profiles.py](appsec_analyzer/profiles.py) resolves the scan profile's values and `test_cases`, the configuration resolver applies the organization's after it, and the controller extends the aspects by the organization's required ones. [scripts/model/case_outcomes.py](scripts/model/case_outcomes.py) links scanner findings to verification items, derives the outcome of each `rules` item from the recorded scanner results, and combines both methods: a verification finding with the same CWE at a survey finding's location is shown under the survey finding, and a control verified there marks it contradicted. [case_candidates.py](scripts/model/case_candidates.py) builds starting candidates and shares them among model jobs, [case_postchecks.py](scripts/model/case_postchecks.py) holds the fixed post-checks, [case_analysis.py](scripts/contexts/case_analysis.py) validates the replies of the `test_case_investigator` and `open_reviewer` roles, and `AssessmentBudget.hold` in [assessment_jobs.py](scripts/runtime/assessment_jobs.py) reserves budget for the open review. [assessment_test_cases.py](scripts/orchestrator/assessment_test_cases.py) runs the model jobs of the verified aspects after the survey and before the merge, states before the first job whether the budget covers them, and writes the component results, findings, and incomplete aspects to a workspace sidecar; the open review does not run yet. The composer renders the appendix, the verification findings section, and the finding links, and the SARIF exporter names linked findings by verification item. |
-| Organization distribution scaffolding | [distribution.py](appsec_analyzer/distribution.py) creates the files of an organization distribution from the packaged example and sets its engine pins. It reads and writes only the named directory; [organization.py](appsec_analyzer/organization.py) remains the runtime loader of an installed distribution. |
-| Saved assessment export | [exports.py](appsec_analyzer/exports.py) validates completed state and artifact digests, invokes retained converters with finite deadlines, and publishes exclusively into a new private directory; [export_assets.py](appsec_analyzer/export_assets.py) confines document resources and rejects active markup before embedding. No model host is created. |
-| Assessment review | [review.py](appsec_analyzer/review.py) selects and starts an interactive assistant with the bundled review skill and existing report paths. [review_context.py](appsec_analyzer/review_context.py) reuses the engine facts builder for validated, read-only queries. The native assistant owns its dialogue, permissions, account, and usage; this does not resume an Analyzer model job. |
-| Copilot CLI transport | [copilot_cli.py](appsec_analyzer/copilot_cli.py) runs bounded, tool-less Copilot CLI exchanges in private temporary directories and validates canonical JSON before controller admission. |
+| Score workflow | [score/service.py](appsec_analyzer/score/service.py) checks source admission, runs collection, checks evidence, and validates the result. |
+| Score collection | [score/collection.py](appsec_analyzer/score/collection.py) selects scanners, runs them, and collects their results. |
+| Score calculation | [score/calculation.py](appsec_analyzer/score/calculation.py) calculates scores from rules, findings, and a `ScoringPolicy`. Pass a loaded policy to calculate without file access or process execution. |
+| Score presentation | [score/render.py](appsec_analyzer/score/render.py) formats results. [score/progress.py](appsec_analyzer/score/progress.py) displays `ScoreEvent` progress and adapts older text callbacks. |
+| Focused analysis | [analyze_threats/cli.py](appsec_analyzer/analyze_threats/cli.py) handles terminal interaction. [preparation.py](appsec_analyzer/analyze_threats/preparation.py) selects scope and prepares project documents. |
+| Analyst jobs | [analyst_controller.py](scripts/orchestrator/analyst_controller.py) owns job state and the `waiting_job`, `run`, `answer`, and `cancel` interfaces. The terminal reads pending questions through this interface, not checkpoint files. Analyst state has its own directory. |
+| Host assessment preparation | [assessment_entry.py](appsec_analyzer/assessment_entry.py) provides launch, dialogue, active-run tracking, and stale-state cleanup to installed hosts. Hosts do not need to parse private state. |
+| Assessment requests | [assessment/request.py](appsec_analyzer/assessment/request.py) passes validated CLI options to the controller as an `AssessmentRequest`. It preserves original configuration arguments and argument-list support for direct script callers. |
+| Assessment execution | [orchestration_controller.py](scripts/orchestrator/orchestration_controller.py) runs the pipeline. [assessment/console.py](appsec_analyzer/assessment/console.py) displays progress. |
+| Platform security settings | [platform_settings/](appsec_analyzer/platform_settings/) reads GitHub and GitLab settings. `service.py` runs checks, `phase.py` stores results, and `projection.py` prepares fixed-value summaries for models and reports. This phase runs after context capture and before architecture analysis. |
+| Organization distributions | [distribution.py](appsec_analyzer/distribution.py) creates an organization distribution from the packaged example and sets its engine versions. It reads and writes only the named directory. [organization.py](appsec_analyzer/organization.py) loads installed distributions at runtime. |
+| Saved-result export | [exports.py](appsec_analyzer/exports.py) checks completed state and file hashes, runs converters with time limits, and writes only to a new private directory. [export_assets.py](appsec_analyzer/export_assets.py) restricts document resources and rejects active markup before embedding. Export creates no model host. |
+| Assessment review | [review.py](appsec_analyzer/review.py) starts an interactive assistant with the bundled review skill and saved report paths. [review_context.py](appsec_analyzer/review_context.py) provides validated, read-only queries through the engine facts builder. The assistant uses its own dialogue, permissions, account, and usage; it does not resume an Analyzer model job. |
+| Copilot CLI connection | [copilot_cli.py](appsec_analyzer/copilot_cli.py) runs exchanges in private temporary directories with tools disabled and execution limits. It validates JSON before the controller accepts a result. |
+
+### Survey and verification
+
+The survey analyzes threats per component using STRIDE. Verification checks selected security aspects after the survey and before findings are merged.
+
+| Part | Responsibility |
+| --- | --- |
+| Verification catalog | [data/test-cases.yaml](data/test-cases.yaml) defines the checks. [schemas/test-cases.schema.yaml](schemas/test-cases.schema.yaml) validates the catalog. |
+| Depth settings | [data/assessment-depths.yaml](data/assessment-depths.yaml) defines the work at each depth. [depth_settings.py](appsec_analyzer/depth_settings.py) applies organization and team defaults. [profiles.py](appsec_analyzer/profiles.py) resolves scan-profile values and `test_cases`; the configuration resolver then applies the organization's settings. The controller adds the organization's required aspects. |
+| Results and finding links | [case_outcomes.py](scripts/model/case_outcomes.py) links scanner findings to verification items and derives `rules` outcomes from scanner results. It groups a verification finding under a survey finding when their CWE and location match. A verified control at that location marks the survey finding as contradicted. |
+| Model input and validation | [case_candidates.py](scripts/model/case_candidates.py) prepares starting candidates and shares them across jobs. [case_postchecks.py](scripts/model/case_postchecks.py) holds fixed post-checks. [case_analysis.py](scripts/contexts/case_analysis.py) validates replies from `test_case_investigator` and `open_reviewer`. |
+| Verification jobs | [assessment_test_cases.py](scripts/orchestrator/assessment_test_cases.py) runs the selected aspects, reports budget coverage before the first job, and saves component results, findings, and incomplete aspects in the working directory. |
+| Open review | `AssessmentBudget.hold` in [assessment_jobs.py](scripts/runtime/assessment_jobs.py) reserves its budget. The open review does not run yet. |
+| Report and export | The composer renders the appendix, verification findings, and finding links. The SARIF exporter names linked findings by verification item. |
 
 ## Shared services and dependency direction
 
-Command adapters call application workflows, which use shared services and engine domains. Shared services must not import the public CLI or an application controller. Scanner execution primitives are shared, while scanner selection, order, applicability, and partial-result policy remain with each workflow.
+Command handlers call application workflows. Workflows use shared services and engine modules. Shared services must not import the public CLI or an application controller.
 
-| Shared concern | Module |
+Workflows share the code that executes scanners. Each workflow still decides which scanners to run, their order, when they apply, and how to handle partial results.
+
+| Shared service | Module |
 | --- | --- |
-| Bounded artifact reads and exclusive publication | [artifacts.py](appsec_analyzer/artifacts.py) |
-| Completed assessment admission for export and review | [saved_assessment.py](appsec_analyzer/saved_assessment.py) |
-| Requirements catalog admission | [catalogs.py](appsec_analyzer/catalogs.py) |
-| Terminal fields and export targets | [terminal.py](appsec_analyzer/terminal.py), [targets.py](appsec_analyzer/targets.py) |
-| Scanner execution and output validation | [scanners/execution.py](appsec_analyzer/scanners/execution.py) |
-| Codex structured output | [codex_schema.py](appsec_analyzer/codex_schema.py) projects analysis contracts into the CLI output schema and decodes native JSON values; the controller retains canonical validation and action authorization. |
-| Repository preflight | [runtime/source_preflight.py](scripts/runtime/source_preflight.py) |
-| Configuration-surface discovery | [analyzers/iac_surface.py](scripts/analyzers/iac_surface.py) |
+| Size-limited artifact reads and writing new output files | [artifacts.py](appsec_analyzer/artifacts.py) |
+| Validating completed assessments for export and review | [saved_assessment.py](appsec_analyzer/saved_assessment.py) |
+| Requirements catalog checks | [catalogs.py](appsec_analyzer/catalogs.py) |
+| Safe terminal fields and export targets | [terminal.py](appsec_analyzer/terminal.py), [targets.py](appsec_analyzer/targets.py) |
+| Scanner execution and result validation | [scanners/execution.py](appsec_analyzer/scanners/execution.py) |
+| Codex structured output | [codex_schema.py](appsec_analyzer/codex_schema.py) converts analysis contracts to CLI output schemas and decodes JSON. The controller still validates the canonical result and authorizes actions. |
+| Repository checks before analysis | [runtime/source_preflight.py](scripts/runtime/source_preflight.py) |
+| Finding infrastructure configuration | [analyzers/iac_surface.py](scripts/analyzers/iac_surface.py) |
 
-Source admission, model permissions, budgets, and artifact publication remain enforced by their existing runtime and controller boundaries. Agent Markdown, repository text, and model output are runtime inputs and cannot grant execution authority. See [SECURITY.md](SECURITY.md), the [orchestration contract](docs/internal/contracts/orchestration-actions.md), and the [context-routing contract](docs/internal/contracts/context-routing.md).
+Runtime and controller code enforce source access, model permissions, budgets, and output publication. Agent Markdown, repository text, and model replies are inputs; they cannot grant permission to execute actions. See [SECURITY.md](SECURITY.md), the [orchestration contract](docs/internal/contracts/orchestration-actions.md), and the [context-routing contract](docs/internal/contracts/context-routing.md).
 
-The active architecture and STRIDE jobs use the controller-native analysis policies in [architecture-analysis-policy.md](data/architecture-analysis-policy.md) and [stride-analysis-policy.md](data/stride-analysis-policy.md), selected by [model_roles.py](appsec_analyzer/model_roles.py). Architecture receives finalized components and returns flows, external entities and assets; its policy does not run discovery, shell tools, artifact writes or publication. The structured host reserves correction exchanges within its fixed job limit. Retained agent files describe earlier execution procedures and must not be substituted for these active policies.
+Active architecture and STRIDE jobs use [architecture-analysis-policy.md](data/architecture-analysis-policy.md) and [stride-analysis-policy.md](data/stride-analysis-policy.md), selected by [model_roles.py](appsec_analyzer/model_roles.py). Architecture receives finalized components and returns flows, external entities, and assets. Its policy does not allow discovery, shell tools, file writes, or publication. The model host reserves correction exchanges within each job's fixed limit. Retained agent files describe earlier procedures and must not replace these active policies.
 
 ## Compatibility and migration limits
 
-[engine.py](appsec_analyzer/engine.py) locates the retained engine domains in checkouts and installed wheels without importing the CLI. Engine modules still use domain imports such as `runtime`, `model`, and `orchestrator`. The engine directories remain under `scripts/`; this refactoring did not relocate the entire engine into the application package.
+[engine.py](appsec_analyzer/engine.py) locates engine modules in checkouts and installed wheels without importing the CLI. The engine stays under `scripts/` and uses imports such as `runtime`, `model`, and `orchestrator`.
 
-The previous [scoring.py](appsec_analyzer/scoring.py), [score_progress.py](appsec_analyzer/score_progress.py), and [threat_analysis.py](appsec_analyzer/threat_analysis.py) paths are compatibility adapters. The retained [security_score.py](scripts/analyzers/security_score.py) script still supports its direct command and original presentation. Legacy naming alone is not evidence that a module can be deleted.
+[scoring.py](appsec_analyzer/scoring.py), [score_progress.py](appsec_analyzer/score_progress.py), and [threat_analysis.py](appsec_analyzer/threat_analysis.py) preserve older Python interfaces. The retained [security_score.py](scripts/analyzers/security_score.py) script still supports its direct command and original output. An old name alone is no reason to delete a module.
 
-Application Python files participate in assessment runtime fingerprints alongside engine resources. An implementation change invalidates earlier resume identities rather than silently reusing incompatible state. Moving more engine code requires coordinated changes to imports, filesystem and subprocess dispatch, resource lookup, prompts, packaging, and tests.
+Runtime fingerprints include application Python files and engine resources. An implementation change prevents resume with incompatible earlier state. Moving engine code requires checking imports, file and subprocess dispatch, resource lookup, prompts, packaging, and tests together.
 
-The [module-boundary change record](specs/changes/application-module-boundaries/proposal.md) records the rationale and compatibility implications of the refactoring. It is historical context; this document describes the current structure.
+The [module-boundary change record](specs/changes/application-module-boundaries/proposal.md) explains the earlier refactoring and its compatibility decisions.
 
 ## Verification and maintenance
 
-[test_module_boundaries.py](tests/test_module_boundaries.py) covers independent workflow imports, calculation with a loaded policy, structured progress, assessment options, analyst waiting-job isolation, and application runtime identity. These are focused checks, not proof that the entire distribution or live model integrations are qualified. Packaging coverage is in [test_analyzer_distribution.py](tests/test_analyzer_distribution.py); select additional workflow and boundary tests using [requirement bindings](data/requirement-bindings.yaml) and the [contribution guide](CONTRIBUTING.md).
+[test_module_boundaries.py](tests/test_module_boundaries.py) checks independent workflow imports, calculation with a loaded policy, structured progress, assessment options, analyst job isolation, and runtime identity. [test_analyzer_distribution.py](tests/test_analyzer_distribution.py) checks packaging. These tests do not qualify the whole distribution or live model connections. Choose further tests using the [requirement bindings](data/requirement-bindings.yaml) and [contributor guide](CONTRIBUTING.md).
 
-Update this overview when module ownership, dependency direction, or compatibility adapters change. Keep detailed execution and data rules in their contracts, script-domain descriptions in the script layout, and requirement outcomes in [requirements.md](requirements.md).
+Update this guide when module ownership, dependencies, or compatibility adapters change. Keep detailed execution rules in the contracts, engine-module descriptions in the script layout, and user outcomes in [requirements.md](requirements.md).

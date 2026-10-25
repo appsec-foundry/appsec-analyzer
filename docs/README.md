@@ -25,7 +25,7 @@ The [requirement acceptance contract](internal/contracts/requirement-acceptance.
 
 The [Juice Shop standard and thorough comparison](internal/analysis/stride-model-cost-comparison-2026-10-17.md) records measured costs, business logic findings, and the limits of drawing model-quality conclusions from two runs.
 
-The technical contracts in `internal/contracts/` include retained Advisor mechanisms. Read their scope notes and check current callers before treating one as an active standalone interface. The [extraction record](internal/extraction/phase-a-record.md), `internal/analysis/`, and `proposals/` preserve dated decisions and plans; they are not a release or capability declaration.
+Some [technical contracts](internal/contracts/) describe mechanisms retained from Advisor. Check their scope notes and current callers before using them as standalone interfaces. The [extraction record](internal/extraction/phase-a-record.md), `internal/analysis/`, and `proposals/` contain dated findings and plans. They do not describe released capabilities.
 
 [Historical Advisor guides](history/advisor/INDEX.md) retain old plugin commands for migration context. Their installation, hook, version, and output conventions do not apply to the current Analyzer CLI.
 

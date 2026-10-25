@@ -1,8 +1,8 @@
 # Scan and model profiles
 
-Profiles can also be shipped inside an [organization distribution](organization-distributions.md). Its launcher selects the bundled scan and organization profiles automatically; the bundled model profile is resolved alongside the scan profile. No profile files need to be copied into the assessed repository.
+A scan profile saves settings you reuse: models, depth, budget, exports, abuse-case files, and report attributes. A model profile chooses models and reasoning settings for individual analysis roles. Both are local YAML files. The built-in profiles work without either file.
 
-A scan profile saves the settings you reuse: model selection, analysis depth, budget, output formats, abuse-case files, and report attributes. A model profile chooses models and reasoning settings for individual analysis roles. Both are local YAML files. You can use the built-in profiles without creating either file.
+An [organization distribution](organization-distributions.md) can bundle these profiles and select them automatically. You do not need to copy profiles into the assessed repository.
 
 ## Start with the defaults
 
@@ -40,19 +40,31 @@ Prerequisites: Linux or macOS, Codex CLI **0.163.0** installed on your `PATH` ou
      --max-calls 1000 --max-duration 14400
    ```
 
-The default limits are 1,000 model exchanges including corrections, failed attempts, and retries, four hours of total elapsed time, and at most two components at a time. `--max-calls N` accepts 1–47,256; `--max-duration SECONDS` accepts 1–43,200; `--max-parallel N` accepts 1–16. Required analysis and report work retain the existing call and time reserves. Each CLI exchange also has its own timeout and input/output byte bounds. Analyzer uses HTTP/SSE, disables CLI request and stream retries, and sets a 60-second stream idle timeout. Incoming stream events reset that idle timeout; it is not a 60-second total limit on model reasoning. The controller's per-call limit still applies. The call count measures Analyzer-dispatched CLI invocations, including Analyzer retries. An exchange is not an exact measure of tokens or ChatGPT credits, and these limits do not guarantee that the assessment will finish within your plan allowance. The transport settings use the [official Codex provider configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
+Codex CLI defaults to 1,000 exchanges, four hours total, and at most two components at once. Exchanges include corrections, failures, and retries. You can set:
+
+- `--max-calls N`: 1–47,256 exchanges.
+- `--max-duration SECONDS`: 1–43,200 seconds.
+- `--max-parallel N`: 1–16 components.
+
+Analyzer reserves calls and time for required analysis and report work. Each exchange also has a timeout and size limits. The connection uses HTTP/SSE with CLI retries disabled. Its 60-second idle timeout resets on incoming events; the controller also enforces a total per-call limit. See the [Codex provider configuration](https://learn.chatgpt.com/docs/config-file/config-reference) for transport settings.
+
+An exchange count does not measure tokens or ChatGPT credits. These limits cannot guarantee completion within your plan allowance.
 
 Codex CLI requests are limited to 320,000 UTF-8 bytes including role instructions and the output contract, so a source packet can reach the same size as on other hosts. Survey source batches account for that overhead before dispatch; further reads and correction packets retain the remaining context limit. Large inputs can therefore require more model exchanges. An input-size error requires a smaller request or an Analyzer fix; `--resume` alone cannot resolve an unchanged oversized request.
 
-Analyzer supplies Codex with a native structured output schema. Results are JSON values rather than JSON documents encoded inside strings, so quotations and backslashes do not require a second layer of JSON escaping. The adapter preserves optional-field absence and explicit `null`, rejects duplicate or ambiguous members, and then passes the decoded result through the existing full schema, source, and permission checks.
+Analyzer requests structured JSON from Codex and checks it against the full result schema, source rules, and permissions. Missing optional fields and explicit `null` stay distinct. Duplicate or ambiguous fields are rejected. Results use native JSON values, so text does not need an extra layer of JSON escaping.
 
-Codex can send commentary before its final structured answer. Analyzer validates the last completed agent message from a completed turn; earlier commentary is not an analysis result. This follows the [official Codex output contract](https://learn.chatgpt.com/docs/non-interactive-mode#make-output-machine-readable). Failures distinguish malformed event JSON (`invalid_response_stream`), a missing completed answer (`incomplete_response`), an invalid final JSON envelope (`invalid_response_envelope`), an invalid or ambiguous structured payload (`invalid_response_payload`), and unexpected tool or item output (`unexpected_host_item`). These fixed codes appear in the stop message and private diagnostics without recording model answers. An invalid answer does not establish a login failure. Check CLI compatibility or the indicated response format before retrying; unexpected tools require checking isolation. Runtime changes invalidate resume compatibility, so use a new output directory after updating Analyzer to preserve the failed run for diagnosis.
+Codex may send commentary before its final answer. Analyzer accepts only the last completed agent message from a completed turn, following the [Codex output contract](https://learn.chatgpt.com/docs/non-interactive-mode#make-output-machine-readable). Earlier commentary is not a result.
 
-Codex reconnect notices are intermediate events. If one occurs, Analyzer displays it without provider text and still checks the terminal outcome; a successful completed turn is not rejected solely because it reconnected. Final failures distinguish a disconnected stream (`stream_disconnected`), a stream timeout (`connection_timeout`), a connection failure (`connection_failed`), a certificate failure (`tls_error`), and an unavailable model (`model_unavailable`). Rate limits and exhausted plan allowance remain separate. Diagnostics classify both CLI error events and stderr, without retaining their raw contents. A generic `transport` failure means the available error did not match a known classification; it does not establish the underlying cause.
+Stop messages and private diagnostics use fixed codes for malformed streams, incomplete answers, invalid JSON, invalid structured results, and unexpected tools. They do not record model answers. An invalid answer does not prove a login problem. Check CLI compatibility and the reported response format before retrying; unexpected tools require checking isolation. After an Analyzer update, use a new output directory to preserve the failed run for diagnosis.
+
+A Codex reconnect notice does not by itself mean the call failed. Analyzer shows it without provider text, then checks the final outcome. Failure codes distinguish disconnection, timeout, connection failure, TLS failure, and unavailable models. Rate limits and exhausted allowance are separate. Diagnostics classify error events and stderr without retaining their raw text. A generic `transport` error means the cause could not be classified.
 
 Do not pass `--budget` or `--hard-budget` with `codex-cli`; they are rejected, as is a `budget` field in a subscription scan profile. The startup summary identifies ChatGPT subscription use and the call limit. Completion and status show no invented dollar charge: monetary accounting is `null`. For separately billed OpenAI API use, select `codex` and configure `OPENAI_API_KEY`.
 
-Analyzer sends selected source excerpts, analysis context, and intermediate answers to OpenAI through the CLI. It uses fresh private work directories, disables model tools and repository/user agent configuration, and requests ephemeral sessions. Analyzer does not read or copy the CLI's authentication tokens. Your ChatGPT account/workspace controls provider-side data handling; ephemeral local sessions do not establish provider retention guarantees. The adapter removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Managed Codex settings must permit its restrictions; incompatible settings stop the run.
+Codex CLI sends selected source excerpts, context, and intermediate answers to OpenAI. Analyzer uses fresh private working directories, disables model tools and repository/user agent configuration, and requests temporary sessions. It does not read or copy authentication tokens. Your account or workspace governs provider-side data handling; temporary local sessions do not guarantee provider retention.
+
+The adapter removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Incompatible managed Codex settings stop the run.
 
 If login expires, run `codex login` again. If your allowance is exhausted, wait for it to reset or manage it in ChatGPT, then rerun the original command with the same `--output` and `--resume`. Resume keeps the original call limit and deadline. If those local limits are exhausted, start a new run without `--resume` or `--rebuild`, adjusting the limits if needed; compatible accepted jobs are reused and their call counts are retained. Never use `--rebuild` merely to retry a quota error.
 
@@ -112,9 +124,9 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `max_parallel` limits how many components control analysis and the survey each process at once. It defaults to 2 and accepts integers from 1 to 16. Use 1 for serial processing. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
 
-On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
+Provider rate limits pause new calls and can pause the run with exit code 3. Accepted work stays saved. Wait for capacity, then repeat the command with `--resume`; the original deadline still applies. See [retry rules and recovery](security-assessment.md#rate-limits-and-connection-failures).
 
-When a provider connection drops or cannot be opened, Analyzer repeats the call after 15 seconds. A failed call without a cost report, such as a Codex subscription call or a failed API call, is repeated at most once, and these paid repeats count toward the stricter retry limits. If the connection stays down for a required job, the run pauses with exit code 3 and keeps accepted work; check connectivity, then rerun the same command with `--resume`. An optional job records a coverage gap instead. Login, quota, certificate, configuration, and request errors are never repeated.
+Persistent connection failures pause required work with exit code 3; optional jobs record a coverage gap. Login, quota, certificate, configuration, and request errors are not retried. See [connection failure recovery](security-assessment.md#rate-limits-and-connection-failures).
 
 Report attributes are text values, with up to 32 keys and 256 characters per value. They appear near the report title and under `meta.report_attributes` in the YAML result. They label the report; they do not change severity, authorize actions, or become analysis instructions. Keep credentials and confidential personal data out of them.
 
@@ -172,7 +184,9 @@ check_abuse_cases: [AC-B-002]
 skip_abuse_cases: [AC-T-004]
 ```
 
-`check_abuse_cases` lists abuse cases that every run checks, within the limit of 16 requested cases per run, and `skip_abuse_cases` those that no run checks; a skipped case appears in the report as not performed with the reason. A case cannot be on both lists. A shipped `AC-T-` or `AC-B-` ID that does not exist is refused before the first model call; an organization or repository case that is not active is skipped with a warning when the cases are matched. `--architect-review`, `--no-architect-review`, `--abuse-cases`, `--no-abuse-cases`, `--only-abuse-case`, and an explicit `--hard-budget` win over the depth settings. `profiles show` lists the resulting `depth_settings` of the selected depth and where each value came from.
+`check_abuse_cases` names cases every run must check, within the limit of 16 requested cases. `skip_abuse_cases` names cases to skip; the report shows the reason. A case cannot appear in both lists. Unknown built-in IDs fail before the first model call. Inactive organization or repository cases are skipped with a warning during matching.
+
+Explicit CLI options for architect review, abuse cases, case selection, and hard budget override depth defaults. `profiles show` lists the effective `depth_settings` and each value’s source.
 
 An [organization profile](org-profiles.md) can set its own defaults under the same `depths` key, which a team's scan profile can still change. The order is the shipped file, the organization profile, the scan profile, and the command line.
 
@@ -182,9 +196,14 @@ For `assess` without `--budget`, a `budget` that the scan profile sets under `de
 
 `test_cases` controls [verification](security-assessment.md#survey-and-verification) beyond the aspects of a depth. Without the setting, each depth verifies its `verify` aspects. `false` runs the survey only at every depth that does not set `verify`. `true` links scanner findings to the verification items of the catalog and records an outcome for each item that scanner results can decide, without additional model calls. A scan profile's `depths.<depth>.verify` wins over `test_cases`.
 
-The object form has two optional fields. `aspects` names the aspects for every depth whose `verify` the scan profile does not set, a non-empty subset of `AuthN`, `AuthNRoutes`, `SessionMgmt`, `AuthZ`, `InputVal`, `DataProt`, and `AI`; without it, each depth keeps its default aspects. `SessionMgmt` is accepted but not investigated yet. `disable` lists verification items to leave out, each as `id` (a catalog ID such as `TC-CI-01`, listed once) and a `reason` of 1 to 300 printable characters. A disabled item reports the outcome `disabled` with the reason, and the scanner findings linked to it stay in the report. Any other value, an unknown depth or aspect, an ID that is not in the catalog, or a missing or overlong reason is rejected before the host check or any retrieval.
+The `test_cases` object supports two optional fields:
 
-An organization profile can name verification items in `test_cases.required` and aspects in `test_cases.required_aspects`. A scan profile that disables a required item is refused before the run state is created and before any model call, with a message naming the ID. Required aspects are verified at every depth in addition to those the scan profile selects; a scan profile cannot remove them, even with `false`. Only the operator's profile files can change depth settings or verification; a profile inside an assessed repository is rejected.
+- `aspects`: a nonempty selection of `AuthN`, `AuthNRoutes`, `SessionMgmt`, `AuthZ`, `InputVal`, `DataProt`, and `AI`. It applies to depths whose `verify` the scan profile does not set. Omit it to keep depth defaults. `SessionMgmt` is accepted but not investigated yet.
+- `disable`: catalog items to skip, each with a unique `id` and a `reason` of 1–300 printable characters. The report marks the item `disabled` and retains linked scanner findings.
+
+Invalid settings, unknown depths or aspects, unknown catalog IDs, and invalid reasons fail before the host check or repository retrieval.
+
+An organization profile can require items through `test_cases.required` and aspects through `test_cases.required_aspects`. Disabling a required item fails before run-state creation or model calls. Required aspects run at every depth and cannot be removed by a scan profile, even with `test_cases: false`. Profiles inside assessed repositories are rejected.
 
 ## Save an abuse-case selection
 
@@ -198,7 +217,9 @@ abuse_case_files:
   - policy/payment-cases.yml
 ```
 
-Paths are relative to the selected repository root, regardless of where the profile lives. The files may be anywhere inside that repository, must be admitted YAML files, and currently require a single-repository assessment. Passing one or more `--abuse-case-file` options replaces the profile list. An empty profile list selects no extra files; it does not disable automatically discovered or organization cases. Explicit selections enable verification even at quick depth, within the normal spending and case limits. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for case authoring and compatibility paths. `profiles show` and `validate` check the path declarations without reading case contents; the assessment validates those files against its admitted source snapshot.
+Abuse-case paths are relative to the selected repository root. They must identify admitted YAML files and currently support one repository per assessment. Repeat `--abuse-case-file` to replace the profile list. An empty list adds no files; it does not disable automatic or organization cases.
+
+Explicit file selections enable verification even at quick depth, within spending and case limits. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for the format. `profiles show` and `validate` check path declarations without reading case contents; the assessment checks the files in its captured source.
 
 ## Adjust models for individual tasks
 
@@ -297,6 +318,6 @@ The private assessment state stores the resolved profile, including each role's 
 
 Runs created before profile snapshots were introduced cannot resume through the new profile path. Start a new assessment when Analyzer reports this incompatibility. Existing `--profile claude`, `--profile codex`, and compatible legacy `--host` commands remain supported for new runs.
 
-`test_cases` and the scan profile's `depths`, `check_abuse_cases`, and `skip_abuse_cases` are part of the saved configuration as well, with the aspects in effect for the run's depth. Changing it, including its aspects or disabled items, requires a new run. Snapshots without it count as `false`, so a run started before the per-depth defaults existed resumes at quick depth but needs a new run at standard or thorough depth, whose default now verifies aspects.
+Saved configuration includes `test_cases`, depth settings, requested and skipped abuse cases, and the effective verification aspects. Changing them requires a new run. Older snapshots without these settings count as `false`: they can resume at quick depth, but need a new run at standard or thorough depth because those defaults now enable verification.
 
 `max_parallel` is part of the saved configuration. Changing it requires a new run. Snapshots created before this setting was recorded require a new run through the profile path; existing reports remain readable.

@@ -1,6 +1,8 @@
 # Provider connections
 
-`assess` now checks provider setup before cloning. Use `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json` for a separate check with no generation. LiteLLM checks its authenticated model list; Bedrock checks credential format and TLS only, leaving server authentication and model access unverified. `preflight --test-model --budget USD` explicitly authorizes one separate primary-model generation test with a synthetic prompt. See [preflight checks and limitations](security-assessment.md#preflight-checks).
+`assess` checks provider setup before cloning. To check separately without generating text, run `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json`. LiteLLM checks its model list with your key. Bedrock checks only credential format and TLS, leaving server authentication and model access unverified.
+
+`preflight --test-model --budget USD` authorizes one separate generation test using a synthetic prompt and the primary model. See [preflight checks and limitations](security-assessment.md#preflight-checks).
 
 Full assessments can use a LiteLLM gateway or the Amazon Bedrock Converse API. Both adapters have offline transport and controller tests; neither has passed live assessment qualification. The requirements audit and focused analyst keep their existing provider options.
 
@@ -28,7 +30,9 @@ appsec-analyzer assess --repo /path/to/project --profile "lite claude" --budget 
 
 `--profile lite --model "lite claude"` is equivalent for a new run. The prefix selects LiteLLM; `claude` selects the `lite.models.claude` entry in the connection file, whose `model` value is sent to the gateway. It does not invoke Claude CLI. An explicit model option applies to all roles; use a model profile for different gateway models per role. A prefix conflicting with an explicitly selected provider is rejected.
 
-Set `deployment_id` to the exact deployment identifier returned by `x-litellm-model-id`. Analyzer requires that header to match and requires a finite nonnegative USD charge in `x-litellm-response-cost`; it does not substitute OpenAI prices or treat missing charges as zero. The counted cost is the higher of that charge and the configured token rates, so a gateway without prices that reports zero still counts against the budget. An unexpected fallback deployment or missing accounting cannot produce an accepted analysis result. Analyzer sends `num_retries: 0`, the higher-priority `x-litellm-num-retries: 0` header, and `disable_fallbacks: true` so its controller owns retries and model selection. Verify your gateway version honors these options on Responses requests and configure its virtual-key budget consistently with the authorized limit. Analyzer's limits apply to its own requests, not hidden upstream retries or shared account spending.
+Set `deployment_id` to the exact value returned in `x-litellm-model-id`. Analyzer rejects a different deployment or a missing, negative, or nonfinite charge in `x-litellm-response-cost`. It counts the higher of the reported charge and the configured token cost. A reported zero therefore does not bypass budget accounting.
+
+Analyzer requests no gateway retries or fallbacks, using `num_retries: 0`, `x-litellm-num-retries: 0`, and `disable_fallbacks: true`. Verify that your gateway honors these settings for Responses requests, and align its virtual-key budget with your approved limit. Analyzer can limit its own requests; it cannot control hidden upstream retries or shared account spending.
 
 DNS must resolve only to public addresses. For a gateway on a private network, explicitly set `pinned_ip` to its reviewed RFC 1918 or IPv6 ULA address. TLS still verifies the configured hostname. Loopback, link-local, metadata and other special addresses are rejected. Redirects are not followed. No repository file or model answer can change the destination.
 

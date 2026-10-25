@@ -8,7 +8,7 @@ appsec-analyzer assess --repo /path/to/project --profile codex --assessment-dept
 appsec-analyzer assess --repo /path/to/project --profile claude --assessment-depth quick
 ```
 
-`assess` defaults to your scan profile `default`, if you created one, otherwise to `claude`, and to `standard`. With `--non-interactive`, `assess` requires an explicit profile or legacy host selection. `claude` and `codex` use a USD 20 budget; `codex-cli` uses ChatGPT plan allowance with local call and time limits. For `claude` and `codex`, override the amount with `--budget USD` or define a budget, also for single depths, in your own scan profile. See [scan and model profiles](profiles.md) for file locations, per-role settings, output formats, report attributes, and examples.
+`assess` uses standard depth and your scan profile `default`, if present, otherwise `claude`. Non-interactive runs require an explicit profile or compatible host selection. The `claude` and `codex` profiles default to USD 20; change that with `--budget USD` or a scan profile. Codex CLI uses ChatGPT plan allowance with local call and time limits. See [scan and model profiles](profiles.md) for settings and examples.
 
 ## Codex profile
 
@@ -24,7 +24,9 @@ These defaults apply to every role except `recon_scanner`, which uses `gpt-luna`
 
 By default, requests omit `max_output_tokens`. Analyzer imposes no cap below the model maximum. An explicit limit is optional and includes both reasoning and visible output tokens. Incomplete answers caused by that limit fail with `output_token_limit`.
 
-Each request is capped at 240,000 bytes, below the catalog models' 272,000 input-token long-context price threshold. Source packets are sized to that cap after role instructions, the output contract and JSON escaping, so large components can need more model exchanges than on the Claude CLI. Before sending it, the adapter reserves the cost of bounded input plus the configured output limit or model maximum. For the default Sol model, the dated snapshot uses a conservative USD 2.50 per million input tokens, including a possible cache-write charge, and USD 10 per million output tokens. A large reservation can stop a call even when its eventual response would have been shorter. The total authorized USD budget still applies.
+Each OpenAI request is limited to 240,000 bytes, including instructions, the output contract, and JSON escaping. That is below the catalog’s 272,000 input-token threshold for long-context pricing. Large components can therefore need more exchanges than with Claude CLI.
+
+Before a call, Analyzer reserves the cost of its allowed input and output. It uses your output limit, or the model maximum if none is set. The catalog snapshot for the default Sol model uses conservative rates of USD 2.50 per million input tokens, including possible cache-write charges, and USD 10 per million output tokens. A reservation can prevent a call even if its eventual answer would be short. The total approved budget still applies.
 
 An OpenAI `--model` value must match the selected survey model or its requested alias. Claude role flags and `--reasoning-model` are rejected on this adapter; use a model profile for per-role OpenAI settings. Before a paid run, check the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [pricing table](https://developers.openai.com/api/docs/pricing).
 

@@ -2,12 +2,7 @@
 
 To include your organization's profile in an internal installation and select it automatically, use a separate organization distribution. The [packaging guide](organization-distributions.md) includes a complete example, wheel builds, offline installation checks and CI instructions. The upstream engine remains a separate pinned dependency.
 
-An organization profile supplies assessment defaults such as depth, selected
-exports, budget guardrails, context documents, actors, and requirements. The
-engine validates a selected profile against
-[`org-profile.schema.yaml`](../schemas/org-profile.schema.yaml). The inherited
-format identifier is `appsec-advisor.org-profile/v2`; it names the file
-contract, not a dependency on an Advisor checkout.
+An organization profile sets defaults for depth, exports, budget limits, context documents, actors, and requirements. Analyzer validates it against [org-profile.schema.yaml](../schemas/org-profile.schema.yaml). The format name `appsec-advisor.org-profile/v2` identifies the file contract; it does not require an Advisor checkout.
 
 Select an existing local profile explicitly:
 
@@ -16,18 +11,9 @@ appsec-analyzer assess --repo /checkout --host claude-cli --budget 20 \
   --org-profile /private/policy/org-profile.yaml --preset release-review
 ```
 
-`--no-org-profile` disables profile selection for that run. The profile is an
-operator input outside the analyzed checkout; source files cannot choose a
-host, provider credential, endpoint, model, or profile. CLI flags take
-precedence over profile defaults where the resolver supports both. Invalid
-profiles stop configuration resolution. Source and output controls still apply
-to the assessment.
+`--no-org-profile` disables profile selection for that run. Keep the profile outside the analyzed checkout. Repository content cannot choose a host, credential, endpoint, model, or profile. CLI flags override supported profile defaults. Invalid profiles stop configuration resolution; source and output checks still apply.
 
-The current standalone CLI does not install organization plugins, execute
-Claude Code hooks, or expose skill toggles. Do not rely on those keys as
-Analyzer enforcement points. Keep profile context documents and secrets out
-of the analyzed repository; any selected context sent to a model should be
-reviewed by the operator.
+The standalone CLI does not install organization plugins, run Claude Code hooks, or expose skill toggles. Those profile keys do not enforce Analyzer policy. Keep profile context and secrets outside the analyzed repository, and review context before sending it to a model.
 
 ## Depth defaults
 
@@ -44,7 +30,7 @@ Defaults are not binding. To make a security aspect binding, use `test_cases.req
 
 ## Business abuse cases
 
-Business abuse cases express rules that source patterns cannot settle alone. Select a repository-owned YAML file with `--abuse-case-file PATH`, or save its repository-relative path in a scan profile's `abuse_case_files` list. No particular directory is required. The former `docs/security/abuse-cases/` and `.appsec/abuse-cases/` locations remain discoverable for compatibility. A case can name legitimate exceptions and questions that only an owner can answer. The verifier cites admitted source; an unresolved case is not reported as a pass. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for selection and limits.
+Business abuse cases describe actions the application must prevent. Select a repository YAML file with `--abuse-case-file PATH`, or list its repository-relative path under `abuse_case_files` in a scan profile. No special directory is required. Earlier locations remain supported. A case can list legitimate exceptions and questions for the owner. Verification cites checked source; an unresolved case never counts as a pass. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for the format and limits.
 
 ```yaml
 schema_version: 2
@@ -63,8 +49,4 @@ abuse_cases:
 
 An organization profile can add cases with `ORG-AC-NNN` IDs through `abuse_cases.add`, a glob relative to the organization profile's directory, for example `abuse_cases: {add: "abuse-cases/*.yaml"}`. This provides organization-owned cases outside the source repository. Selection is bounded by assessment depth and the packaged case limits. See the archived guide for the full field semantics and source matching rules.
 
-For the original profile field explanations and plugin migration context, see
-the [archived Advisor guide](history/advisor/org-profiles.md). Its plugin
-layouts and commands are historical, not instructions for this package. See
-[configuration](configuration.md) for the current public command and
-[model selection](model-selection.md) for host qualification limits.
+See the [archived Advisor guide](history/advisor/org-profiles.md) for original field definitions and migration context. Its plugin commands are historical. Use [configuration](configuration.md) for current commands and [model selection](model-selection.md) for provider limits.

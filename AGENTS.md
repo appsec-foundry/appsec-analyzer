@@ -12,6 +12,8 @@ Record every edit to requirements.md or the acceptance contract, including edito
 
 Keep the [README](README.md), affected current guides, CLI help, and installed entry skill consistent. Follow [documentation style](docs/internal/documentation-style.md): plain language, one source line per prose paragraph, and clear prerequisites and limits. Historical documents, proposals, and extraction records are context, not current command references. Do not present planned behavior as a supported feature.
 
+Write documentation in clear, natural language that the intended reader can understand on the first read. Use short, direct sentences and familiar words. Include technical details only when they help readers understand or complete the task, and explain necessary technical terms. Avoid unnecessary prose, repetition, filler, and stock AI phrases. State what matters and what readers need to do.
+
 ## Start new features with a requirement
 
 Agree on a requirement with the user before writing code for a new or extended feature. A feature is a new user outcome or a change to what an outcome in requirements.md promises, such as a new command, analysis, or result, or changed model use, data sent to models or other hosts, or credential use.

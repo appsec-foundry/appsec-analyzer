@@ -1,6 +1,6 @@
 # Audit Artifacts
 
-Files that runtime cleanup MUST preserve. Deleting them breaks post-run audit, SARIF traceability, or incremental T-ID stability.
+Runtime cleanup MUST preserve the files listed here. Removing them breaks later audits, SARIF traceability, or stable threat IDs across incremental runs.
 
 | Path | Purpose |
 |------|---------|
@@ -34,7 +34,7 @@ Files that runtime cleanup MUST preserve. Deleting them breaks post-run audit, S
 | `.appsec-lock.guard` | Persistent serialization inode shared by headless and ordinary lock writers; removing it while a holder is active breaks output ownership |
 | `.appsec-cache/baseline.json` | **Critical** — incremental anchor; deleting forces cold full scan and breaks T-ID stability |
 
-Canonical enforcement: `scripts/runtime/runtime_cleanup.py` (the cleanup script must never list these), drift-guarded by `tests/test_runtime_cleanup.py`.
+`scripts/runtime/runtime_cleanup.py` enforces preservation: these files must never appear in its cleanup list. `tests/test_runtime_cleanup.py` checks that rule.
 
 ## The `.stride-` prefix is shared
 

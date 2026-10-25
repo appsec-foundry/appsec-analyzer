@@ -15,7 +15,7 @@ Copy these files into the repository you assess and adapt them.
 
 ## Requirements catalog
 
-These files form a demonstration catalog informed by OWASP ASVS 5.0.0, the OWASP Top 10:2025, and the OWASP Cheat Sheets. The catalog is not an official OWASP standard.
+The demonstration catalog draws on OWASP ASVS 5.0.0, the OWASP Top 10:2025, and the OWASP Cheat Sheets. It is not an official OWASP standard.
 
 - [`appsec-requirements-example.yaml`](appsec-requirements-example.yaml) is the combined catalog with requirements and blueprints. The requirements audit loads it for `--demo`, and the bundled mock server serves it.
 - [`appsec-requirements-example.requirements.yaml`](appsec-requirements-example.requirements.yaml) carries only the requirements.

@@ -1,12 +1,12 @@
 # Script layout
 
-Runtime modules are grouped by responsibility. The supported user entry is `appsec-analyzer`; direct script commands are internal or maintainer interfaces. The public package in `appsec_analyzer/` owns the application workflows and selects engine resources from the checkout or installed wheel.
+The engine groups modules by responsibility. Users start it through `appsec-analyzer`; direct script commands are for maintainers or internal use. The `appsec_analyzer/` package owns application workflows and locates engine resources in the checkout or installed wheel.
 
 | Directory | Responsibility |
 |---|---|
-| `orchestrator/` | Pipeline transitions, dispatch admission, waves and waiters. |
+| `orchestrator/` | Runs pipeline phases, checks job admission, dispatches batches, and waits for results. |
 | `analyzers/` | Repository discovery, scanners and architecture checks. |
-| `contexts/` | Bounded context construction and projection for analysis. |
+| `contexts/` | Selects and prepares size-limited context for analysis roles. |
 | `model/` | Canonical model construction, enrichment, ranking and queries. |
 | `renderers/` | Report composition, diagrams, fragments and console summaries. |
 | `exporters/` | HTML, PDF, SARIF and Threat Dragon output. |

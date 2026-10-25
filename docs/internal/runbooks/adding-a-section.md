@@ -2,7 +2,7 @@
 
 Follow this procedure to add a report section, such as "Cloud Posture". Changes to an existing section's body do not require a new registry entry.
 
-Five files must be touched in sequence. Skipping any one of them either (a) silently strips the new section out of the rendered Markdown or (b) breaks a downstream validator. The same five files own the registry maps documented in [`schema-invariants.md` §4f](../contracts/schema-invariants.md#4f-fragment-registry-maps--single-source-of-truth).
+Update the five files below in order. Missing a step can remove the section from rendered Markdown or break validation. These files also own the [fragment registry maps](../contracts/schema-invariants.md#4f-fragment-registry-maps--single-source-of-truth).
 
 ## 1. Declare the section in the contract
 

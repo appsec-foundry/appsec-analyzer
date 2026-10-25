@@ -1,6 +1,6 @@
 # Combined assessment fixture E2E
 
-This check runs a live combined assessment over three fresh local checkouts made from `tests/fixtures/multi_repo_system/`. No checkout carries a threat model, so the run must discover every service, connection and finding itself. It costs model tokens; run it only when a release or a change to the combined assessment needs live evidence.
+This live check assesses three fresh local checkouts copied from `tests/fixtures/multi_repo_system/`. They contain no threat models, so the run must discover services, connections, and findings. It makes model calls. Run it only with an authorized budget when a release or combined-assessment change needs live evidence.
 
 The in-process test `tests/test_multi_repo_assessment.py` covers the same pipeline with scripted model replies. Only this live run shows whether discovery actually finds the connections.
 

@@ -1,5 +1,7 @@
 # Complete security assessment
 
+Use `assess` to review a system’s architecture, source code, and configuration. It makes model calls and writes a report. Start with [Run an assessment](#run-an-assessment) for examples, or read the startup checks below.
+
 ## Preflight checks
 
 `assess` checks selected local Git roots, remote repository read access and provider setup before cloning repositories or starting analysis. Failures return exit 2 without starting the assessment. Checks run again on resume; a previous success does not guarantee continued access. `--quiet` suppresses progress; failures and generation-test data-use and spending notices remain visible.
@@ -34,13 +36,9 @@ appsec-analyzer preflight --repo /path/to/project --profile codex-cli --test-mod
 
 ## Run an assessment
 
-`appsec-analyzer assess` analyzes one or several local Git checkouts or explicitly selected Git URLs as one
-system. It uses Claude CLI by default, freezes admitted source, runs
-semantic roles, checks their output against canonical contracts, verifies
-evidence, and publishes a report only after validation. The report covers
-components, data flows, trust boundaries, controls, weaknesses, abuse cases,
-prioritized findings, and remediation. Repository evidence is a bounded
-snapshot; production behavior and business intent require human review.
+`appsec-analyzer assess` analyzes one or more local Git checkouts or explicitly selected Git URLs as one system. It uses Claude CLI by default. Analyzer captures a fixed source copy, runs analysis roles, checks their output and evidence, and publishes a report after validation.
+
+The report covers components, data flows, trust boundaries, controls, weaknesses, abuse cases, prioritized findings, and fixes. It describes the captured source. Production behavior and business intent still need human review.
 
 ```sh
 appsec-analyzer assess --repo /path/to/project \
@@ -51,7 +49,7 @@ appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
 
 The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model` (the survey's model), `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
 
-Before model analysis, the startup header groups the effective settings into Run, Scope, and Workflow & results. Run shows the billing mode, a USD budget or subscription call limit, combined depth/time/parallelism settings, and a compact model summary. Models shared by several roles show a role count; single-role assignments keep their role name. Artifacts share one line and long values wrap to the available width. Use `--verbose` for the full role assignments, budget details, and start-check explanation. A skipped trust check remains explicit in both views.
+Before analysis, the startup header shows the effective settings in three groups: Run, Scope, and Workflow & results. It includes billing, budget or call limit, depth, time, parallelism, models, and output formats. Use `--verbose` for individual role models and budget details. Skipped trust checks are always shown.
 
 Scope contains four rows describing the effective profile and CLI settings, followed by the trust-check result. For example, a run with three enabled cases from one explicitly selected file shows:
 
@@ -62,7 +60,9 @@ Coverage: Depends on models, context, depth, and budget
 Excludes: SCA/CVE scanning, comprehensive secret scanning, and runtime testing
 ```
 
-The abuse-case row describes loaded definitions before applicability matching and verification. It includes organization cases only when enabled definitions are loaded, counts enabled repository and explicitly selected cases as user-supplied, and omits disabled or rejected definitions from those sources. An explicitly selected file already discovered in the repository is counted once. With dedicated verification disabled, the row says `Dedicated verification disabled`; with no active definitions, it says `None loaded`. Model-derived cases can be added later at `thorough` depth and are not counted at startup. Loaded case counts do not establish business-logic coverage; the result distinguishes actual checks, unresolved cases, and omitted work. `--quiet` suppresses the terminal header; the structured progress feed retains the scope rows.
+The abuse-case row counts enabled definitions loaded at startup, before Analyzer checks whether they apply. It distinguishes built-in, organization, and user-supplied cases, excludes disabled or rejected cases, and counts each file once. It says `Dedicated verification disabled` when verification is off and `None loaded` when no definitions are active.
+
+Cases derived later by a model at thorough depth are not part of that count. Loaded definitions do not prove that business logic was checked. The result separately lists completed checks, unresolved cases, and omitted work. `--quiet` hides the header; the structured progress feed keeps the scope information.
 
 Supply-chain and secret-handling weaknesses can still be found in source and configuration, and secret masking and result checks remain active. These checks do not replace a dependency vulnerability scan or comprehensive repository and Git-history secret scanning. No tests run against the application itself.
 
@@ -72,23 +72,39 @@ For `claude` and `codex`, the spending limit defaults to USD 20 for `assess`. Us
 
 Control analysis and the survey each process at most two components in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
 
-On a provider rate limit, all new model calls in the assessment wait together; already running calls may finish. Free failures allow up to three retries with delays of 15, 60, and 180 seconds; valid HTTP `Retry-After` delays are respected. Paid failures retain their stricter retry limits. CLI hosts without structured reset metadata use those fallback delays. A wait over three minutes, insufficient remaining time, or exhausted retries pauses the run with exit code 3, including when the affected job is optional. Accepted work is kept. Wait for provider capacity, then rerun the same command with `--resume`; the original deadline and compatibility checks still apply.
+### Rate limits and connection failures
 
-When a provider connection drops or cannot be opened, Analyzer repeats the call after 15 seconds. A failed call without a cost report, such as a Codex subscription call or a failed API call, is repeated at most once, and these paid repeats count toward the stricter retry limits. If the connection stays down for a required job, the run pauses with exit code 3 and keeps accepted work; check connectivity, then rerun the same command with `--resume`. An optional job records a coverage gap instead. Login, quota, certificate, configuration, and request errors are never repeated.
+When a provider rate-limits a call, Analyzer pauses all new model calls. Calls already running may finish. Failures with no charge allow up to three retries after 15, 60, and 180 seconds, or a valid HTTP `Retry-After` delay. Calls that incur a charge have stricter retry limits. CLI providers without structured reset information use the fallback delays.
 
-When an optional model job cannot run within the remaining budget, normal progress output immediately prints a `Coverage gap` warning naming the job's role and the budget reservation. A model failure that uses a fallback is also reported immediately. These messages do not require `--verbose`. Architect Review totals distinguish reviewed, unreviewed, and unresolved findings; abuse-case totals distinguish checked, partially checked, and unchecked candidates. A checked case can still be inconclusive. The phase completion line repeats those totals, and the final run summary lists omitted work. This also applies to `thorough`: a published report does not mean every optional check ran. `--quiet` suppresses live progress.
+The run pauses with exit code 3 if a wait would exceed three minutes, time is insufficient, or retries are exhausted. This also applies to optional jobs. Accepted work is saved. Wait for capacity, then repeat the command with `--resume`. The original deadline and compatibility checks still apply.
+
+If a provider connection drops or cannot open, Analyzer retries after 15 seconds. A failed call without a cost report is retried at most once, including subscription calls. These retries count toward the stricter paid retry limits.
+
+A persistent connection failure pauses a required job with exit code 3 and saves accepted work. Check connectivity, then repeat the command with `--resume`. An optional job records a coverage gap instead. Login, quota, certificate, configuration, and request errors are not retried.
+
+### Progress and diagnostics
+
+If the budget cannot cover an optional model job, progress immediately shows a `Coverage gap` warning with the role and reservation. Failures that use a fallback are also shown without `--verbose`. Phase totals distinguish work that was checked, left unresolved, or skipped. A checked abuse case can still be inconclusive. The final summary lists omitted work. A published report does not mean every optional check ran, even at thorough depth. `--quiet` hides live progress.
 
 Model activity messages reflect the selected host's progress events. Normal progress shows the role, elapsed time and activity; job, repository and call IDs appear only with `--verbose` and in private diagnostics. Codex CLI events show thinking or writing when available, without displaying model text. `No progress update` means the call is still running without a recent update; it does not establish model inactivity or an API problem. Hosts without activity events say that intermediate activity is unavailable. An exceeded time limit remains a warning.
 
 On an interactive terminal, missing-update messages stay in the single refreshed status row, including with `--verbose`. Plain logs print the notice once until the call changes state. Connection interruptions and timeouts remain visible as separate warnings. Codex transport failures use the fixed classifications described in [Codex CLI setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
-Use `--verbose` to show job and call identities and detailed sanitized correction reasons. It also lists, below the coverage statement about program files that belong to no component, the first files of each of the ten largest directories; the report keeps the counts per directory. All full-assessment providers write a private diagnostic feed to `.assessment-work/diagnostics/attempt-*/events.jsonl` under the output directory; verbose startup and the completion summary name the file. It records job outcomes, model-call timing, safe host failure codes, and sanitized validation reasons without prompts, source excerpts, model answers, or raw stderr. Reasons are bounded with an explicit truncation marker; each feed stops at 8 MiB with a warning. A failed diagnostic write warns and leaves the analysis decisions unchanged. Resume creates another attempt directory and preserves earlier diagnostics and Claude host-event streams; `--rebuild` removes the earlier work directory. These records help explain execution and validation failures; they do not prove the semantic correctness of an accepted finding. Inspect any diagnostics before sharing them.
+Use `--verbose` for job and call IDs and sanitized correction reasons. For program files outside all components, it also shows sample files from the ten largest directories. The report keeps directory counts.
+
+Every assessment provider writes private diagnostics to `.assessment-work/diagnostics/attempt-*/events.jsonl` under the output directory. Startup in verbose mode and the completion summary identify the file. It records job outcomes, call timing, fixed failure codes, and sanitized validation reasons. It excludes prompts, source excerpts, model answers, and raw stderr. Reasons have size limits and a truncation marker; the feed stops at 8 MiB with a warning. A write failure warns without changing analysis decisions.
+
+Resume preserves earlier diagnostics and Claude event streams in separate attempt directories. `--rebuild` removes the earlier working directory. Diagnostics explain execution failures; they do not prove that a finding is correct. Inspect them before sharing.
 
 Each analysis job has at most six exchanges for source requests, results and corrections. The host requires a complete draft while room remains for up to two corrections, so source requests cannot consume the whole job budget before validation. A valid draft ends the job immediately. If no result passes validation, the job stops; the error reports used exchanges, source-read rounds and rejected drafts, and the private diagnostics retain those counts and the rejection reasons. A larger overall call budget does not increase this per-job limit.
 
 When repeated model answers fail validation, the stop message names the analysis role, component and batch when available. A source-coverage failure distinguishes a source line that was not read from a decision citing the wrong source. Accepted steps remain saved. With unchanged source and settings and time remaining, retry the same command with `--resume` instead of `--rebuild`; investigate a repeated rejection before retrying again. Diagnostics retain the technical job identities and detailed validation reasons.
 
-Discovery rejects interface quotations that do not match the cited source line, and interface addresses, deployment identities and operations that are absent from those quotations. Correction reasons identify the affected fields together without recording their values. For a quotation mismatch, Analyzer first asks for the affected references alone, using small windows from sources already retrieved by the task. That response can change only their line numbers and literal quotations; it cannot change files or interface claims. The complete corrected result then passes the same schema, source, retrieval and semantic checks. If targeted correction cannot produce a valid result, the existing full-result correction can run within the remaining exchange and correction limits. The model must cite an exact identity value or mark it unknown where the contract permits. Unsupported identity values cannot establish a connection; other independently evidenced service bindings may still resolve one. Required message topics still need evidence. Repeated invalid results can stop the run even when the provider responds successfully.
+Discovery accepts interface claims only when their cited source supports them. It checks quotations, addresses, deployment identities, and operations. Correction messages identify the affected fields without logging their values.
+
+For mismatched quotations, Analyzer first requests corrected line numbers and quotations from small source windows already read. That correction cannot change files or interface claims. The full result then passes the same validation checks. If necessary, a full-result correction can use the remaining exchange allowance.
+
+Connections need evidence for their identity values, or an explicit unknown value where allowed. Unsupported values cannot establish a connection; independently supported bindings may still resolve one. Message topics also need evidence. Repeated invalid replies can stop the run even when the provider itself responds successfully. See the [orchestration contract](internal/contracts/orchestration-actions.md) for execution rules.
 
 If Analyzer code or analysis resources change during a run, a warning explains that results may combine versions and that the assessment continues. If the version check cannot finish, the warning says that a consistent version cannot be confirmed. Keep the Analyzer installation unchanged during assessments; afterwards, use `--rebuild` with a stable installation to regenerate results from one version. Rebuilding discards earlier model work and makes new model calls against your budget or subscription allowance.
 
@@ -98,7 +114,7 @@ Use `--non-interactive` in CI and unattended scripts. Budget questions are also 
 
 Report authoring completes the required Security Architecture section first, then uses the remaining allowance for the Management Summary before requirements commentary. The summary can use less than a full estimated call allowance; the host still enforces its spending limit. If cost, time, call limits, or invalid model output prevent the summary, the report keeps its deterministic verdict and the run summary identifies the replacement.
 
-Trust-boundary classification groups related crossing signals into bounded batches to reduce repeated model calls. Every signal is still accounted for; uncertain crossings remain visible. Detailed control review and threat analysis follow in their own phases. Additional evidence reads or corrections can require further calls, so batching does not guarantee a fixed duration.
+Analyzer groups related trust-boundary signals into limited batches to reduce repeated calls. Every signal is accounted for, and uncertain crossings remain visible. Control review and threat analysis run afterwards. Extra source reads and corrections can still add calls and time.
 
 For OpenAI Responses, choose `--profile codex` and a separate `--assessment-depth`. The profile supplies the connection, model, reasoning, and output cap for that depth, so no `--host` is needed. Claude role overrides do not apply. Existing host and depth-profile calls remain compatible as described in [model selection](model-selection.md).
 
@@ -108,48 +124,21 @@ For OpenAI Responses, choose `--profile codex` and a separate `--assessment-dept
 `--output` must be a private directory (mode 0700). A missing one is created
 that way unless its path leads through a link or into a source checkout.
 
-Without `--output`, results go to the application's private user-data directory
-under `appsec-analyzer/assessments`. An explicit output directory may not be
-inside a selected checkout. The main published files are
-`security-assessment.md` and `security-assessment.yaml`; optional flags request
-SARIF, Threat Dragon, HTML, PDF, or pentest tasks. Exports run after model and
-report validation. Missing external export tools are reported. `--requirements`
-enables requirements checking within this full assessment; it does not invoke
-the independent Requirements Audit.
+### Output and continuation
 
-Interrupted runs retain accepted steps. `--resume` requires compatible source,
-settings, and limits; `--rebuild` discards earlier model work. A source change
-may require a fresh assessment. Without either flag, a new
-scan reuses compatible accepted steps of an unfinished run in the same output.
-What the reused steps cost counts toward the new run's spending or call limit,
-so a higher limit for the new run must cover them too.
-In an interactive terminal it first asks whether to continue that run, start
-such a new scan (the default for Enter or end of input), or rebuild; continuing
-is offered only while the run's limits, deadline, and accounting allow it.
-Keys pressed before the question appears do not answer it, and the chosen start
-is confirmed in one line.
-`--non-interactive`, `--quiet`, `--json`, and CI runs never ask. A continued run's
-header names its start, working time, spending so far, and deadline; a new scan
-names the unfinished run whose accepted steps it reuses, under "Earlier run",
-with that run's working time and spending.
-Both run every phase again, and only steps without a matching accepted result
-call a model: a phase, and in the threat analysis each method, says "taken over
-from the earlier run" once its first step is taken over, the end lines of each
-phase, the survey, and verification say how much came from the earlier run,
-and a component taken from it shows no duration. For a continued run and for a
-new scan that takes over an unfinished run, ELAPSED shows the current attempt
-and, in parentheses, the working time including the earlier attempts or run; a
-phase end line with new costs adds what all results cost so far, those taken
-over included, and the closing line names the total time. Earlier results
-stay in the output until a new run completes; that run removes the ones it did
-not replace. Inspect `status` or `progress`
-with the output directory, request `stop`, and use `results` to verify the
-published files. A deterministic `scan-sources` has no semantic assessment status and
-uses its [own result schema](../schemas/deterministic-scan-result.schema.json).
+Without `--output`, results go to the private user-data directory under `appsec-analyzer/assessments`. An explicit output directory must be outside selected checkouts. The main files are `security-assessment.md` and `security-assessment.yaml`. Optional exports run after model and report validation; missing tools are reported.
 
-The source guide, retained in [history](history/advisor/security-assessment.md),
-explains domain concepts and earlier plugin behavior in detail. Its commands
-and provider statements are historical.
+`--requirements` adds requirements checking to this assessment. It does not run the separate requirements audit.
+
+Interrupted runs keep accepted steps. `--resume` continues with compatible source, settings, limits, and the original deadline. `--rebuild` discards earlier model work. A source change can require a fresh assessment.
+
+Without either flag, a new run can reuse compatible accepted steps from an unfinished run in the same output directory. Their earlier cost or call count still counts toward the new limit. In an interactive terminal, Analyzer asks whether to continue, start a new run with reuse, or rebuild. Enter or end of input chooses the new run. Continuing is offered only while the earlier limits and deadline allow it. Keys pressed before the question do not answer it. Non-interactive, quiet, JSON, and CI runs do not ask.
+
+The header identifies a continued or reused run and shows its earlier time and spending. Every phase runs again, but only steps without a matching accepted result call a model. Progress identifies reused steps and includes their time and costs in totals. Reused components show no new duration. Earlier deliverables remain until the new run completes, which removes files it did not replace.
+
+Use `status` or `progress` with the output directory to inspect a run, `stop` to request cancellation, and `results` to verify published files. The deterministic `scan-sources` command has its [own result schema](../schemas/deterministic-scan-result.schema.json) and no model-assessment status.
+
+The [archived Advisor guide](history/advisor/security-assessment.md) explains earlier concepts and plugin behavior. Its commands and provider statements are historical.
 
 Monetary costs in progress, resumed-run details, verification estimates and the completion summary appear by default only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, retain call and available token counts without monetary costs. `--show-costs` enables cost display for every billing mode, including with `--verbose`; unknown amounts are labelled unavailable rather than estimated or shown as zero. Spending limits and budget-increase authorization remain visible. The flag changes no accounting, saved assessment amounts or model use, and `--quiet` still suppresses live progress.
 
@@ -192,7 +181,7 @@ In a pilot run on Juice Shop, the survey reported that a user can change another
 
 ### How the results come together
 
-While they run, the two methods do not see each other's results. Verification starts from the routes and scanner hits, not from survey findings, because a weakness that two methods find independently is better supported than one a model was asked to confirm. After both have finished, verification findings join the findings register with the survey's and the scanners' findings, and Analyzer compares them by code line and CWE:
+The survey and verification work independently. Verification starts from routes and scanner results, without seeing survey findings. After both finish, Analyzer combines findings and compares source locations and CWE weakness categories:
 
 | Case | What the report shows |
 | --- | --- |
@@ -201,7 +190,11 @@ While they run, the two methods do not see each other's results. Verification st
 | Only verification found the weakness. | A finding of its own, with an ID, a priority, and a mitigation like any other. Its card says "Found by: verification". If no post-check confirmed it, it passes the same evidence review as a survey finding. Confirmed there, it is scored like a survey finding. Refuted there, it stays unscored and is marked "Contradicted by the evidence review" with the review's reason; check the code before you close it. If the review leaves it open, or the budget does not cover the review, it is labelled as unproven and left unscored. |
 | Only the survey found the weakness, or verification did not examine the location. | The survey finding stays unchanged. |
 
-The evidence review of findings that only verification reported runs in the consolidation, with one call or more for each component that has such findings, on the model of the evidence review. It reads the same source the component's verification jobs could read. A model writes a combined finding's title, scenario, and remediation from the texts of its parts and their locations; it receives no source files. This is one more model call in the consolidation, on the model of the merge review. If the call fails, the budget does not cover it, or the text leaves out a part's location, the finding keeps the text of its most severe part and lists the remediation steps of all parts. Findings on neighbouring lines stay separate, because a route table often registers a different route on the next line, and so do verification findings about different routes registered on one line. The same weakness therefore appears twice when the methods anchor it on different lines or label it with CWEs of different families, for example missing authorization in verification and information disclosure in the survey. A refuted survey or scanner finding never absorbs a verification finding.
+Findings reported only by verification receive an evidence review during consolidation. It uses one or more calls per affected component, with the evidence-review model and the same source available to verification.
+
+A separate merge-review call writes a combined title, scenario, and remediation from the findings and their locations. It receives no source files. If the call fails, cannot fit the budget, or omits a location, Analyzer keeps the text of the most severe part and lists every part’s remediation.
+
+Findings on neighboring lines remain separate, as do findings about different routes registered on one line. The same weakness can therefore appear twice if methods cite different lines or unrelated CWE families. A refuted survey or scanner finding never absorbs a verification finding.
 
 ### What each depth verifies
 
@@ -211,9 +204,15 @@ The evidence review of findings that only verification reported runs in the cons
 | standard | yes | `AuthN`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 | thorough | yes | `AuthN`, `AuthNRoutes`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 
-These are the shipped defaults from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth leaves out `AuthNRoutes`, because in a measuring run on Juice Shop this route-by-route check of authentication cost about as much as `AuthZ` and most of its findings repeated what authorization verification, the scanners or the survey already reported. `AI` gets jobs only for components that call a language model: where the code uses a common model SDK for JavaScript or Python, or where the architecture shows a flow from the component to a language model service. In such components the model calls of SDKs in other languages, such as Java, Go, C#, PHP, Bedrock, or LiteLLM, are starting points too, and so are the lines the architecture cites for the flow. Under "Threat analysis methods", the run header says how the scanners, the survey, and verification examine the code, and which aspects verification covers.
+These defaults come from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth omits `AuthNRoutes`: in a Juice Shop measurement, it cost about as much as authorization verification and mostly repeated existing findings.
 
-Each verified aspect adds model jobs after the survey and sends more source code to the model. A component gets one job per aspect, or several when it has more than 40 places to check. It gets no job for an aspect when none of the aspect's items has a place there and the goal item does not apply, so the cost grows with the number of routes and code sites. Before the survey starts, the run names the components it will verify. Before the first verification job, it states the estimated cost of all jobs and whether the remaining budget covers them; jobs with an accepted result of an earlier attempt need no new model call and stay out of the estimate. Until a verification job has finished, the estimate uses the survey's cost per job. If the budget runs out, the remaining jobs do not run, their places record undecidable, and the completion summary and the report mark the aspect incomplete. The progress display counts the verification jobs as part of the threat analysis from its start. Each threat analysis line names its method, Scanners, Survey, or Verify, in a column of its own, and the survey and the verification each have their own start and end. It lists each component once its verification has finished, with its duration unless its result came from an earlier run, however many jobs the component needed, and names the jobs without a result.
+`AI` verification runs only for components identified as calling a language model, through a common JavaScript/Python SDK or an architecture flow. For those components, calls through other SDKs and the source lines cited by the architecture also provide starting points. The startup header lists the selected verification aspects under "Threat analysis methods".
+
+Verification adds model calls and sends further source to the model. Each component gets one job per aspect, split into several jobs above 40 locations. An aspect gets no job where none of its items or goals applies. Costs therefore depend on routes and relevant code locations.
+
+Before the survey, Analyzer names the components selected for verification. Before verification starts, it estimates job costs and says whether the remaining budget covers them. Reused jobs need no new call and are excluded from the estimate. Until a verification job finishes, the estimate uses the survey cost per job.
+
+Jobs that cannot fit the remaining budget do not run. Their locations remain undecidable, and the summary and report mark the aspect incomplete. Progress separates Scanners, Survey, and Verify. It shows each component once verification finishes, its duration unless reused, and any jobs without a result.
 
 ### Configure verification
 

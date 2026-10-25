@@ -45,9 +45,9 @@
 
 #### JWT Issuance
 
-JWTs are issued by `lib/insecurity.ts:issueAuthToken()` after a successful password (or TOTP) verification. The helper signs a `{ id, email, role }` payload with the RSA private key under `lib/insecurity.ts:23`, sets a one-hour expiry, and returns the encoded token to the caller. Both `routes/login.ts` and `routes/2fa/verify.ts` use this single helper, so JWT format and lifetime are uniform across the API.
+After a successful password or TOTP check, `lib/insecurity.ts:issueAuthToken()` creates a JWT containing the user’s ID, email, and role. It signs the token with the RSA private key at `lib/insecurity.ts:23` and sets a one-hour expiry. Login and two-factor verification both use this helper, so API tokens share the same format and lifetime.
 
-The diagram shows the positive issuance path from a verified user record to the encoded JWT returned to the browser:
+The diagram shows how a verified login produces a token for the browser:
 
 ```mermaid
 sequenceDiagram
@@ -67,9 +67,9 @@ sequenceDiagram
 
 **Security assessment**
 
-The intended control is asymmetric signature on a short-lived token. That boundary is unsafe in this codebase because the private key is checked into the repository at `lib/insecurity.ts:23` and the verifier in `lib/insecurity.ts:57` accepts `alg:none` from older `express-jwt`. A correct issuance control would load the key from an external secret store and pin the verifier to `RS256` only.
+The token’s signature should prevent anyone else from creating a valid token. Here, the private key is committed at `lib/insecurity.ts:23`, and the older `express-jwt` verifier at `lib/insecurity.ts:57` accepts `alg:none`, which skips signature verification. Load the key from an external secret store and allow only `RS256` during verification.
 
-The hardcoded key material that breaks the issuance boundary is plainly visible in the source:
+The source contains the signing key:
 
 ```ts
 export const privateKey =
@@ -87,7 +87,7 @@ export const privateKey =
 
 #### Password Reset
 
-Password reset is implemented as a single-step challenge: `POST /rest/user/reset-password` accepts `email`, the answer to a registered security question, and a new password. The route in `routes/resetPassword.ts` looks up the security question via the join with `SecurityAnswers`, compares the supplied answer, and updates the password column directly. No emailed token or rate-limit is involved.
+`POST /rest/user/reset-password` accepts an email address, a security-question answer, and a new password. The handler in `routes/resetPassword.ts` looks up the registered answer through `SecurityAnswers`, compares it, and updates the password. It sends no email token and applies no rate limit.
 
 The diagram shows the intended single-step reset path:
 
@@ -110,7 +110,7 @@ sequenceDiagram
 
 **Security assessment**
 
-The reset boundary depends on the secrecy of the security answer alone. There is no out-of-band confirmation, no rate-limit, and the answer is stored with the same weak MD5 hash as passwords (`models/securityAnswer.ts:18`). A correct reset control would issue a single-use token over a verified channel and rate-limit attempts per account.
+Knowing the security answer is enough to reset the password. There is no separate confirmation or rate limit, and answers use the same weak MD5 hash as passwords (`models/securityAnswer.ts:18`). Use a single-use token sent through a verified channel and limit attempts per account.
 
 **Relevant findings**
 
@@ -123,9 +123,9 @@ The reset boundary depends on the secrecy of the security answer alone. There is
 
 #### Query Construction
 
-Most data access goes through Sequelize models defined in `models/`, which generate parameterised queries by default. Two routes deviate: `routes/login.ts:34` and `routes/search.ts:23` construct raw SQL strings via `models.sequelize.query()`. Product review updates additionally accept a MarsDB selector under `routes/updateProductReviews.ts:24`, which makes the *structure* of the query user-controlled.
+Most database access uses Sequelize models in `models/`, which generate parameterized queries. Login (`routes/login.ts:34`) and search (`routes/search.ts:23`) instead build SQL strings for `models.sequelize.query()`. Review updates accept a user-supplied MarsDB selector at `routes/updateProductReviews.ts:24`, letting callers change the query’s structure.
 
-The product search route illustrates the raw-SQL construction pattern that bypasses the ORM:
+The search route inserts the supplied search text directly into SQL:
 
 ```ts
 models.sequelize.query(
@@ -138,7 +138,7 @@ models.sequelize.query(
 
 **Security assessment**
 
-The control that should separate query structure from user-controlled values is missing on the login, search, and review-update paths. Each concatenates user input into either an SQL string or a MarsDB selector, allowing operator injection. A correct query-construction control would route every dynamic value through `?` bind parameters or a typed selector and reject anything that changes the query shape.
+Login, search, and review updates let user input change database queries. Attackers can supply SQL or query operators that the application then executes. Pass SQL values through `?` bind parameters, and validate selectors so callers cannot alter the intended query structure.
 
 **Relevant findings**
 
@@ -152,11 +152,11 @@ The control that should separate query structure from user-controlled values is 
 
 #### Browser Security Headers
 
-Express applies a partial Helmet configuration in `server.ts:81` that enables `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, and `X-DNS-Prefetch-Control: off`. The set is applied globally before the API router is mounted. The Angular dev server does not add additional headers.
+Express applies Helmet in `server.ts:81` before mounting the API router. It sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, and `X-DNS-Prefetch-Control: off` for all routes. The Angular development server adds no further headers.
 
 **Security assessment**
 
-Helmet's defaults that ship without configuration are absent: `Content-Security-Policy`, `Strict-Transport-Security`, `Referrer-Policy`, and `Permissions-Policy` are not emitted. CSP in particular would constrain the impact of stored XSS in the search-result component. A correct browser-hardening control would enable Helmet's default profile and add a CSP allowlist tuned to the SPA's asset origins.
+The application omits `Content-Security-Policy`, `Strict-Transport-Security`, `Referrer-Policy`, and `Permissions-Policy`. A Content Security Policy could limit the impact of stored XSS in the search-result component. Enable the default Helmet protections and configure a policy that allows the application’s required asset sources.
 
 **Relevant findings**
 

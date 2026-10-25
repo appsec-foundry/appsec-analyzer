@@ -1,8 +1,6 @@
 # Schema Invariants
 
-Detailed schema and pipeline invariants for `threat-model.md` and
-`threat-model.yaml`. Summarised in `AGENTS.md` Rule 4 — this file is the
-authoritative source for the §4a–§4h details.
+This contract defines schema and pipeline rules for `threat-model.md` and `threat-model.yaml`. The sections below give the detailed rules for report content, references, and validation.
 
 ## §4a. Cross-reference labelling invariant
 

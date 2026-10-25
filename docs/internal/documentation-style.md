@@ -5,7 +5,7 @@ Use the [GitHub Docs style guide](https://docs.github.com/en/contributing/style-
 Apply these rules to new or substantively edited prose. Do not reflow unrelated text solely to make an existing file conform.
 
 - Keep each Markdown prose paragraph, including prose in list items, on one source line. Separate paragraphs with one blank line. Use a hard break only when the rendered break carries meaning, never to limit source line length or create visual spacing.
-- Use concise, direct, active language for the intended reader. Prefer one verifiable claim per sentence. Replace promotional claims, filler introductions, and idioms with the behavior, evidence, or action the reader needs.
+- Write for the intended reader in clear, natural language. Use short, direct sentences, familiar words, and active verbs. Include technical details only when readers need them, and explain necessary terms. Remove repetition, filler, promotional claims, and stock AI phrases. State the behavior, evidence, or action the reader needs.
 - Use periods to separate claims, colons to introduce explanations, and parentheses for short asides. Avoid em dashes in explanatory prose; retain them in literal output, quotations, and contracted formats. Use en dashes for ranges.
 - Explain what readers can configure, observe, or do. Link to the authoritative contract or implementation for algorithms and internal details. Keep limitations and recovery instructions; remove repeated rationale and development history from current usage guides.
 - Qualify benchmark conclusions by their measured scope. Use emphasis for actionable warnings and labels, not for claims of quality or importance.

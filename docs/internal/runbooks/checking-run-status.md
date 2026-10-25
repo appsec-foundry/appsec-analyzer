@@ -8,7 +8,7 @@ appsec-analyzer progress --output /private/assessment
 appsec-analyzer results --output /private/assessment
 ```
 
-`status` returns the run identity, lifecycle state, accounting, and deliverable names. `progress` returns bounded recent events. After successful cleanup the feed may be absent; `feed_available: false` with the final state is expected. `results` requires completion and verifies every recorded deliverable digest. A changed or symlinked artifact is rejected.
+`status` shows the run ID, state, accounting, and deliverable names. `progress` returns recent events within its size limit. After successful cleanup, an absent feed with `feed_available: false` is expected; check the final state. `results` requires a completed run and verifies each deliverable against its recorded hash. Changed or symlinked files are rejected.
 
 To request a stop:
 

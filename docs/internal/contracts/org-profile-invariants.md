@@ -2,7 +2,7 @@
 
 Scope: the format and resolver are retained by Analyzer, but the plugin build blocks below describe Advisor-only integration. The named plugin packager, hooks, and smoke tool are absent from this repository. Use [current organization profiles](../../org-profiles.md) for supported standalone behavior; do not recreate excluded plugin components merely to satisfy this inherited routing table.
 
-This document maps org-profile changes across schema, resolution, packaging, runtime consumption, and tests. `schemas/org-profile.schema.yaml` is the structural source of truth; this file owns the cross-layer routing rules.
+This document lists the schemas, resolvers, packaging code, runtime readers, and tests affected by organization-profile changes. `schemas/org-profile.schema.yaml` defines the file structure; this contract defines how fields pass between those layers.
 
 ## Standalone organization distributions
 

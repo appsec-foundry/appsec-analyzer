@@ -59,7 +59,7 @@ Validate the resulting YAML against the [catalog schema](../schemas/requirements
 python3 scripts/requirements/requirements_state.py --validate /private/requirements.yaml --strict
 ```
 
-Sources default to `outputs: ["catalog"]`. Sources describing observable application behavior can explicitly select `openspec` or `specdd`; `--format openspec|specdd|all` narrows the configured formats and does not select undeclared source outputs. Only mandatory requirements enter those functional-spec exports. The [examples](../examples/README.md) show the output shapes.
+Sources default to `outputs: ["catalog"]`. For sources that describe observable application behavior, you can also select `openspec` or `specdd`. The `--format openspec|specdd|all` option filters the configured outputs; it cannot enable a format the source does not declare. Only mandatory requirements enter functional-spec exports. See the [examples](../examples/README.md) for output formats.
 
 The harvester also supports blueprint sources and per-source `catalog_file` outputs. Those files provide supporting guidance; they are not independent audit catalogs unless they contain requirements.
 

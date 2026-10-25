@@ -1,50 +1,50 @@
 # Security policy
 
-AppSec Analyzer reads source code and generates sensitive security reports. This policy describes the standalone engine; the [earlier Advisor policy](docs/history/advisor/SECURITY.md) is historical.
+AppSec Analyzer reads source code and creates reports that can reveal security weaknesses. This policy explains what data leaves your machine, how Analyzer limits access, and how to handle its results. The [earlier Advisor policy](docs/history/advisor/SECURITY.md) is kept for reference.
 
 ## Version and reporting
 
-The current engine version is `0.1.0a0`, an unpublished development preview. Offline tests do not establish production readiness, live host isolation, or model quality. There is no support commitment for the inherited Advisor `0.10.x-beta` version in this repository.
+Version `0.1.0a0` is an unpublished development preview. Offline tests do not show that Analyzer is ready for production, that a real model host enforces access limits, or that its findings are reliable. This repository provides no support commitment for the earlier Advisor `0.10.x-beta` version.
 
-Do not report vulnerabilities through public issues. Use the repository's private security-advisory channel where available, or contact the repository maintainers privately. Include the affected revision, impact, and reproduction steps without real credentials or confidential assessment data. This repository does not define a response-time or patch-release guarantee.
+Report vulnerabilities privately through the repository's security-advisory channel, where available, or contact the maintainers directly. Include the affected revision, impact, and steps to reproduce the problem. Leave out real credentials and confidential assessment data. There is no guaranteed response time or patch release date.
 
 ## Data use by operation
 
 | Operation | Source and external access | Local result |
 | --- | --- | --- |
-| `scan-sources` | Deterministic inspection; no model host or model credentials needed. An explicitly selected Git URL requires network retrieval. | Summary or JSON, optionally `scan-result.json`. Findings are unverified observations. |
-| `score REPO` | Four deterministic scanners inspect an admitted redacted source snapshot; no model calls. Explicit Git URLs require network retrieval through the same checkout boundary. | Text, JSON, or YAML on stdout; no files in the target checkout. A limited indication with visible coverage and unverified observations. |
-| `assess` | Admitted source excerpts, architecture/context packets, and model responses pass through the selected Claude CLI or OpenAI host. | Validated `security-assessment.md`, YAML, figures, and requested exports. |
-| `audit-requirements` | Selected catalog text, filenames, and bounded source excerpts pass through Claude CLI. | Separate requirements verdict and optional Markdown report. |
-| `analyst` analysis / answer | Scoped source or supplied design, context, and answers pass through Claude CLI. Optional exploration uses a redacted source copy. | Private analyst job state and requested result files. |
-| `status`, `progress`, `stop`, `results` | Local state operations; no model analysis. | Versioned lifecycle response or cancellation request. |
+| `scan-sources` | Runs fixed checks without a model or model credentials. Downloads source when you select a Git URL. | Summary or JSON, optionally `scan-result.json`. Observations are unverified. |
+| `score REPO` | Four scanners read a checked source copy with recognized secrets masked. No model calls. Downloads source when you select a Git URL. | Text, JSON, or YAML on stdout. Writes nothing to the target checkout. Shows coverage and unverified observations. |
+| `assess` | Sends selected source excerpts, architecture information, context, and model responses through the selected model host. | Validated `security-assessment.md`, YAML, figures, and requested exports. |
+| `audit-requirements` | Sends selected requirements, filenames, and limited source excerpts through Claude CLI. | Separate requirements verdict and optional Markdown report. |
+| `analyst` analysis / answer | Sends selected source, designs, context, and answers through Claude CLI. Optional exploration reads a source copy with recognized secrets masked. | Private job state and requested result files. |
+| `status`, `progress`, `stop`, `results` | Reads or updates local run state. No model analysis. | Run information or a cancellation request. |
 
-Source slices use the engine's secret masking, but pattern detection cannot guarantee removal of every sensitive value. Supplied business context, designs, catalogs, and answers may themselves contain sensitive information. Review the data classification and selected provider arrangement before sending them. A scan does not authorize sharing its results.
+Analyzer masks recognized secrets in source excerpts, but can miss sensitive values. Business context, designs, catalogs, and answers can also contain confidential information. Check which data your organization allows you to send to the selected provider before starting. Review results separately before sharing them.
 
-The OpenAI adapter targets the fixed Responses endpoint and requests `store: false`; that request is not a verified retention guarantee. Claude CLI uses the operator's configured authentication and service arrangement. Retention, account terms, and any provider routing must be verified by the operator. The public gateway route remains unavailable. See [configuration](docs/configuration.md) and [host qualification](docs/model-selection.md).
+The OpenAI adapter sends requests to the fixed Responses endpoint with `store: false`. That setting alone does not verify how the provider retains data. Claude CLI uses your configured login and service agreement. Check the provider's retention terms, account terms, and routing. The legacy generic gateway is unavailable through the public CLI. See [configuration](docs/configuration.md) and [provider support and limits](docs/model-selection.md).
 
 ## Source and execution boundaries
 
-Repositories are untrusted by default. The full assessment and deterministic scan perform admission checks, freeze selected source, reject escaping paths and links, and verify source consistency. Source content and model replies cannot select an arbitrary tool, executable, credential, or output path. Structured source requests are validated and served by the controller from admitted files.
+Analyzer treats repositories as untrusted. Before an assessment or source scan, it checks the selected files and captures a fixed copy. It rejects paths and links that escape the repository and checks that the source has not changed. Repository text and model replies cannot choose arbitrary tools, programs, credentials, or output paths. The controller checks model requests for source and returns only approved files.
 
-The separate `score` command also admits and redacts source, confines scanners to a private regular-file snapshot, and rechecks source consistency before printing. Its score is not a risk rating or evidence of safety. Source-policy identity and coverage fingerprints limit comparison to compatible commits of one repository; see [security scoring](docs/security-score.md).
+The `score` command also checks source, masks recognized secrets, and gives scanners a private copy containing only regular files. It rechecks the source before printing. The score is not a risk rating or proof of safety. Compare results only for commits of the same repository with matching source rules and check coverage; see [security scoring](docs/security-score.md).
 
-Full assessments and audits use model sessions without executable tools. The Claude transport requests isolation from project settings, plugins, hooks, MCP configuration, and session persistence. Optional focused analyst exploration is a separate read-only mode. These controls have offline tests; the real host's enforcement still needs the live negative-control qualification in `tests/test_host_isolation_live.py`.
+Models used for full assessments and audits receive no executable tools. The Claude connection requests sessions that ignore project settings, plugins, hooks, MCP configuration, and saved sessions. Optional exploration by the focused analyst uses a separate read-only mode. Offline tests cover these controls. Checking whether the real host enforces them still requires the live tests in `tests/test_host_isolation_live.py`, including attempts to bypass the limits.
 
-`--trust-mode trusted` relaxes the repository-configuration preflight. It does not grant model actions additional authority. Use it only after reviewing the selected source configuration. Running Analyzer does not execute a target application's tests or install its packages.
+`--trust-mode trusted` relaxes the initial repository-configuration check. Use it only after reviewing that configuration. Models retain the same action limits. Analyzer does not run the target application's tests or install its packages.
 
-Explicit Git URLs are handled separately from URLs found in repository content. Remote checkout code restricts protocols, pins the selected connection address, disables redirects and repository hooks, and bounds retrieval. It may use operator-selected Git credentials or a credential helper. Keep credentials outside source, command-line URLs, and reports.
+Analyzer downloads a Git repository only when you explicitly select its URL. It restricts connection protocols, fixes the selected connection address, disables redirects and repository hooks, and limits the download. It can use your selected Git credentials or credential helper. Keep credentials out of source, command-line URLs, and reports.
 
 ## Local storage and sharing
 
-Default assessment and analyst state are outside the analyzed checkout in the user's Analyzer data/state directories. Managed state uses private files; callers should select private external output directories. `--keep-runtime-files` retains sensitive intermediate material and requires mode 0700 for an explicit output directory.
+By default, assessment and analyst state are stored in your Analyzer data and state directories, outside the analyzed checkout. Analyzer creates private state files. Choose a private directory outside the checkout for your output. `--keep-runtime-files` keeps sensitive intermediate files; an explicit output directory must then have mode `0700` (access for its owner only).
 
-Reports, source excerpts, filenames, supplied context, and diagnostics can disclose architecture and vulnerabilities. Inspect them before sharing. `results` verifies recorded deliverable hashes; it does not establish that a report is suitable for public disclosure.
+Reports, source excerpts, filenames, context, and diagnostics can reveal architecture and vulnerabilities. Inspect them before sharing. The `results` command checks whether deliverables match their recorded hashes. It does not check whether they are safe to publish.
 
-The full assessment has secret-redaction and publication checks. The separate audit validates schemas and source citations and rejects its JSON and Markdown artifacts when recognized unmasked secrets remain. Its verdict records the exact catalog digest and admitted source inventory. Review reports before distribution for sensitive information outside the recognized secret patterns.
+Full assessments mask recognized secrets and check output before publication. The separate audit checks the result format and source citations. It rejects JSON and Markdown output if recognized secrets remain unmasked. Its verdict records the catalog hash and the files analyzed. Review reports for other sensitive information before distributing them.
 
 ## Qualification limits
 
-The complete inherited test suite and release targets have unresolved extraction failures. Use the [contributor guide](CONTRIBUTING.md) for actual checks and the [review record](docs/internal/analysis/repository-review-2026-10-17.md) for open issues. A successful fake-host assessment does not demonstrate protection against every malicious repository, provider behavior, or production-only control.
+The inherited test suite and release targets still have failures from the engine extraction. See the [contributor guide](CONTRIBUTING.md) for supported checks and the [review record](docs/internal/analysis/repository-review-2026-10-17.md) for open issues. A passing assessment with a fake model host does not verify real provider behavior or every protection needed in production.
 
-The retained mock server is a development tool for synthetic data. Keep real credentials, source excerpts, and confidential findings out of it.
+Use the retained mock server only for development with synthetic data. Keep real credentials, source excerpts, and confidential findings out of it.

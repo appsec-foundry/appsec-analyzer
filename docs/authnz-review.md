@@ -1,12 +1,14 @@
 # Authentication and authorization review
 
-`appsec-analyzer authnz-review` reviews one local Git checkout without requiring a previous assessment. It inventories routes, scans authentication checks, confirms supported authorization patterns statically, and asks a specialized model to reason over those signals. It does not execute the application, make requests to a pentest target, or update an existing assessment.
+`appsec-analyzer authnz-review` checks authentication and authorization in one local Git checkout. It needs no previous assessment. Scanners identify routes, login checks, and supported permission checks. A specialized model reviews those results. The command does not run the application, send requests to a pentest target, or change an existing assessment.
 
 ## Prerequisites and data use
 
 Install and authenticate Claude CLI as described in [configuration](configuration.md). This focused command currently supports only `claude-cli`, independently of full-assessment provider profiles and organization presets. It defaults to model `sonnet` and a USD 5 maximum; use `--model MODEL` and `--budget USD` to select another model or budget. The budget must be finite and at least USD 0.05. Authorize spending before starting a model-backed review.
 
-The command sends masked scanner evidence, route metadata, and any explicitly selected requirements catalog to Claude CLI. Source files are scanned from a bounded, private snapshot; repository instructions, hooks and tools are not loaded by the model. A model receives no tools or direct repository access. The host uses the existing bounded exchange and budget accounting. Each scanner has a 120-second timeout; reasoning has a 600-second limit and at most six exchanges, including bounded corrections. Budget exhaustion can stop it earlier. Live quality and host isolation remain unqualified; offline tests establish pipeline behavior only.
+The command sends masked scanner evidence, route information, and any explicitly selected requirements catalog to Claude CLI. Scanners read a private source copy with size limits. The model receives no tools or direct repository access, and loads no repository instructions or hooks.
+
+Each scanner has a 120-second timeout. Model reasoning has a 600-second limit and at most six exchanges, including corrections; the budget can stop it earlier. Live quality and host isolation have not been verified. Offline tests check pipeline behavior only.
 
 ## Run a review
 
@@ -29,7 +31,9 @@ mkdir -m 700 /private/authnz-review
 appsec-analyzer authnz-review --repo /path/to/project --budget 5 --output /private/authnz-review
 ```
 
-Replace `/private/authnz-review` with a fresh destination whose parent exists. Saving defaults to `authnz-review.md`, `authnz-review.json` and `authnz-review.yaml`. `--outputs markdown json yaml pentest-tasks` selects saved formats and implies saving even without `--save`. The hidden `.authnz-report.json` and `.route-inventory.json` files retain validated inputs for later pentest export. The public JSON and YAML share `interface_version: 1`, `kind: authnz-review`, source provenance, completion and gate status, limits, and the canonical report under `report`.
+Replace `/private/authnz-review` with a fresh destination whose parent exists. By default, saving creates `authnz-review.md`, `authnz-review.json`, and `authnz-review.yaml`. `--outputs markdown json yaml pentest-tasks` selects formats and enables saving without `--save`.
+
+The hidden `.authnz-report.json` and `.route-inventory.json` files support later pentest export. Public JSON and YAML use `interface_version: 1` and `kind: authnz-review`. They include source identity, completion and gate status, limits, and the validated report under `report`.
 
 ## Export the legacy pentest plan
 
