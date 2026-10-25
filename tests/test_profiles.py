@@ -137,7 +137,7 @@ def test_public_max_parallel_reaches_controller_from_profile_or_cli(
 def test_test_cases_default_follows_the_depth(home):
     plain = profiles.resolve_scan("claude")
     assert plain["settings"]["test_cases"] == {
-        "aspects": ["AuthN", "AuthZ", "InputVal", "DataProt", "AI"],
+        "aspects": ["AuthN", "AuthZ", "InputVal", "AI"],
         "disable": [],
     }
     assert plain["origins"]["settings"]["test_cases"] == "analyzer default for standard depth"
@@ -294,7 +294,7 @@ def test_test_case_object_is_normalized_and_keeps_its_own_identity(home):
 def test_a_test_case_object_without_aspects_keeps_the_depth_default(home):
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": {"disable": [REASON]}})
     setting = profiles.resolve_scan("cases")["settings"]["test_cases"]
-    assert setting == {"aspects": ["AuthN", "AuthZ", "InputVal", "DataProt", "AI"], "disable": [REASON]}
+    assert setting == {"aspects": ["AuthN", "AuthZ", "InputVal", "AI"], "disable": [REASON]}
     assert profiles.session_test_cases(setting) == setting
     # Quick depth runs the survey only, so its disables have nothing to apply to.
     assert profiles.resolve_scan("cases", depth="quick")["settings"]["test_cases"] is False

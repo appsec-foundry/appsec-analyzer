@@ -201,10 +201,10 @@ Findings on neighboring lines remain separate, as do findings about different ro
 | Depth | Survey | Verification |
 | --- | --- | --- |
 | quick | yes | none |
-| standard | yes | `AuthN`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
+| standard | yes | `AuthN`, `AuthZ`, `InputVal`, `AI` |
 | thorough | yes | `AuthN`, `AuthNRoutes`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 
-These defaults come from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth omits `AuthNRoutes`: in a Juice Shop measurement, it cost about as much as authorization verification and mostly repeated existing findings.
+These defaults come from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth omits `AuthNRoutes`: in a Juice Shop measurement, it cost about as much as authorization verification and mostly repeated existing findings. It also omits `DataProt`, whose findings mostly overlap the survey's, with few new findings of high severity.
 
 `AI` verification runs only for components identified as calling a language model, through a common JavaScript/Python SDK or an architecture flow. For those components, calls through other SDKs and the source lines cited by the architecture also provide starting points. The startup header lists the selected verification aspects under "Threat analysis methods".
 
