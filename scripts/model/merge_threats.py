@@ -3462,8 +3462,10 @@ def _combine_texts(threats: list[dict], combine) -> None:
     """Rewrite the text of each finding that several methods found from its parts (REQ-040).
 
     ``combine`` receives one request per such finding, with its parts' methods,
-    cited locations and texts and no source, and returns entries with a
-    rewritten title, scenario and remediation. The code keeps every other
+    cited locations and texts, the number of places the finding holds, and no
+    source, and returns entries with a rewritten title, scenario and
+    remediation. Each part cites only its primary location, so without that
+    number a combined text counts parts as places. The code keeps every other
     field. An entry is applied only when its scenario cites every part's
     location; otherwise, and without ``combine``, the finding keeps the text of
     its most severe part with the remediation steps of all parts.
@@ -3486,6 +3488,7 @@ def _combine_texts(threats: list[dict], combine) -> None:
                 "key": f"c-{len(requests) + 1:03d}",
                 "risk": threat.get("risk"),
                 "locations": list(dict.fromkeys(part["location"] for part in cited if part["location"])),
+                "location_count": len({_cited(file, line) for file, line in _locations(threat)} - {None}),
                 "parts": cited,
             }
         )

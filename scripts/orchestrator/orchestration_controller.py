@@ -4811,7 +4811,8 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
     """The Cost rows: the run's totals, then one row per model when several were used.
 
     The tokens and the per-model rows come from what the hosts reported. Calls without a report (reused,
-    failed or stopped calls, hosts that report none) are named, so the rows add up to the total.
+    failed or stopped calls, hosts that report none) are named, so the rows add up to the total, and the
+    token figure then names how many calls it covers.
     """
     from appsec_analyzer.assessment.console import _tokens
 
@@ -4827,7 +4828,8 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
         sum(row.get(key, 0) for key in ("input", "output", "cache_read", "cache_write")) for row in models.values()
     )
     if tokens:
-        parts.append(f"{'≥ ' if unitemised else ''}{_tokens(int(tokens))} tokens")
+        itemised = sum(int(row.get("calls", 0)) for row in models.values())
+        parts.append(f"{_tokens(int(tokens))} tokens" + (f" in {itemised} of them" if unitemised else ""))
     rows: list[tuple[str, str, str | None]] = [("Cost", " · ".join(parts), None)]
     reused = outcome.get("reused_calls") or 0
     if reused:

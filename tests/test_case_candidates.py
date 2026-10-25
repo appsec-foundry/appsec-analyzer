@@ -696,6 +696,63 @@ def test_verification_preloads_a_generated_routes_guard_and_data_model(tmp_path,
     assert all((rid, key[1]) in allowed for key in preload)
 
 
+def _served_job(tmp_path):
+    """The served-model repository as one job's scope, readable sources and architecture."""
+    from runtime.multi_repo_scope import AssessmentScope, RepositoryView
+
+    facts, ext = _served(tmp_path, "import")
+    repo = tmp_path / "repo"
+    files = {path.relative_to(repo).as_posix(): path.read_bytes() for path in repo.rglob("*") if path.is_file()}
+    view = RepositoryView("repo-" + "1" * 16, repo, "b" * 40, "c" * 64, files)
+    scope = AssessmentScope((view,), tmp_path / "output")
+    rid = view.repository_id
+    allowed = frozenset((rid, path) for path in files)
+    envelope = {"incident": [], "adjacent": [], "allowed": allowed, "job_allowed": allowed}
+    architecture = {"route_inventories": {rid: build_inventory(repo)}, "route_middleware": {rid: {}}}
+    component = {"id": "api", "repository_ids": [rid], "paths": [{"repository_id": rid, "path": p} for p in files]}
+    return facts, ext, scope, rid, envelope, architecture, component
+
+
+def test_the_data_models_most_candidates_need_come_first_in_the_preload(tmp_path, catalog, monkeypatch):
+    """When the window cap cuts data models, it drops those fewest candidates need, not those later in path order."""
+    from orchestrator import assessment_test_cases as pilot
+    from runtime.assessment_host import MAX_CONTEXT_BYTES
+
+    facts, ext, scope, rid, envelope, architecture, component = _served_job(tmp_path)
+    case = _case(catalog, "TC-AUTHZ-01")
+    precheck = {case["id"]: cc.starting_candidates(case, "api", facts, [])["candidates"]}
+    # Four candidates need the order model and one the note model, which comes first by path;
+    # eight windows leave the data models one.
+    monkeypatch.setattr(pilot, "MAX_PRELOAD_WINDOWS", 8)
+    preload = pilot._preload(
+        scope, {"existing_controls": []}, precheck, rid, facts, envelope, architecture, [component], MAX_CONTEXT_BYTES
+    )
+    order = [(key[1], key[2]) for key in preload]
+    window = order.index((f"server.{ext}", 1))
+    assert order.index((f"models/order.{ext}", 1)) < window
+    assert (f"models/note.{ext}", 2) not in order[:window]
+
+
+@pytest.mark.parametrize("readable", [True, False])
+def test_a_generated_candidate_names_where_its_data_model_is_defined(tmp_path, catalog, readable):
+    """A job can read a data model the preload left out, but only one of its readable sources."""
+    from orchestrator import assessment_test_cases as pilot
+
+    facts, ext, _, rid, envelope, *_ = _served_job(tmp_path)
+    model = f"models/order.{ext}"
+    allowed = envelope["job_allowed"] - (set() if readable else {(rid, model)})
+    case = _case(catalog, "TC-AUTHZ-01")
+    precheck = {case["id"]: cc.starting_candidates(case, "api", facts, [])["candidates"]}
+    listed = pilot._context_candidates(precheck, rid, facts, allowed)[0]["candidates"]
+    routes = {(row["route"]["method"], row["route"]["path"]): row["route"] for row in listed if "route" in row}
+    if readable:
+        assert routes["PUT", "/api/Orders/:id"]["data_model"] == {"repository_id": rid, "file": model, "line": 1}
+    else:
+        assert "data_model" not in routes["PUT", "/api/Orders/:id"]
+    # A model from outside the repository names nothing.
+    assert "data_model" not in routes["PUT", "/api/Cards/:id"]
+
+
 def test_every_job_of_a_component_and_aspect_names_all_its_test_cases_once():
     from orchestrator import assessment_test_cases as pilot
 

@@ -598,11 +598,36 @@ def test_a_finding_of_several_methods_gets_a_text_written_from_its_parts_only(tm
         ["verification"],
     ]
     assert {p["location"] for p in request["parts"]} == {"app.py:1"} and "repository_id" not in str(request)
+    assert request["location_count"] == 1
     assert threat["title"] == "Combined: request handler accepts unvalidated input"
     assert threat["scenario"] == "An attacker sends malformed input to app.py:1."
     assert threat["remediation"]["verification"] == "Submit malformed input and assert a rejection and a log entry."
     assert threat["risk"] == "Medium" and threat["found_by"] == ["survey", "verification"]
     assert all("_combination_parts" not in t for t in merged["threats"])
+
+
+def test_a_combination_request_names_how_many_places_the_finding_holds():
+    """REQ-040: each part cites one location, so the combiner gets the finding's count instead of counting parts."""
+    from model.merge_threats import _combine_texts
+
+    def at(line):
+        return {"file": "repo-1/server.ts", "line": line}
+
+    def part(line, method):
+        remediation = {"steps": [], "verification": None}
+        return dict(methods=[method], **at(line), title="t", scenario="s", attack_steps=[], remediation=remediation)
+
+    threat = {
+        "risk": "High",
+        "evidence": [at(309)],
+        "instances": [at(309), at(607), at(614), at(676)],
+        "_combination_parts": [part(309, "scanners"), part(614, "verification")],
+    }
+    requests = []
+    _combine_texts([threat], lambda batch: requests.extend(batch))
+    (request,) = requests
+    assert request["locations"] == ["server.ts:309", "server.ts:614"]
+    assert request["location_count"] == 4
 
 
 @pytest.mark.parametrize("combine", [None, "uncited", "failed"])

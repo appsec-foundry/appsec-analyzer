@@ -1914,14 +1914,18 @@ def evidence_batches(findings, *, max_windows, max_findings, window_lines):
     return batches
 
 
-def evidence_preload(scope, evidence, allowed_sources, *, room, max_windows, before=30, after=90, max_lines=400):
+def evidence_preload(
+    scope, evidence, allowed_sources, *, room, max_windows, before=30, after=90, max_lines=400, ordered=False
+):
     """Slices around the anchors a job is told to read, for its first packet.
 
     A boundary or control job otherwise spends a call only to request source
     the controller already cites. Ranges in one file merge when they overlap;
     an anchor outside ``allowed_sources``, a range the scope cannot serve, and
     whatever exceeds ``room`` bytes or ``max_windows`` slices is left to the
-    model's own reads. Returns ``(repository_id, path, start, end)`` keys.
+    model's own reads. Files come in path order, or with ``ordered`` in the
+    order ``evidence`` first names them, so a caller can rank what the limits
+    keep. Returns ``(repository_id, path, start, end)`` keys.
     """
     spans: dict[tuple, list[list[int]]] = {}
     for row in evidence:
@@ -1930,7 +1934,7 @@ def evidence_preload(scope, evidence, allowed_sources, *, room, max_windows, bef
             continue
         spans.setdefault((rid, path), []).append([max(1, line - before), line + after])
     keys = []
-    for (rid, path), ranges in sorted(spans.items()):
+    for (rid, path), ranges in spans.items() if ordered else sorted(spans.items()):
         ranges.sort()
         merged = [ranges[0]]
         for start, end in ranges[1:]:

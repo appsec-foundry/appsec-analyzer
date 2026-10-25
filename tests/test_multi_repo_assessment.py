@@ -2310,15 +2310,22 @@ def test_a_run_with_one_model_names_it_in_the_head_and_has_one_cost_row(tmp_path
     assert "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens" in out
 
 
+def test_tokens_name_the_calls_they_cover_when_some_calls_report_none(tmp_path, monkeypatch, capsys):
+    """Reused calls count in the cost but report no tokens, so the token figure names its own calls."""
+    usage = {"models": {"claude-sonnet-5-5": {**_SONNET, "calls": 3}}, "unitemised_calls": 2}
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, reused_calls=2, reused_usd=0.4)
+    assert "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens in 3 of them" in out
+
+
 def test_a_run_with_several_models_lists_each_and_what_no_host_itemised(tmp_path, monkeypatch, capsys):
     usage = {
         "models": {"claude-haiku-5-5": _HAIKU, "claude-sonnet-5-5": _SONNET},
         "unitemised_calls": 2,
         "unitemised_usd": 0.3,
     }
-    out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, trust_mode="trusted")
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, trust_mode="trusted", calls=7)
     assert "written in" in out[0] and "claude-" not in out[0]
-    cost = out.index("  Cost        ≈ USD 2.00 · 5 model calls · ≥ 603k tokens")
+    cost = out.index("  Cost        ≈ USD 2.00 · 7 model calls · 603k tokens in 5 of them")
     # Dearest model first; the calls no host itemised close the rows, so the rows add up to the total.
     assert out[cost + 1 : cost + 4] == [
         "              claude-sonnet-5-5  4 calls · ≈ USD 1.50 · 603k tokens",
