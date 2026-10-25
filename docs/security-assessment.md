@@ -129,12 +129,17 @@ Keys pressed before the question appears do not answer it, and the chosen start
 is confirmed in one line.
 `--non-interactive`, `--quiet`, `--json`, and CI runs never ask. A continued run's
 header names its start, working time, spending so far, and deadline; a new scan
-names the unfinished run whose accepted steps it reuses, under "Earlier run".
+names the unfinished run whose accepted steps it reuses, under "Earlier run",
+with that run's working time and spending.
 Both run every phase again, and only steps without a matching accepted result
-call a model: the end lines of each phase, the survey, and verification say how
-much came from the earlier run, and a component taken from it shows no
-duration. For a continued run, ELAPSED shows the current
-attempt and, in parentheses, the working time of all attempts. Earlier results
+call a model: a phase, and in the threat analysis each method, says "taken over
+from the earlier run" once its first step is taken over, the end lines of each
+phase, the survey, and verification say how much came from the earlier run,
+and a component taken from it shows no duration. For a continued run and for a
+new scan that takes over an unfinished run, ELAPSED shows the current attempt
+and, in parentheses, the working time including the earlier attempts or run; a
+phase end line with new costs adds what all results cost so far, those taken
+over included, and the closing line names the total time. Earlier results
 stay in the output until a new run completes; that run removes the ones it did
 not replace. Inspect `status` or `progress`
 with the output directory, request `stop`, and use `results` to verify the

@@ -443,15 +443,21 @@ def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
     from orchestrator.orchestration_controller import _assessment_continuation
 
     first, _, _ = _interrupted_with_two_jobs(scope)
-    started = stored(scope)["started_at"]
+    earlier = stored(scope)
+    # The unfinished run worked 1h10m; the new run continues that time.
+    earlier["worked_seconds"] = 4200
+    (scope.output / ".assessment-state.json").write_text(json.dumps(earlier))
     with lifecycle(scope).hold() as fresh:
         assert fresh.state["run_id"] != first.state["run_id"]
+        assert fresh.worked_before == 4200 and not fresh.resume
         assert _assessment_continuation(fresh, fresh.budget) == (
             "Earlier run",
-            # Reused steps are charged to the new run, so the header says so.
-            f"results of the unfinished run started {_utc(started)} are taken over where nothing changed; "
-            "they need no new model calls, but their cost counts toward the limit",
+            # Reused steps are charged to the new run, so the header says so, and what the earlier run took.
+            f"results of the unfinished run started {_utc(earlier['started_at'])} are taken over where nothing "
+            "changed; they need no new model calls, but their cost counts toward the limit"
+            f" · 1h10m worked · USD {earlier['accounting']['spent_usd']:.2f} spent",
         )
+    assert stored(scope)["worked_seconds"] >= 4200
     # A run without earlier accepted jobs, and one that rebuilt, reuse nothing.
     with lifecycle(scope, replace=True).hold() as rebuilt:
         assert _assessment_continuation(rebuilt, rebuilt.budget) is None

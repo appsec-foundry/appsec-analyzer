@@ -300,6 +300,20 @@ def test_a_fresh_run_reuses_an_earlier_run_s_accepted_job_and_counts_its_cost(tm
     assert not list(fresh.cache.iterdir())
 
 
+def test_a_job_taken_over_tells_the_console_and_a_job_that_ran_does_not(tmp_path):
+    """The console says in each phase that a job came from the earlier run, once the first one does."""
+    jobs, host, kwargs, _ = setup(tmp_path)
+    told = []
+    jobs.on_reused = lambda: told.append("own run")
+    jobs.execute(**kwargs)
+    assert told == []
+    fresh, _, request = _inherit(tmp_path, jobs, kwargs)
+    fresh.on_reused = lambda: told.append("earlier run")
+    # A forked component view keeps the callback.
+    assert fresh.view().execute(**request) == {"result": "accepted"}
+    assert told == ["earlier run"]
+
+
 @pytest.mark.parametrize("change", [{"instructions": "changed task"}, {"validate": "reject"}])
 def test_an_inherited_job_that_no_longer_fits_is_redone_not_fatal(tmp_path, change):
     jobs, host, kwargs, _ = setup(tmp_path)
@@ -1078,7 +1092,15 @@ def test_the_budget_itemises_reported_usage_per_model_and_names_what_no_host_rep
     assert report["unitemised_calls"] == 1 and report["unitemised_usd"] == pytest.approx(0.03)
     # A group matches itself and its sub-jobs, never another group that merely starts with its name.
     assert budget.usage_of("stride:api")["output"] == 20 and budget.usage_of("stride:ap") == {}
-    assert budget.usage_mark() == {"calls": 2, "usd": pytest.approx(0.05), "itemised": 1, "tokens": 370}
-    # A job reused from an earlier run made no call in this one: its charge is not a step's cost.
+    assert budget.usage_mark() == {
+        "calls": 2,
+        "usd": pytest.approx(0.05),
+        "total_usd": pytest.approx(0.05),
+        "itemised": 1,
+        "tokens": 370,
+    }
+    # A job reused from an earlier run made no call in this one: its charge is not a step's cost,
+    # but it is part of what the run cost in total.
     budget.reused_calls, budget.reused_usd = 1, 0.03
     assert budget.usage_mark()["calls"] == 1 and budget.usage_mark()["usd"] == pytest.approx(0.02)
+    assert budget.usage_mark()["total_usd"] == pytest.approx(0.05)

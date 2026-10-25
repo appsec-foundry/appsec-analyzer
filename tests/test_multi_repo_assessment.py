@@ -3497,6 +3497,37 @@ def test_a_component_whose_every_job_was_reused_says_so():
     assert not any("reused" in detail for detail in details)
 
 
+@pytest.mark.parametrize("resumed", [False, True])
+def test_each_phase_and_method_says_once_when_its_first_job_is_taken_over(resumed):
+    """REQ-016: a reader sees that a phase uses the earlier run's results while it runs, not only at its end."""
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    if resumed:
+        console.continue_from(60)
+    console.plan_components(1)
+    console.step("Discovering every selected repository")
+    console.taken_over()
+    console.taken_over()
+    console.step("Surveying component: API (1/1)")
+    console.taken_over()
+    console.step("Analyzed component: API · 1 finding (1/1)" + console.REUSED)
+    taken = "results of an earlier run are taken over, no model calls expected"
+    console.step(f"Verify start · 1 component · AuthZ · {taken} · 1 job")
+    console.taken_over()
+    console.close()
+    source = "the earlier attempt" if resumed else "the earlier run"
+    # Verification's start already said so, so its first taken-over job adds no line. A resumed run's
+    # ELAPSED column is wider, so the rows are matched by phase and ending.
+    expected = [
+        ("1/8 Reconnaissance", f"  taken over from {source}"),
+        ("5/8 Threat analysis", f"  Survey    taken over from {source}"),
+        ("5/8 Threat analysis", f"  Verify    start · 1 component · {taken}"),
+    ]
+    shown = [line for line in lines if "taken over" in line]
+    assert len(shown) == len(expected)
+    assert all(phase in line and line.endswith(detail) for line, (phase, detail) in zip(shown, expected, strict=True))
+
+
 def test_a_phase_done_line_says_whether_its_jobs_were_reused():
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
@@ -3565,6 +3596,27 @@ def test_a_phase_and_the_survey_and_verify_steps_end_with_what_they_cost():
     # The phase's own line carries the sum of its steps.
     done = [row[-1] for row in _rows(lines) if row[1] == "done"]
     assert done[-1].endswith("≈ USD 0.75 · 50k tokens")
+
+
+def test_a_new_run_that_takes_over_an_earlier_one_shows_its_total_time_and_cost():
+    """REQ-016: ELAPSED and a phase's cost include the unfinished run whose results a new run takes over."""
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.continue_from(4200, resumed=False)
+    mark = {"calls": 0, "usd": 0.0, "total_usd": 14.72, "itemised": 0, "tokens": 0}
+    console.usage_mark = lambda: dict(mark)
+    console.step("Matching abuse cases")
+    clock.tick(60)
+    mark.update(calls=2, usd=0.8, total_usd=15.52)
+    console.taken_over()
+    console.close()
+    header = next(line for line in lines if line.startswith("TIME"))
+    (done,) = [line for line in lines if "  done  " in line]
+    assert _column(header, done, "ELAPSED") == "1m (1h11m)"
+    # What this attempt paid, then what every result of the run cost, those taken over included.
+    assert done.endswith("≈ USD 0.80 (USD 15.52 in total)")
+    # A new run takes over another run's results, not an earlier attempt of its own.
+    assert any(line.endswith("  taken over from the earlier run") for line in lines)
 
 
 def test_the_abuse_case_phase_line_carries_the_verdicts():

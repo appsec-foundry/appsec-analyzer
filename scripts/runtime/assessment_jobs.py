@@ -188,13 +188,14 @@ class AssessmentBudget(DiscoveryBudget):
     def usage_mark(self) -> dict:
         """Calls run and money spent so far by this session, and how much of it the hosts itemised.
 
-        Jobs reused from an earlier run are not part of it. The console takes the difference of two
-        marks to say what a step cost.
+        Jobs reused from an earlier run are not part of it, except in ``total_usd``, what the run has
+        cost so far. The console takes the difference of two marks to say what a step cost.
         """
         with self._lock:
             return {
                 "calls": self.calls - self.reused_calls,
                 "usd": None if self.subscription else self.spent_usd - self.reused_usd,
+                "total_usd": None if self.subscription else self.spent_usd,
                 "itemised": sum(row["calls"] for row in self.ledger.values()),
                 "tokens": sum(self.tokens(row) for row in self.ledger.values()),
             }
@@ -388,6 +389,8 @@ class AssessmentJobs:
         self.gaps: list[dict] = []
         # Controller-owned progress callback, shared by forked component jobs.
         self.on_gap = None
+        # Called after each job taken over from an earlier run's accepted result, also from forked jobs.
+        self.on_reused = None
         # Run warnings the controller derives from accepted jobs, in run order.
         self.notes: list[str] = []
         # Coverage statements that need no action, such as files no target covered:
@@ -653,6 +656,8 @@ class AssessmentJobs:
                 self._remember(role, selector, artifact)
                 if trace:
                     trace.emit("job_reused")
+                if self.on_reused is not None:
+                    self.on_reused()
                 return ExchangeResult(copy.deepcopy(artifact), slices, receipt["calls"], receipt["usd"])
             found_path.unlink()
             found_artifact.unlink(missing_ok=True)

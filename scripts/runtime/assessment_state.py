@@ -172,8 +172,11 @@ class AssessmentState:
         self._last_heartbeat = 0.0
         # Working seconds of the earlier attempts a resume continues; pauses between them do not count.
         self.worked_before = 0
-        # Start of the unfinished run whose accepted jobs a new run took into its cache.
+        # Start of the unfinished run whose accepted jobs a new run took into its cache, its working
+        # seconds, and what it had spent: USD, or model calls on a subscription.
         self.reused_run_started = None
+        self.reused_run_worked = 0
+        self.reused_run_spent = None
         self._attempt_started = time.monotonic()
 
     @contextmanager
@@ -303,6 +306,9 @@ class AssessmentState:
             }
             if self.operator_profile is not None:
                 self.state["operator_profile"] = self.operator_profile
+            if self.reused_run_started is not None:
+                # The run continues the work of the one it takes over, so its working time counts on.
+                self.state["worked_seconds"] = self.reused_run_worked
             if self._superseded:
                 self.state["superseded"] = self._superseded
             self.directory.mkdir(mode=0o700, exist_ok=True)
@@ -420,6 +426,11 @@ class AssessmentState:
                         cache = self.directory / CACHE_NAME
                         if cache.is_dir() and any(cache.glob("job-*.receipt.json")):
                             self.reused_run_started = unfinished["started_at"]
+                            self.reused_run_worked = unfinished.get("worked_seconds", 0)
+                            accounting = unfinished["accounting"]
+                            self.reused_run_spent = (
+                                accounting["calls"] if self.budget.subscription else accounting["spent_usd"]
+                            )
                 for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
                     (self.output / name).unlink()
                 self._superseded = kept

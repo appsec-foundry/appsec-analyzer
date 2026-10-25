@@ -50,16 +50,19 @@ def _tokens(count: int) -> str:
     return f"{count / 1000:.0f}k" if count < 1_000_000 else f"{count / 1_000_000:.1f}M"
 
 
-def usage_text(before: dict, after: dict) -> str:
+def usage_text(before: dict, after: dict, total: bool = False) -> str:
     """What the model calls between two budget marks cost, or "" when none was paid for.
 
     The tokens come only when the hosts itemised every call of the step; a partial sum would read as the
-    whole. A subscription run has no USD amount, so it shows nothing.
+    whole. A subscription run has no USD amount, so it shows nothing. ``total`` adds what the run has
+    cost so far, results taken over from an earlier run included.
     """
     calls = after["calls"] - before["calls"]
     if calls <= 0 or after["usd"] is None or before["usd"] is None:
         return ""
     text = f"≈ USD {after['usd'] - before['usd']:.2f}"
+    if total and after.get("total_usd") is not None:
+        text += f" (USD {after['total_usd']:.2f} in total)"
     tokens = after["tokens"] - before["tokens"]
     if tokens > 0 and after["itemised"] - before["itemised"] == calls:
         text += f" · {_tokens(tokens)} tokens"
@@ -192,11 +195,15 @@ class _AssessmentConsole:
     components, so it changes as the run learns its size. Before the component
     count is known PROGRESS says ``planning``. Time stamps and durations read
     one clock. A resumed run's ELAPSED shows this attempt's time and, in
-    parentheses, the working time of all its attempts (``continue_from``).
+    parentheses, the working time of all its attempts (``continue_from``); a
+    new run that takes over an unfinished run adds that run's working time.
+    Both add what all results cost so far to a phase's done line.
 
     Steps taken over from an earlier run's accepted jobs make no model call.
-    Such a component's line shows no duration; the done lines of a phase, the
-    survey and verification say how much came from the earlier run.
+    A phase, and in the threat analysis each method, says so once when its
+    first job is taken over (``taken_over``). Such a component's line shows no
+    duration; the done lines of a phase, the survey and verification say how
+    much came from the earlier run.
 
     Off a terminal (CI, logs) a progress line follows a change after
     ``PROGRESS_SECONDS`` and comes at the latest after ``HEARTBEAT_SECONDS``;
@@ -423,6 +430,8 @@ class _AssessmentConsole:
         # The threat analysis method of the current lines, and the components each method took from the earlier run.
         self.method = ""
         self.method_reused: Counter = Counter()
+        # (phase, method) pairs that already said a job was taken over from the earlier run.
+        self.announced: set = set()
         # Corrected answers per role in the current phase (MR-17).
         self.corrections: Counter = Counter()
         # Budget-skipped optional jobs per role in the current phase: the first
@@ -445,8 +454,9 @@ class _AssessmentConsole:
         self.phase_usage = None
         self.step_usage = {}
         self.run_started = self.last = self.clock()
-        # Working seconds of the earlier attempts a resumed run continues.
-        self.worked_before = 0
+        # Working seconds of the earlier attempts a resumed run continues, or of the unfinished run a new
+        # run takes over (``continue_from``), and whether the run was resumed.
+        self.worked_before, self.resumed = 0, False
         # Model calls in flight (_ReportedTransport registers itself) and the
         # last controller step with its start, for the terminal's status line.
         self.running: dict[int, Any] = {}
@@ -719,6 +729,9 @@ class _AssessmentConsole:
                     self.steps["Verify"] = now
                     self._mark_step("Verify")
                     self.method = "Verify"
+                    if "taken over" in text:
+                        # The start already says so; its first taken-over job adds no line.
+                        self.announced.add((self.phase, self.method))
                     self.current = f"0/{components} components done"
                     shown = self._VERIFY_SHOWN.match(text)
                     self.record("·", f"start · {shown[1]}{shown[2]}" if shown else text, now)
@@ -792,9 +805,22 @@ class _AssessmentConsole:
             self.shown = (self.current, round(100 * self.done))
             return True
 
+    def taken_over(self) -> None:
+        """Say once per phase, and in the threat analysis once per method, that its first job came from the earlier run.
+
+        Whether a job matches is known only once its request is built, so the line follows the first such
+        job instead of the phase's start; the done lines say how much came from the earlier run.
+        """
+        with _AssessmentConsole._lock:
+            key = (self.phase, self.method)
+            if not self.phase or key in self.announced:
+                return
+            self.announced.add(key)
+            self.record("·", f"taken over from {self._source()}")
+
     def _source(self) -> str:
         """Where taken-over steps come from: a resumed run continues its own earlier attempt."""
-        return "the earlier attempt" if self.worked_before else "the earlier run"
+        return "the earlier attempt" if self.resumed else "the earlier run"
 
     def _earlier(self, reused: int, total: int) -> str:
         """`` · from the earlier run`` when all ``total`` steps came from it, how many otherwise; "" for none."""
@@ -841,16 +867,17 @@ class _AssessmentConsole:
         here, there = self.plan.index(self.phase), self.plan.index(key)
         return here > there or (here == there and self.fraction > 0)
 
-    def continue_from(self, seconds: int) -> None:
-        """Add the working time of the earlier attempts a resumed run continues to ELAPSED, in parentheses.
+    def continue_from(self, seconds: int, *, resumed: bool = True) -> None:
+        """Add earlier working time to ELAPSED, in parentheses, and the total cost to the phases' done lines.
 
-        LEFT still follows this attempt's speed alone: its share starts again
+        The time is that of a resumed run's earlier attempts or, without ``resumed``, of the unfinished
+        run a new run takes over. LEFT still follows this attempt's speed alone: its share starts again
         from the first phase, so time of earlier attempts would inflate it.
         """
-        self.worked_before = seconds
+        self.worked_before, self.resumed = seconds, resumed
 
     def _total(self, now: float) -> str:
-        """The working time of every attempt of a resumed run; empty for a run's first attempt."""
+        """The working time including earlier attempts or the run taken over; empty without either."""
         return _elapsed(self.worked_before + now - self.run_started) if self.worked_before else ""
 
     def _elapsed_width(self) -> int:
@@ -1350,7 +1377,9 @@ class _AssessmentConsole:
                     produced.append(
                         f"partly from {self._source()}" if ran else f"from {self._source()}, no model calls"
                     )
-            if self.phase_usage and self.usage_mark and (cost := usage_text(self.phase_usage, self.usage_mark())):
+            # A continued run also says what all its results cost, those taken over included.
+            mark = self.usage_mark() if self.usage_mark else None
+            if self.phase_usage and mark and (cost := usage_text(self.phase_usage, mark, bool(self.worked_before))):
                 produced.append(cost)
             self._advance(1.0)
             if self.phase == self.plan[-1]:

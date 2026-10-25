@@ -3189,10 +3189,13 @@ def _assessment_continuation(state, budget) -> tuple[str, str] | None:
     if state.reused_run_started is not None:
         # A reused step is charged to this run, so it counts toward the new limit.
         counted = "model calls count" if budget.subscription else "cost counts"
+        spent = state.reused_run_spent
+        spent = f"{spent} model calls used" if budget.subscription else f"USD {spent:.2f} spent"
         return (
             "Earlier run",
             f"results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
-            f"changed; they need no new model calls, but their {counted} toward the limit",
+            f"changed; they need no new model calls, but their {counted} toward the limit"
+            f" · {_elapsed(state.worked_before)} worked · {spent}",
         )
     return None
 
@@ -4162,9 +4165,11 @@ def assess_repositories(
                     console.preflight(getattr(ns, "preflight_checks", ()))
                     console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
                     if state.worked_before:
-                        # A resumed run's ELAPSED adds the working time of its earlier attempts.
-                        console.continue_from(state.worked_before)
+                        # ELAPSED adds the working time of a resumed run's earlier attempts, or of the
+                        # unfinished run a new run takes over.
+                        console.continue_from(state.worked_before, resumed=state.resume)
                     console.job_counts = jobs.job_counts
+                    jobs.on_reused = console.taken_over
                     console.usage_mark = budget.usage_mark
                     noticed = []
 
