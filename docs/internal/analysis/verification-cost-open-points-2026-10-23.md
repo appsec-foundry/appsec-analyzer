@@ -316,6 +316,14 @@ Still open from earlier points, each to be solved for any repository:
 - TC-AUTHZ-01 has no deterministic support that makes every data lookup of a handler a sink (fix 2 in [the control answers check](verification-control-answers-check-2026-10-24.md)).
 - The two survey defects of point 8: a finding on a commented-out line passed the evidence review, and two findings with the same line and CWE stayed apart.
 
+### Business abuse cases and verification
+
+Asked by the product owner on 2026-10-25 whether abuse cases do the same as verification. The boundary, as the README now states it: verification checks a general security property at every place of a component where it matters; an abuse case starts from a goal and asks whether it can be reached in this application from start to end. Technical abuse cases link existing findings into an attack path and rate it, so they run after the findings exist; in the third run 12 of the 16 steps of all ten checked abuse cases were bound to findings already there, for USD 0.47. Business abuse cases state what users of this application must not be able to do. Rules a team supplies are what verification cannot know, and they stay as they are.
+
+The overlap lies in three built-in business cases that ask a verification question: AC-B-001 (other users' data) and AC-B-002 (more rights than intended) under AuthZ, AC-B-003 (account takeover) under AuthN. Standard depth checks three optional business cases, chosen by the most related findings, so in the first three measuring runs AC-B-001 and AC-B-003 took places while AC-B-002, AC-B-006 and AC-B-007 never ran. Decided: a built-in case names the aspects that ask its question (`verified_by`), and when the run verifies one of them, it comes after the other optional cases; its omission names the aspect. Requested, team-supplied and model-derived cases keep their own limits and order. Not built: merging business cases into verification, and answering a business case from verification results.
+
+Abuse cases still bind only to survey and scanner findings, because verification findings are not in the findings register yet; in the third run AC-T-003 (JWT algorithm confusion) stayed inconclusive although AuthN had found the unpinned algorithm (TCF-077). The planned combined register (be4dbc35) would let the chains use them.
+
 ## Order
 
 1. Find out whether the CLI can cache behind the shared context (point 3). Done: it can, with an own marker in stream-json input.
