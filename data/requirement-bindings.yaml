@@ -569,6 +569,13 @@ requirements:
       - tests/test_multi_repo_builder.py::test_without_a_faithful_rewrite_the_most_severe_part_keeps_its_text
       - tests/test_multi_repo_builder.py::test_a_finding_of_one_method_is_never_rewritten
       - tests/test_multi_repo_assessment.py::test_the_combination_job_sends_only_the_parts_and_returns_its_entries
+      - tests/test_multi_repo_builder.py::test_a_verification_finding_of_its_own_passes_the_evidence_review
+      - tests/test_multi_repo_builder.py::test_only_unchecked_verification_findings_of_their_own_are_reviewed
+      - tests/test_multi_repo_builder.py::test_no_evidence_review_without_a_verification_finding_of_its_own
+      - tests/test_multi_repo_builder.py::test_a_refuted_verification_finding_stays_in_the_valid_model
+      - tests/test_multi_repo_assessment.py::test_verification_findings_of_their_own_get_their_components_evidence_review
+      - tests/test_case_outcomes.py::test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_every_finding
+      - tests/test_case_outcomes.py::test_a_verification_finding_the_evidence_review_refuted_shows_the_reason_as_text
       - tests/test_triage_validate_ratings.py::test_step3_no_criticals_many_highs
       - tests/test_case_outcomes.py::test_investigation_results_name_the_locations_of_evidenced_controls
       - tests/test_case_outcomes.py::test_build_block_keeps_the_aspects_the_budget_left_incomplete

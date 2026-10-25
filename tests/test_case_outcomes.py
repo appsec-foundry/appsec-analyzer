@@ -257,6 +257,50 @@ def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_find
     assert "Findings: TCF-001 (see [Verification Findings](#verification-findings))." in out
 
 
+def test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_every_finding(catalog, tmp_path):
+    """REQ-040: an outcome no post-check confirmed is model review only unless the review confirmed its findings."""
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    _pilot(catalog, tmp_path)
+    block = tcr.build_block(tmp_path, [])
+    (row,) = [r for r in block["results"] if r["test_case_id"] == "TC-AUTHZ-01"]
+    assert (row["outcome"], row["evidence_basis"], row["finding_ids"]) == ("finding", "model", ["TCF-001"])
+    verification = {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}
+    # A review that left the finding open, or a post-check, is no confirmation by the evidence review.
+    for basis in ("ambiguous", "pointer-resolved"):
+        assert tcr.mark_reviewed([{"evidence_basis": basis, "verification": verification}], block["results"]) == 0
+    threats = [{"id": "T-001", "evidence_basis": "llm-verified", "verification": verification}]
+    assert tcr.mark_reviewed(threats, block["results"]) == 1 and row["evidence_basis"] == "review"
+    assert list(_block_validator().iter_errors(block)) == []
+    model = {"test_case_results": block, "components": [{"id": "api", "name": "Order API"}], "threats": threats}
+    out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
+    assert "Outcome for Order API: Finding." in out
+    assert "Confirmed by the evidence review; no post-check confirmed it." in out
+    # One finding left unconfirmed keeps the outcome on model review only, and a control is never relabelled.
+    rows = [
+        {"outcome": "finding", "evidence_basis": "model", "finding_ids": ["TCF-001", "TCF-002"]},
+        {"outcome": "control", "evidence_basis": "model", "finding_ids": ["TCF-001"]},
+    ]
+    assert tcr.mark_reviewed(threats, rows) == 0 and {r["evidence_basis"] for r in rows} == {"model"}
+
+
+def test_a_verification_finding_the_evidence_review_refuted_shows_the_reason_as_text():
+    """REQ-040: the review's reason is model text; it cannot create links or markup in the report."""
+    from renderers import compose_threat_model as compose
+
+    block = {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}
+    reason = "A guard at [entry.ts](https://example.test) <b>rejects</b> foreign IDs."
+    card = compose._verification_card(
+        {"found_by": ["verification"], "verification": block, "evidence_review_contradicted": {"reason": reason}}
+    )
+    first, second = card.split("\n\n")
+    assert first == "**Found by:** verification ([TC-AUTHZ-01](#tc-authz-01))"
+    assert second.startswith("**Contradicted by the evidence review:** A guard at \\[entry.ts\\](https://")
+    assert "<b>" not in second and second.endswith(" Check this finding before acting on it.")
+
+
 def test_appendix_lists_components_a_test_case_does_not_apply_to_in_one_row(catalog, tmp_path):
     from renderers import compose_threat_model as compose
 

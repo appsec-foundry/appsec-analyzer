@@ -363,13 +363,20 @@ def test_qualified_merge_links_only_the_root_whose_line_the_boundary_cites(tmp_p
 
 
 def _verification(
-    tmp_path, *changes, verdicts=("verified", "verified"), scanner=False, combine_texts=None, assemble=False
+    tmp_path,
+    *changes,
+    verdicts=("verified", "verified"),
+    scanner=False,
+    combine_texts=None,
+    review_verification=None,
+    assemble=False,
 ):
     """One survey finding per component and verification findings of the first component at its location.
 
     Each of ``changes`` edits one verification finding; ``scanner`` makes the first component's finding a
     scanner finding instead of a survey finding. The first repository also holds ``SHARED``, a file of no
     component. ``assemble`` returns the scope and the assembler's inputs instead of the merge alone.
+    ``review_verification`` stands for the evidence review of verification findings of their own.
     """
     from model.finding_intake import apply_intake
 
@@ -430,6 +437,7 @@ def _verification(
         scanner_threats=scanned,
         verification_threats={first["id"]: findings},
         combine_texts=combine_texts,
+        review_verification=review_verification,
     )
     if assemble:
         return scope, _assembly(components, receipt, flows, merged), first["id"]
@@ -521,6 +529,74 @@ def test_a_refuted_finding_never_absorbs_a_verification_finding(tmp_path):
     assert threat["found_by"] == ["verification"] and threat["evidence_check"] == "ambiguous"
     (refuted,) = [t for t in merged["threats"] if t["evidence_check"] == "refuted"]
     assert refuted["found_by"] == ["survey"] and "verification" not in refuted
+
+
+def _elsewhere(finding):
+    finding["evidence"]["line"] += 1
+
+
+def _decided(verdict):
+    """An evidence review that decides every finding it receives, recording what it received."""
+    received = []
+
+    def review(ids):
+        received.append(list(ids))
+        reason = "The reviewer read the handler and its guards."
+        return {} if verdict is None else {i: {"local_id": i, "verdict": verdict, "reason": reason} for i in ids}
+
+    return review, received
+
+
+@pytest.mark.parametrize("verdict", ["verified", "refuted", "ambiguous", None])
+def test_a_verification_finding_of_its_own_passes_the_evidence_review(tmp_path, verdict):
+    """REQ-040: confirmed, it is scored; refuted, it stays unscored and marked; otherwise model review only."""
+    review, received = _decided(verdict)
+    merged, _ = _verification(tmp_path, _elsewhere, review_verification=review)
+    assert received == [["TCF-001"]] and len(merged["threats"]) == 3
+    threat = _held(merged, "TCF-001")
+    assert threat["found_by"] == ["verification"]
+    if verdict == "verified":
+        assert (threat["evidence_check"], threat["evidence_basis"]) == ("verified", "llm-verified")
+        assert "evidence_review_contradicted" not in threat
+        return
+    assert threat["evidence_check"] == "ambiguous" and threat["evidence_tier"] == "insecure-practice"
+    assert "cvss_v4" not in threat
+    if verdict == "refuted":
+        assert threat["evidence_review_contradicted"] == {"reason": "The reviewer read the handler and its guards."}
+    else:
+        assert "evidence_review_contradicted" not in threat
+
+
+def test_only_unchecked_verification_findings_of_their_own_are_reviewed(tmp_path):
+    """REQ-040: a finding part of a reviewed one, or one a post-check confirmed, is not reviewed again."""
+    review, received = _decided("refuted")
+    merged, _ = _verification(
+        tmp_path,
+        lambda f: None,
+        lambda f: (_elsewhere(f), f.update(post_check_confirmed=True)),
+        lambda f: f.update(cwe="CWE-798"),
+        review_verification=review,
+    )
+    assert received == [["TCF-003"]]
+    assert _held(merged, "TCF-001")["found_by"] == ["survey", "verification"]
+    assert _held(merged, "TCF-002")["evidence_basis"] == "pointer-resolved"
+    assert "evidence_review_contradicted" in _held(merged, "TCF-003")
+
+
+def test_no_evidence_review_without_a_verification_finding_of_its_own(tmp_path):
+    review, received = _decided("verified")
+    _verification(tmp_path, lambda f: None, review_verification=review)
+    assert received == []
+
+
+def test_a_refuted_verification_finding_stays_in_the_valid_model(tmp_path):
+    """REQ-040: the reader sees the finding the review refuted, with the review's reason, in a valid model."""
+    review, _ = _decided("refuted")
+    scope, kwargs, _ = _verification(tmp_path, _elsewhere, review_verification=review, assemble=True)
+    document, _ = build_assessment_model(scope, **kwargs)
+    assert validate_threat_model_output(document)[0]
+    (threat,) = [t for t in document["threats"] if t.get("evidence_review_contradicted")]
+    assert threat["found_by"] == ["verification"] and threat["evidence_check"] == "ambiguous"
 
 
 def test_verification_findings_about_different_routes_on_one_line_stay_apart(tmp_path):

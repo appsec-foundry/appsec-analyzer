@@ -3508,7 +3508,7 @@ def _combine_texts(threats: list[dict], combine) -> None:
         }
 
 
-def _join_verification(threats: list[dict], verification: list[dict]) -> list[dict]:
+def _join_verification(threats: list[dict], verification: list[dict], review=None) -> list[dict]:
     """Make each verification finding part of the survey or scanner finding it repeats (REQ-040).
 
     A verification finding repeats a finding when one of that finding's
@@ -3520,9 +3520,15 @@ def _join_verification(threats: list[dict], verification: list[dict]) -> list[di
     always stays and takes the riskier rating. The finding takes the reviewed
     finding's verdict. A verification finding that repeats none stays
     a finding of its own, verified as a resolved pointer when a post-check
-    confirmed it and ambiguous otherwise. Such findings are never offered to
-    the merge review: a wrong merge would hide a finding only verification
-    reported. Returns the threats followed by the remaining verification findings.
+    confirmed it. ``review`` receives the TCF- IDs of the others at once and
+    returns the evidence review's decision per ID: a verified one scores the
+    finding like a reviewed survey finding; a refuted one keeps it in the
+    register, unscored, with the review's reason in
+    ``evidence_review_contradicted``, because the review reads only bounded
+    source windows; any other or no decision leaves it ambiguous. Such
+    findings are never offered to the merge review: a wrong merge would hide
+    a finding only verification reported. Returns the threats followed by the
+    remaining verification findings.
     """
     threats = list(threats)
     index: dict[tuple, list[int]] = {}
@@ -3538,7 +3544,7 @@ def _join_verification(threats: list[dict], verification: list[dict]) -> list[di
         first, second = set(one.get("route_ids") or []), set(other.get("route_ids") or [])
         return bool(first and second and not first & second)
 
-    alone = []
+    alone, unreviewed = [], []
     for finding in verification:
         confirmed = finding.pop("post_check_confirmed", False)
         key = _evidence_identity_key({"evidence": _primary_evidence(finding), "cwe": finding.get("cwe")})
@@ -3547,8 +3553,7 @@ def _join_verification(threats: list[dict], verification: list[dict]) -> list[di
             if confirmed:
                 record_evidence(finding, "verified", "pointer-resolved")
             else:
-                record_evidence(finding, "ambiguous")
-                _unscored(finding)
+                unreviewed.append(finding)
             alone.append(finding)
             continue
         # A reviewed partner with established evidence first, then the riskiest.
@@ -3569,7 +3574,23 @@ def _join_verification(threats: list[dict], verification: list[dict]) -> list[di
                 if finding.get(field):
                     partner[field] = finding[field]
         threats[position] = survivor
+    decisions = review([_verification_id(f) for f in unreviewed]) if unreviewed and review is not None else {}
+    for finding in unreviewed:
+        decision = decisions.get(_verification_id(finding)) or {}
+        if decision.get("verdict") == "verified":
+            record_evidence(finding, "verified", _REVIEW_BASIS["verified"])
+            continue
+        record_evidence(finding, "ambiguous")
+        _unscored(finding)
+        if decision.get("verdict") == "refuted":
+            reason = " ".join(str(decision.get("reason") or "").split())[:300]
+            finding["evidence_review_contradicted"] = {"reason": reason or "The source contradicts the finding."}
     return threats + alone
+
+
+def _verification_id(finding: dict) -> str:
+    """The TCF- ID of a verification finding that is no part of another finding yet."""
+    return finding["verification"]["finding_ids"][0]
 
 
 def single_repository_groups(groups: list[dict], components: list[dict]) -> list[dict]:
@@ -3667,6 +3688,7 @@ def merge_assessment(
     started_at=None,
     review_groups=None,
     combine_texts=None,
+    review_verification=None,
 ) -> dict:
     """Validate v2 sources, then run the legacy merge chain on them.
 
@@ -3685,6 +3707,9 @@ def merge_assessment(
     ``_join_verification`` makes them part of the finding they repeat after
     the merge chain, or keeps them as findings of their own. Every finding
     names the methods that found it in ``found_by``.
+    ``review_verification`` receives the TCF- IDs of the findings of their own
+    that no post-check confirmed and returns the evidence review's decision
+    per ID; without it they stay ambiguous.
     ``review_groups`` receives the candidate groups no deterministic rule
     decides and returns merger decisions; without it those groups stay unmerged.
     ``combine_texts`` receives the parts of every finding that several methods
@@ -3828,7 +3853,7 @@ def merge_assessment(
                 decisions += review_groups(verdict, pending)
             normalize_risks(rows)
             threats += _apply_decisions(rows, decisions)
-        threats = _join_verification(threats, verified)
+        threats = _join_verification(threats, verified, review_verification)
     finally:
         _COMBINING.reset(combining)
     _combine_texts(threats, combine_texts)

@@ -16650,6 +16650,8 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
                 lines += [f"Outcome for {component(row)}: {outcome} {_candidate_counts(candidates)}", ""]
                 if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
                     lines += ["Evidenced by model review only; no post-check confirmed it.", ""]
+                elif row["outcome"] == "finding" and row.get("evidence_basis") == "review":
+                    lines += ["Confirmed by the evidence review; no post-check confirmed it.", ""]
                 values = [v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v)]
                 if not apart:
                     shown = list(dict.fromkeys(register[value] for value in values if value in register))
@@ -16711,7 +16713,16 @@ def _verification_card(t: dict) -> str:
     if len(methods) > 1 or "verification" in methods:
         named = methods[0] if len(methods) == 1 else ", ".join(methods[:-1]) + " and " + methods[-1]
         links = ", ".join(f"[{c}](#{c.lower()})" for c in cases)
-        return f"**Found by:** {named}" + (f" ({links})" if links else "")
+        card = f"**Found by:** {named}" + (f" ({links})" if links else "")
+        contradicted = t.get("evidence_review_contradicted")
+        if isinstance(contradicted, dict) and contradicted.get("reason"):
+            # The reason is model text: it stays text and cannot create links or markup.
+            card += (
+                "\n\n**Contradicted by the evidence review:** "
+                + _safe_boundary_text(contradicted["reason"])
+                + " Check this finding before acting on it."
+            )
+        return card
     found = [
         str(f)
         for f in (t.get("verification") or {}).get("finding_ids") or []

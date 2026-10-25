@@ -413,7 +413,7 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_it
     }
     (owner,) = [row for row in _component_rows(model, "TC-AUTHZ-01") if row["component_id"] == service["id"]]
     assert owner["outcome"] == "finding" and owner["finding_ids"] == ["TCF-001"]
-    assert owner["evidence_basis"] == "model" and owner["post_checks"]
+    assert owner["post_checks"]
     assert all(row["outcome"] != "control" for row in _component_rows(model))
 
     # REQ-040: the verification finding joins the register, as part of the finding it repeats or on its own.
@@ -424,6 +424,9 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_it
     threat = _verified(model)["TCF-001"]
     assert "verification" in threat["found_by"] and "TC-AUTHZ-01" in threat["test_case_ids"]
     assert threat["component"] == service["id"] and threat["id"].startswith("T-")
+    # No post-check confirmed it, but the evidence review did, alone or as part of the survey's finding, so the
+    # item's outcome no longer rests on model review only.
+    assert threat["evidence_basis"] == "llm-verified" and owner["evidence_basis"] == "review"
     without = yaml.safe_load((plain / "security-assessment.yaml").read_text())
     added = 0 if "survey" in threat["found_by"] or "scanners" in threat["found_by"] else 1
     assert len(model["threats"]) == len(without["threats"]) + added
@@ -434,7 +437,9 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_it
 
     (sidecar,) = (tmp_path / "pilot").rglob(".test-case-pilot.json")
     document = json.loads(sidecar.read_text())
-    assert document["aspects"] == ["AuthZ"] and document["results"] == _component_rows(model)
+    # The sidecar keeps verification's own results; only the model relabels what the evidence review confirmed.
+    own = [{**row, "evidence_basis": "model"} if row is owner else row for row in _component_rows(model)]
+    assert document["aspects"] == ["AuthZ"] and document["results"] == own
     artifact = sidecar.parent / ".dispatch-context" / service["id"] / "test-case-candidates.json"
     candidates = json.loads(artifact.read_text())["test_cases"]
     assert {row["test_case_id"] for row in candidates} <= authz and all(row["aspect"] == "AuthZ" for row in candidates)

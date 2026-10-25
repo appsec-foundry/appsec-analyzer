@@ -270,6 +270,7 @@ class _AssessmentConsole:
         ("Independently verifying evidence", "Threat analysis"),
         ("Analyzed component", "Threat analysis"),
         ("Reviewing merge candidates", "Consolidation"),
+        ("Reviewing the evidence of verification findings", "Consolidation"),
         ("Combining the texts of", "Consolidation"),
         ("Merge · ", "Consolidation"),
         ("Building the deterministic route inventory", "Consolidation"),

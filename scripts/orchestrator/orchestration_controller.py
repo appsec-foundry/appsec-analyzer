@@ -1933,6 +1933,8 @@ def _assessment_stride(
                 "adjacent": adjacent,
                 "allowed": allowed,
                 "job_allowed": job_allowed,
+                # The evidence review of verification findings gets the targets' guards and registrations too.
+                "targets": targets,
             }
 
         # Lines the context cites from earlier stages (controls, flows,
@@ -2199,6 +2201,9 @@ def _assessment_stride(
         started_at=started_at,
         review_groups=lambda verdict, groups: _assessment_merge_review(jobs, verdict, groups, progress=progress),
         combine_texts=lambda requests: _assessment_finding_combination(jobs, requests, progress=progress),
+        review_verification=lambda ids: _assessment_verification_review(
+            jobs, analysis, scope, components, envelopes, verified, ids, label=label, progress=progress
+        ),
     )
     sources = [_count_noun(surveyed, "survey finding"), _count_noun(hits, "scanner hit")]
     if verified:
@@ -2441,6 +2446,61 @@ def _unreviewed_evidence(identity: dict, findings: list[dict], reason: str) -> d
             for finding in findings
         ],
     }
+
+
+def _assessment_verification_review(jobs, analysis, scope, components, envelopes, findings, ids, *, label, progress):
+    """Run the evidence review over the verification findings that no other review covers (REQ-040).
+
+    ``findings`` holds each component's verification findings as verification returned them, and ``ids``
+    the TCF- IDs to review. A component's findings are reviewed in batches like its survey findings, with
+    the sources its verification jobs could read. Returns each reviewed ID's decision; a failed review,
+    or one the budget does not cover, leaves its findings ambiguous and records the gap.
+    """
+    from runtime.assessment_host import MAX_SLICE_LINES
+
+    wanted = set(ids)
+    owners = {row["id"]: row for row in components["components"]}
+    # The reviewer gets the finding as a survey finding looks; the controller keeps the IDs that join it.
+    internal = ("id", "component_id", "aspect", "test_case_ids", "route_ids", "post_check_confirmed")
+    work = []
+    for component_id, rows in findings.items():
+        selected = [{"local_id": row["id"], **{k: v for k, v in row.items() if k not in internal}} for row in rows]
+        selected = [row for row in selected if row["local_id"] in wanted]
+        if selected:
+            work.append((owners[component_id], selected))
+
+    def review(_, item, view):
+        component, rows = item
+        envelope = envelopes[component["id"]]
+        identity = {key: envelope["context"][key] for key in ("source_scope_sha256", "component_inventory_fingerprint")}
+        progress("Reviewing the evidence of verification findings: " + label(component))
+        batches = analysis.evidence_batches(
+            rows,
+            max_windows=EVIDENCE_REVIEW_WINDOWS,
+            max_findings=EVIDENCE_REVIEW_FINDINGS,
+            window_lines=MAX_SLICE_LINES,
+        )
+        return [
+            _assessment_evidence_review(
+                view,
+                analysis,
+                scope,
+                identity,
+                component,
+                batch,
+                envelope["incident"],
+                envelope["context"],
+                identity["component_inventory_fingerprint"],
+                envelope["job_allowed"],
+                "evidence-verification:" + component["id"] + (f":{number}/{len(batches)}" if len(batches) > 1 else ""),
+                targets=envelope["targets"],
+                component_sources=analysis.source_selection(components["components"]),
+            )
+            for number, batch in enumerate(batches, 1)
+        ]
+
+    parts = _assessment_components_concurrently(jobs, work, review) if work else []
+    return {row["local_id"]: row for reviews in parts for part in reviews for row in part["decisions"]}
 
 
 # One review keeps a third of its read budget for context beyond the anchors,
@@ -3690,6 +3750,8 @@ def _assessment_render(
             )
             # The merge made verification findings part of the register; verified controls contradict survey findings.
             case_outcomes.mark_contradicted(model.get("threats") or [], model["test_case_results"]["results"])
+            # A finding outcome whose findings the evidence review confirmed no longer rests on model review only.
+            case_outcomes.mark_reviewed(model.get("threats") or [], model["test_case_results"]["results"])
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):

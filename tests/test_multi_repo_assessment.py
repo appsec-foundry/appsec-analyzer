@@ -1672,6 +1672,95 @@ def test_evidence_review_supplies_controls_and_trace_without_changing_verdict(tm
     assert finding == original
 
 
+@pytest.mark.parametrize("fails", [False, True], ids=["reviewed", "failed or unaffordable"])
+def test_verification_findings_of_their_own_get_their_components_evidence_review(tmp_path, fails):
+    """REQ-040: the selected verification findings are reviewed with the sources verification could read."""
+    from types import SimpleNamespace
+
+    from contexts import multi_repo_analysis as analysis
+
+    scope = _scope(tmp_path, ("records",), {"routes/read.ts": "export const read = req => db.find(req.params.id)\n"})
+    component = _component(scope, "routes/read.ts")
+    repo = scope.repositories[0]
+    path = "routes/read.ts"
+    anchor = dict(
+        repository_id=repo.repository_id, file=path, line=1, sha256=hashlib.sha256(repo.files[path]).hexdigest()
+    )
+    identity = dict(
+        source_scope_sha256=scope.inventory()["scope_sha256"],
+        component_inventory_fingerprint="sha256:" + "a" * 64,
+    )
+    allowed = frozenset({(repo.repository_id, path)})
+    envelopes = {component["id"]: {"context": dict(identity), "incident": [], "job_allowed": allowed, "targets": []}}
+
+    def row(number):
+        return dict(
+            id=f"TCF-{number:03d}",
+            component_id=component["id"],
+            aspect="AuthZ",
+            test_case_ids=["TC-AUTHZ-01"],
+            route_ids=["R-1"],
+            post_check_confirmed=False,
+            title="Record read by ID is not bound to its owner",
+            cwe="CWE-639",
+            evidence=anchor,
+        )
+
+    calls = []
+
+    class View:
+        halt = None
+
+        def execute(self, **kwargs):
+            calls.append(kwargs)
+            if fails:
+                return kwargs["on_failure"]("budget reserved for required completion work")
+            reason = "The handler reads the record by its ID alone."
+            decisions = [
+                dict(local_id=f["local_id"], verdict="verified", reason=reason, evidence=[anchor])
+                for f in kwargs["context"]["findings"]
+            ]
+            return dict(schema_version=2, **identity, decisions=decisions)
+
+    class Jobs:
+        budget = SimpleNamespace(max_parallel=2)
+
+        def view(self):
+            return View()
+
+        def join(self, view):
+            pass
+
+    said = []
+
+    def review(ids):
+        return controller._assessment_verification_review(
+            Jobs(),
+            analysis,
+            scope,
+            {"components": [component]},
+            envelopes,
+            {component["id"]: [row(1), row(2)]},
+            ids,
+            label=lambda c: c["name"],
+            progress=said.append,
+        )
+
+    decisions = review(["TCF-002"])
+    (call,) = calls
+    assert call["role"] == "evidence_verifier" and call["selector"] == "evidence-verification:" + component["id"]
+    assert call["allowed_sources"] == allowed
+    # The reviewer gets the finding as a survey finding looks, without the IDs that join it.
+    (finding,) = call["context"]["findings"]
+    assert finding["local_id"] == "TCF-002" and finding["cwe"] == "CWE-639"
+    assert not {"id", "component_id", "aspect", "test_case_ids", "route_ids", "post_check_confirmed"} & set(finding)
+    assert said == ["Reviewing the evidence of verification findings: " + component["name"]]
+    assert list(decisions) == ["TCF-002"]
+    assert decisions["TCF-002"]["verdict"] == ("ambiguous" if fails else "verified")
+    # Nothing selected, nothing reviewed.
+    assert review([]) == {} and len(calls) == 1
+
+
 @pytest.mark.parametrize(("label", "path"), [("solo", "app.py"), ("order-portal", "src/api/handler.py")])
 def test_single_repository_workspace_uses_plain_paths(tmp_path, label, path):
     from orchestrator import assessment_workspace as ws
@@ -3660,7 +3749,9 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     console.step("Surveying component: API (1/1)")
     clock.tick(60)
     console.step("Analyzed component: API")
-    # The text combination runs inside the merge; it opens the consolidation without a row of its own.
+    # The evidence review of verification findings and the text combination run inside the merge; the first
+    # opens the consolidation without a row of its own.
+    console.step("Reviewing the evidence of verification findings: API")
     console.step("Combining the texts of 2 findings that several methods found")
     console.step("Merge · 8 survey findings and 4 scanner hits merged into 9")
     console.step("Building the assessment model")

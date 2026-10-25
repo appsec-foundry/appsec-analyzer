@@ -255,6 +255,27 @@ def mark_contradicted(
     return contradicted
 
 
+def mark_reviewed(threats: list[dict[str, Any]], results: list[dict[str, Any]]) -> int:
+    """Label a finding outcome whose every finding the evidence review confirmed (REQ-040).
+
+    A finding outcome that no post-check confirmed rests on model review only, unless the evidence review
+    verified each of its findings, alone or as part of a survey or scanner finding; its basis is then
+    ``review``. Returns how many outcomes were relabelled."""
+    reviewed = {
+        finding_id
+        for threat in threats
+        if threat.get("evidence_basis") == "llm-verified"
+        for finding_id in (threat.get("verification") or {}).get("finding_ids") or []
+    }
+    relabelled = 0
+    for row in results:
+        found = set(row.get("finding_ids") or [])
+        if row.get("outcome") == "finding" and row.get("evidence_basis") == "model" and found and found <= reviewed:
+            row["evidence_basis"] = "review"
+            relabelled += 1
+    return relabelled
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))

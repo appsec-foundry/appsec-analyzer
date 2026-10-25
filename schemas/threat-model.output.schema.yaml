@@ -1356,6 +1356,15 @@ properties:
               test_case_id: { type: string, pattern: "^TC-[A-Z]+-[0-9]{2}$" }
               file: { type: string, minLength: 1 }
               line: { type: integer, minimum: 1 }
+        evidence_review_contradicted:
+          description: >-
+            REQ-040: the evidence review refuted this finding, which only verification reported. The threat
+            stays in the report, unscored, so that a reader can check it; the reason is the review's.
+          type: object
+          additionalProperties: false
+          required: [reason]
+          properties:
+            reason: { type: string, minLength: 1, maxLength: 300 }
         component:   { type: string }
         stride:
           type: string
@@ -2145,7 +2154,10 @@ properties:
               type: string
               minLength: 1
             evidence_basis:
-              enum: [deterministic, model]
+              description: >-
+                deterministic when post-checks confirmed the outcome, review when the evidence review
+                confirmed every finding of a finding outcome, model otherwise.
+              enum: [deterministic, model, review]
             candidates:
               type: object
               additionalProperties: false
