@@ -1280,3 +1280,22 @@ def test_a_scanner_hit_inside_a_handler_gets_the_guards_of_the_routes_reaching_i
     # The guard's definition, its prefix registration and the route's registration, beside the hit itself.
     assert covered("lib/guards.js", 2) and covered("server.js", 5) and covered("server.js", 6)
     assert covered("routes/order.js", 2)
+
+
+def test_a_finding_may_anchor_at_a_candidate_the_controller_assigned_even_in_another_components_file():
+    """A route's handler and guards can belong to one component and its registration to another's central router."""
+    from orchestrator import assessment_test_cases as pilot
+
+    rid = "repo-" + "1" * 16
+    owned = frozenset({(rid, "routes/api.ts")})
+    allowed = {(rid, "lib/helper.ts"), (rid, "routes/api.ts"), (rid, "server.ts"), (rid, "models/user.ts")}
+    anchors = {(rid, "server.ts")}
+    assert pilot._anchorable(allowed, owned, anchors) == {
+        (rid, "lib/helper.ts"),
+        (rid, "server.ts"),
+        (rid, "models/user.ts"),
+    }
+    # Only files of no component and the job's candidate anchors qualify; the job's own files need no entry.
+    assert (rid, "routes/api.ts") not in pilot._anchorable(allowed, owned, anchors)
+    assert pilot._anchorable(allowed, frozenset(allowed), set()) == frozenset()
+    assert "never as its anchor" in pilot._ADAPTATION

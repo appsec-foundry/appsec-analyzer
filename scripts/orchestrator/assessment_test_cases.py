@@ -54,7 +54,10 @@ _ADAPTATION = (
     "handler where fixed patterns found the mechanism its test case asks about; they are hints, and other paths "
     "count as well. A candidate inside a handler lists in reached_by the routes whose handlers reach it, each with "
     "registered_at: the lines where the route and the guards that run before its handler are registered. Read "
-    "them before you judge the candidate; those guards decide it as well. When the context has candidate_jobs, other jobs answer the "
+    "them before you judge the candidate; those guards decide it as well. Anchor a finding at its candidate's anchor, or at "
+    "a line of the component's own files or of a file that belongs to no component, that itself shows the weakness; "
+    "cite the lines of other components' files, such as a data model or a guard, as the finding's trace, never as its "
+    "anchor. When the context has candidate_jobs, other jobs answer the "
     "rest of the component's candidates: add model candidates only when adds_candidates is true, and never at a "
     "location that answered_elsewhere lists for the same test case."
 )
@@ -207,8 +210,7 @@ def run_pilot(
         starting = {(key[0], key[1]) for key in preload} | anchors
         context["starting_files"] = [{"repository_id": key[0], "path": key[1]} for key in sorted(starting)]
         identity = {key: context[key] for key in ("source_scope_sha256", "component_inventory_fingerprint")}
-        # Files of no component, such as shared helpers, where a finding may anchor once the job read them.
-        shared = frozenset(envelope["job_allowed"]) - owned
+        shared = _anchorable(envelope["job_allowed"], owned, anchors)
         selector = _selector(entry, number)
         exchanged = view.exchange(
             role="test_case_investigator",
@@ -344,6 +346,16 @@ def run_pilot(
         "findings": findings,
         "candidates": candidates,
     }
+
+
+def _anchorable(job_allowed, owned, anchors) -> frozenset:
+    """Files beyond the component's own where a finding may anchor once the job read them.
+
+    These are files of no component, such as shared helpers, and the anchors of the candidates the controller
+    assigned to the job: a route registered in another component's file is the job's candidate by its handler
+    and guards, so the finding it reports belongs at that registration.
+    """
+    return (frozenset(job_allowed) - owned) | frozenset(anchors)
 
 
 def _entry_cases(entry) -> list[str]:

@@ -45,6 +45,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Reports handle empty registers and repair or stop on broken links. STRIDE mappings follow weakness classes, and the Figure 1 legend no longer claims per-element STRIDE coverage.
 - AI / LLM Exposure lists verification findings under the OWASP LLM categories of their verification items and no longer files a user role set from the request body under prompt injection.
 - The startup model test shows its cost only with API billing or `--show-costs`, like the run's own costs.
+- Verification no longer asks the model to correct a finding anchored at a route registered in another component's file; it may anchor there, and the instructions tell it to cite data models and guards as the trace.
 
 ## 0.6.0-beta.4 (2026-10-06)
 
