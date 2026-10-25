@@ -49,7 +49,8 @@ _ADAPTATION = (
     "the id of the listed component that owns them, other for paths of no listed component: read only exact "
     "pairs from it, in one read action. A route marked generated is registered by a REST resource "
     "generator at its anchor and handled by library code: judge it by the generator call, the data model it names, "
-    "and the registrations for the same path among its handler lines. A candidate's sinks are the lines in its "
+    "and the registrations for the same path among its handler lines. A route's data_model gives where that model "
+    "is defined; read it when source_slices does not hold it. A candidate's sinks are the lines in its "
     "handler where fixed patterns found the mechanism its test case asks about; they are hints, and other paths "
     "count as well. A candidate inside a handler lists in reached_by the routes whose handlers reach it, each with "
     "registered_at: the lines where the route and the guards that run before its handler are registered. Read "
@@ -182,7 +183,7 @@ def run_pilot(
         context = {
             **envelope["context"],
             "aspect": aspect,
-            "test_case_candidates": _context_candidates(share, rid, facts[rid]),
+            "test_case_candidates": _context_candidates(share, rid, facts[rid], envelope["job_allowed"]),
         }
         # Only the first of several jobs adds model candidates, and never where another job answers.
         elsewhere = _answered_elsewhere(entry["jobs"], number, rid) if count > 1 and number == 1 else {}
@@ -562,9 +563,12 @@ def _fixed(case, component_id: str, outcome: str, reason: str) -> dict:
     return row
 
 
-def _context_candidates(precheck, rid: str, facts) -> list[dict]:
+def _context_candidates(precheck, rid: str, facts, readable=frozenset()) -> list[dict]:
     """Candidates per test case as context data: qualified anchors, each route's method and path, and for a
-    candidate inside a handler the routes that reach it with the lines where they and their guards are registered."""
+    candidate inside a handler the routes that reach it with the lines where they and their guards are registered.
+
+    A route a generator serves names where its data model is defined when the job may read that file, so the job
+    can read a model the preload left out instead of leaving the route undecidable."""
     listed = []
     for case_id, rows in precheck.items():
         candidates = []
@@ -572,6 +576,9 @@ def _context_candidates(precheck, rid: str, facts) -> list[dict]:
             candidate = {**row, "anchor": {"repository_id": rid, **row["anchor"]}}
             if "route_id" in row:
                 candidate["route"] = _route(facts, row["route_id"])
+                model = facts["routes"][row["route_id"]].get("data_model")
+                if model and (rid, model[0]) in readable:
+                    candidate["route"]["data_model"] = {"repository_id": rid, "file": model[0], "line": model[1]}
             if "reached_by" in row:
                 candidate["reached_by"] = [_reaching_route(facts, rid, key) for key in row["reached_by"]]
             candidates.append(candidate)
@@ -630,7 +637,8 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
     the candidates: one guard decides many routes, and a guard the job cannot
     read leaves its routes undecidable. The data models that generators serve
     on the candidates' routes follow, since library code handles those routes
-    with the fields the model defines. The candidates' anchors and resolved
+    with the fields the model defines; those most candidates need come first,
+    so the window cap drops the rarely needed ones. The candidates' anchors and resolved
     handler chains take the room left; earlier guard registrations and the
     direct helpers their files import fill the rest.
     """
@@ -646,7 +654,8 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
     )
     inventory = {row.get("route_id"): row for row in architecture["route_inventories"][rid].get("routes", [])}
     wares = architecture.get("route_middleware", {}).get(rid, {})
-    anchors, lines, guards, models, targets = [], [], [], [], []
+    anchors, lines, guards, targets = [], [], [], []
+    needed: Counter = Counter()
     for row in (row for rows in precheck.values() for row in rows):
         anchor = {"repository_id": rid, **row["anchor"]}
         anchors.append(anchor)
@@ -655,7 +664,7 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
         # A sink can lie far into a long handler.
         lines += [{"repository_id": rid, **sink} for sink in row.get("sinks", [])]
         if route.get("data_model"):
-            models.append({"repository_id": rid, "file": route["data_model"][0], "line": route["data_model"][1]})
+            needed[tuple(route["data_model"])] += 1
         # The guards of the candidate's route decide it. A location inside a handler is decided by the routes
         # reaching it: their guards and registrations fill leftover room, so they never displace a candidate.
         registered, middleware = [], []
@@ -670,12 +679,16 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
                 lines_before = [*lines_before, reached["handler_line"]]
             registered += [[rid, reached.get("handler_file"), line] for line in lines_before]
         targets.append({"evidence": anchor, "guard_lines": registered, "middleware": middleware})
+    models = [
+        {"repository_id": rid, "file": path, "line": line}
+        for (path, line), _ in sorted(needed.items(), key=lambda item: (-item[1], item[0]))
+    ]
     served = list(context_preload)
     # Middleware definitions get a quarter of what is left, data models a quarter of the rest, the candidates the rest.
-    for rows, share, before, after in (
-        (guards, 4, 0, analysis.MAX_MIDDLEWARE_LINES - 1),
-        (models, 4, 0, MAX_MODEL_LINES - 1),
-        ([*anchors, *lines], 1, 10, 40),
+    for rows, share, before, after, ordered in (
+        (guards, 4, 0, analysis.MAX_MIDDLEWARE_LINES - 1, False),
+        (models, 4, 0, MAX_MODEL_LINES - 1, True),
+        ([*anchors, *lines], 1, 10, 40, False),
     ):
         served += [
             key
@@ -687,6 +700,7 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
                 max_windows=(MAX_PRELOAD_WINDOWS - len(served)) // share,
                 before=before,
                 after=after,
+                ordered=ordered,
             )
             if key not in served
         ]
