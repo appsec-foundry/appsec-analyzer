@@ -2014,6 +2014,46 @@ def test_components_run_concurrently_within_the_limit_and_keep_order(tmp_path, c
     assert jobs.notes == [f"note {n}" for n in names]
 
 
+def test_a_components_review_batches_run_side_by_side_and_keep_their_order(tmp_path):
+    import threading
+    import time
+
+    roots = [tmp_path / "edge", tmp_path / "service"]
+    for root in roots:
+        checkout(root)
+    scope = admit([str(r) for r in roots], str(tmp_path / "out"))
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(2, 0.05, 60, 120, max_parallel=3),
+        Host(scope).factory,
+        lambda: False,
+        lambda: None,
+    )
+    lock, running, peak = threading.Lock(), [0], [0]
+
+    def reviewer(number):
+        def run(view):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            # Later batches finish first.
+            time.sleep(0.02 * (5 - number))
+            view.notes.append(f"note {number}")
+            with lock:
+                running[0] -= 1
+            return f"part {number}"
+
+        return run
+
+    assert controller._assessment_review_batches(jobs, [reviewer(n) for n in range(5)]) == [
+        f"part {n}" for n in range(5)
+    ]
+    assert peak[0] == 3 and jobs.notes == [f"note {n}" for n in range(5)]
+    # A single batch needs no pool.
+    assert controller._assessment_review_batches(jobs, [reviewer(0)]) == ["part 0"]
+
+
 def test_a_failed_component_admits_no_further_job_and_is_raised(tmp_path):
     import threading
 

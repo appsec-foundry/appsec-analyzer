@@ -780,10 +780,10 @@ _CLOSING_LEAD = ("finding", "control", "partial", "undecidable")
 
 
 def closing_test_case_line(counts: dict[str, int]) -> str:
-    """The closing console's line of verification outcomes (REQ-040): what needs a look first, the rest in brackets.
+    """The closing console's line of verification outcomes (REQ-040): only what needs a look.
 
-    Every outcome still appears, ordered and grouped unlike ``test_case_line``. The undecidable items without
-    a location to examine are left to the report, which keeps the line short.
+    The report states every outcome per item. A run with none of the four leading outcomes shows the
+    others, so that the line never reads empty.
     """
     lead, rest = [], []
     for key, singular, plural in _TEST_CASE_WORDS:
@@ -791,9 +791,7 @@ def closing_test_case_line(counts: dict[str, int]) -> str:
             continue
         text = f"{counts[key]} {singular if counts[key] == 1 else plural}"
         (lead if key in _CLOSING_LEAD else rest).append(text)
-    if not lead:
-        return ", ".join(rest)
-    return " · ".join(lead) + (f" ({', '.join(rest)})" if rest else "")
+    return " · ".join(lead) if lead else ", ".join(rest)
 
 
 # Chain verdict -> the word the closing lines use, in the order the report groups its cases.

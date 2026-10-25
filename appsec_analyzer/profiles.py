@@ -21,7 +21,7 @@ from jsonschema import Draft202012Validator
 from yaml.tokens import AliasToken, AnchorToken
 
 from appsec_analyzer import resource_root
-from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
+from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, SUBSCRIPTION_MAX_PARALLEL, validate_max_parallel
 
 BUILTINS = ("claude", "codex", "codex-cli", "copilot-cli", "lite", "bedrock")
 DEPTHS = ("quick", "standard", "thorough")
@@ -458,6 +458,8 @@ def resolve_scan(
     model = model_settings(
         settings["model_profile"], settings["assessment_depth"], home=model_home, repositories=repositories
     )
+    if model["adapter"] in ("codex-cli", "copilot-cli") and provenance["max_parallel"] == "analyzer default":
+        settings["max_parallel"] = SUBSCRIPTION_MAX_PARALLEL
     connection = None
     if model["adapter"] in ("lite", "bedrock"):
         from appsec_analyzer.providers import load

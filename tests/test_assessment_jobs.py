@@ -1104,3 +1104,58 @@ def test_the_budget_itemises_reported_usage_per_model_and_names_what_no_host_rep
     budget.reused_calls, budget.reused_usd = 1, 0.03
     assert budget.usage_mark()["calls"] == 1 and budget.usage_mark()["usd"] == pytest.approx(0.02)
     assert budget.usage_mark()["total_usd"] == pytest.approx(0.05)
+
+
+@pytest.mark.parametrize(
+    ("max_parallel", "default", "components", "expected"),
+    [
+        (4, True, 9, 3),
+        (4, True, 10, 4),
+        (4, True, 6, 3),
+        (4, True, None, 4),
+        (4, False, 9, 4),
+        (2, True, 9, 2),
+        (8, True, 9, 8),
+    ],
+)
+def test_the_default_works_in_groups_of_three_only_where_components_divide_by_three(
+    max_parallel, default, components, expected
+):
+    """A set value always applies; only the unchanged default narrows to three for an even split."""
+    budget = AssessmentBudget(1.0, 0.05, 100, 3600, max_parallel=max_parallel, parallel_is_default=default)
+    budget.components = components
+    assert budget.workers == expected
+
+
+def test_model_calls_over_the_runs_parallelism_wait_for_a_running_call():
+    """Jobs inside a component share the parallelism of the components: at most `workers` calls run at once."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from runtime.multi_repo_discovery import DiscoveryBudget
+
+    budget = AssessmentBudget(10.0, 0.05, 100, 600, max_parallel=2, parallel_is_default=False)
+    lock, running, peak = threading.Lock(), [0], [0]
+
+    class Host:
+        def invoke(self, *args):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+            return HostReply({}, 0.01)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        replies = list(
+            pool.map(lambda _: budget.invoke(lambda ceiling: Host(), "s", "p", {}, 60, lambda: False), range(6))
+        )
+    assert len(replies) == 6 and budget.calls == 6
+    assert peak[0] == 2
+    # Without a limit the same six calls overlap more.
+    free = DiscoveryBudget(1, 0.05, 20, 600)
+    peak[0] = running[0] = 0
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(lambda _: free.invoke(lambda ceiling: Host(), "s", "p", {}, 60, lambda: False), range(6)))
+    assert peak[0] > 2

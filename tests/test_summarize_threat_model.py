@@ -647,12 +647,14 @@ def test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them(t
     assert all(label != "Verification" for label, _ in stm.completion_rows(plain))
 
 
-def test_closing_verification_line_leads_with_what_needs_a_look():
+def test_closing_verification_line_names_only_what_needs_a_look():
     counts = {"finding": 19, "control": 3, "no_finding": 9, "undecidable": 22, "not_applicable": 55, "disabled": 1}
-    assert stm.closing_test_case_line(counts) == (
-        "19 findings · 3 controls · 22 undecidable (9 no finding, 55 not applicable, 1 disabled)"
+    assert stm.closing_test_case_line(counts) == "19 findings · 3 controls · 22 undecidable"
+    assert stm.closing_test_case_line({**counts, "partial": 4}) == (
+        "19 findings · 3 controls · 4 partial · 22 undecidable"
     )
-    assert stm.closing_test_case_line({"not_applicable": 2}) == "2 not applicable"
+    # Without any of the four, the others stand in for them.
+    assert stm.closing_test_case_line({"not_applicable": 2, "no_finding": 1}) == "1 no finding, 2 not applicable"
 
 
 def test_abuse_case_line_names_the_verdicts_as_the_report_groups_them():

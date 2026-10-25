@@ -92,7 +92,7 @@ def test_user_defaults_role_depth_and_cli_precedence(home):
 
 
 def test_max_parallel_defaults_profile_cli_and_provenance(home):
-    assert profiles.resolve_scan("claude")["settings"]["max_parallel"] == 2
+    assert profiles.resolve_scan("claude")["settings"]["max_parallel"] == 4
     write(home, "scan", "parallel", {"schema_version": 1, "max_parallel": 4})
     configured = profiles.resolve_scan("parallel")
     assert configured["settings"]["max_parallel"] == 4
@@ -722,7 +722,7 @@ def test_model_alias_is_frozen_on_resume_and_changed_profile_is_rejected(home, t
     with pytest.raises(profiles.ProfileError, match="changed"):
         profiles.restore_profile(profiles.resolve_scan("release", budget=99), output, resume=True)
     with pytest.raises(profiles.ProfileError, match="changed"):
-        profiles.restore_profile(profiles.resolve_scan("release", max_parallel=4), output, resume=True)
+        profiles.restore_profile(profiles.resolve_scan("release", max_parallel=5), output, resume=True)
 
 
 def test_catalog_prices_determine_role_reservations(home):

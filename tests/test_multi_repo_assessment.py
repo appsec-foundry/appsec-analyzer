@@ -1723,7 +1723,7 @@ def test_verification_findings_of_their_own_get_their_components_evidence_review
             return dict(schema_version=2, **identity, decisions=decisions)
 
     class Jobs:
-        budget = SimpleNamespace(max_parallel=2)
+        budget = SimpleNamespace(max_parallel=2, workers=2)
 
         def view(self):
             return View()
@@ -2333,6 +2333,21 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     )
 
 
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("security-assessment.yaml", "yaml"),
+        ("security-assessment.sarif.json", "sarif"),
+        ("security-assessment.threatdragon.json", "threatdragon"),
+        ("security-assessment.pdf", "pdf"),
+        ("security-assessment.html", "html"),
+        ("pentest-tasks.yaml", "pentest-tasks"),
+    ],
+)
+def test_the_closing_summary_names_other_formats_without_the_file_stem(name, label):
+    assert controller._format_label(name, "security-assessment") == label
+
+
 def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path, monkeypatch, capsys):
     delivered = [
         "security-assessment.yaml",
@@ -2355,7 +2370,7 @@ def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path,
         "  Mitigations 1 · 1 fix first (P1)",
         "  Cost        ≈ USD 1.00 · 3 model calls",
         # The report first, other exports named beside it; embedded figures are omitted.
-        f"  Report      {tmp_path / 'security-assessment.md'} (also security-assessment.yaml, security-assessment.pdf)",
+        f"  Report      {tmp_path / 'security-assessment.md'} (also yaml, pdf)",
         # The generic advice to triage is left out; the review starts the user's own assistant.
         f"  Next steps  appsec-analyzer review {tmp_path}",
         "              starts your coding assistant; its own account and usage limits apply",

@@ -70,7 +70,7 @@ Use `standard` as a starting point, including for business logic analysis. `thor
 
 For `claude` and `codex`, the spending limit defaults to USD 20 for `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 
-Control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run at most two jobs in parallel by default. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
+Control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run at most four jobs in parallel by default, three when the number of components divides by three, and two on Codex and Copilot subscriptions. A value you set applies as given. Set `max_parallel` in a scan profile or pass `--max-parallel N` to `assess`; the CLI value overrides the profile. Values from 1 to 16 are accepted. The run header shows the selected value, and the time reserve uses the same value. Provider rate limits can still interrupt a run; accepted steps remain available for `--resume` with compatible settings.
 
 ### Rate limits and connection failures
 

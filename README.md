@@ -367,7 +367,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
-| `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. |
+| `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 4, or 3 when the default applies and the components divide by three; 2 for Codex and Copilot subscriptions. |
 | `--non-interactive` | For CI. Without it, an interactive terminal may ask for a higher budget before skipping work. |
 | `--verbose` | Show job and call identities and detailed correction messages. |
 | `--show-costs` | Show costs even with subscription billing; default cost display is API billing only. |

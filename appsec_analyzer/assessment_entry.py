@@ -173,9 +173,6 @@ def apply_launch_defaults(ns, profile: dict, explicit) -> None:
             )
             profile["settings"]["budget"] = float(values["budget"])
             profile["origins"]["settings"]["budget"] = f"Claude-host depth budget ({origins['budget']})"
-        if ns.max_parallel is None:
-            profile["settings"]["max_parallel"] = 3
-            profile["origins"]["settings"]["max_parallel"] = "Claude-host default"
     elif ns.soft_budget is not None:
         raise ValueError("--soft-budget is a Claude-host compatibility option; use --budget")
 

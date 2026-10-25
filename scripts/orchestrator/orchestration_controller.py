@@ -2120,6 +2120,7 @@ def _assessment_stride(
         if findings:
             progress("Independently verifying evidence: " + label(component))
         parts = evidence_parts[position] = []
+        reviewers = []
         for number, batch in enumerate(batches, 1):
             selector = "evidence:" + component["id"] + (f":{number}/{len(batches)}" if len(batches) > 1 else "")
 
@@ -2140,11 +2141,13 @@ def _assessment_stride(
                     component_sources=analysis.source_selection(components["components"]),
                 )
 
-            parts.append(review_batch(jobs))
+            reviewers.append((selector, review_batch))
+        parts.extend(_assessment_review_batches(jobs, [review_batch for _, review_batch in reviewers]))
+        for index, (selector, review_batch) in enumerate(reviewers):
             # The reserve for components not yet analyzed blocked this review;
             # it is retried once their STRIDE work has released that reserve.
             if any(gap["selector"] == selector and gap.get("budget") for gap in jobs.gaps):
-                deferred.append((position, len(parts) - 1, selector, label(component), review_batch))
+                deferred.append((position, index, selector, label(component), review_batch))
         if parts:
             review = {**parts[0], "decisions": [row for part in parts for row in part["decisions"]]}
         else:
@@ -2224,6 +2227,17 @@ def _assessment_stride(
     return documents, reviews, merged
 
 
+def _assessment_review_batches(jobs, reviewers):
+    """Run ``reviewer(jobs)`` for each independent review batch of one component, results in batch order.
+
+    A component's batches run side by side; the budget keeps every running model call of the run within
+    its parallelism, so they share it with the components themselves.
+    """
+    if len(reviewers) < 2:
+        return [reviewer(jobs) for reviewer in reviewers]
+    return _assessment_components_concurrently(jobs, reviewers, lambda _, reviewer, view: reviewer(view))
+
+
 def _assessment_components_concurrently(jobs, components, analyze):
     """Run `analyze(position, component, jobs)` for every component on a bounded pool (MR-16).
 
@@ -2250,7 +2264,7 @@ def _assessment_components_concurrently(jobs, components, analyze):
                 halt.set()
             raise
 
-    with ThreadPoolExecutor(max_workers=jobs.budget.max_parallel, thread_name_prefix="component") as pool:
+    with ThreadPoolExecutor(max_workers=jobs.budget.workers, thread_name_prefix="component") as pool:
         futures = [
             pool.submit(run, position, component, view)
             for (position, component), view in zip(enumerate(components, 1), views, strict=True)
@@ -2703,7 +2717,7 @@ def _requested_depth(rest: list[str]) -> str:
 def _assessment_budget(ns, rest: list[str] = (), *, subscription=False, subscription_label="ChatGPT subscription"):
     from runtime.assessment_jobs import MAX_ASSESSMENT_CALLS, MAX_ASSESSMENT_SECONDS, AssessmentBudget
 
-    from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL
+    from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, SUBSCRIPTION_MAX_PARALLEL
 
     if subscription:
         if ns.hard_budget is not None or ns.soft_budget is not None:
@@ -2715,7 +2729,7 @@ def _assessment_budget(ns, rest: list[str] = (), *, subscription=False, subscrip
             ns.max_duration if ns.max_duration is not None else ASSESSMENT_DEFAULT_SECONDS,
             spent_usd=None,
             subscription=True,
-            max_parallel=ns.max_parallel if ns.max_parallel is not None else DEFAULT_MAX_PARALLEL,
+            max_parallel=ns.max_parallel if ns.max_parallel is not None else SUBSCRIPTION_MAX_PARALLEL,
             subscription_label=subscription_label,
         )
     if ns.max_calls is not None:
@@ -2738,6 +2752,7 @@ def _assessment_budget(ns, rest: list[str] = (), *, subscription=False, subscrip
         MAX_ASSESSMENT_CALLS,
         seconds,
         max_parallel=ns.max_parallel if ns.max_parallel is not None else DEFAULT_MAX_PARALLEL,
+        parallel_is_default=getattr(ns, "parallel_is_default", ns.max_parallel is None),
     )
 
 
@@ -4004,6 +4019,7 @@ def assess_repositories(
         run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
         if ns.max_parallel is None:
             ns.max_parallel = run_profile["settings"]["max_parallel"]
+            ns.parallel_is_default = run_profile["origins"]["settings"].get("max_parallel") == "analyzer default"
         # Snapshots saved before the setting existed carry no value: false.
         ns.test_cases = ns.test_cases or bool(run_profile["settings"].get("test_cases", False))
         if ns.max_calls is None and run_profile["adapter"] in ("codex-cli", "copilot-cli"):
@@ -4285,6 +4301,7 @@ def assess_repositories(
 
                 platform = platform_context(platform_settings)
                 architecture = _assessment_architecture(scope, jobs, progress=say, depth=depth)
+                jobs.budget.components = len(architecture["components"]["components"])
                 if console:
                     console.plan_components(len(architecture["components"]["components"]))
                 from orchestrator.assessment_declarations import DeclarationError, boundary_declarations
@@ -4856,7 +4873,9 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     rows += [(key, value, None) for key, value in completion_rows(output)]
     rows += _completion_cost_rows(outcome)
     if files:
-        also = ", ".join(Path(path).name for path in files[1:])
+        # The other formats by name, without the report's path and file stem: "yaml", "sarif", "pdf".
+        stem = Path(files[0]).stem
+        also = ", ".join(_format_label(Path(path).name, stem) for path in files[1:])
         rows.append(("Report", files[0] + (f" (also {also})" if also else ""), "accent"))
     if outcome.get("runtime_files"):
         rows.append(("Run files", outcome["runtime_files"], "muted"))
@@ -4882,6 +4901,13 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         print(line, file=stream)
     for line in render_security_notice(output):
         print(out(line, "warn") if line.strip() else line, file=stream)
+
+
+def _format_label(name: str, stem: str) -> str:
+    """A delivered file's format, short: ``security-assessment.sarif.json`` is ``sarif``; another file keeps its stem."""
+    if name.startswith(stem + "."):
+        return name[len(stem) + 1 :].removesuffix(".json")
+    return Path(name).stem
 
 
 def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:

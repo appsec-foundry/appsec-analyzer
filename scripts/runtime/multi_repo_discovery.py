@@ -300,6 +300,10 @@ class DiscoveryBudget:
         """Whether a finished call left its cost unknown; no further call may start."""
         return self._unsettled
 
+    def max_inflight(self) -> int | None:
+        """The most model calls that may run at once, or None for no limit; a call over it waits for a running one."""
+        return None
+
     def remaining_seconds(self) -> int:
         remaining = math.floor(self.deadline - time.monotonic())
         if remaining < 1:
@@ -401,6 +405,13 @@ class DiscoveryBudget:
                             "Provider cooldown exceeds time left; continue with --resume", reason="rate_limit", usd=0.0
                         )
                     self._lock.wait(min(1.0, cooldown))
+                    continue
+                limit = self.max_inflight()
+                if limit is not None and self._inflight >= limit:
+                    # Jobs inside a component share the run's parallelism with the components themselves.
+                    if time.monotonic() >= admission_deadline:
+                        raise AdmissionTimeout("model call exceeded its job's time limit before admission")
+                    self._lock.wait(1.0)
                     continue
                 if self.unsettled:
                     raise ExchangeError("Discovery call budget exhausted or accounting unavailable")

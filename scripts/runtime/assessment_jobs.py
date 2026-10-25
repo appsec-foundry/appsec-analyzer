@@ -23,7 +23,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 from shared._atomic_io import atomic_write_json
 
-from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, validate_max_parallel
+from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, DIVISIBLE_MAX_PARALLEL, validate_max_parallel
 from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
 from runtime.assessment_host import MAX_EXCHANGES, ExchangeError, ExchangeResult, ModelAnswerFailure, run_exchange
 from runtime.multi_repo_discovery import MAX_CALL_SECONDS, BudgetedHost, BudgetExhausted, DiscoveryBudget
@@ -56,7 +56,26 @@ class AssessmentBudget(DiscoveryBudget):
     """Aggregate the full assessment rather than the discovery phase alone."""
 
     max_parallel: int = field(default=DEFAULT_MAX_PARALLEL, kw_only=True)
+    # Whether max_parallel is the analyzer's default rather than a value the user chose.
+    parallel_is_default: bool = field(default=False, kw_only=True)
+    # The run's component count, known after the architecture.
+    components: int | None = field(default=None, kw_only=True)
     subscription_label: str = field(default="ChatGPT subscription", kw_only=True)
+
+    def max_inflight(self) -> int:
+        return self.workers
+
+    @property
+    def workers(self) -> int:
+        """The parallel jobs a pool runs: the default of four becomes three where three components divide evenly."""
+        if (
+            self.parallel_is_default
+            and self.max_parallel == DEFAULT_MAX_PARALLEL
+            and self.components
+            and self.components % DIVISIBLE_MAX_PARALLEL == 0
+        ):
+            return DIVISIBLE_MAX_PARALLEL
+        return self.max_parallel
 
     def __post_init__(self):
         try:
@@ -242,7 +261,7 @@ class AssessmentBudget(DiscoveryBudget):
             else:
                 serial += count * seconds
         # The last, partially filled worker group still needs a full job slot.
-        parallel_seconds = math.ceil(parallel_count / self.max_parallel) * parallel
+        parallel_seconds = math.ceil(parallel_count / self.workers) * parallel
         return dollars, math.ceil(serial + parallel_seconds) + FINALIZATION_SECONDS
 
     def available_usd(self):

@@ -652,7 +652,7 @@ def test_claude_host_defaults_and_explicit_limits(depth, budget, tmp_path, monke
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     ns = cli._parser().parse_args(["assess", "--repo", str(repo), "--interactive-launch", "--assessment-depth", depth])
     cli._prepare_profile(ns)
-    assert ns.hard_budget == budget and ns.max_parallel == 3 and ns.width == 72 and ns.non_interactive
+    assert ns.hard_budget == budget and ns.max_parallel == 4 and ns.width == 72 and ns.non_interactive
     ns = cli._parser().parse_args(
         [
             "assess",
@@ -741,7 +741,7 @@ def test_launch_defaults_reject_provider_switch_without_changing_standalone_defa
         cli._prepare_profile(cli._parser().parse_args(["assess", "--launch-defaults=advisor", "--profile", "codex"]))
     ns = cli._parser().parse_args(["assess", "--assessment-depth", "thorough"])
     cli._prepare_profile(ns)
-    assert ns.hard_budget == 20 and ns.max_parallel == 2
+    assert ns.hard_budget == 20 and ns.max_parallel == 4
     assert ns.width is None and not ns.non_interactive
 
 
