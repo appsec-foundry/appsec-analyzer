@@ -60,11 +60,12 @@ import fnmatch
 import functools
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Iterable
+from typing import Callable, Iterable
 
 from shared._finding_locator import CODE_EXTENSIONS, NOEXT_CODE_FILES
 from shared._paths import strip_dot_slash
@@ -226,8 +227,19 @@ def _basename(rel_path: str) -> str:
     return _iter_path_parts(rel_path)[-1] if _iter_path_parts(rel_path) else ""
 
 
+@functools.lru_cache(maxsize=16)
+def _compiled_file_patterns(patterns: tuple[str, ...]) -> tuple[Callable[[str], re.Match | None], ...]:
+    """Translate one pattern list once, with the same semantics as `fnmatch.fnmatch`.
+
+    fnmatch's own cache holds 256 patterns on Python 3.10; checking the
+    always-include and exclude lists in turn evicts every entry before reuse.
+    """
+    return tuple(re.compile(fnmatch.translate(os.path.normcase(pat))).match for pat in patterns)
+
+
 def _matches_file_pattern(name: str, patterns: Iterable[str]) -> bool:
-    return any(fnmatch.fnmatch(name, pat) for pat in patterns)
+    name = os.path.normcase(name)
+    return any(match(name) for match in _compiled_file_patterns(tuple(patterns)))
 
 
 def _matches_path_prefix(rel_path: str, prefixes: Iterable[str]) -> bool:

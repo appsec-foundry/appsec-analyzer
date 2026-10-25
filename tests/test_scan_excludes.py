@@ -10,7 +10,9 @@ Three responsibilities covered:
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -830,6 +832,107 @@ class TestOptInRelief:
         )
 
         assert not scan_excludes.is_excluded("fixtures/auth.fixture", opt_ins=["SCAN_FIXTURES"], excludes=excludes)
+
+
+# ---------------------------------------------------------------------------
+# File-pattern matching — fnmatch semantics, one translation per pattern list
+# ---------------------------------------------------------------------------
+
+
+def _sample_names(patterns):
+    """A name each pattern should match, plus a case variant and a near miss."""
+    names = []
+    for pattern in patterns:
+        literal = pattern.replace("*", "x").replace("?", "y")
+        names += [literal, literal.upper(), literal + ".bak"]
+    return names
+
+
+class TestFilePatternMatching:
+    @pytest.fixture(autouse=True)
+    def _fresh_pattern_cache(self):
+        scan_excludes._compiled_file_patterns.cache_clear()
+        yield
+        scan_excludes._compiled_file_patterns.cache_clear()
+
+    @pytest.mark.parametrize("group", ["file_patterns", "always_include", "SCAN_TEST_FILES"])
+    def test_shipped_patterns_match_like_fnmatch(self, group):
+        excludes = scan_excludes.load_excludes()
+        patterns = {
+            "file_patterns": excludes["file_patterns"],
+            "always_include": excludes["always_include"]["file_patterns"],
+            "SCAN_TEST_FILES": excludes["opt_in"]["SCAN_TEST_FILES"]["file_patterns"],
+        }[group]
+
+        for name in _sample_names(patterns) + ["app.js", "Dockerfile", ".env", "README", ""]:
+            expected = any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
+            assert scan_excludes._matches_file_pattern(name, patterns) is expected, name
+
+    @pytest.mark.parametrize(
+        "pattern, name",
+        [
+            ("[!a]*.js", "b.js"),
+            ("[!a]*.js", "a.js"),
+            ("?.py", "a.py"),
+            ("?.py", "ab.py"),
+            ("*.[ch]", "x.c"),
+            ("*.[ch]", "x.o"),
+            ("[]]x", "]x"),
+            ("lit[eral", "lit[eral"),
+            ("*.min.*", "app.min.js"),
+            ("*", ""),
+            ("*.js", "line\nbreak.js"),
+        ],
+    )
+    def test_pattern_syntax_matches_like_fnmatch(self, pattern, name):
+        assert scan_excludes._matches_file_pattern(name, [pattern]) is fnmatch.fnmatch(name, pattern)
+
+    def test_platform_case_normalisation_matches_fnmatch(self, monkeypatch):
+        monkeypatch.setattr(os.path, "normcase", str.lower)
+
+        for name in ("APP.CASECHECK", "app.casecheck", "app.other"):
+            expected = fnmatch.fnmatch(name, "*.CaseCheck")
+            assert scan_excludes._matches_file_pattern(name, ["*.CaseCheck"]) is expected, name
+
+    def test_each_pattern_list_is_translated_once(self, monkeypatch):
+        # More patterns than fnmatch's own cache holds on Python 3.10 (256).
+        patterns = [f"*.guard{index}" for index in range(300)]
+        translated = []
+        translate = fnmatch.translate
+        monkeypatch.setattr(fnmatch, "translate", lambda pattern: translated.append(pattern) or translate(pattern))
+
+        for index in range(20):
+            assert scan_excludes._matches_file_pattern(f"file{index}.guard299", patterns)
+            assert not scan_excludes._matches_file_pattern(f"file{index}.other", patterns)
+
+        assert len(translated) == len(patterns)
+
+    def test_changed_pattern_list_is_not_served_from_cache(self):
+        patterns = ["*.js"]
+        assert scan_excludes._matches_file_pattern("app.js", patterns)
+
+        patterns[0] = "*.py"
+
+        assert not scan_excludes._matches_file_pattern("app.js", patterns)
+        assert scan_excludes._matches_file_pattern("app.py", patterns)
+
+    def test_switching_configurations_applies_each_configuration(self):
+        javascript = _minimal_excludes(file_patterns=["*.js"])
+        python = _minimal_excludes(file_patterns=["*.py"])
+
+        assert scan_excludes.is_excluded("src/app.js", excludes=javascript)
+        assert not scan_excludes.is_excluded("src/app.js", excludes=python)
+        assert scan_excludes.is_excluded("src/app.py", excludes=python)
+
+    def test_always_include_wins_over_a_long_exclude_list(self):
+        excludes = _minimal_excludes(
+            file_patterns=[f"*.ext{index}" for index in range(300)] + ["*.yaml"],
+            always_include={"file_patterns": ["openapi*.yaml"], "path_prefixes": []},
+        )
+
+        assert not scan_excludes.is_excluded("api/openapi.yaml", excludes=excludes)
+        assert scan_excludes.is_excluded("api/other.yaml", excludes=excludes)
+        assert scan_excludes.is_excluded("lib/blob.ext299", excludes=excludes)
 
 
 # ---------------------------------------------------------------------------
