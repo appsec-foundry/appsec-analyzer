@@ -1715,6 +1715,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - specs/changes/console-cost-display/proposal.md
       - docs/providers.md
       - specs/changes/codex-cli-subscription/proposal.md
       - specs/changes/copilot-cli-assessments/proposal.md
@@ -1726,6 +1727,17 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_console_cost_display.py::test_billing_defaults_and_explicit_override
+      - tests/test_console_cost_display.py::test_direct_api_host_keeps_default_cost_display
+      - tests/test_console_cost_display.py::test_public_flag_reaches_structured_request_without_changing_configuration
+      - tests/test_console_cost_display.py::test_usage_hides_only_costs_and_never_invents_unavailable_amounts
+      - tests/test_console_cost_display.py::test_phase_progress_respects_cost_visibility_and_keeps_tokens
+      - tests/test_console_cost_display.py::test_completion_preserves_counts_and_accounting
+      - tests/test_console_cost_display.py::test_verification_estimate_without_costs_keeps_budget_coverage
+      - tests/test_console_cost_display.py::test_retry_and_resume_details_hide_costs_without_hiding_work
+      - tests/test_console_cost_display.py::test_budget_skip_details_keep_coverage_and_respect_cost_visibility
+      - tests/test_console_cost_display.py::test_saved_console_summary_respects_cost_visibility
+      - tests/test_console_cost_display.py::test_offline_assessment_applies_visibility_and_keeps_real_accounting
       - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
       - tests/test_rate_limit_pause.py::test_provider_reset_is_respected_or_stops_without_retry
       - tests/test_rate_limit_pause.py::test_shared_backoff_then_success_resets_failure_streak

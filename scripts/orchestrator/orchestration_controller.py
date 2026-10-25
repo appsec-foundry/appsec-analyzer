@@ -1792,6 +1792,7 @@ def _assessment_stride(
     platform=None,
     test_cases=None,
     pilot=None,
+    show_costs=True,
 ):
     """Analyze every finalized component and independently review its evidence.
 
@@ -2183,6 +2184,7 @@ def _assessment_stride(
                 concurrently=_assessment_components_concurrently,
                 label=label,
                 progress=progress,
+                show_costs=show_costs,
             )
         )
         scope.verify_unchanged()
@@ -2631,6 +2633,7 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
     parser.add_argument("--fail-on", choices=("critical", "high", "medium"))
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--show-costs", action="store_true", help="Show costs even with subscription billing.")
     parser.add_argument("--non-interactive", action="store_true", help="Never prompt for a higher budget (use in CI)")
     parser.add_argument(
         "--verbose",
@@ -2809,7 +2812,7 @@ def _assessment_gap_message(gap: dict) -> str:
     return f"Coverage gap: {role}{subject} job incomplete: no accepted model result; using fallback"
 
 
-def _budget_skip_info(gaps: list[dict], components: list[dict], budget) -> str:
+def _budget_skip_info(gaps: list[dict], components: list[dict], budget, *, show_costs=True) -> str:
     """One console line for the optional jobs the completion reserve skipped, by role and component."""
     names = {row["id"]: row["name"] for row in components}
     roles: dict[str, list[str]] = {}
@@ -2824,6 +2827,8 @@ def _budget_skip_info(gaps: list[dict], components: list[dict], budget) -> str:
         f"{budget.calls} model calls; {budget.subscription_label}"
         if budget.subscription
         else f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} spent"
+        if show_costs
+        else f"{budget.calls} model calls"
     )
     return (
         f"{_count_noun(len(gaps), 'optional model job')} did not run, to keep the budget reserve for the report: "
@@ -3082,6 +3087,8 @@ def _assessment_intro(
     ``continued`` is the row of an earlier attempt the run resumes or of an
     unfinished run whose steps it reuses (``_assessment_continuation``).
     """
+    from appsec_analyzer.assessment.console import api_billing
+
     output = ns.output
     if ns.rebuild:
         output += " (--rebuild: replaces any earlier assessment)"
@@ -3092,10 +3099,9 @@ def _assessment_intro(
     own_profile = profile.get("files") and profile.get("name") and profile["name"] not in BUILTINS
     budget_origin = profile.get("origins", {}).get("settings", {}).get("budget", "")
     if budget.subscription:
-        cut = (
-            f"{budget.max_calls} model calls including retries; {budget.subscription_label} applies; "
-            "USD cost unavailable"
-        )
+        cut = f"{budget.max_calls} model calls including retries; {budget.subscription_label} applies"
+        if getattr(ns, "show_costs", False):
+            cut += "; USD cost unavailable"
     elif ns.hard_budget is None and ns.soft_budget is not None:
         cut += f" (1.25 × deprecated --soft-budget ${ns.soft_budget:g}; use --hard-budget)"
     elif (
@@ -3144,7 +3150,7 @@ def _assessment_intro(
             f"{'Codex CLI' if host.get('kind') == 'codex-cli' else 'GitHub Copilot CLI'}"
             if budget.subscription
             else "api"
-            if (cfg or {}).get("host_profile") or os.environ.get("ANTHROPIC_API_KEY")
+            if api_billing(host.get("kind"))
             else "subscription",
         ),
         ("Budget", cut + "\nrequired analysis and report take priority over optional model work"),
@@ -3202,7 +3208,7 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, 
             _assessment_pipeline(cfg),
             cfg,
             scope_facts,
-            continued=_assessment_continuation(state, budget),
+            continued=_assessment_continuation(state, budget, show_costs=_assessment_show_costs(ns, cfg)),
         )
     )
     lines = []
@@ -3229,7 +3235,13 @@ def _assessment_start_lines(ns, budget, depth: str, cfg: dict[str, Any], state, 
     return lines
 
 
-def _assessment_continuation(state, budget) -> tuple[str, str] | None:
+def _assessment_show_costs(ns, cfg=None) -> bool:
+    from appsec_analyzer.assessment.console import api_billing
+
+    return getattr(ns, "show_costs", False) or api_billing(((cfg or {}).get("host_profile") or {}).get("kind"))
+
+
+def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, str] | None:
     """The header row of a resumed run or of a new run that reuses an unfinished run's steps (REQ-016)."""
 
     def utc(epoch, form="%Y-%m-%d %H:%M UTC"):
@@ -3238,7 +3250,11 @@ def _assessment_continuation(state, budget) -> tuple[str, str] | None:
     if state.resume:
         started, deadline = state.state["started_at"], state.state["expires_at"]
         same_day = time.gmtime(started)[:3] == time.gmtime(deadline)[:3]
-        spent = f"{budget.calls} model calls used" if budget.subscription else f"USD {budget.spent_usd:.2f} spent"
+        spent = (
+            f"{budget.calls} model calls used"
+            if budget.subscription or not show_costs
+            else f"USD {budget.spent_usd:.2f} spent"
+        )
         value = (
             f"continues the run started {utc(started)} · {_elapsed(state.worked_before)} worked · {spent} · "
             f"deadline {utc(deadline, '%H:%M UTC') if same_day else utc(deadline)}"
@@ -3250,12 +3266,14 @@ def _assessment_continuation(state, budget) -> tuple[str, str] | None:
         # A reused step is charged to this run, so it counts toward the new limit.
         counted = "model calls count" if budget.subscription else "cost counts"
         spent = state.reused_run_spent
-        spent = f"{spent} model calls used" if budget.subscription else f"USD {spent:.2f} spent"
+        spent = (
+            f" · {spent} model calls used" if budget.subscription else f" · USD {spent:.2f} spent" if show_costs else ""
+        )
         return (
             "Earlier run",
             f"results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
             f"changed; they need no new model calls, but their {counted} toward the limit"
-            f" · {_elapsed(state.worked_before)} worked · {spent}",
+            f" · {_elapsed(state.worked_before)} worked{spent}",
         )
     return None
 
@@ -4047,20 +4065,23 @@ def assess_repositories(
         budget.call_usd = min(budget.max_usd, max(budget.call_usd, call_reservation(run_profile)))
     from runtime.interactive_budget import can_prompt
 
+    display_costs = _assessment_show_costs(
+        ns, {"host_profile": {"kind": adapter or getattr(api_profile, "kind", None)}}
+    )
     # Asked before the console ticker starts, so the question stays readable.
     if (
         not (ns.resume or ns.rebuild)
         and progress is None
         and can_prompt(non_interactive=ns.non_interactive, quiet=ns.quiet, json_output=ns.json)
     ):
-        choice = _assessment_restart_choice(ns, budget)
+        choice = _assessment_restart_choice(ns, budget, show_costs=display_costs)
         ns.resume, ns.rebuild = choice == "resume", choice == "rebuild"
         if ns.resume and run_profile is not None:
             from appsec_analyzer.profiles import restore_profile
 
             run_profile = restore_profile(run_profile, Path(ns.output), resume=True)
     _AssessmentConsole.max_columns = ns.width
-    console = None if progress or ns.quiet else _AssessmentConsole(ns.verbose)
+    console = None if progress or ns.quiet else _AssessmentConsole(ns.verbose, show_costs=display_costs)
     if console:
         console.start_ticker()
     say = progress or (console.step if console else (lambda text: None))
@@ -4219,7 +4240,7 @@ def assess_repositories(
                             cfg,
                             planned_scope,
                             compact=not ns.verbose,
-                            continued=_assessment_continuation(state, budget),
+                            continued=_assessment_continuation(state, budget, show_costs=display_costs),
                         )
                         + ([("Diagnostics", str(jobs.diagnostics.path))] if ns.verbose and jobs.diagnostics else []),
                         sectioned=True,
@@ -4326,6 +4347,7 @@ def assess_repositories(
                     platform=platform,
                     test_cases=cfg["test_cases"],
                     pilot=pilot,
+                    show_costs=display_costs,
                 )
                 original, _ = build_assessment_model(
                     scope,
@@ -4403,8 +4425,12 @@ def assess_repositories(
                 # A budget skip is the planned degradation, not a run issue (REQ-023).
                 skipped = [gap for gap in jobs.gaps if gap.get("budget")]
                 if skipped:
-                    infos.append(_budget_skip_info(skipped, architecture["components"]["components"], budget))
-                retry_warning = _assessment_retry_warning(budget.retries)
+                    infos.append(
+                        _budget_skip_info(
+                            skipped, architecture["components"]["components"], budget, show_costs=display_costs
+                        )
+                    )
+                retry_warning = _assessment_retry_warning(budget.retries, show_costs=display_costs)
                 if retry_warning:
                     warnings.append(retry_warning)
                 warnings.extend(
@@ -4444,6 +4470,7 @@ def assess_repositories(
         # The kept workspace serves diagnosis; only --verbose names it.
         **({"runtime_files": str(workspace)} if workspace.is_dir() and ns.verbose else {}),
         "spent_usd": None if budget.subscription else round(budget.spent_usd, 2),
+        "show_costs": display_costs,
         "calls": budget.calls,
         # Jobs reused from an earlier run count toward this run's limits at their original cost.
         "reused_calls": budget.reused_calls,
@@ -4480,7 +4507,7 @@ _RESTART_CHOSEN = {
 }
 
 
-def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str | None:
+def _assessment_restart_choice(ns, budget, *, readline=None, write=None, show_costs=True) -> str | None:
     """Ask how to start when the destination holds an unfinished run and no flag chose.
 
     Only an explicit answer selects --resume or --rebuild. Enter, end of input
@@ -4499,7 +4526,9 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None) -> str 
     started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(found["started_at"]))
     minutes = max(int(time.time() - found["started_at"]) // 60, 1)
     ago = f"{minutes} min" if minutes < 60 else f"{minutes // 60} h" if minutes < 2880 else f"{minutes // 1440} days"
-    spent = f"{found['calls']} model calls" if budget.subscription else f"USD {found['spent_usd']:.2f}"
+    spent = (
+        f"{found['calls']} model calls" if budget.subscription or not show_costs else f"USD {found['spent_usd']:.2f}"
+    )
     lines = [
         f"An unfinished assessment is stored in {ns.output}",
         f"  {str(found['status']).capitalize()}, started {started} ({ago} ago). Spent so far: {spent}.",
@@ -4568,7 +4597,7 @@ def _assessment_legacy(ns, output: Path) -> str | None:
     return f"imported the earlier assessment from {legacy.directory} ({len(delivered)} files); its files there stay"
 
 
-def _assessment_retry_warning(retries: list[dict]) -> str | None:
+def _assessment_retry_warning(retries: list[dict], *, show_costs=True) -> str | None:
     """Name the repeated model calls, so a run that only completed through retries says so."""
     if not retries:
         return None
@@ -4576,7 +4605,7 @@ def _assessment_retry_warning(retries: list[dict]) -> str | None:
 
     reasons = ", ".join(f"{reason} ×{count}" for reason, count in sorted(Counter(r["reason"] for r in retries).items()))
     paid = sum(row["usd"] for row in retries if row["paid"] and row["usd"] is not None)
-    cost = f"; the failed paid attempts cost ≈ USD {paid:.2f}" if paid else ""
+    cost = f"; the failed paid attempts cost ≈ USD {paid:.2f}" if paid and show_costs else ""
     return f"{len(retries)} model call(s) were repeated after a transient failure ({reasons}){cost}"
 
 
@@ -4882,9 +4911,10 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
     models = usage.get("models") or {}
     unitemised = usage.get("unitemised_calls") or 0
     spent = outcome["spent_usd"]
-    parts = [f"≈ USD {spent:.2f}"] if spent is not None else []
+    show_costs = outcome.get("show_costs", spent is not None)
+    parts = [f"≈ USD {spent:.2f}"] if show_costs and spent is not None else []
     parts.append(_count_noun(outcome["calls"], "model call"))
-    if spent is None:
+    if show_costs and spent is None:
         parts.append(f"{outcome.get('subscription_label') or 'subscription'}; USD cost unavailable")
     tokens = sum(
         sum(row.get(key, 0) for key in ("input", "output", "cache_read", "cache_write")) for row in models.values()
@@ -4892,21 +4922,27 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
     if tokens:
         itemised = sum(int(row.get("calls", 0)) for row in models.values())
         parts.append(f"{_tokens(int(tokens))} tokens" + (f" in {itemised} of them" if unitemised else ""))
-    rows: list[tuple[str, str, str | None]] = [("Cost", " · ".join(parts), None)]
+    rows: list[tuple[str, str, str | None]] = [("Cost" if show_costs else "Usage", " · ".join(parts), None)]
     reused = outcome.get("reused_calls") or 0
     if reused:
         text = f"{_count_noun(reused, 'call')} reused from an earlier run"
-        if outcome.get("reused_usd") is not None:
+        if show_costs and outcome.get("reused_usd") is not None:
             text += f" (USD {outcome['reused_usd']:.2f} of the total)"
         rows.append(("", text, "muted"))
     if len(models) > 1:
-        for model, row in sorted(models.items(), key=lambda item: -item[1].get("usd", 0)):
-            text = f"{model}  {_count_noun(int(row['calls']), 'call')} · ≈ USD {row.get('usd', 0):.2f}"
+        for model, row in sorted(models.items(), key=lambda item: -(item[1].get("usd") or 0)):
+            text = f"{model}  {_count_noun(int(row['calls']), 'call')}"
+            if show_costs:
+                text += (
+                    f" · ≈ USD {row['usd']:.2f}"
+                    if spent is not None and row.get("usd") is not None
+                    else " · USD cost unavailable"
+                )
             tokens = sum(row.get(key, 0) for key in ("input", "output", "cache_read", "cache_write"))
             rows.append(("", text + (f" · {_tokens(int(tokens))} tokens" if tokens else ""), "muted"))
         if unitemised:
             text = f"not itemised  {_count_noun(unitemised, 'call')}"
-            if usage.get("unitemised_usd") is not None:
+            if show_costs and usage.get("unitemised_usd") is not None:
                 text += f" · ≈ USD {usage['unitemised_usd']:.2f}"
             rows.append(("", text, "muted"))
     return rows

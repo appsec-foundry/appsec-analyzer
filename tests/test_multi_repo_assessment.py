@@ -2428,7 +2428,7 @@ def test_a_subscription_run_shows_calls_and_no_amount_or_tokens(tmp_path, monkey
     out = _outcome_lines(
         tmp_path, monkeypatch, capsys, spent_usd=None, subscription_label="ChatGPT subscription", usage={"models": {}}
     )
-    assert "  Cost        5 model calls · ChatGPT subscription; USD cost unavailable" in out
+    assert "  Usage       5 model calls" in out
 
 
 def test_the_diagnostics_path_is_named_only_when_the_run_needs_a_look(tmp_path, monkeypatch, capsys):
@@ -2761,7 +2761,7 @@ def test_budget_stop_uses_incomplete_exit_status(tmp_path, monkeypatch, capsys):
 def test_tight_budget_skips_optional_jobs_and_still_publishes_a_gated_report(tmp_path, monkeypatch):
     shown = []
     outcome, host, out = _assess(
-        tmp_path, monkeypatch, ("records",), ("--hard-budget", "3", "--no-pdf"), progress=shown.append
+        tmp_path, monkeypatch, ("records",), ("--hard-budget", "3", "--no-pdf", "--show-costs"), progress=shown.append
     )
     assert any(text.startswith("Coverage gap:") and "budget reserved" in text for text in shown)
     assert outcome["status"] == "complete"

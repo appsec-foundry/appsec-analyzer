@@ -598,6 +598,11 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         "--rebuild", action="store_true", help="Start over, discarding earlier accepted steps and history in --output"
     )
     control_group.add_argument("--quiet", action="store_true")
+    output_group.add_argument(
+        "--show-costs",
+        action="store_true",
+        help="Show monetary costs even with subscription billing (default: API billing only; unavailable costs stay unknown)",
+    )
     control_group.add_argument(
         "--non-interactive",
         action="store_true",
@@ -1251,6 +1256,7 @@ def _assess(ns: argparse.Namespace) -> int:
         "quiet",
         "non_interactive",
         "verbose",
+        "show_costs",
         "sarif",
         "threatdragon",
         "pdf",

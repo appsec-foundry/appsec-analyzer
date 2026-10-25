@@ -97,6 +97,8 @@ Each model-backed command stops at a spending limit. The values are default uppe
 
 In an interactive terminal, `assess` may ask for a higher limit before it skips work. `analyze-threats` limits each model call, not the whole question; one question takes up to four calls. With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`); see [Model provider](#model-provider). `review` uses the assistant's own account and usage limits.
 
+`assess` shows monetary costs in progress and completion output by default only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show usage without costs. Add `--show-costs` to show available cost figures in any mode; unavailable amounts remain labelled unavailable. This display option changes no accounting or spending limits. Limits and budget-increase prompts remain visible.
+
 ### `assess`: full security assessment
 
 `assess` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
@@ -368,6 +370,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 2. |
 | `--non-interactive` | For CI. Without it, an interactive terminal may ask for a higher budget before skipping work. |
 | `--verbose` | Show job and call identities and detailed correction messages. |
+| `--show-costs` | Show costs even with subscription billing; default cost display is API billing only. |
 
 `--assessment-depth` sets what `assess` checks beside the [survey](docs/security-assessment.md#survey-and-verification), which always runs:
 

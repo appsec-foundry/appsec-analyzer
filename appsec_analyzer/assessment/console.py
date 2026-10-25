@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -50,23 +51,41 @@ def _tokens(count: int) -> str:
     return f"{count / 1000:.0f}k" if count < 1_000_000 else f"{count / 1_000_000:.1f}M"
 
 
-def usage_text(before: dict, after: dict, total: bool = False) -> str:
+def api_billing(adapter: str | None = None) -> bool:
+    """Use the assessment header's existing provider and API-key selection."""
+    if adapter in ("codex-cli", "copilot-cli"):
+        return False
+    if adapter in ("openai", "lite", "bedrock", "gateway"):
+        return True
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+
+def usage_text(before: dict, after: dict, total: bool = False, *, show_costs: bool | None = None) -> str:
     """What the model calls between two budget marks cost, or "" when none was paid for.
 
     The tokens come only when the hosts itemised every call of the step; a partial sum would read as the
-    whole. A subscription run has no USD amount, so it shows nothing. ``total`` adds what the run has
-    cost so far, results taken over from an earlier run included.
+    whole. An explicit cost request names unavailable amounts; otherwise a subscription run has no
+    amount to show. ``total`` adds costs of results taken over from an earlier run.
     """
     calls = after["calls"] - before["calls"]
-    if calls <= 0 or after["usd"] is None or before["usd"] is None:
+    if calls <= 0:
         return ""
-    text = f"≈ USD {after['usd'] - before['usd']:.2f}"
-    if total and after.get("total_usd") is not None:
-        text += f" (USD {after['total_usd']:.2f} in total)"
+    if show_costs is None:
+        show_costs = after["usd"] is not None and before["usd"] is not None
+    parts = []
+    if show_costs:
+        text = (
+            "USD cost unavailable"
+            if after["usd"] is None or before["usd"] is None
+            else f"≈ USD {after['usd'] - before['usd']:.2f}"
+        )
+        if total and after.get("total_usd") is not None:
+            text += f" (USD {after['total_usd']:.2f} in total)"
+        parts.append(text)
     tokens = after["tokens"] - before["tokens"]
     if tokens > 0 and after["itemised"] - before["itemised"] == calls:
-        text += f" · {_tokens(tokens)} tokens"
-    return text
+        parts.append(f"{_tokens(tokens)} tokens")
+    return " · ".join(parts)
 
 
 def model_failure_lines(error) -> list[str]:
@@ -197,7 +216,7 @@ class _AssessmentConsole:
     one clock. A resumed run's ELAPSED shows this attempt's time and, in
     parentheses, the working time of all its attempts (``continue_from``); a
     new run that takes over an unfinished run adds that run's working time.
-    Both add what all results cost so far to a phase's done line.
+    When costs are shown, both add what all results cost so far to a phase's done line.
 
     Steps taken over from an earlier run's accepted jobs make no model call.
     A phase, and in the threat analysis each method, says so once when its
@@ -214,9 +233,8 @@ class _AssessmentConsole:
     writer is a log and stays plain. Each STRIDE component and each
     verified abuse case gets its own line in both. ``--verbose`` adds every
     step and model call as progress lines and keeps the terminal's status
-    line; ``--quiet`` prints nothing. Mid-run, USD amounts appear only where
-    the budget decides what runs: before verification and when optional jobs
-    are skipped.
+    line; ``--quiet`` prints nothing. ``show_costs`` controls monetary amounts;
+    available token counts remain visible when costs are hidden.
     """
 
     # Off a terminal: a changed subject or share is shown after this quiet
@@ -395,8 +413,9 @@ class _AssessmentConsole:
     _PHASE_WIDTH = _NAME_WIDTH + 4
     _EVENT_WIDTH = 5
 
-    def __init__(self, verbose: bool, write=None, live: bool | None = None, clock=time.time):
+    def __init__(self, verbose: bool, write=None, live: bool | None = None, clock=time.time, *, show_costs=True):
         self.verbose = verbose
+        self.show_costs = show_costs
         self._out = write or self._line
         # The in-place status line needs a terminal; an injected writer is a log.
         self.live = (write is None and sys.stderr.isatty()) if live is None else live
@@ -836,7 +855,7 @@ class _AssessmentConsole:
     def _step_cost(self, step: str) -> str:
         """`` · ≈ USD 1.20 · 0.5M tokens`` for a step that ended, once; "" when it cost nothing or had no mark."""
         before = self.step_usage.pop(step, None)
-        cost = usage_text(before, self.usage_mark()) if before and self.usage_mark else ""
+        cost = usage_text(before, self.usage_mark(), show_costs=self.show_costs) if before and self.usage_mark else ""
         return f" · {cost}" if cost else ""
 
     def _advance(self, fraction: float) -> None:
@@ -1380,7 +1399,11 @@ class _AssessmentConsole:
                     )
             # A continued run also says what all its results cost, those taken over included.
             mark = self.usage_mark() if self.usage_mark else None
-            if self.phase_usage and mark and (cost := usage_text(self.phase_usage, mark, bool(self.worked_before))):
+            if (
+                self.phase_usage
+                and mark
+                and (cost := usage_text(self.phase_usage, mark, bool(self.worked_before), show_costs=self.show_costs))
+            ):
                 produced.append(cost)
             self._advance(1.0)
             if self.phase == self.plan[-1]:

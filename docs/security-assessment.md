@@ -151,6 +151,8 @@ The source guide, retained in [history](history/advisor/security-assessment.md),
 explains domain concepts and earlier plugin behavior in detail. Its commands
 and provider statements are historical.
 
+Monetary costs in progress, resumed-run details, verification estimates and the completion summary appear by default only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, retain call and available token counts without monetary costs. `--show-costs` enables cost display for every billing mode, including with `--verbose`; unknown amounts are labelled unavailable rather than estimated or shown as zero. Spending limits and budget-increase authorization remain visible. The flag changes no accounting, saved assessment amounts or model use, and `--quiet` still suppresses live progress.
+
 With Codex CLI 0.163.0 installed on Linux/macOS and signed in using `codex login`, use `appsec-analyzer assess --repo /path/to/project --profile codex-cli --max-calls 1000 --max-duration 14400` to use ChatGPT plan allowance. This experimental profile defaults to at most two components at a time, rejects USD budgets, and reports monetary cost as unavailable. A plan limit stops the run and preserves accepted work; wait for allowance and resume the original output. See [Codex CLI setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli) for model access, data use, local limits, and qualification status.
 
 ### Source-read failures

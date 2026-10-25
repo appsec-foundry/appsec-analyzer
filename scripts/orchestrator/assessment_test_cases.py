@@ -145,6 +145,7 @@ def run_pilot(
     concurrently,
     label,
     progress,
+    show_costs=True,
 ) -> dict:
     """Run the jobs ``plan_pilot`` decided; return the pilot's sidecar document.
 
@@ -166,7 +167,9 @@ def run_pilot(
     verified = planned["verified"]
     if work:
         reused = sum(jobs.has_accepted("test_case_investigator", _selector(*item)) for item in work)
-        progress(_budget_statement(jobs, len(work), planned["worked"], len(verified), reused=reused))
+        progress(
+            _budget_statement(jobs, len(work), planned["worked"], len(verified), reused=reused, show_costs=show_costs)
+        )
     # The console shows one step per component: each job names its component and its part of the component's jobs.
     parts = [[index for index, (entry, _) in enumerate(work) if entry["component"]["id"] == cid] for cid in verified]
 
@@ -328,7 +331,11 @@ def run_pilot(
         + (f" · incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
     )
     for aspect in aspects:
-        progress(aspect_line(aspect, results, findings, None if jobs.budget.subscription else usd.get(aspect, 0.0)))
+        progress(
+            aspect_line(
+                aspect, results, findings, None if jobs.budget.subscription or not show_costs else usd.get(aspect, 0.0)
+            )
+        )
     return {
         "schema_version": 1,
         "aspects": aspects,
@@ -382,7 +389,9 @@ def _selector(entry, number: int) -> str:
     return f"test-cases:{entry['component']['id']}:{entry['aspect']}" + (f":{number}/{count}" if count > 1 else "")
 
 
-def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, reused: int = 0) -> str:
+def _budget_statement(
+    jobs, count: int, aspects: list[str], components: int, *, reused: int = 0, show_costs=True
+) -> str:
     """Whether the remaining budget covers every verification job, said before the first one runs (REQ-040).
 
     Until a verification job is accepted, the reserve of a survey job stands in for one: both carry the
@@ -398,6 +407,12 @@ def _budget_statement(jobs, count: int, aspects: list[str], components: int, *, 
         return f"{subject} · the run's call and time limits apply · {_count_jobs(count)}"
     needed = (count - reused) * budget.job_usd("test_case_investigator", "stride_analyzer")
     available = budget.available_usd()
+    if not show_costs:
+        if needed <= available:
+            return f"{subject} · the remaining budget covers the planned jobs · {_count_jobs(count)}"
+        note = "verification exceeds the remaining budget; aspects whose jobs the budget stops are marked incomplete"
+        jobs.notes.append(note)
+        return f"{subject} · {note} · {_count_jobs(count)}"
     if needed <= available:
         return f"{subject} · ≈ USD {needed:.2f}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
     jobs.notes.append(

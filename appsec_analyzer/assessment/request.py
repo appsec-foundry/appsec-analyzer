@@ -32,6 +32,7 @@ class AssessmentOptions:
     quiet: bool = False
     non_interactive: bool = False
     verbose: bool = False
+    show_costs: bool = False
     json: bool = False
     width: int | None = None
     progress_file: str | None = None
@@ -92,6 +93,7 @@ _FLAGS = frozenset(
         "--quiet",
         "--non-interactive",
         "--verbose",
+        "--show-costs",
         "--json",
         "--test-cases",
     }
