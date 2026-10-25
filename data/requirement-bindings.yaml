@@ -495,6 +495,9 @@ requirements:
       - tests/test_case_candidates.py::test_the_cap_keeps_scanner_hits_and_counts_the_rest
       - tests/test_case_candidates.py::test_rule_candidates_stay_in_their_component_and_repository
       - tests/test_case_candidates.py::test_component_scoped_calls_need_a_known_component
+      - tests/test_case_candidates.py::test_responses_also_start_from_the_callers_identity_without_stored_data
+      - tests/test_case_candidates.py::test_the_architecture_selects_the_ai_items_where_the_code_patterns_miss_the_model_call
+      - tests/test_case_candidates.py::test_the_plan_passes_each_components_flows_to_a_language_model_service_to_its_facts
       - tests/test_case_postchecks.py::test_a_route_is_registered_at_its_registration_or_handler_chain
       - tests/test_case_postchecks.py::test_an_unknown_or_malformed_route_is_not_verifiable
       - tests/test_case_postchecks.py::test_an_anchor_of_another_route_is_a_mismatch

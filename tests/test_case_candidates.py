@@ -917,6 +917,106 @@ def test_responses_also_start_from_records_a_read_route_saves_and_from_configura
     )
 
 
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "(req, res) => res.json({ user: req.user })",
+        "(req, res) => res.json(jwt.decode(req.headers.authorization))",
+        "(req, res) => { const token = req.cookies.token; res.json({ email: tokens.get(token).email }) }",
+    ],
+    ids=["request user", "decoded token", "session cookie"],
+)
+def test_responses_also_start_from_the_callers_identity_without_stored_data(catalog, tmp_path, handler):
+    """A whoami route returns the caller's data from the session or token, not from a database."""
+    root = write_repo(
+        tmp_path,
+        {
+            "server.js": "const express = require('express')\n"
+            "const jwt = require('jsonwebtoken')\n"
+            "const app = express()\n"
+            f"app.get('/rest/user/whoami', {handler})\n"
+            "app.get('/rest/ping', (req, res) => res.json({ ok: true }))\n",
+        },
+    )
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": ["server.js"]})
+    candidates = cc.starting_candidates(_case(catalog, "TC-DATA-01"), "api", facts, [])["candidates"]
+    assert [row["route_id"] for row in candidates] == [route_id(facts, "GET", "/rest/user/whoami")]
+
+
+def test_the_architecture_selects_the_ai_items_where_the_code_patterns_miss_the_model_call(catalog, tmp_path):
+    """A plain HTTP call to a model service matches no SDK pattern; the architecture's cited flow starts the check."""
+    from model.case_postchecks import NOT_VERIFIABLE, run_check
+
+    root = write_repo(
+        tmp_path,
+        {
+            "server.js": "const express = require('express')\n"
+            "const app = express()\n"
+            "app.post('/rest/ask', async (req, res) => {\n"
+            "  const reply = await fetch(process.env.MODEL_URL, { method: 'POST', body: req.body.question })\n"
+            "  res.json(await reply.json())\n"
+            "})\n",
+            "lib/other.js": "module.exports = () => 1\n",
+        },
+    )
+    case = _case(catalog, "TC-AI-01")
+    components = {"api": ["server.js"], "lib": ["lib/other.js"]}
+    plain = cc.route_facts(root, build_inventory(root), [], components=components)
+    assert cc.applies(case, plain, "api") == (False, cc.NOT_APPLICABLE_REASON)
+    shown = {"api": {"llm_features": [["server.js", 4], ["lib/other.js", 1]]}, "lib": {"routes": [["lib/other.js", 1]]}}
+    facts = cc.route_facts(root, build_inventory(root), [], components=components, architecture=shown)
+    assert cc.applies(case, facts, "api") == (True, cc.ARCHITECTURE_REASONS["llm_features"])
+    # A line in another component's file, and a signal the architecture cannot show, are dropped.
+    assert facts["components"]["api"]["architecture"] == {"llm_features": [["server.js", 4]]}
+    assert "architecture" not in facts["components"]["lib"] and not cc.applies(case, facts, "lib")[0]
+    # The route whose handler holds the cited line is the candidate and names that line.
+    (candidate,) = cc.starting_candidates(case, "api", facts, [])["candidates"]
+    ask = route_id(facts, "POST", "/rest/ask")
+    assert candidate["route_id"] == ask and candidate["sinks"] == [{"file": "server.js", "line": 4}]
+    # Post-checks read only the fixed patterns' sites, so the architecture's line confirms no mechanism.
+    check = {"check": "site-reached", "site": "llm_call"}
+    params = {"route_id": ask, "anchor": {"file": "server.js", "line": 4}}
+    assert facts["sites"]["llm_call"] == [] and run_check(check, "weakness", params, facts)["result"] == NOT_VERIFIABLE
+
+
+def test_the_plan_passes_each_components_flows_to_a_language_model_service_to_its_facts(tmp_path):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from orchestrator import assessment_test_cases
+
+    root = write_repo(tmp_path, {"server.js": "const app = require('express')()\napp.post('/ask', ask)\n"})
+
+    class Scope:
+        repositories = [SimpleNamespace(repository_id="repo-1")]
+
+        @contextmanager
+        def scanner_snapshot(self, rid):
+            yield root
+
+    def cited(repository_id):
+        return {"repository_id": repository_id, "file": "server.js", "line": 2}
+
+    model = {"id": "ext-model", "service_roles": [{"role": "llm-inference"}]}
+    rpc = {"id": "ext-rpc", "service_roles": [{"role": "blockchain-rpc"}]}
+    flows = [
+        {"from": "api", "to": "external", "to_entity": "ext-model", "evidence": [cited("repo-1"), cited("repo-2")]},
+        {"from": "web", "to": "external", "to_entity": "ext-rpc", "evidence": [cited("repo-1")]},
+    ]
+    architecture = {
+        "route_inventories": {"repo-1": build_inventory(root)["routes"]},
+        "data_flows": {"external_entities": [model, rpc], "data_flows": flows},
+    }
+    components = [
+        {"id": cid, "repository_ids": ["repo-1"], "paths": [{"repository_id": "repo-1", "path": "server.js"}]}
+        for cid in ("api", "web")
+    ]
+    facts = assessment_test_cases._repository_facts(Scope(), architecture, components, {"repo-1": []})["repo-1"]
+    # Only a flow to a language model service counts, with its lines in this repository.
+    assert facts["components"]["api"]["architecture"] == {"llm_features": [["server.js", 2]]}
+    assert "architecture" not in facts["components"]["web"]
+
+
 def test_a_credential_kept_in_browser_storage_starts_a_storage_check(catalog, tmp_path):
     root = write_repo(
         tmp_path,

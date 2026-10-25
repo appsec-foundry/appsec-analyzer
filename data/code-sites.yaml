@@ -168,12 +168,33 @@ kinds:
   - '\bmessages\s*\.\s*create\s*\('
   - '\bresponses\s*\.\s*create\s*\('
   - '\bgenerateContent\s*\('
+  # SDKs of other languages and providers; the AI items apply only where the code or the architecture
+  # already shows a model call, so these count only in such components.
+  - '\.\s*(?:chat\s*\(\s*\)\s*\.\s*completions|messages|responses)\s*\(\s*\)\s*\.\s*create\s*\('
+  - '\.\s*(?:Chat\s*\.\s*Completions|Messages|Responses)\s*\.\s*New\s*\('
+  - '\bCreateChatCompletion(?:Stream)?\s*\('
+  - '\b(?:GetChatCompletions|CompleteChat)(?:Streaming)?(?:Async)?\s*\('
+  - '\b(?:InvokeModel|invokeModel|invoke_model)(?:WithResponseStream|_with_response_stream)?\s*\('
+  - '\bConverse(?:Stream)?Command\b|\.\s*converse(?:_stream)?\s*\('
+  - '\blitellm\s*\.\s*a?completion\s*\('
+  - '->\s*chat\s*\(\s*\)\s*->\s*create\s*\('
   matches:
   - 'const result = streamText({ model, system: systemPrompt, messages })'
   - 'const completion = await client.chat.completions.create({ model, messages })'
   - 'lookupOrder: tool({ description, inputSchema, execute })'
+  - 'ChatCompletion completion = client.chat().completions().create(params);'
+  - 'resp, err := client.Chat.Completions.New(ctx, params)'
+  - 'resp, err := client.CreateChatCompletion(ctx, request)'
+  - 'ChatCompletion completion = await chatClient.CompleteChatAsync(messages);'
+  - 'response = bedrock.invoke_model(modelId=model_id, body=body)'
+  - 'const response = await client.send(new ConverseCommand(input))'
+  - 'response = litellm.completion(model=model, messages=messages)'
+  - '$result = $client->chat()->create($parameters);'
   ignores:
   - 'const text = generateId()'
+  - 'const invoke = handlers[name]'
+  - 'messages.push(message)'
+  - 'const completion = await completions.next()'
 - kind: token_handling
   description: code signs, decodes, or verifies a token
   anchor: site

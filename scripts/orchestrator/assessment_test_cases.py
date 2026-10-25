@@ -540,8 +540,12 @@ def _repository_findings(scope, scanned) -> dict[str, list[dict]]:
 
 
 def _repository_facts(scope, architecture, components, findings) -> dict[str, dict]:
-    """Route facts of each repository snapshot, read once, with the files each component owns there."""
+    """Route facts of each repository snapshot, read once, with the files each component owns there.
+
+    A component whose flow the architecture shows reaching a language model service gets the AI items
+    where the code patterns miss the call, with the flow's cited lines as their starting points."""
     facts = {}
+    models = analysis.llm_inference_flows(architecture.get("data_flows") or {})
     for repo in sorted(scope.repositories, key=lambda row: row.repository_id):
         rid = repo.repository_id
         owned = {
@@ -549,9 +553,18 @@ def _repository_facts(scope, architecture, components, findings) -> dict[str, di
             for row in components
             if rid in row["repository_ids"]
         }
+        shown = {
+            cid: {
+                "llm_features": [
+                    [row.get("file"), row.get("line")] for row in rows if row.get("repository_id", rid) == rid
+                ]
+            }
+            for cid, rows in models.items()
+            if cid in owned
+        }
         with scope.scanner_snapshot(rid) as root:
             facts[rid] = case_candidates.route_facts(
-                root, architecture["route_inventories"][rid], findings[rid], components=owned
+                root, architecture["route_inventories"][rid], findings[rid], components=owned, architecture=shown
             )
     return facts
 

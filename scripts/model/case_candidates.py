@@ -282,6 +282,11 @@ APPLIES_REASONS = {
     "llm_features": "the code calls a language model",
     "tenant_identifier": "the code handles a tenant or organization identifier",
 }
+# Signals the validated architecture can show for a component, where the code patterns miss them, such as a
+# model call through an SDK of another language or a plain HTTP client: a flow to a language model service.
+ARCHITECTURE_REASONS = {"llm_features": "the architecture shows calls to a language model service"}
+# The code site kind whose starting points include the lines the architecture cites for a signal.
+_ARCHITECTURE_SITES = {"llm_call": "llm_features"}
 NO_EVALUATOR_REASON = "no evaluator exists for an applicability signal, so the test case applies"
 NOT_APPLICABLE_REASON = "no applicability signal of the test case shows in the examined code"
 
@@ -314,6 +319,13 @@ _CREDENTIAL_PATH = re.compile(
 _STORED_OR_CONFIGURED = re.compile(
     r"\.(?:build|save|create|bulkCreate|upsert)\s*\("
     r"|\bconfig\s*\.\s*(?:get|has|util)\b|\bprocess\.env\b|\bos\.(?:environ|getenv)\b|\bSystem\.getenv\s*\("
+)
+# A read route can also return the caller's own data from the session or token without reading stored data,
+# as a whoami route does.
+_CALLER_IDENTITY = re.compile(
+    r"\breq(?:uest)?\s*\.\s*(?:user|session|auth|cookies)\b|\bjwt\s*\.\s*(?:verify|decode)\s*\("
+    r"|\bgetServerSession\s*\(|\bcurrent_user\b|\bSecurityContextHolder\b|@AuthenticationPrincipal\b"
+    r"|\bHttpContext\s*\.\s*User\b|\bUser\s*\.\s*(?:Identity|Claims|FindFirst)\b"
 )
 
 # Code sites a test case can name as ``code_sites.<kind>``, defined with their
@@ -355,6 +367,7 @@ def route_facts(
     scanner_findings: Iterable[Mapping[str, Any]] | Mapping[str, list] | None,
     *,
     components: Mapping[str, Iterable[str]] | None = None,
+    architecture: Mapping[str, Mapping[str, Iterable]] | None = None,
 ) -> dict[str, Any]:
     """Deterministic facts of one repository snapshot for applicability, candidates and post-checks.
 
@@ -363,8 +376,11 @@ def route_facts(
     raw sidecar findings, or the controller's lists keyed by component.
     ``components`` maps each component of this repository to the
     repository-relative files it owns; the component-scoped functions need it.
-    Routes registered in test files are left out, like every other signal
-    there. The result holds no absolute path and no file content.
+    ``architecture`` maps a component to the signals of ``ARCHITECTURE_REASONS``
+    that the validated architecture shows for it, each with the ``[file, line]``
+    lines it cites; a component keeps the lines in its own files. Routes
+    registered in test files are left out, like every other signal there. The
+    result holds no absolute path and no file content.
     """
     root = Path(repo_root).resolve()
     files = _admitted_files(root)
@@ -405,7 +421,10 @@ def route_facts(
             "object_access": bool(body) and authz_confirm._object_access(body),
             "ownership_predicate": bool(body) and authz_confirm.has_ownership_predicate(body),
             "reads_data": bool(body)
-            and bool(_SIGNAL_CODE["database_access"].search(body) or _STORED_OR_CONFIGURED.search(body)),
+            and any(
+                pattern.search(body)
+                for pattern in (_SIGNAL_CODE["database_access"], _STORED_OR_CONFIGURED, _CALLER_IDENTITY)
+            ),
             "chain": [list(span) for span in chain],
             # Rules a scanner reports at the registration, such as authz_confirm's AUTHZ-301/302.
             "scanner_rules": sorted(rules_at.get((row["handler_file"], row["handler_line"]), ())),
@@ -417,13 +436,27 @@ def route_facts(
         }
     routes.update(_generated_routes(root, files, routes, rows, rules_at, resolver))
     signals, sites = _code_facts(root, files)
-    return {
-        "files": files,
-        "routes": routes,
-        "signals": signals,
-        "sites": sites,
-        "components": None if components is None else _component_routes(components, routes, admitted),
-    }
+    owners = None if components is None else _component_routes(components, routes, admitted)
+    for cid, shown in (architecture or {}).items():
+        if owners is None or cid not in owners or not isinstance(shown, Mapping):
+            continue
+        own = set(owners[cid]["files"])
+        lines = {
+            signal: sorted(
+                {
+                    (row[0], row[1])
+                    for row in rows
+                    if len(row) == 2 and row[0] in own and type(row[1]) is int and row[1] > 0
+                }
+            )
+            for signal, rows in shown.items()
+            if signal in ARCHITECTURE_REASONS
+        }
+        if any(lines.values()):
+            owners[cid]["architecture"] = {
+                signal: [list(row) for row in rows] for signal, rows in lines.items() if rows
+            }
+    return {"files": files, "routes": routes, "signals": signals, "sites": sites, "components": owners}
 
 
 def applies(case: Mapping[str, Any], facts: Mapping[str, Any], component_id: str | None = None) -> tuple[bool, str]:
@@ -438,6 +471,8 @@ def applies(case: Mapping[str, Any], facts: Mapping[str, Any], component_id: str
         result = _signal_found(signal, facts, component)
         if result:
             return True, APPLIES_REASONS[signal]
+        if component is not None and (component.get("architecture") or {}).get(signal):
+            return True, ARCHITECTURE_REASONS[signal]
         found.append(result)
     if not found or None in found:
         return True, NO_EVALUATOR_REASON
@@ -490,6 +525,10 @@ def starting_candidates(
             continue
         kind = fact.removeprefix("code_sites.")
         sites = [tuple(site) for site in facts["sites"].get(kind, []) if site[0] in owned]
+        # A line where the validated architecture shows the mechanism starts the check too; post-checks,
+        # which read only the fixed patterns' sites, never confirm anything from it.
+        shown = (component.get("architecture") or {}).get(_ARCHITECTURE_SITES.get(kind, ""), [])
+        sites += [site for site in map(tuple, shown) if site not in sites]
         if kinds[kind].get("anchor") == "site":
             # The site answers the test case for every route that runs it, such as a shared guard,
             # so it stays one candidate instead of making each of those routes one.

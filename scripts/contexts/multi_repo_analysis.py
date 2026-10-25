@@ -867,23 +867,28 @@ def _binding_calls(lines: list[str], import_line: str, limit: int = 4) -> list[i
 
 def model_integration_gaps(leads: list[dict], flows: dict) -> list[str]:
     """Component IDs with a model-integration lead but no flow to an LLM inference service."""
+    connected = llm_inference_flows(flows)
+    return [lead["component_id"] for lead in leads if lead["component_id"] not in connected]
+
+
+def llm_inference_flows(flows: dict) -> dict[str, list[dict]]:
+    """The cited evidence of every flow between an end and an LLM inference service, per end."""
     inference = {
         entity["id"]
         for entity in flows.get("external_entities", [])
         if any(role.get("role") == "llm-inference" for role in entity.get("service_roles") or [])
     }
+    shown: dict[str, list[dict]] = {}
     # A flow to an external entity names it in `to_entity`/`from_entity`; its
     # `from`/`to` then read "external".
-    connected = {
-        end
-        for flow in flows.get("data_flows", [])
+    for flow in flows.get("data_flows", []):
         for end, others in (
             (flow.get("from"), (flow.get("to"), flow.get("to_entity"))),
             (flow.get("to"), (flow.get("from"), flow.get("from_entity"))),
-        )
-        if inference.intersection(others)
-    }
-    return [lead["component_id"] for lead in leads if lead["component_id"] not in connected]
+        ):
+            if inference.intersection(others):
+                shown.setdefault(end, []).extend(row for row in flow.get("evidence") or [] if isinstance(row, dict))
+    return shown
 
 
 def analysis_lenses(scope, component: dict) -> tuple[list[str], str]:
