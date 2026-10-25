@@ -399,10 +399,11 @@ The figures come from one run of a deliberately vulnerable application.
 
 Each to be solved for any repository:
 
-- Give the combiner each part's locations or their number, and let the policy forbid counts the context does not give.
-- Find out why the Express job's preload served six data models but not `models/securityAnswer.ts`, and why the job answered undecidable instead of reading the file.
+- Give the combiner each part's locations or their number, and let the policy forbid counts the context does not give. Fixed in 22f10c00: each request carries `location_count`, and the policy allows a number of places only from it.
+- Find out why the Express job's preload served six data models but not `models/securityAnswer.ts`, and why the job answered undecidable instead of reading the file. Cause: data models get a quarter of the free preload windows, six in that job, and `evidence_preload` kept files in path order, so the job got the first six of eleven models alphabetically. Fixed: the models most candidates need come first, and each generated candidate names where its data model is defined when the job may read that file. Rebuilt offline, the job now gets `models/securityAnswer.ts`, and its 59 generated candidates name their models, among them the five still left out; the verification requests grow by 0.5 percent.
 - Decide whether verification findings without a confirming post-check count in the closing summary's Findings row, and let the row name the register count when the two differ.
-- Let the closing line's token count cover the same calls as its cost, and find a way for the `Verify start` estimate to leave out receipts whose request changed.
+- Let the closing line's token count cover the same calls as its cost. Receipts of reused calls record no tokens, so the line now names the calls its tokens cover, such as "639k tokens in 24 of them", instead of "≥ 639k tokens".
+- Deferred: let the `Verify start` estimate leave out receipts whose request changed. The estimate is made before the requests are built; telling a changed request apart needs a hash of the role instructions in every receipt or building all requests first. It matters only when the catalog or a policy changes between an interrupted run and its continuation.
 - Let a run finish on its snapshot when the source changes, once the drafted requirement is approved.
 
 ## Order
@@ -416,7 +417,7 @@ Each to be solved for any repository:
 7. Decide the default aspects of `standard` from the cost and benefit per aspect (point 10). Done: standard verifies AuthZ, InputVal, DataProt and AI; thorough adds AuthN.
 8. Split AuthN so that its token, password and recovery items, and new items for SSO and OAuth integration and for insecure authentication methods, can run at standard depth while the route item stays at thorough depth (point 10). Done: `AuthN` at standard, `AuthNRoutes` at thorough; at standard depth `AuthN` cost USD 0.99 in the fourth run (point 11).
 9. Measure the AuthN split, the combined register and the later place of business cases in a fourth run (point 11). Done: AuthN mostly confirms other methods for USD 0.99, the register combines 43 findings, and the business cases run as decided; combined texts with wrong counts and a data model missing from the preload are new defects.
-10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11).
+10. Fix the counts in combined texts, find out why the `SecurityAnswer` data model was not preloaded, and correct the closing line's token count and the `Verify start` estimate (point 11). Done except the estimate, which is deferred; the next run measures the fixes.
 11. Decide whether verification findings without a confirming post-check count in the closing summary's Findings row (point 11).
 12. Solve the open points of point 10 for any repository: AI selection from the architecture, a starting point for handlers like whoami, TC-AUTHZ-01's lookups as sinks, and the two survey defects.
 13. Build pooling by size into the next batching step and measure it in a thorough run (point 7).
