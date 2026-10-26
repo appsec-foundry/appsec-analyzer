@@ -487,10 +487,19 @@ class _AssessmentConsole:
         self.prompting = False
         self.activity, self.activity_started = "", time.monotonic()
 
+    _MODEL_ID = re.compile(r"(?:claude-)?(haiku|sonnet|opus|fable)(?:-(\d+)(?:-(\d{1,2}))?)?(?:-\d{8})?")
+
     @staticmethod
     def short_model(model: str) -> str:
-        """A model as the status lines name it: without the vendor prefix of its ID."""
-        return str(model).removeprefix("claude-")
+        """A model as the status lines name it: ``Sonnet 5.5`` for ``claude-sonnet-5-5``, ``Haiku`` for ``haiku``.
+
+        An ID of another form is shown without its vendor prefix.
+        """
+        match = _AssessmentConsole._MODEL_ID.fullmatch(str(model))
+        if not match:
+            return str(model).removeprefix("claude-")
+        family, major, minor = match.groups()
+        return " ".join(part for part in (family.capitalize(), f"{major}.{minor}" if minor else major) if part)
 
     def start_ticker(self) -> None:
         """On a terminal, redraw the status line every ``TICK_SECONDS`` until the run stops."""
@@ -991,6 +1000,10 @@ class _AssessmentConsole:
         # edge; the status line is cut by `_status` instead.
         indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), detail, now, live)
         cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in pieces]
+        if event == "start":
+            # The models of the phase's roles carry the colour the header gives its models.
+            for name in filter(None, self.phase_models.get(self.phase or "", "").split(", ")):
+                cells = [piece.replace(name, st(name, "agent")) for piece in cells]
         return self._join(head, indent, cells)
 
     def _wrap_detail(self, head: int, detail: str, now: float, live: bool) -> tuple[int, list[str]]:

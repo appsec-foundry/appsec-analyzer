@@ -842,13 +842,33 @@ def test_a_phase_start_line_names_the_models_of_its_roles():
     console.step("Surveying component: API (1/2)")
     console.close()
     starts = [row[5] for row in _rows(rows) if row[1] == "start"]
-    assert starts[0] == "haiku" and starts[1] == "2 components · sonnet-5-5, haiku"
+    assert starts[0] == "Haiku" and starts[1] == "2 components · Sonnet 5.5, Haiku"
 
 
 def test_the_phase_models_leave_out_roles_without_a_model():
     assert controller._assessment_phase_models({}) == {}
-    assert controller._AssessmentConsole.short_model("claude-sonnet-5-5") == "sonnet-5-5"
-    assert controller._AssessmentConsole.short_model("haiku") == "haiku"
+    short = controller._AssessmentConsole.short_model
+    assert short("claude-sonnet-5-5") == "Sonnet 5.5"
+    assert short("claude-haiku-4-5-20251001") == "Haiku 4.5"
+    assert short("claude-opus-5") == "Opus 5"
+    assert short("haiku") == "Haiku"
+    assert short("gpt-6-luna") == "gpt-6-luna"
+    assert short("claude-sonnet-4-6-v1:0") == "sonnet-4-6-v1:0"
+
+
+def test_the_models_of_a_phase_start_line_are_coloured():
+    rows = []
+    console = controller._AssessmentConsole(False, rows.append, clock=_Clock(), live=False)
+    from renderers.term_style import Style
+
+    console.st = Style(True)
+    console.phase_models = {"Threat analysis": "Sonnet 5.5, Haiku"}
+    console.step("Discovering every selected repository")
+    console.step("Surveying component: API (1/2)")
+    console.close()
+    start = next(row for row in rows if "start" in _ANSI.sub("", row) and "2 components" in _ANSI.sub("", row))
+    for name in ("Sonnet 5.5", "Haiku"):
+        assert console.st(name, "agent") in start
 
 
 def test_verbose_console_keeps_the_grid_and_adds_every_step_and_call():
