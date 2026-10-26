@@ -2991,8 +2991,8 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
 
     The lineup already shows the automatic move off Sonnet 4.6; only an
     explicit Sonnet 4.6 setting, which is expected to return no STRIDE
-    result, is warned about. `compact` counts shared roles and names single-role
-    assignments; verbose output names every role.
+    result, is warned about. `compact` counts the roles of each model; verbose
+    output names every role.
     """
     from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
 
@@ -3009,8 +3009,8 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
             by_model.setdefault(str(selected), []).append(role)
 
     def roles_of(roles: list[str]) -> str:
-        if compact and len(roles) > 1:
-            return f"{len(roles)} roles"
+        if compact:
+            return f"{len(roles)} role" + ("" if len(roles) == 1 else "s")
         return ", ".join(roles)
 
     lineup = "Models: " + "; ".join(f"{model} ({roles_of(roles)})" for model, roles in sorted(by_model.items()))

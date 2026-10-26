@@ -1894,13 +1894,6 @@ def resolve_assessment(
             if key.endswith("_model") and key != "reasoning_model" and not explicit.get(key):
                 cfg[key] = model
         cfg.update(apply_opus_ban(cfg, bool(cfg.get("opus_disabled") or cfg.get("disable_opus"))))
-    # MD-10: controller discovery returns validated components and cited
-    # interfaces from tool-less calls. On Juice Shop (2026-10-14) Haiku passed
-    # the thinking stop or repeated a rejected artifact until the exchange
-    # limit; Sonnet 5.5 returned a valid one in two calls. Only the Haiku
-    # default of the recon role moves.
-    if cfg.get("recon_scanner_model") == HAIKU and not (os.environ.get("APPSEC_RECON_SCANNER_MODEL") or model):
-        cfg["recon_scanner_model"] = SONNET5
     cfg.update(
         assessment_scope="multiple-repositories",
         source_scope_sha256=scope.inventory()["scope_sha256"],

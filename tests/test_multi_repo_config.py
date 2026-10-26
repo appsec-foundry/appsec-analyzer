@@ -62,10 +62,8 @@ def test_economy_stride_runs_on_the_latest_sonnet_and_never_on_sonnet_46(tmp_pat
     )
     assert resolved["stride_model"] == single["stride_model"] == config.SONNET5
     assert "stride_model_moved_from" not in resolved
-    # Discovery is the only role the combined assessment moves (MD-10).
-    moved = {"recon_scanner_model"}
-    assert {k: v for k, v in resolved.items() if k.endswith("_model") and k not in moved} == {
-        k: v for k, v in single.items() if k.endswith("_model") and k not in moved
+    assert {k: v for k, v in resolved.items() if k.endswith("_model")} == {
+        k: v for k, v in single.items() if k.endswith("_model")
     }
     # The advisory session-model recommendation is not a role.
     assert config.SONNET46 not in {
@@ -91,24 +89,20 @@ def test_built_in_claude_lineup_names_neither_sonnet_46_nor_the_bare_alias(tmp_p
     profiles.apply_runtime_profile(profile, resolved, [])
     lineup = controller._assessment_model_lines(resolved)[0].removeprefix("Models: ")
     models = {group.split(" (")[0] for group in lineup.split("; ")}
-    assert models <= {config.SONNET5, "opus"}
+    assert models <= {config.SONNET5, config.HAIKU, "opus"}
+    assert f"{config.HAIKU} (recon_scanner)" in lineup
 
 
-def test_controller_discovery_leaves_the_haiku_recon_default(tmp_path, monkeypatch):
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+def test_controller_discovery_runs_on_haiku_at_every_depth(tmp_path, monkeypatch, depth):
     monkeypatch.delenv("APPSEC_RECON_SCANNER_MODEL", raising=False)
-    arguments = ["--no-requirements"]
-    single = config.resolve(
-        ["--repo", str(tmp_path), "--output", str(tmp_path / "single"), "--full", *arguments],
-        ROOT,
-        create_output_dir=False,
-        source_count=1,
-    )
-    assert single["recon_scanner_model"] == config.HAIKU
-    assert config.resolve_assessment(scope(tmp_path), arguments, ROOT)["recon_scanner_model"] == config.SONNET5
-    # An explicit role pin or shared model still wins.
-    assert config.resolve_assessment(scope(tmp_path), arguments, ROOT, model="haiku")["recon_scanner_model"] == "haiku"
-    monkeypatch.setenv("APPSEC_RECON_SCANNER_MODEL", config.HAIKU)
+    arguments = ["--no-requirements", "--assessment-depth", depth]
     assert config.resolve_assessment(scope(tmp_path), arguments, ROOT)["recon_scanner_model"] == config.HAIKU
+    # An explicit role pin or shared model still wins.
+    pinned = config.resolve_assessment(scope(tmp_path), arguments, ROOT, model=config.SONNET5)
+    assert pinned["recon_scanner_model"] == config.SONNET5
+    monkeypatch.setenv("APPSEC_RECON_SCANNER_MODEL", config.SONNET5)
+    assert config.resolve_assessment(scope(tmp_path), arguments, ROOT)["recon_scanner_model"] == config.SONNET5
 
 
 @pytest.mark.parametrize("origin", ["environment", "shared"])

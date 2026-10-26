@@ -2959,14 +2959,14 @@ def test_root_causes_are_synthesized_after_abuse_verification(tmp_path, monkeypa
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def test_a_compact_lineup_counts_shared_roles_and_names_single_role_assignments():
-    cfg = {"stride_model": "big", "merger_model": "small", "triage_model": "small"}
+def test_a_compact_lineup_counts_the_roles_of_each_model_and_a_verbose_one_names_them():
+    cfg = {"stride_model": "big", "merger_model": "small", "triage_model": "small", "recon_scanner_model": "haiku"}
     full, _ = controller._assessment_model_lines(cfg)
     compact, _ = controller._assessment_model_lines(cfg, compact=True)
-    assert "stride_analyzer" in full and "stride_analyzer" in compact
-    assert "threat_merger" in full and "threat_merger" not in compact
-    assert compact.startswith("Models: big (stride_analyzer); small (")
-    assert "roles)" in compact
+    assert "stride_analyzer" in full and "threat_merger" in full and "recon_scanner" in full
+    assert "stride_analyzer" not in compact and "threat_merger" not in compact and "recon_scanner" not in compact
+    assert "big (1 role)" in compact and "haiku (1 role)" in compact
+    assert "small (3 roles)" in compact
 
 
 def test_pipeline_names_the_phases_and_optional_steps_this_run_executes():
