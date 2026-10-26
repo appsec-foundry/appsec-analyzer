@@ -35,6 +35,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Threat Analyst uses existing threat-model context unless `--isolated` is passed; reviews follow relevant imports and earlier finding references.
 - `scripts/run-headless.sh` uses the controller for single-repository assessments and rejects `--incremental`, `--rerender`, and `--pr-mode`. `--audit-requirements` uses the repository named by `--repo`.
 - Headless output shows component progress and delivered files, with detailed diagnostics under `--verbose` and wrapping controlled by `--width`.
+- The start line of each phase says what the phase does and names its agents with their models, for example `Sonnet 5.5 agent`, instead of only the model.
 - Repository abuse cases move to `docs/security/abuse-cases/`; `.appsec/abuse-cases/` remains supported.
 - Trust-boundary review and abuse-case checks run up to `max_parallel` jobs at once instead of one after another. A run paused by provider rate limits names a smaller `--max-parallel` value for a new run that reuses the accepted jobs.
 - `max_parallel` defaults to 4 instead of 2, or 3 for a run on the default whose components divide by three, and stays 2 for Codex and Copilot subscriptions.

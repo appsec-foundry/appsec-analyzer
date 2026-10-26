@@ -371,6 +371,14 @@ def _status_frames(err):
     return [re.sub(r"\033\[(\d*[AKJ]|\?\d+[hl])", "", frame.split(close)[0]).split("\n") for frame in frames]
 
 
+# What a phase's start line says it does; no models are configured in these runs, so no agents follow.
+RECON = "maps structure, technology and security-relevant code"
+TRUST = "checks where data crosses between components"
+CONTROLS = "assesses the security controls"
+THREATS = "scanners (no model), then survey of each component"
+FINAL = "builds the report and runs the quality checks"
+
+
 def _rows(lines):
     """Phase rows as (phase, event, progress, elapsed, left, detail), without the time stamp.
 
@@ -597,14 +605,14 @@ def test_default_console_writes_every_line_in_one_column_grid():
     # Numbered within the phases this run executes. PROGRESS, ELAPSED and LEFT
     # describe the whole run; the free-text detail comes last.
     assert _rows(lines) == [
-        ("1/8 Reconnaissance", "start", "planning", "<1m", "~33m", ""),
+        ("1/8 Reconnaissance", "start", "planning", "<1m", "~33m", RECON),
         # Components are planned while the phase runs, so its done line has a share.
         # Until a threat-analysis component has finished, LEFT scales the nominal
         # run time to the planned components, so it shrinks once they are known.
         ("1/8 Reconnaissance", "done", "~5%", "1m", "~17m", "1m38s · 1 repository"),
-        ("3/8 Trust boundaries", "start", "~12%", "1m", "~16m", "3 crossings"),
+        ("3/8 Trust boundaries", "start", "~12%", "1m", "~16m", f"3 crossings · {TRUST}"),
         ("3/8 Trust boundaries", "done", "~34%", "2m", "~12m", "1m00s · 3 crossings"),
-        ("5/8 Threat analysis", "start", "~36%", "2m", "~11m", "2 components"),
+        ("5/8 Threat analysis", "start", "~36%", "2m", "~11m", f"2 components · {THREATS}"),
         # Each threat analysis line names its method; the run header says how the survey examines the code.
         ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "Survey    start · 2 components"),
         # Every STRIDE component gets its own line, so a model status within
@@ -624,7 +632,7 @@ def test_default_console_writes_every_line_in_one_column_grid():
         ("5/8 Threat analysis", "·", "~46%", "4m", "~5m", "Survey    component 2/2 · Store"),
         # MR-17: a successful correction is counted on the done line, its reason only under --verbose.
         ("5/8 Threat analysis", "done", "~56%", "7m", "~5m", "4m30s · 2 components · 1 answer corrected (survey 1)"),
-        ("8/8 Finalization", "start", "~79%", "7m", "~1m", ""),
+        ("8/8 Finalization", "start", "~79%", "7m", "~1m", FINAL),
         ("8/8 Finalization", "done", "100%", "7m", "", "30s"),
     ]
     # No model-call detail or crossing hash in the default view.
@@ -813,9 +821,9 @@ def test_phase_results_and_skipped_phases_shape_the_done_lines():
     clock.tick(5)
     console.close()
     assert [(row[0], row[1], row[5]) for row in _rows(lines)] == [
-        ("4/7 Controls", "start", "2 components"),
+        ("4/7 Controls", "start", f"2 components · {CONTROLS}"),
         ("4/7 Controls", "done", "5s · 2 components · 5 controls"),
-        ("7/7 Finalization", "start", ""),
+        ("7/7 Finalization", "start", FINAL),
         ("7/7 Finalization", "done", "5s · report published"),
     ]
     assert noticed == ["Controls", "Finalization"]
@@ -867,17 +875,35 @@ def test_local_architecture_names_its_repository_position():
     assert "repository 1/1 · juice-shop" in [row[5] for row in _rows(lines)]
 
 
-def test_a_phase_start_line_names_the_models_of_its_roles():
+def test_a_phase_start_line_names_what_the_phase_does_and_its_agents():
     rows, clock = [], _Clock()
     console = controller._AssessmentConsole(False, rows.append, clock=clock)
     console.phase_models = controller._assessment_phase_models(
-        {"recon_scanner_model": "haiku", "stride_model": "claude-sonnet-5-5", "evidence_verifier_model": "haiku"}
+        {
+            "recon_scanner_model": "haiku",
+            "stride_model": "claude-sonnet-5-5",
+            "evidence_verifier_model": "claude-sonnet-5-5",
+        }
     )
     console.step("Discovering every selected repository")
     console.step("Surveying component: API (1/2)")
     console.close()
     starts = [row[5] for row in _rows(rows) if row[1] == "start"]
-    assert starts[0] == "Haiku" and starts[1] == "2 components · Sonnet 5.5, Haiku"
+    assert starts[0] == f"{RECON} (Haiku)"
+    assert starts[1] == f"2 components · {THREATS} (Sonnet 5.5)"
+
+
+def test_a_phase_with_agents_on_different_models_names_them_by_role():
+    rows, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, rows.append, clock=clock)
+    console.phase_models = controller._assessment_phase_models(
+        {"stride_model": "claude-sonnet-5-5", "evidence_verifier_model": "haiku"}
+    )
+    console.step("Discovering every selected repository")
+    console.step("Surveying component: API (1/2)")
+    console.close()
+    start = next(row[5] for row in _rows(rows) if row[1] == "start" and row[0].endswith("Threat analysis"))
+    assert start.endswith("(survey: Sonnet 5.5, evidence review: Haiku)")
 
 
 def test_the_phase_models_leave_out_roles_without_a_model():
@@ -897,7 +923,7 @@ def test_the_models_of_a_phase_start_line_are_coloured():
     from renderers.term_style import Style
 
     console.st = Style(True)
-    console.phase_models = {"Threat analysis": "Sonnet 5.5, Haiku"}
+    console.phase_models = {"Threat analysis": [("stride_analyzer", "Sonnet 5.5"), ("evidence_verifier", "Haiku")]}
     console.step("Discovering every selected repository")
     console.step("Surveying component: API (1/2)")
     console.close()
@@ -3627,9 +3653,9 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     console.close()
     rows = [row for row in _rows(lines) if row[0] == "5/8 Threat analysis"]
     # The plan only weighs the phase. Each line names its method; the run header says how each examines the code,
-    # so the start line names only the components and the budget.
+    # so the start line names what the phase does and the scope.
     assert [(event, detail) for _, event, _, _, _, detail in rows] == [
-        ("start", ""),
+        ("start", THREATS),
         ("·", "Scanners  4 hits · 0s"),
         ("·", "Survey    start · 2 components"),
         ("·", "Survey    component 1/2 · API"),
@@ -3884,7 +3910,7 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     assert [row[1:] for row in rows if row[0].endswith("Threat analysis")][-1] == ("done", "1m00s · 1 component")
     consolidation = [row[1:] for row in rows if row[0].endswith("Consolidation")]
     assert consolidation[:3] == [
-        ("start", ""),
+        ("start", "merges duplicate findings, then reviews and ranks them"),
         ("·", "Merge · 8 survey findings and 4 scanner hits merged into 9"),
         ("·", "AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey"),
     ]

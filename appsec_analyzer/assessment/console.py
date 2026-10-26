@@ -212,7 +212,9 @@ class _AssessmentConsole:
     detail starts with the phase's duration. In the threat analysis, DETAIL
     starts with a column naming the method a line belongs to: Scanners, Survey
     and, with verification, Verify. The run header explains the three; Survey
-    and Verify each have a start and a done line of their own.
+    and Verify each have a start and a done line of their own. A phase's
+    start line names its scope, what the phase does and the agents that work
+    in it with their models in parentheses (``(Sonnet 5.5)``).
 
     PROGRESS counts finished work. Once the component count is known
     (``plan_components``), Controls and STRIDE weigh per component. LEFT
@@ -356,6 +358,17 @@ class _AssessmentConsole:
         "Verifying abuse case": "abuse case",
         "Stage 2:": "report section",
     }
+    # What each phase does, for its start line; the agents' models follow it.
+    PHASE_DESCRIPTIONS = {
+        "Reconnaissance": "maps structure, technology and security-relevant code",
+        "Architecture": "derives components and data flows",
+        "Trust boundaries": "checks where data crosses between components",
+        "Controls": "assesses the security controls",
+        "Threat analysis": "scanners (no model), then survey of each component",
+        "Consolidation": "merges duplicate findings, then reviews and ranks them",
+        "Abuse cases": "derives and verifies business abuse cases",
+        "Finalization": "builds the report and runs the quality checks",
+    }
     # Prefix of a phase's result step: "<RESULT><phase>: <what it produced>".
     RESULT = "Phase result: "
     # Suffix of a component's last step when every job it needed was reused.
@@ -494,8 +507,8 @@ class _AssessmentConsole:
         # Model calls in flight (_ReportedTransport registers itself) and the
         # last controller step with its start, for the terminal's status line.
         self.running: dict[int, Any] = {}
-        # The models of each phase's roles, named on the phase's start line.
-        self.phase_models: dict[str, str] = {}
+        # The (role, model) pairs of each phase's agents, named on the phase's start line.
+        self.phase_models: dict[str, list[tuple[str, str]]] = {}
         self._call_notices: set[tuple[str, str]] = set()
         self.prompting = False
         self.activity, self.activity_started = "", time.monotonic()
@@ -513,6 +526,24 @@ class _AssessmentConsole:
             return str(model).removeprefix("claude-")
         family, major, minor = match.groups()
         return " ".join(part for part in (family.capitalize(), f"{major}.{minor}" if minor else major) if part)
+
+    def phase_agents(self, phase: str) -> str:
+        """The models of a phase's agents as its start line names them: ``(Sonnet 5.5)``.
+
+        Roles on different models are named by role: ``(survey: Sonnet 5.5, evidence review: Haiku)``.
+        """
+        roles = self.phase_models.get(phase, [])
+        models = list(dict.fromkeys(model for _, model in roles))
+        if len(models) <= 1:
+            return f"({models[0]})" if models else ""
+        return (
+            "("
+            + ", ".join(
+                f"{' + '.join(self.ROLE_LABELS.get(role, role) for role, other in roles if other == model)}: {model}"
+                for model in models
+            )
+            + ")"
+        )
 
     def start_ticker(self) -> None:
         """On a terminal, redraw the status line every ``TICK_SECONDS`` until the run stops."""
@@ -1040,7 +1071,7 @@ class _AssessmentConsole:
         cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in pieces]
         if event == "start":
             # The models of the phase's roles carry the colour the header gives its models.
-            for name in filter(None, self.phase_models.get(self.phase or "", "").split(", ")):
+            for name in dict.fromkeys(model for _, model in self.phase_models.get(self.phase or "", [])):
                 cells = [piece.replace(name, st(name, "agent")) for piece in cells]
         return self._join(head, indent, cells)
 
@@ -1281,7 +1312,16 @@ class _AssessmentConsole:
                 scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
                 self._header()
                 self.record(
-                    "start", " · ".join(part for part in (scope, self.phase_models.get(phase, "")) if part), now
+                    "start",
+                    " ".join(
+                        part
+                        for part in (
+                            " · ".join(part for part in (scope, self.PHASE_DESCRIPTIONS.get(phase, "")) if part),
+                            self.phase_agents(phase),
+                        )
+                        if part
+                    ),
+                    now,
                 )
                 if phase == "Threat analysis":
                     self.method = "Scanners"

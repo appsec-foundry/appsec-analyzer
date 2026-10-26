@@ -3017,14 +3017,14 @@ _PHASE_ROLES = {
 }
 
 
-def _assessment_phase_models(cfg: dict[str, Any]) -> dict[str, str]:
-    """Per console phase, the distinct models of its roles in first-use order."""
+def _assessment_phase_models(cfg: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
+    """Per console phase, the (role, model) pairs of its roles in first-use order."""
     models = _assessment_role_models(cfg)
     phases = {}
     for phase, roles in _PHASE_ROLES.items():
-        names = dict.fromkeys(_AssessmentConsole.short_model(models[role]) for role in roles if role in models)
-        if names:
-            phases[phase] = ", ".join(names)
+        pairs = [(role, _AssessmentConsole.short_model(models[role])) for role in roles if role in models]
+        if pairs:
+            phases[phase] = pairs
     return phases
 
 
