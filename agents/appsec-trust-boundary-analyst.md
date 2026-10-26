@@ -172,10 +172,10 @@ row.
 Two rules that decide whether this is worth anything:
 
 - **Declare every leg the crossing genuinely has, not only the one you found
-  evidence for.** A leg you omit is a leg no finding can attach to. juice-shop's
-  `external -> backend-api` named authentication only; its three authorization
-  findings — one of them a Critical IDOR — ended up linked to nothing at all
-  (user 2026-08-01). An inbound crossing always has all three legs.
+  evidence for.** A leg you omit is a leg no finding can attach to. In one run
+  an `external -> backend-api` crossing named authentication only; its three
+  authorization findings — one of them a Critical IDOR — ended up linked to
+  nothing at all (user 2026-08-01). An inbound crossing always has all three legs.
 - **Never widen a leg into a slogan.** "All access must be validated and
   authorized" is true of every boundary ever written, cannot be checked, and
   makes every verdict a foregone conclusion. Each condition must name something
