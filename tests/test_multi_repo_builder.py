@@ -10,8 +10,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from contexts.multi_repo_analysis import contract
 from model.build_threat_model_yaml import build_assessment_model
+from model.finalize_component_inventory import component_inventory_fingerprint
 from model.merge_threats import merge_assessment
-from shared.assessment_sources import presentation_model
+from shared.assessment_sources import presentation_model, validate_portable_model
 from validators.validate_intermediate import validate_threat_model_output
 
 from tests.test_multi_repo_analysis import stride
@@ -625,14 +626,45 @@ def test_a_verification_finding_in_a_file_of_no_component_stays_with_its_compone
     assert threat["component"] == first
 
 
-@pytest.mark.parametrize("case", ["survey finding", "file of another component"])
+def _owned_by_another_component(kwargs):
+    """Give ``SHARED`` to a new component of the first repository, as a central router file belongs to its server."""
+    architecture = kwargs["architecture"]
+    components = architecture["components"]["components"]
+    rid = components[0]["repository_ids"][0]
+    sha = hashlib.sha256(SHARED_TEXT.encode()).hexdigest()
+    components.append(
+        dict(components[0], id="component-3", name="Router", paths=[dict(repository_id=rid, path=SHARED, sha256=sha)])
+    )
+    fingerprint = component_inventory_fingerprint(components)
+    architecture["finalization"].update(
+        component_inventory_fingerprint=fingerprint, component_ids=[c["id"] for c in components]
+    )
+    for document in (architecture["data_flows"], kwargs["merged"]):
+        document["component_inventory_fingerprint"] = fingerprint
+
+
+def test_a_verification_finding_in_a_file_of_another_component_stays_with_its_component(tmp_path):
+    """REQ-040: verification may anchor at a candidate the controller assigned, such as a route another file registers."""
+    scope, kwargs, first = _verification(tmp_path, _in_shared_file, assemble=True)
+    _owned_by_another_component(kwargs)
+    document, _ = build_assessment_model(scope, **kwargs)
+    validate_portable_model(document)
+    (threat,) = [t for t in document["threats"] if t["evidence"][0]["file"] == SHARED]
+    assert threat["component"] == first
+
+
+@pytest.mark.parametrize(
+    "case", ["survey finding", "survey finding in a file of another component", "file of another repository"]
+)
 def test_a_finding_anchor_outside_its_component_is_still_refused(tmp_path, case):
-    """Only a verification finding may anchor in a file of no component; a file another component owns is foreign."""
+    """Only verification may anchor outside its component's files, and only in a repository of the component."""
     scope, kwargs, _ = _verification(tmp_path, _in_shared_file, assemble=True)
     threats = kwargs["merged"]["threats"]
     (shared,) = [t for t in threats if t["evidence"]["file"] == SHARED]
-    if case == "survey finding":
+    if case.startswith("survey finding"):
         shared["found_by"] = ["survey"]
+        if case.endswith("another component"):
+            _owned_by_another_component(kwargs)
     else:
         (other,) = [t for t in threats if t["component_id"] != shared["component_id"]]
         shared["evidence"] = dict(other["evidence"])

@@ -173,17 +173,20 @@ def validate_portable_model(document: dict) -> None:
     for row in source_rows(document):
         check(row, "file")
     by_component = {row["id"]: row for row in components}
-    # REQ-040: verification may anchor a finding in a file of no component, such as a shared helper its job
-    # read; a file of another component stays foreign to every method.
-    owned_by_any = {(p["repository_id"], p["path"]) for row in components for p in row["paths"]}
+    # REQ-040: verification may anchor a finding outside its component's files: in a shared helper of no component
+    # its job read, or at a candidate the controller assigned, such as a route a file of another component
+    # registers. The job's review decides which files; the anchor stays in a repository of the component.
     for finding in document["threats"]:
         if finding["component"] not in component_ids:
             raise ValueError("Finding refers to an unknown component")
         anchor = (finding.get("evidence") or [None])[0]
-        owned = {(p["repository_id"], p["path"]) for p in by_component[finding["component"]]["paths"]}
-        location = (anchor["repository_id"], anchor["file"]) if anchor else None
-        if location and location not in owned:
-            if "verification" not in (finding.get("found_by") or ()) or location in owned_by_any:
+        component = by_component[finding["component"]]
+        owned = {(p["repository_id"], p["path"]) for p in component["paths"]}
+        if anchor and (anchor["repository_id"], anchor["file"]) not in owned:
+            if (
+                "verification" not in (finding.get("found_by") or ())
+                or anchor["repository_id"] not in component["repository_ids"]
+            ):
                 raise ValueError("Finding anchor is outside its component ownership")
         for instance in finding.get("instances") or []:
             cid = instance.get("component_id") or finding["component"]

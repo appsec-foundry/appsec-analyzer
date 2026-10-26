@@ -2960,16 +2960,18 @@ def build_assessment_model(
         owned = source_selection([by_id[key] for key in control["component_ids"]])
         if any((e["repository_id"], e["file"]) not in owned for e in control["evidence"]):
             raise ValueError("Security control evidence is outside its component ownership")
-    # REQ-040: verification may anchor a finding in a file of no component, such as a shared helper its job
-    # read; a file of another component stays foreign to every method.
-    owned_by_any = source_selection(components["components"])
+    # REQ-040: verification may anchor a finding outside its component's files: in a shared helper of no component
+    # its job read, or at a candidate the controller assigned, such as a route a file of another component
+    # registers. The job's review decides which files; the anchor stays in a repository of the component.
     for row in merged["threats"]:
         if row["component_id"] not in component_ids:
             raise ValueError("Merged finding refers to an unknown component")
-        anchor = row.get("evidence")
-        location = (anchor["repository_id"], anchor["file"]) if anchor else None
-        if location and location not in source_selection([by_id[row["component_id"]]]):
-            if "verification" not in (row.get("found_by") or ()) or location in owned_by_any:
+        anchor, component = row.get("evidence"), by_id[row["component_id"]]
+        if anchor and (anchor["repository_id"], anchor["file"]) not in source_selection([component]):
+            if (
+                "verification" not in (row.get("found_by") or ())
+                or anchor["repository_id"] not in component["repository_ids"]
+            ):
                 raise ValueError("Merged finding anchor is outside its component ownership")
     finding_ids = [row["t_id"] for row in merged["threats"]]
     if len(finding_ids) != len(set(finding_ids)):
