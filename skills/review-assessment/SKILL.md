@@ -5,7 +5,7 @@ description: Discuss a saved AppSec Analyzer assessment, explain findings and ev
 
 # Work with an existing assessment
 
-Use the supplied assessment context and query helper. This session continues work on an existing result; it does not rerun the assessment. Start with a short orientation from the saved facts, then offer to explain a finding, prioritize remediation, or prepare a specific fix. Respond in the user's language and follow their chosen question.
+Use the supplied assessment context and query helper. This session continues work on an existing result; it does not rerun the assessment. Start with a short orientation from the saved facts: the assessment identity and totals, the top findings (the recorded worst cases, then the most severe), and the top mitigations by recorded priority, noting where one mitigation covers several severe findings. Mention abuse cases in one line at most. Then offer concrete next steps: what to implement first, explaining a named finding, preparing a specific fix, and going through the open abuse cases. Respond in the user's language and follow their chosen question.
 
 ## Find the relevant evidence
 
