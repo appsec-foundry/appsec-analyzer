@@ -509,7 +509,7 @@ def test_phase_skips_a_local_repository_and_sends_no_request(tmp_path, monkeypat
     assert document["repositories"][0]["status"] == "skipped"
     assert "local repository" in document["repositories"][0]["reason"]
     # The start check names the folder, which the run header shows in full, with a short reason.
-    assert said == ["· checkout skipped (local checkout; needs a GitHub or GitLab URL)"]
+    assert said == ["· checkout skipped (local checkout)"]
 
 
 def test_phase_names_the_settings_that_are_not_set_by_their_catalog_titles(tmp_path, monkeypatch):

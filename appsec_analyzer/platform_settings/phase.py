@@ -23,7 +23,7 @@ LOCAL = "local repository; give a GitHub or GitLab URL to check its platform set
 UNSUPPORTED = "not a github.com or gitlab.com repository URL"
 FAILED = "the platform check could not finish"
 # The start-check line of a skipped repository; the stored reason keeps the full text.
-_SKIPPED = {"local_repository": "local checkout; needs a GitHub or GitLab URL", "unsupported_platform": UNSUPPORTED}
+_SKIPPED = {"local_repository": "local checkout", "unsupported_platform": UNSUPPORTED}
 
 
 def _display(source: str) -> str:
