@@ -323,7 +323,7 @@ class TestResolveReasoningModel:
         ns = rc.build_parser().parse_args([])
         out = rc.resolve_reasoning_model(ns, "thorough")
         assert out["reasoning_model"] == "opus"
-        assert out["stride_model"] == "opus"
+        assert out["stride_model"] == "claude-opus-5-5"
 
     def test_default_quick_gives_haiku_economy(self):
         ns = rc.build_parser().parse_args([])
@@ -338,7 +338,7 @@ class TestResolveReasoningModel:
     def test_explicit_opus(self):
         ns = rc.build_parser().parse_args(["--reasoning-model", "opus"])
         out = rc.resolve_reasoning_model(ns, "standard")
-        assert out["stride_model"] == "opus"
+        assert out["stride_model"] == "claude-opus-5-5"
 
     def test_env_var_highest_precedence(self, monkeypatch):
         monkeypatch.setenv("APPSEC_STRIDE_MODEL", "claude-env-override")
@@ -921,7 +921,7 @@ class TestOpusBan:
         monkeypatch.chdir(tmp_path)
         cfg = rc.resolve(["--reasoning-model", "opus"], REPO_ROOT)
         assert cfg["opus_disabled"] is False
-        assert cfg["merger_model"] == "opus"
+        assert cfg["merger_model"] == "claude-opus-5-5"
 
     def test_no_opus_clamps_explicit_opus_tier(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

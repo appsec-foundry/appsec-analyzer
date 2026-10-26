@@ -52,7 +52,7 @@ def test_reasoning_tier_is_reflected() -> None:
     economy = model_lineup.lineup("claude-sonnet-4-6", "sonnet-economy", "standard")
     opus_tier = model_lineup.lineup("claude-sonnet-4-6", "opus", "thorough")
     assert economy != opus_tier
-    assert "opus (STRIDE" in opus_tier
+    assert "claude-opus-5-5 (STRIDE" in opus_tier
 
 
 def test_alias_is_resolved_to_the_session_model() -> None:

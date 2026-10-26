@@ -195,7 +195,7 @@ class TestDefaultCoupling:
         ns = rc.build_parser().parse_args(["--reasoning-model", "opus"])
         out = rc.resolve_reasoning_model(ns, "standard")
         assert out["reasoning_model"] == "opus"
-        assert out["stride_model"] == "opus"
+        assert out["stride_model"] == "claude-opus-5-5"
 
     def test_thorough_defaults_to_opus(self):
         rc = _load_resolver()

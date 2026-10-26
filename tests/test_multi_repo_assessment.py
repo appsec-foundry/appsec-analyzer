@@ -912,6 +912,7 @@ def test_the_phase_models_leave_out_roles_without_a_model():
     assert short("claude-sonnet-5-5") == "Sonnet 5.5"
     assert short("claude-haiku-4-5-20251001") == "Haiku 4.5"
     assert short("claude-opus-5") == "Opus 5"
+    assert short("claude-opus-5-5") == "Opus 5.5"
     assert short("haiku") == "Haiku"
     assert short("gpt-6-luna") == "gpt-6-luna"
     assert short("claude-sonnet-4-6-v1:0") == "sonnet-4-6-v1:0"
@@ -923,12 +924,14 @@ def test_the_models_of_a_phase_start_line_are_coloured():
     from renderers.term_style import Style
 
     console.st = Style(True)
-    console.phase_models = {"Threat analysis": [("stride_analyzer", "Sonnet 5.5"), ("evidence_verifier", "Haiku")]}
+    console.phase_models = {
+        "Threat analysis": [("stride_analyzer", "Opus 5.5"), ("evidence_verifier", "Sonnet 5.5"), ("threat_merger", "Haiku")]
+    }
     console.step("Discovering every selected repository")
     console.step("Surveying component: API (1/2)")
     console.close()
     start = next(row for row in rows if "start" in _ANSI.sub("", row) and "2 components" in _ANSI.sub("", row))
-    for name in ("Sonnet 5.5", "Haiku"):
+    for name in ("Opus 5.5", "Sonnet 5.5", "Haiku"):
         assert console.st(name, "agent") in start
 
 

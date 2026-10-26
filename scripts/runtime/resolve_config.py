@@ -55,6 +55,9 @@ def canonical_reasoning_model(mode):
 # The latest Sonnet, as an exact id rather than the `sonnet` alias, so a headless run pins the
 # version instead of following the session. The pin follows the latest Sonnet release.
 SONNET5 = "claude-sonnet-5-5"
+# The latest Opus, pinned the same way: the console and the cost estimate name the version
+# a run uses instead of the version the `opus` alias happens to resolve to on the host.
+OPUS5 = "claude-opus-5-5"
 
 MODEL_MATRIX = {
     "sonnet": {
@@ -74,12 +77,12 @@ MODEL_MATRIX = {
         # eligibility); the agent only does judgment-call validation on top.
         # Opus here was overkill — Sonnet handles the structured input.
         "triage": "sonnet",
-        "merger": "opus",
+        "merger": OPUS5,
     },
     "opus": {
-        "stride": "opus",
-        "triage": "opus",
-        "merger": "opus",
+        "stride": OPUS5,
+        "triage": OPUS5,
+        "merger": OPUS5,
     },
     # sonnet-economy: threat reasoning (STRIDE/triage/merger) stays on the
     # Sonnet TIER — it is NOT routed to Haiku (the principle: the main value
