@@ -1248,14 +1248,22 @@ requirements:
     applies_to:
       - appsec_analyzer/review.py
       - appsec_analyzer/saved_assessment.py
+      - appsec_analyzer/update.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - README.md
       - docs/security-assessment.md
       - docs/internal/contracts/requirement-acceptance.md
       - specs/changes/offer-update-for-newer-results/proposal.md
+      - specs/changes/add-update-command/proposal.md
     coverage: partial
     guards:
+      - tests/test_public_update_cli.py::test_yes_upgrades_the_pipx_installation_and_names_the_source
+      - tests/test_public_update_cli.py::test_anything_but_yes_installs_nothing
+      - tests/test_public_update_cli.py::test_nothing_is_asked_or_installed_when_it_must_not_be
+      - tests/test_public_update_cli.py::test_update_takes_no_assume_yes_option
+      - tests/test_public_update_cli.py::test_organization_commands_do_not_offer_update
       - tests/test_public_review_cli.py::test_yes_updates_installation_and_does_not_start_review
       - tests/test_public_review_cli.py::test_anything_but_yes_installs_nothing
       - tests/test_public_review_cli.py::test_no_offer_when_it_cannot_or_must_not_be_made

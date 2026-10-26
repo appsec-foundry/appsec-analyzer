@@ -174,7 +174,7 @@ Use a fresh private working directory so repository or result-directory assistan
 
 After a completed assessment, print a shell-quoted `appsec-analyzer review RESULT_DIR` next step without launching it or blocking unattended scans. Preserve existing exit codes, including a completed assessment with a failing policy gate.
 
-## REQ-043: Update Analyzer for a result from a newer version
+## REQ-043: Update Analyzer
 
 When `review` rejects a completed private assessment because its state file does not match the installed Analyzer's state schema, an interactive terminal outside CI may offer to update the installed Analyzer. Other rejections, such as an incomplete, changed, linked, or secret-containing result, never trigger the offer.
 
@@ -183,6 +183,8 @@ Before asking, name what would be installed and from where. Install nothing with
 Offer the update only when Analyzer can identify how it was installed and that route needs no further decision. Otherwise print only the diagnostic. Do not offer it when the installation is pinned by an organization distribution. The update makes no model call and sends no assessment data anywhere.
 
 After the update, do not start `review` again or open the result in the same process; the user runs the command again. A failed update reports its cause, leaves the previous installation usable, and does not change the saved assessment.
+
+`appsec-analyzer update` offers the same update without a rejected result. It follows the same rules: name the source first, install nothing without an explicit yes, make no model call, and send no data. It offers no option that skips the question. Outside an interactive terminal, in CI, without a recorded pipx installation, with an organization distribution, or without a pipx executable on an absolute PATH entry, it installs nothing and exits with a diagnostic that names the way to update. No, silence, and end of input install nothing and are not errors. A failed update exits with an error that reports its cause.
 
 ## REQ-016: Follow, stop, and resume a run
 

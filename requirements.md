@@ -52,7 +52,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-037:** **Work with an assessment using AI.** Users can open a saved assessment in a coding assistant with the context and guidance needed to discuss findings and prepare remediation. Analyzer offers this next step after completion and defaults to the assistant used for the assessment when available. Starting a review does not repeat the analysis or authorize changes.
 
-- **REQ-043:** **Update Analyzer for a result from a newer version.** When a saved assessment cannot be opened because a newer Analyzer created it, an interactive terminal offers to update the installed Analyzer. Nothing is installed without an explicit yes.
+- **REQ-043:** **Update Analyzer.** When a saved assessment cannot be opened because a newer Analyzer created it, an interactive terminal offers to update the installed Analyzer. `appsec-analyzer update` offers the same update on request. Nothing is installed without an explicit yes.
 
 ## Run and maintain assessments
 

@@ -82,6 +82,7 @@ Analyzed repositories are untrusted input: their content cannot authorize tools 
 | `profiles` | List and validate scan and model profiles. |
 | [`platform-settings`](#platform-settings-github-and-gitlab-security-settings) | Security settings of a GitHub or GitLab repository, such as branch protection. |
 | [`distribution`](#distribution-start-your-organizations-own-command) | Create the files for your organization's own command, and align its engine pins after an engine update. |
+| [`update`](#install) | Update a pipx installation of Analyzer after your yes. |
 | `capabilities` | Show the available scanners and provider qualification. |
 
 ### Cost limits
@@ -269,6 +270,8 @@ appsec-analyzer distribution update-engine ./northstar-appsec
 ## Install
 
 pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The install command only works if the repository is reachable for your GitHub account. The package is not yet on PyPI.
+
+To update a pipx installation, run `appsec-analyzer update`. It shows the source it installs from, asks for a yes, and then runs `pipx upgrade appsec-analyzer`. It needs an interactive terminal outside CI and has no option that skips the question. For other installations it prints that you update the way you installed Analyzer. Organization commands do not have it.
 
 <details>
 <summary>Install with pip or from a local checkout</summary>

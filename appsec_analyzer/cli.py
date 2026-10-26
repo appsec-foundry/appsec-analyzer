@@ -91,6 +91,7 @@ _COMMAND_GROUPS = (
             ("preflight", "Check Git access and provider setup before an assessment"),
             ("profiles", "List, inspect, or validate scan and model profiles"),
             ("platform-settings", "Security settings of a GitHub or GitLab repository"),
+            ("update", "Update the installed Analyzer with pipx, after your yes"),
             ("distribution", "Create your organization's own command"),
             ("organization", "Inspect or validate the bundled organization defaults"),
             ("organization-config", "Validate, inspect, or run an engine-only organization projection"),
@@ -180,6 +181,8 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             "update-engine", help="Set every engine pin to the installed engine version"
         )
         update.add_argument("repo", nargs="?", default=".", metavar="DIR", help="Organization repository (default: .)")
+    if organization is None:
+        commands.add_parser("update", help="Update the installed Analyzer with pipx, after your yes")
     commands.add_parser("version", help="Show engine and public interface versions")
     commands.add_parser("capabilities", help="Show scanner and provider qualification")
     from appsec_analyzer.assessment_entry import add_arguments as entry_arguments
@@ -1668,6 +1671,10 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             _prepare_profile(ns, default_scan())
         if ns.command == "audit-requirements":
             print(_claude_budget_line(ns.hard_budget), file=sys.stderr)
+        if ns.command == "update":
+            from appsec_analyzer.update import update_installation
+
+            return update_installation()
         if ns.command == "version":
             version = {"engine_version": ENGINE_VERSION, "interface_version": INTERFACE_VERSION}
             if organization is not None:
