@@ -86,7 +86,7 @@ Analyzed repositories are untrusted input: their content cannot authorize tools 
 
 ### Cost limits
 
-Each model-backed command stops at a spending limit. The values are default upper limits, not expected costs.
+Each model-backed command stops at a spending limit. The values are default upper limits, not expected costs. With a Claude subscription, that is Claude CLI without `ANTHROPIC_API_KEY`, the limit counts subscription usage at the API prices that Claude CLI reports.
 
 | Command | Default limit | Change with |
 | --- | --- | --- |
@@ -363,7 +363,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | Option | Effect |
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
-| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock. Default: 20. |
+| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock; with a Claude subscription, usage at API prices. Default: 20. |
 | `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. In an interactive terminal, `assess` asks for the depth when you give none. |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |

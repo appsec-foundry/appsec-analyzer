@@ -244,7 +244,8 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             + (
                 "Bundled organization and scan profiles are selected automatically; explicit options override defaults."
                 if organization
-                else "The default model-cost limit is USD 20; override it with --budget USD."
+                else "The default model-cost limit is USD 20; override it with --budget USD. "
+                "With a Claude subscription, the limit counts usage at API prices."
             )
         ),
     )
@@ -432,7 +433,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         type=_positive_budget,
         default=5.0,
         metavar="USD",
-        help="Maximum model cost in USD (default: %(default)g)",
+        help="Maximum model cost in USD (default: %(default)g); with a Claude subscription, usage at API prices",
     )
     audit.add_argument("--model", default="sonnet", metavar="MODEL")
     audit.add_argument("--category", metavar="FILTER")
@@ -458,7 +459,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         type=_positive_budget,
         default=5.0,
         metavar="USD",
-        help="Maximum model cost in USD (default: %(default)g)",
+        help="Maximum model cost in USD (default: %(default)g); with a Claude subscription, usage at API prices",
     )
     authnz.add_argument("--requirements", metavar="FILE", help="Optional local requirements catalog")
     authnz.add_argument("--output", metavar="DIR", help="Existing empty private directory outside the checkout")
@@ -555,7 +556,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         action=_Explicit,
         default=20.0,
         metavar="USD",
-        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with CLI subscription profiles)",
+        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with codex-cli and copilot-cli); with a Claude subscription, usage at API prices",
     )
     cost_group.add_argument(
         "--assessment-depth",
@@ -1424,6 +1425,14 @@ def _analyst(ns: argparse.Namespace) -> int:
     return runpy.run_path(str(script), run_name="appsec_analyzer.analyst")["main"](ns.args)
 
 
+def _claude_budget_line(usd: float) -> str:
+    """The USD limit of a Claude CLI command; a subscription counts usage at API prices."""
+    from appsec_analyzer.assessment.console import usd_at_api_prices
+
+    unit = " of subscription usage at API prices" if usd_at_api_prices("claude-cli") else ""
+    return f"Model budget limit: USD {usd:g}{unit}"
+
+
 def _audit(ns: argparse.Namespace) -> int:
     _engine_imports()
     from runtime.analyst_host import HostCancelled, TransportError
@@ -1467,7 +1476,7 @@ def _authnz(ns: argparse.Namespace) -> int:
     from appsec_analyzer.authnz_review import ReviewError, markdown, review_repository
     from appsec_analyzer.hosts import claude_preflight
 
-    print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
+    print(_claude_budget_line(ns.hard_budget), file=sys.stderr)
     print(
         "AuthNZ review sends masked scanner evidence and optional catalog context to Claude CLI. "
         "It performs no dynamic penetration test.",
@@ -1658,7 +1667,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             # Preflight checks the profile the assessment would use.
             _prepare_profile(ns, default_scan())
         if ns.command == "audit-requirements":
-            print(f"Model budget limit: USD {ns.hard_budget:g}", file=sys.stderr)
+            print(_claude_budget_line(ns.hard_budget), file=sys.stderr)
         if ns.command == "version":
             version = {"engine_version": ENGINE_VERSION, "interface_version": INTERFACE_VERSION}
             if organization is not None:

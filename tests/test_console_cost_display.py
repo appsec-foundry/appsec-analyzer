@@ -9,7 +9,7 @@ import pytest
 from orchestrator import assessment_test_cases
 from orchestrator import orchestration_controller as controller
 
-from appsec_analyzer.assessment.console import _AssessmentConsole, api_billing, usage_text
+from appsec_analyzer.assessment.console import _AssessmentConsole, api_billing, usage_text, usd_at_api_prices
 
 
 @pytest.mark.parametrize(
@@ -26,6 +26,19 @@ def test_billing_defaults_and_explicit_override(monkeypatch, adapter, api_key):
     assert api_billing(adapter) is expected
     assert controller._assessment_show_costs(SimpleNamespace(show_costs=False), cfg) is expected
     assert controller._assessment_show_costs(SimpleNamespace(show_costs=True), cfg) is True
+    assert usd_at_api_prices(adapter) is (adapter in (None, "claude-cli") and not api_key)
+
+
+@pytest.mark.parametrize("api_prices", [False, True])
+@pytest.mark.parametrize("compact", [False, True])
+def test_claude_subscription_header_values_the_limit_at_api_prices(api_prices, compact):
+    ns = controller._assessment_argument_parser().parse_args(["--repo", "/r", "--output", "/o", "--hard-budget", "5"])
+    budget = controller._assessment_budget(ns)
+    budget.api_prices = api_prices
+    rows = dict(controller._assessment_intro(ns, budget, "standard", "Models: m1", "P", compact=compact))
+    limit = "USD 5.00" if compact else "model calls stop at $5.00"
+    assert rows["Budget"].startswith(f"{limit} of subscription usage at API prices" if api_prices else limit)
+    assert ("API prices" in rows["Budget"]) is api_prices
 
 
 def test_direct_api_host_keeps_default_cost_display(tmp_path, monkeypatch):
@@ -158,13 +171,15 @@ def test_retry_and_resume_details_hide_costs_without_hiding_work():
     assert "3 model calls used" in text and "deadline" in text and "USD" not in text
 
 
+@pytest.mark.parametrize("api_prices", [False, True])
 @pytest.mark.parametrize("enabled", [False, True])
-def test_budget_skip_details_keep_coverage_and_respect_cost_visibility(enabled):
-    budget = SimpleNamespace(subscription=False, calls=3, spent_usd=0.5, max_usd=5.0)
+def test_budget_skip_details_keep_coverage_and_respect_cost_visibility(enabled, api_prices):
+    budget = SimpleNamespace(subscription=False, calls=3, spent_usd=0.5, max_usd=5.0, api_prices=api_prices)
     gaps = [{"role": "ms_renderer", "selector": "summary"}]
     text = controller._budget_skip_info(gaps, [], budget, show_costs=enabled)
     assert "did not run" in text and "deterministic replacements are used" in text
-    assert ("USD 0.50 of 5.00 spent" in text) is enabled
+    used = "used at API prices" if api_prices else "spent"
+    assert (f"USD 0.50 of 5.00 {used}" in text) is enabled
     if not enabled:
         assert "3 model calls" in text and "USD" not in text
 

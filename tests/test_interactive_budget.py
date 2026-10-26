@@ -107,6 +107,25 @@ def test_prompt_requires_a_higher_literal_usd_amount(monkeypatch, answer, approv
         assert len(messages) == count
 
 
+@pytest.mark.parametrize("api_prices", [False, True])
+@pytest.mark.parametrize("answer", ["2.50\n", "\n"])
+def test_prompt_values_a_claude_subscription_budget_at_api_prices(monkeypatch, capsys, answer, api_prices):
+    budget = AssessmentBudget(1, 0.05, 10, 60, api_prices=api_prices)
+    messages = []
+    state = SimpleNamespace(budget=budget, state={}, approve_budget_increase=lambda usd: None)
+    prompt = interactive.BudgetPrompt(state, report=messages.append, pause=lambda paused: None, role_labels={})
+    monkeypatch.setattr(prompt, "_readline", lambda stop: answer)
+    prompt(lambda: False)
+    question = capsys.readouterr().err
+    assert messages[0].startswith(
+        "Budget approval needed: USD 0.00 used of 1.00 at API prices;"
+        if api_prices
+        else "Budget approval needed: USD 0.00 spent of 1.00;"
+    )
+    assert ("New TOTAL budget in USD at API prices (greater than 1.00)" in question) is api_prices
+    assert ("at API prices" in messages[-1]) is api_prices
+
+
 class Diagnostics:
     def __init__(self):
         self.events = []

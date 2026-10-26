@@ -322,3 +322,17 @@ def test_abuse_case_hypothesis_receives_selected_model_context(project, tmp_path
     assert cli.main(args(project, tmp_path, "--abuse-case", "CASE-01", "--non-interactive")) == 0
     assert observed == [{"with_threat_model": True, "threat_model_path": None}]
     assert any(d["role"] == "threat_model" for d in envelope(fake.prompts[0])["documents"])
+
+
+@pytest.mark.parametrize("api_key", [False, True])
+def test_header_values_a_subscription_ceiling_at_api_prices(monkeypatch, capsys, api_key):
+    from types import SimpleNamespace
+
+    from appsec_analyzer.analyze_threats import cli as threats_cli
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    if api_key:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-api-key")
+    threats_cli._display(SimpleNamespace(model="sonnet", max_budget_usd=1.0), "design", {"kind": "design"}, [], {})
+    ceiling = "Spending ceiling: USD 1 per call;" if api_key else "Usage ceiling: USD 1 per call at API prices;"
+    assert ceiling in capsys.readouterr().err

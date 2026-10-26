@@ -2825,7 +2825,7 @@ def _budget_skip_info(gaps: list[dict], components: list[dict], budget, *, show_
     accounting = (
         f"{budget.calls} model calls; {budget.subscription_label}"
         if budget.subscription
-        else f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} spent"
+        else f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} {'used at API prices' if budget.api_prices else 'spent'}"
         if show_costs
         else f"{budget.calls} model calls"
     )
@@ -3128,6 +3128,8 @@ def _assessment_intro(
     if ns.rebuild:
         output += " (--rebuild: replaces any earlier assessment)"
     cut = "" if budget.subscription else f"model calls stop at ${budget.max_usd:.2f}"
+    if budget.api_prices:
+        cut += " of subscription usage at API prices"
     profile = (cfg or {}).get("operator_profile") or {}
     from appsec_analyzer.profiles import BUILTINS
 
@@ -3211,6 +3213,8 @@ def _assessment_intro(
                 )
             else:
                 value = f"USD {budget.max_usd:.2f}"
+                if budget.api_prices:
+                    value += " of subscription usage at API prices"
                 if ns.hard_budget is None and ns.soft_budget is not None:
                     value += f" (1.25 × deprecated --soft-budget USD {ns.soft_budget:g})"
         elif key == "Time limit":
@@ -4101,6 +4105,9 @@ def assess_repositories(
         from appsec_analyzer.profiles import call_reservation
 
         budget.call_usd = min(budget.max_usd, max(budget.call_usd, call_reservation(run_profile)))
+    from appsec_analyzer.assessment.console import usd_at_api_prices
+
+    budget.api_prices = not budget.subscription and usd_at_api_prices(adapter or getattr(api_profile, "kind", None))
     from runtime.interactive_budget import can_prompt
 
     display_costs = _assessment_show_costs(

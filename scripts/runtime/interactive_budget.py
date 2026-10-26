@@ -60,17 +60,20 @@ class BudgetPrompt:
         _, role, optional = getattr(self.budget._local, "job", (None, None, False))
         label = self.role_labels.get(role, "model analysis")
         consequence = "continue with unchecked work" if optional else "stop with incomplete results"
+        unit, used = (" at API prices", "used") if self.budget.api_prices else ("", "spent")
         # How the question ended, as a fixed code: never the typed text.
         outcome, attempts, started = "interrupted", 0, time.monotonic()
         self.pause(True)
         try:
             self.report(
-                f"Budget approval needed: USD {self.budget.spent_usd:.2f} spent of {previous:.2f}; "
+                f"Budget approval needed: USD {self.budget.spent_usd:.2f} {used} of {previous:.2f}{unit}; "
                 f"{label} cannot fit after required reservations. Running model calls have finished. "
                 "More budget does not guarantee completion."
             )
             for attempts in range(1, 4):
-                sys.stderr.write(f"New TOTAL budget in USD (greater than {previous:.2f}), or Enter to {consequence}: ")
+                sys.stderr.write(
+                    f"New TOTAL budget in USD{unit} (greater than {previous:.2f}), or Enter to {consequence}: "
+                )
                 sys.stderr.flush()
                 line = self._readline(should_stop)
                 if not line.strip() or len(line) >= 128:
@@ -84,7 +87,7 @@ class BudgetPrompt:
                         self.state.approve_budget_increase(amount)
                         outcome = "authorized"
                         self.report(
-                            f"Budget increase authorized: USD {previous:.2f} -> {amount:.2f} total for this run."
+                            f"Budget increase authorized: USD {previous:.2f} -> {amount:.2f}{unit} total for this run."
                         )
                         return
                 sys.stderr.write("Enter a higher total USD amount using a decimal point, or press Enter to decline.\n")
@@ -93,7 +96,9 @@ class BudgetPrompt:
             self.declined = True
             # Input that ends without an answer is no decision the operator typed.
             ended = ": the terminal input ended without an answer" if outcome == "end_of_input" else ""
-            self.report(f"Budget unchanged at USD {previous:.2f}{ended}; no further budget prompts in this process.")
+            self.report(
+                f"Budget unchanged at USD {previous:.2f}{unit}{ended}; no further budget prompts in this process."
+            )
         finally:
             self.pause(False)
             if self.diagnostics is not None:

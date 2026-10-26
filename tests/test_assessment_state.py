@@ -67,12 +67,13 @@ def stored(scope):
     return json.loads((scope.output / ".assessment-state.json").read_text())
 
 
-def test_budget_report_is_incomplete_redacted_and_resumable(scope):
+@pytest.mark.parametrize("api_prices", [False, True])
+def test_budget_report_is_incomplete_redacted_and_resumable(scope, api_prices):
     from types import SimpleNamespace
 
     from runtime.multi_repo_discovery import BudgetExhausted
 
-    state = lifecycle(scope)
+    state = lifecycle(scope, budget=AssessmentBudget(1.0, 0.05, 10, 60, api_prices=api_prices))
     state.budget.plan_completion()
     repo = scope.repositories[0]
     jobs = SimpleNamespace(
@@ -96,6 +97,7 @@ def test_budget_report_is_incomplete_redacted_and_resumable(scope):
         path = state.budget_report(jobs)
         text = path.read_text()
         assert "Incomplete assessment" in text and "not a completed threat model" in text
+        assert f"{'Usage at API prices' if api_prices else 'Accounted cost'}: USD 0.00; limit: USD 1.00." in text
         assert "neutral fixture" not in text and "REDACTED" in text
         assert "<img" not in text and "[click](" not in text
         assert not (scope.output / "threat-model.md").exists()

@@ -61,6 +61,8 @@ class AssessmentBudget(DiscoveryBudget):
     # The run's component count, known after the architecture.
     components: int | None = field(default=None, kw_only=True)
     subscription_label: str = field(default="ChatGPT subscription", kw_only=True)
+    # Whether the USD amounts value Claude subscription usage at API prices; display wording only.
+    api_prices: bool = field(default=False, kw_only=True)
 
     def max_inflight(self) -> int:
         return self.workers

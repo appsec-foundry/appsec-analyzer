@@ -818,7 +818,8 @@ class AssessmentState:
             (
                 f"{self.budget.subscription_label}: {self.budget.calls} model calls; monetary cost is unavailable."
                 if self.budget.subscription
-                else f"Accounted cost: USD {self.budget.spent_usd:.2f}; limit: USD {self.budget.max_usd:.2f}."
+                else f"{'Usage at API prices' if self.budget.api_prices else 'Accounted cost'}: "
+                f"USD {self.budget.spent_usd:.2f}; limit: USD {self.budget.max_usd:.2f}."
             ),
             "",
             "## Accepted steps",

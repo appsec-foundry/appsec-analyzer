@@ -37,6 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `max_parallel` defaults to 4 instead of 2, or 3 for a run on the default whose components divide by three, and stays 2 for Codex and Copilot subscriptions.
 - A component's evidence-review batches run side by side, and the run caps all simultaneously running model calls at `max_parallel`.
 - The completion summary's Verification line counts findings, controls, partial and undecidable items only, and names the other report formats by short name.
+- With a Claude subscription, USD limits and budget prompts say that they count subscription usage at API prices. The limits themselves are unchanged.
 
 ### Fixed
 

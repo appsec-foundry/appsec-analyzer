@@ -392,6 +392,17 @@ def test_public_budget_rejects_invalid_values_before_host(tmp_path, monkeypatch,
     assert "positive finite USD amount" in captured.err
 
 
+@pytest.mark.parametrize("api_key", [False, True])
+def test_claude_budget_line_values_a_subscription_limit_at_api_prices(monkeypatch, api_key):
+    from appsec_analyzer import cli
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    if api_key:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-api-key")
+    unit = "" if api_key else " of subscription usage at API prices"
+    assert cli._claude_budget_line(5.0) == f"Model budget limit: USD 5{unit}"
+
+
 @pytest.mark.parametrize("command, default", [("assess", 20), ("audit-requirements", 5)])
 def test_public_budget_help_documents_default_and_alias(command, default):
     result = _run(command, "--help")
@@ -402,6 +413,7 @@ def test_public_budget_help_documents_default_and_alias(command, default):
         assert f"Maximum model cost in USD (default: {default})" in help_text
     else:
         assert (
-            f"Maximum model cost in USD (built-in default: {default}; user profile may override; unavailable with CLI subscription profiles)"
+            f"Maximum model cost in USD (built-in default: {default}; user profile may override; unavailable with codex-cli and copilot-cli)"
             in help_text
         )
+    assert "with a Claude subscription, usage at API prices" in help_text

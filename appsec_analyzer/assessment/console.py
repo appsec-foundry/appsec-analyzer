@@ -60,6 +60,11 @@ def api_billing(adapter: str | None = None) -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
+def usd_at_api_prices(adapter: str | None = None) -> bool:
+    """Whether a USD limit counts Claude subscription usage at the API prices Claude CLI reports."""
+    return adapter not in ("codex-cli", "copilot-cli") and not api_billing(adapter)
+
+
 def usage_text(before: dict, after: dict, total: bool = False, *, show_costs: bool | None = None) -> str:
     """What the model calls between two budget marks cost, or "" when none was paid for.
 

@@ -73,7 +73,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         type=_budget,
         default=1.0,
         metavar="USD",
-        help="Ceiling per model call, not total job cost (default: 1)",
+        help="Ceiling per model call, not total job cost (default: 1); with a Claude subscription, usage at API prices",
     )
     parser.add_argument("--output", metavar="DIR", help="Existing private result directory outside the repository")
     parser.add_argument("--state-dir", metavar="DIR", help="Private analyst job state root")
@@ -189,8 +189,15 @@ def _display(ns, mode, scope, sources, structured, origin=None):
     if not sources and not structured:
         print("Context: no project documents selected; packaged requirements baseline still applies.", file=sys.stderr)
     calls = load_limits()["host_calls"]
+    from appsec_analyzer.assessment.console import usd_at_api_prices
+
+    ceiling = (
+        f"Usage ceiling: USD {ns.max_budget_usd:g} per call at API prices"
+        if usd_at_api_prices("claude-cli")
+        else f"Spending ceiling: USD {ns.max_budget_usd:g} per call"
+    )
     print(
-        f"Model: Claude CLI / {ns.model}. Selected source, design, documents and answers are sent to this host.\nSpending ceiling: USD {ns.max_budget_usd:g} per call; up to {calls} calls per job (no total-job budget guarantee).",
+        f"Model: Claude CLI / {ns.model}. Selected source, design, documents and answers are sent to this host.\n{ceiling}; up to {calls} calls per job (no total-job budget guarantee).",
         file=sys.stderr,
     )
 

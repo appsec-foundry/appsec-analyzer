@@ -28,14 +28,22 @@ def choose(profiles: dict[str, dict]) -> str:
     Enter picks standard. Nothing the user types is echoed, and an unreadable or invalid answer
     cancels, so no assessment starts without a deliberate choice.
     """
+    from appsec_analyzer.assessment.console import usd_at_api_prices
+
     depths = tuple(profiles)
+    priced = usd_at_api_prices(profiles[depths[0]].get("adapter"))
     sys.stderr.write(
-        "No --assessment-depth given. Each depth makes model calls; the limit is the most a run may cost.\n"
+        "No --assessment-depth given. Each depth makes model calls; the limit is "
+        + (
+            "the most subscription usage a run may take, valued at API prices.\n"
+            if priced
+            else "the most a run may cost.\n"
+        )
     )
     for number, depth in enumerate(depths, 1):
         settings = profiles[depth]["settings"]
         sys.stderr.write(
-            f"  {number}) {depth:<9} {_RELATIVE[depth]}; limit USD {settings['budget']:g}; "
+            f"  {number}) {depth:<9} {_RELATIVE[depth]}; limit USD {settings['budget']:g}{' at API prices' if priced else ''}; "
             f"{_coverage(settings['depth_settings'])}\n"
         )
     for _ in range(3):

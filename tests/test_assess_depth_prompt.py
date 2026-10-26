@@ -46,6 +46,17 @@ def test_enter_picks_standard_and_the_question_names_cost_runtime_and_coverage(r
     assert "survey only" in err and "architect review" in err
 
 
+@pytest.mark.parametrize("api_key", [False, True])
+def test_a_claude_subscription_values_each_limit_at_api_prices(run, monkeypatch, api_key):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    if api_key:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-api-key")
+    err = run()[2]
+    assert err.count("limit USD 20 at API prices") == (0 if api_key else 3)
+    assert ("the most subscription usage a run may take, valued at API prices" in err) is not api_key
+    assert ("the most a run may cost" in err) is api_key
+
+
 @pytest.mark.parametrize(
     "typed, expected",
     [("1\n", "quick"), ("quick\n", "quick"), ("3\n", "thorough"), (" Thorough \n", "thorough"), ("2\n", "standard")],
