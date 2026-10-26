@@ -498,6 +498,41 @@ def test_a_resumed_run_estimates_left_from_this_attempt_alone():
     assert _column(header, finished, "LEFT") == "~1m"
 
 
+def test_left_leaves_out_the_work_taken_over_from_the_earlier_attempt():
+    """Taken-over jobs finish in seconds; measured with them, LEFT fell below a minute with this attempt's work ahead.
+
+    While the run takes over jobs, LEFT keeps the nominal prior; once a job of this attempt advances it, LEFT
+    follows that job's speed alone.
+    """
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    reused, ran = [0], [0]
+    console.job_counts = lambda: (reused[0], ran[0])
+    console.continue_from(1800)
+    console.step("Discovering every selected repository")
+    clock.tick(10)
+    reused[0] += 1
+    console.step("Analyzing local architecture: shop (1/1)")
+    # The component count arrives after a taken-over phase and rescales its share.
+    console.plan_components(2)
+    for step in ("Assessing controls: API (1/1)", "Running deterministic source scanners"):
+        clock.tick(10)
+        reused[0] += 1
+        console.step(step)
+    console.step("Surveying component: API (1/2)")
+    clock.tick(10)
+    reused[0] += 1
+    console.step("Analyzed component: API (1/2) · reused")
+    taken = console.done
+    assert console._run_fields(clock())[2] == "~" + controller._elapsed(console._expected_total() * (1 - taken))
+    console.step("Surveying component: Store (2/2)")
+    clock.tick(120)
+    ran[0] += 1
+    console.step("Analyzed component: Store (2/2)")
+    worked = console.done - taken
+    assert console._run_fields(clock())[2] == "~" + controller._elapsed(120 * (1 - console.done) / worked)
+
+
 def test_components_reporting_together_start_a_phase_once(monkeypatch):
     """Controls run one component per worker thread; the first reports arrive together."""
     import threading
