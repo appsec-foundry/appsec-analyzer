@@ -21,6 +21,10 @@ class SavedAssessmentError(ValueError):
     """Safe diagnostics for saved assessment admission."""
 
 
+class IncompatibleStateError(SavedAssessmentError):
+    """The state file does not match this Analyzer's state schema."""
+
+
 def validate_directory(path: Path, *, private: bool = True) -> None:
     from appsec_analyzer.engine import initialize
 
@@ -44,7 +48,9 @@ def load_assessment(source: Path) -> tuple[bytes, dict, dict[str, bytes], str]:
     validate_directory(source)
     state_body = read_bounded(source / STATE_NAME, MAX_STATE_BYTES)
     state = json.loads(state_body)
-    if not Draft202012Validator(json.loads(SCHEMA.read_text())).is_valid(state) or state["status"] != "complete":
+    if not Draft202012Validator(json.loads(SCHEMA.read_text())).is_valid(state):
+        raise IncompatibleStateError("operation requires a completed compatible assessment state")
+    if state["status"] != "complete":
         raise SavedAssessmentError("operation requires a completed compatible assessment state")
     if len(state["deliverables"]) > 128:
         raise SavedAssessmentError("too many saved assessment artifacts")

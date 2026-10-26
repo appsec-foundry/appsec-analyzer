@@ -9,17 +9,60 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from appsec_analyzer import resource_root
 from appsec_analyzer.engine import initialize
-from appsec_analyzer.saved_assessment import load_assessment, validate_directory
+from appsec_analyzer.saved_assessment import IncompatibleStateError, load_assessment, validate_directory
 
 ASSISTANTS = {"claude-cli": "claude", "codex-cli": "codex"}
 SESSION_TIMEOUT = 4 * 60 * 60
+PIPX_PACKAGE = "appsec-analyzer"
+UPDATE_TIMEOUT = 10 * 60
 
 
 class ReviewError(ValueError):
     """A safe, actionable public handoff diagnostic."""
+
+
+def _pipx_source() -> str | None:
+    """The source pipx recorded when this Analyzer was installed as its own pipx application."""
+    try:
+        with (Path(sys.prefix) / "pipx_metadata.json").open(encoding="utf-8") as handle:
+            main = json.load(handle)["main_package"]
+        source = main["package_or_url"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if main.get("package") != PIPX_PACKAGE or not isinstance(source, str) or not source:
+        return None
+    # A recorded URL may carry credentials; show only where it points.
+    parts = urlsplit(source.removeprefix("git+"))
+    shown = urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], parts.path, "", ""))
+    return shown if parts.scheme else source
+
+
+def _offer_update() -> str:
+    """Offer `pipx upgrade` for a result of a newer Analyzer; return a note for the diagnostic."""
+    interactive = not os.environ.get("CI") and sys.stdin.isatty() and sys.stdout.isatty()
+    source = _pipx_source() if interactive else None
+    search_path = os.pathsep.join(p for p in os.get_exec_path() if Path(p).is_absolute())
+    pipx = shutil.which("pipx", path=search_path) if source else None
+    if not pipx:
+        return ""
+    print(f"Update the installed Analyzer from {source} with `pipx upgrade {PIPX_PACKAGE}`? [y/N] ", end="", flush=True)
+    try:
+        answer = input().strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in ("y", "yes"):
+        return ""
+    try:
+        result = subprocess.run([pipx, "upgrade", PIPX_PACKAGE], timeout=UPDATE_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return "; the update could not be completed"
+    if result.returncode:
+        return "; the update failed, see its output above"
+    return "; Analyzer was updated, run the command again"
 
 
 def _load(assessment: str):
@@ -29,6 +72,12 @@ def _load(assessment: str):
         raise ReviewError("review requires a result path without traversal or control characters")
     try:
         snapshot = load_assessment(path)
+    except IncompatibleStateError:
+        raise ReviewError(
+            "review requires a private, completed assessment with unchanged valid artifacts; "
+            "its state file is not valid for this Analyzer version; "
+            "if a newer Analyzer created the result, update the installed Analyzer (README, Install)" + _offer_update()
+        ) from None
     except Exception:
         raise ReviewError(
             "review requires a private, completed assessment with unchanged valid artifacts; "

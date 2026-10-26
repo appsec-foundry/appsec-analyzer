@@ -174,6 +174,16 @@ Use a fresh private working directory so repository or result-directory assistan
 
 After a completed assessment, print a shell-quoted `appsec-analyzer review RESULT_DIR` next step without launching it or blocking unattended scans. Preserve existing exit codes, including a completed assessment with a failing policy gate.
 
+## REQ-043: Update Analyzer for a result from a newer version
+
+When `review` rejects a completed private assessment because its state file does not match the installed Analyzer's state schema, an interactive terminal outside CI may offer to update the installed Analyzer. Other rejections, such as an incomplete, changed, linked, or secret-containing result, never trigger the offer.
+
+Before asking, name what would be installed and from where. Install nothing without an explicit yes; silence, end of input, and no leave the installation unchanged and end `review` with the existing diagnostic. Non-interactive runs and CI print only the diagnostic.
+
+Offer the update only when Analyzer can identify how it was installed and that route needs no further decision. Otherwise print only the diagnostic. Do not offer it when the installation is pinned by an organization distribution. The update makes no model call and sends no assessment data anywhere.
+
+After the update, do not start `review` again or open the result in the same process; the user runs the command again. A failed update reports its cause, leaves the previous installation usable, and does not change the saved assessment.
+
 ## REQ-016: Follow, stop, and resume a run
 
 Let users inspect status, stop a run, and resume compatible interrupted work. Preserve accepted work when resuming and identify stale or incompatible state. A changed Analyzer version alone does not prevent resuming: the run keeps its deadline, limits, recorded costs and elapsed time, and reuses only accepted steps that are still compatible. Store the effective operator profile with the run. On resume, preserve resolved OpenAI alias targets and revalidate their models, options, and prices against the installed catalog; changed definitions or incompatible runtime state require a new run. Expose progress, actionable failure reasons, and recovery steps. Never describe interrupted or incomplete work as complete.

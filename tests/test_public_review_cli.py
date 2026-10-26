@@ -191,6 +191,151 @@ def test_invalid_assessment_never_launches(tmp_path, monkeypatch, defect):
         read_context(str(source))
 
 
+def test_state_from_newer_analyzer_names_the_cause_and_never_launches(tmp_path, monkeypatch):
+    source = _assessment(tmp_path)
+    state_path = source / ".assessment-state.json"
+    state = json.loads(state_path.read_text())
+    state["field_from_a_newer_analyzer"] = 1
+    state_path.write_text(json.dumps(state))
+    monkeypatch.setattr(review.subprocess, "run", lambda *a, **kw: pytest.fail("incompatible data must not launch"))
+    with pytest.raises(review.ReviewError, match="not valid for this Analyzer version.*update the installed"):
+        review.review_assessment(str(source))
+
+
+def _newer_result(tmp_path):
+    source = _assessment(tmp_path)
+    state_path = source / ".assessment-state.json"
+    state = json.loads(state_path.read_text())
+    state["field_from_a_newer_analyzer"] = 1
+    state_path.write_text(json.dumps(state))
+    return source
+
+
+def _update_setup(monkeypatch, *, answer="y", returncode=0, source="https://example.test/appsec-analyzer.git"):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, returncode)
+
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(review, "_pipx_source", lambda: source)
+    monkeypatch.setattr(review.shutil, "which", lambda name, **kw: "/usr/bin/pipx")
+    monkeypatch.setattr(review.subprocess, "run", run)
+    monkeypatch.setattr("builtins.input", lambda *a: answer)
+    return calls
+
+
+def test_yes_updates_installation_and_does_not_start_review(tmp_path, monkeypatch, capsys):
+    source = _newer_result(tmp_path)
+    calls = _update_setup(monkeypatch)
+    with pytest.raises(review.ReviewError, match="was updated, run the command again"):
+        review.review_assessment(str(source))
+    assert calls == [["/usr/bin/pipx", "upgrade", "appsec-analyzer"]]
+    assert "https://example.test/appsec-analyzer.git" in capsys.readouterr().out
+
+
+def test_failed_update_reports_failure(tmp_path, monkeypatch):
+    source = _newer_result(tmp_path)
+    _update_setup(monkeypatch, returncode=1)
+    with pytest.raises(review.ReviewError, match="the update failed"):
+        review.review_assessment(str(source))
+
+
+@pytest.mark.parametrize("answer", ["", "n", "no", "maybe"])
+def test_anything_but_yes_installs_nothing(tmp_path, monkeypatch, answer):
+    source = _newer_result(tmp_path)
+    calls = _update_setup(monkeypatch, answer=answer)
+    with pytest.raises(review.ReviewError, match="not valid for this Analyzer version"):
+        review.review_assessment(str(source))
+    assert calls == []
+
+
+def test_end_of_input_installs_nothing(tmp_path, monkeypatch):
+    source = _newer_result(tmp_path)
+    calls = _update_setup(monkeypatch)
+
+    def closed(*args):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", closed)
+    with pytest.raises(review.ReviewError, match="not valid for this Analyzer version"):
+        review.review_assessment(str(source))
+    assert calls == []
+
+
+@pytest.mark.parametrize("case", ["ci", "no-terminal", "not-pipx", "no-pipx-executable"])
+def test_no_offer_when_it_cannot_or_must_not_be_made(tmp_path, monkeypatch, case):
+    source = _newer_result(tmp_path)
+    calls = _update_setup(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("must not ask"))
+    if case == "ci":
+        monkeypatch.setenv("CI", "true")
+    elif case == "no-terminal":
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    elif case == "not-pipx":
+        monkeypatch.setattr(review, "_pipx_source", lambda: None)
+    else:
+        monkeypatch.setattr(review.shutil, "which", lambda name, **kw: None)
+    with pytest.raises(review.ReviewError, match="not valid for this Analyzer version"):
+        review.review_assessment(str(source))
+    assert calls == []
+
+
+def test_no_offer_for_a_result_that_is_not_from_a_newer_analyzer(tmp_path, monkeypatch):
+    source = _assessment(tmp_path)
+    state_path = source / ".assessment-state.json"
+    state = json.loads(state_path.read_text())
+    state["status"] = "running"
+    state_path.write_text(json.dumps(state))
+    calls = _update_setup(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("must not ask"))
+    with pytest.raises(review.ReviewError, match="private, completed") as error:
+        review.review_assessment(str(source))
+    assert "update the installed" not in str(error.value)
+    assert calls == []
+
+
+def _pipx_prefix(tmp_path, monkeypatch, main_package):
+    (tmp_path / "pipx_metadata.json").write_text(json.dumps({"main_package": main_package}))
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+
+
+def test_pipx_source_hides_credentials_in_the_recorded_url(tmp_path, monkeypatch):
+    _pipx_prefix(
+        tmp_path,
+        monkeypatch,
+        {
+            "package": "appsec-analyzer",
+            "package_or_url": "git+https://user:token@example.test/team/appsec-analyzer.git",
+        },
+    )
+    shown = review._pipx_source()
+    assert shown == "https://example.test/team/appsec-analyzer.git"
+    assert "token" not in shown
+
+
+@pytest.mark.parametrize(
+    "main_package",
+    [
+        {"package": "nordlicht-appsec", "package_or_url": "git+https://example.test/org.git"},
+        {"package": "appsec-analyzer", "package_or_url": ""},
+        {"package": "appsec-analyzer"},
+        "not-a-dict",
+    ],
+)
+def test_pipx_source_ignores_other_installations(tmp_path, monkeypatch, main_package):
+    _pipx_prefix(tmp_path, monkeypatch, main_package)
+    assert review._pipx_source() is None
+
+
+def test_pipx_source_is_none_without_pipx_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    assert review._pipx_source() is None
+
+
 def test_noninteractive_review_never_starts_assistant(tmp_path, monkeypatch, capsys):
     source = _assessment(tmp_path)
     monkeypatch.setattr(review.subprocess, "run", lambda *a, **kw: pytest.fail("must not launch"))
