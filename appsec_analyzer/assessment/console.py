@@ -310,6 +310,7 @@ class _AssessmentConsole:
         ("Building the assessment model", "Consolidation"),
         ("Matching abuse cases", "Abuse cases"),
         ("Deriving application-specific business abuse cases", "Abuse cases"),
+        ("Abuse cases to verify", "Abuse cases"),
         ("Verifying abuse case", "Abuse cases"),
         ("Reviewing promoted findings as architect", "Abuse cases"),
         # Root causes cover the findings abuse verification adds.
@@ -335,8 +336,9 @@ class _AssessmentConsole:
         "Stage 2:",
     )
     # Subjects that also get a permanent line each, so the run's console
-    # names every discovered repository, analyzed component and verified abuse case.
-    LISTED = ("Discovering repository", "Surveying component", "Verifying abuse case")
+    # names every discovered repository and analyzed component. The abuse
+    # cases run concurrently and are named once, in the list of "Abuse cases to verify".
+    LISTED = ("Discovering repository", "Surveying component")
     # Steps that state a result and start their phase if it has not started; each gets a permanent line as written.
     STATED = ("Merge · ", "Scanners · ")
     # Listed names come from repository files and model output.
@@ -1018,7 +1020,7 @@ class _AssessmentConsole:
         # Free text comes last, so a long detail never shifts a column.
         row = f"{phase:<{self._PHASE_WIDTH}}  {event:<{self._EVENT_WIDTH}}  {run}  {lead}{detail}"
         if not self.st.enabled:
-            if self.max_columns is None:
+            if self.max_columns is None and "\n" not in detail:
                 return row.rstrip()
             head = row[: len(row) - len(detail)]
             indent, pieces = self._wrap_detail(len(head), detail, now, live)
@@ -1050,6 +1052,18 @@ class _AssessmentConsole:
         """
         indent = len(self._stamp(now)) + 2 + head
         fit = self.columns() - 1 - indent
+        if "\n" in detail:
+            # A list: each line starts under the detail column; a long entry continues two columns further in.
+            wrapped = self.st.enabled or self.max_columns is not None
+            return indent, [
+                piece
+                for line in detail.split("\n")
+                for piece in (
+                    textwrap.wrap(line, fit, subsequent_indent="  ", break_on_hyphens=False)
+                    if wrapped and fit >= 20
+                    else [line]
+                )
+            ]
         if live or len(detail) <= fit:
             return indent, [detail]
         if fit >= 20:
@@ -1234,7 +1248,8 @@ class _AssessmentConsole:
         if reused:
             text = text.removesuffix(self.REUSED)
         # Steps name repository components; only printable text reaches the status line.
-        self.activity = "".join(char if char.isprintable() else "?" for char in text)[: self._NAME_MAX]
+        headline = text.partition("\n")[0]
+        self.activity = "".join(char if char.isprintable() else "?" for char in headline)[: self._NAME_MAX]
         self.activity_started = time.monotonic()
         prefix, phase = next(((p, name) for p, name in self.PHASES if text.startswith(p)), (None, None))
         if phase is None:
@@ -1282,6 +1297,14 @@ class _AssessmentConsole:
             return
         if prefix in self.STATED:
             self.record("·", text, now)
+            return
+        if prefix == "Abuse cases to verify":
+            # The step lists one "ID  title" per line; names come from case files and model output.
+            entries = [
+                "".join(char if char.isprintable() else "?" for char in entry)[: self._NAME_MAX]
+                for entry in text.split("\n")[1:]
+            ]
+            self.record("·", "\n".join([f"{_count_noun(len(entries), 'abuse case')} to verify", *entries]), now)
             return
         if position:
             # Subjects already finished in this phase, so the share never runs ahead.

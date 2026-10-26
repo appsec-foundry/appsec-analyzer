@@ -269,6 +269,11 @@ def test_each_verified_case_is_reported_with_its_title_and_position(abuse):
         concurrently=serially,
     )
     assert f"Verifying abuse case: {CASE} — Expression evaluation leads to code execution (1/1)" in shown
+    # The concurrent cases are listed once, before the first one starts.
+    assert f"Abuse cases to verify\n{CASE}  Expression evaluation leads to code execution" in shown
+    assert shown.index(f"Abuse cases to verify\n{CASE}  Expression evaluation leads to code execution") < shown.index(
+        f"Verifying abuse case: {CASE} — Expression evaluation leads to code execution (1/1)"
+    )
     # The numbered steps count the checked cases; no second count as a phase result.
     assert not any(text.startswith("Phase result: Abuse cases") for text in shown)
     assert any(text.startswith("Review coverage: abuse-case verification:") for text in shown)

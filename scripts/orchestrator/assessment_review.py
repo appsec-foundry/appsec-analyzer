@@ -384,6 +384,11 @@ def run_abuse_cases(
             + [arg for candidate in candidates for arg in ("--candidate", candidate)],
         )
         titles = _candidate_titles(workspace)
+        # The cases run concurrently: the console names them once instead of one line per start.
+        listed_cases = "\n".join(
+            f"{item}  {' '.join(titles[item].split())}" if titles.get(item) else item for item in sorted(candidates)
+        )
+        progress(f"Abuse cases to verify\n{listed_cases}")
 
         def verify(position, candidate, jobs):
             title = f" — {titles[candidate]}" if titles.get(candidate) else ""

@@ -2368,7 +2368,7 @@ def test_jobs_record_fresh_and_reused_time_per_role():
 
 
 @pytest.mark.parametrize("live", [False, True], ids=["log", "terminal"])
-def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
+def test_every_stride_component_gets_its_own_line_and_the_abuse_cases_one_list(capsys, live):
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, live=live, clock=clock)
     console.plan_components(2)
@@ -2379,6 +2379,7 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     console.step("Analyzed component: Ledger \x1b[2J\u202e (1/2)")
     clock.tick(5)
     console.step("Analyzed component: Gateway (2/2)")
+    console.step("Abuse cases to verify\nAC-901  Replay a signed callback\nAC-902\x1b[2J")
     console.step("Verifying abuse case: AC-901 — Replay a signed callback (1/2)")
     console.step("Verifying abuse case: AC-902 (2/2)")
     console.close()
@@ -2393,8 +2394,8 @@ def test_every_stride_component_and_abuse_case_gets_its_own_line(capsys, live):
     assert listed == [
         "Survey    start · 2 components",
         *([] if live else started),
-        "abuse case 1/2 · AC-901 — Replay a signed callback",
-        "abuse case 2/2 · AC-902",
+        # The concurrent cases are named once, aligned under the detail column; a start prints no line.
+        "2 abuse cases to verify\n" + " " * 66 + "AC-901  Replay a signed callback\n" + " " * 66 + "AC-902?[2J",
     ]
     # A finish counts completions, never a start slot: Ledger started second but finished first.
     assert [row[5] for row in rows if row[1] == "✓"] == [
