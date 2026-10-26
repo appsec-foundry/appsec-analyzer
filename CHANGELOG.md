@@ -22,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- `assess` no longer sends a test prompt to a low-cost model before the run. The access and provider checks remain; a rejected login, key or quota now shows at the first model call in Reconnaissance.
 - `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`). Starting without a command shows examples and help guidance, with exit code 2.
 - Standard and thorough runs prioritize built-in business abuse cases not already covered by verification; team-supplied and explicitly requested cases keep their place.
 - Management summaries group remediation by root cause and severity. Critical Findings by Root Cause replaces the Critical Attack Tree.
@@ -47,7 +48,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Source analysis excludes archived reports as code evidence, avoids false wildcard-CORS findings without credentials, and detects OAuth implicit-flow tokens read from `location.hash`.
 - Reports handle empty registers and repair or stop on broken links. STRIDE mappings follow weakness classes, and the Figure 1 legend no longer claims per-element STRIDE coverage.
 - AI / LLM Exposure lists verification findings under the OWASP LLM categories of their verification items and no longer files a user role set from the request body under prompt injection.
-- The startup model test shows its cost only with API billing or `--show-costs`, like the run's own costs.
 - Verification no longer asks the model to correct a finding anchored at a route registered in another component's file; it may anchor there, and the instructions tell it to cite data models and guards as the trace.
 
 ## 0.6.0-beta.4 (2026-10-06)
