@@ -304,3 +304,12 @@ def test_the_method_rows_explain_each_method_and_put_the_verified_aspects_under_
     assert rows[0] == ("Scanners", methods["Scanners"].format(starts="survey and verify"))
     assert rows[1:] == [survey, ("Verify", f"{methods['Verify']} · AuthZ, DataProt")]
     assert controller._method_rows({"aspects": []})[-1] == ("Verify", f"{methods['Verify']} · scanner rules only")
+
+
+def test_quick_depth_names_verify_as_skipped_and_other_depths_without_verification_add_no_row():
+    quick = controller._method_rows(False, "quick")
+    assert quick[-1] == ("Verify", "skipped · quick depth runs the scanners and the survey only")
+    assert [key for key, _ in quick] == ["Scanners", "Survey", "Verify"]
+    assert [key for key, _ in controller._method_rows(False, "standard")] == ["Scanners", "Survey"]
+    # A run that verifies something shows its aspects, whatever the depth.
+    assert controller._method_rows({"aspects": ["AuthZ"]}, "quick")[-1][1].endswith("· AuthZ")

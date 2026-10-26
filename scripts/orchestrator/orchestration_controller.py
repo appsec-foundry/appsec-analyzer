@@ -3056,8 +3056,10 @@ def _assessment_options(ns, cfg: dict[str, Any]) -> str:
     return "\n".join(options)
 
 
-def _method_rows(test_cases) -> list[tuple[str, str]]:
-    """The header's threat analysis methods: how each examines the code, and the aspects verification covers (REQ-040)."""
+def _method_rows(test_cases, depth: str = "standard") -> list[tuple[str, str]]:
+    """The header's threat analysis methods: how each examines the code, and the aspects verification covers (REQ-040).
+
+    Quick depth names Verify as skipped, because its shipped setting verifies nothing."""
     methods = _AssessmentConsole.METHODS
     rows = [
         ("Scanners", methods["Scanners"].format(starts="survey and verify" if test_cases else "the survey")),
@@ -3066,6 +3068,8 @@ def _method_rows(test_cases) -> list[tuple[str, str]]:
     if test_cases:
         aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None
         rows.append(("Verify", f"{methods['Verify']} · " + (", ".join(aspects) if aspects else "scanner rules only")))
+    elif depth == "quick":
+        rows.append(("Verify", "skipped · quick depth runs the scanners and the survey only"))
     return rows
 
 
@@ -3156,7 +3160,7 @@ def _assessment_intro(
         ("Time limit", limit),
         ("Depth", depth),
         ("Max parallel", str(budget.max_parallel)),
-        *_method_rows((cfg or {}).get("test_cases", getattr(ns, "test_case_config", ns.test_cases))),
+        *_method_rows((cfg or {}).get("test_cases", getattr(ns, "test_case_config", ns.test_cases)), depth),
         ("Models", lineup.removeprefix("Models: ").replace("; ", "\n")),
         *(scope_facts or []),
         ("Trust mode", trust),
