@@ -832,6 +832,25 @@ def test_local_architecture_names_its_repository_position():
     assert "repository 1/1 · juice-shop" in [row[5] for row in _rows(lines)]
 
 
+def test_a_phase_start_line_names_the_models_of_its_roles():
+    rows, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, rows.append, clock=clock)
+    console.phase_models = controller._assessment_phase_models(
+        {"recon_scanner_model": "haiku", "stride_model": "claude-sonnet-5-5", "evidence_verifier_model": "haiku"}
+    )
+    console.step("Discovering every selected repository")
+    console.step("Surveying component: API (1/2)")
+    console.close()
+    starts = [row[5] for row in _rows(rows) if row[1] == "start"]
+    assert starts[0] == "haiku" and starts[1] == "2 components · sonnet-5-5, haiku"
+
+
+def test_the_phase_models_leave_out_roles_without_a_model():
+    assert controller._assessment_phase_models({}) == {}
+    assert controller._AssessmentConsole.short_model("claude-sonnet-5-5") == "sonnet-5-5"
+    assert controller._AssessmentConsole.short_model("haiku") == "haiku"
+
+
 def test_verbose_console_keeps_the_grid_and_adds_every_step_and_call():
     verbose, clock = [], _Clock()
     console = controller._AssessmentConsole(True, verbose.append, clock=clock)

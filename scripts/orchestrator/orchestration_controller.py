@@ -2986,17 +2986,11 @@ class _ReportedTransport:
         return reply
 
 
-def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tuple[str, str | None]:
-    """Return the model of each role and a STRIDE model warning when one applies (MD-9).
-
-    The lineup already shows the automatic move off Sonnet 4.6; only an
-    explicit Sonnet 4.6 setting, which is expected to return no STRIDE
-    result, is warned about. `compact` counts the roles of each model; verbose
-    output names every role.
-    """
+def _assessment_role_models(cfg: dict[str, Any]) -> dict[str, str]:
+    """The model of each profile role and renderer, as the run header and the status lines show it."""
     from orchestrator.assessment_stage2 import RENDERER_MODEL_KEYS
 
-    by_model: dict[str, list[str]] = {}
+    models: dict[str, str] = {}
     for role, key in sorted({**SEMANTIC_ROLE_MODEL_KEYS, **RENDERER_MODEL_KEYS}.items()):
         if role in PROFILE_ROLE_ALIASES:
             # An alias runs on its profile role's model, which the lineup already names.
@@ -3006,7 +3000,45 @@ def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tu
         if settings.get("adapter") in ("lite", "bedrock"):
             selected = settings["requested_model"]
         if selected:
-            by_model.setdefault(str(selected), []).append(role)
+            models[role] = str(selected)
+    return models
+
+
+# The console phase each role works in; the start line of a phase names the models of its roles.
+_PHASE_ROLES = {
+    "Reconnaissance": ("recon_scanner",),
+    "Architecture": ("architecture_analyst",),
+    "Trust boundaries": ("trust_boundary_analyst",),
+    "Controls": ("control_analyst",),
+    "Threat analysis": ("stride_analyzer", "evidence_verifier"),
+    "Consolidation": ("threat_merger", "triage_validator", "architect_reviewer", "actor_discoverer"),
+    "Abuse cases": ("abuse_case_deriver", "abuse_case_verifier"),
+    "Finalization": ("post_stride_synthesizer", "ms_renderer", "secarch_renderer"),
+}
+
+
+def _assessment_phase_models(cfg: dict[str, Any]) -> dict[str, str]:
+    """Per console phase, the distinct models of its roles in first-use order."""
+    models = _assessment_role_models(cfg)
+    phases = {}
+    for phase, roles in _PHASE_ROLES.items():
+        names = dict.fromkeys(_AssessmentConsole.short_model(models[role]) for role in roles if role in models)
+        if names:
+            phases[phase] = ", ".join(names)
+    return phases
+
+
+def _assessment_model_lines(cfg: dict[str, Any], *, compact: bool = False) -> tuple[str, str | None]:
+    """Return the model of each role and a STRIDE model warning when one applies (MD-9).
+
+    The lineup already shows the automatic move off Sonnet 4.6; only an
+    explicit Sonnet 4.6 setting, which is expected to return no STRIDE
+    result, is warned about. `compact` counts the roles of each model; verbose
+    output names every role.
+    """
+    by_model: dict[str, list[str]] = {}
+    for role, selected in _assessment_role_models(cfg).items():
+        by_model.setdefault(selected, []).append(role)
 
     def roles_of(roles: list[str]) -> str:
         if compact:
@@ -4176,7 +4208,8 @@ def assess_repositories(
                     lambda text, role=role, model=model: console.call(text, role, model),
                     labels,
                     console.running,
-                    _AssessmentConsole.ROLE_LABELS.get(role, role.replace("_", " ")),
+                    f"{_AssessmentConsole.ROLE_LABELS.get(role, role.replace('_', ' '))} "
+                    f"({_AssessmentConsole.short_model(model)})",
                 )
 
         imported = _assessment_legacy(ns, scope.output)
@@ -4227,6 +4260,8 @@ def assess_repositories(
                         diagnostics=jobs.diagnostics,
                     )
                 lineup, model_warning = _assessment_model_lines(cfg, compact=console is not None and not ns.verbose)
+                if console:
+                    console.phase_models = _assessment_phase_models(cfg)
                 depth = str(cfg.get("assessment_depth") or "standard")
                 _AssessmentProgress.emit(
                     "run_start", lines=_assessment_start_lines(ns, budget, depth, cfg, state, planned_scope)

@@ -481,9 +481,16 @@ class _AssessmentConsole:
         # Model calls in flight (_ReportedTransport registers itself) and the
         # last controller step with its start, for the terminal's status line.
         self.running: dict[int, Any] = {}
+        # The models of each phase's roles, named on the phase's start line.
+        self.phase_models: dict[str, str] = {}
         self._call_notices: set[tuple[str, str]] = set()
         self.prompting = False
         self.activity, self.activity_started = "", time.monotonic()
+
+    @staticmethod
+    def short_model(model: str) -> str:
+        """A model as the status lines name it: without the vendor prefix of its ID."""
+        return str(model).removeprefix("claude-")
 
     def start_ticker(self) -> None:
         """On a terminal, redraw the status line every ``TICK_SECONDS`` until the run stops."""
@@ -1209,7 +1216,9 @@ class _AssessmentConsole:
                 self._advance(0.0)
                 scope = _count_noun(int(position[2]), self.NOUNS[prefix]) if position and prefix in self.NOUNS else ""
                 self._header()
-                self.record("start", scope, now)
+                self.record(
+                    "start", " · ".join(part for part in (scope, self.phase_models.get(phase, "")) if part), now
+                )
                 if phase == "Threat analysis":
                     self.method = "Scanners"
                 self.shown = (self.current, round(100 * self.done))
