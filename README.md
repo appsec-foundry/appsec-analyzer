@@ -42,6 +42,14 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
    appsec-analyzer review ~/assessments/juice-shop
    ```
 
+To update Analyzer later, run `appsec-analyzer update`. For a pipx installation it shows the source, asks for a yes, and then runs this pipx command, which you can also run yourself:
+
+```sh
+pipx upgrade --pip-args=--force-reinstall appsec-analyzer
+```
+
+See [Install](#install) for details.
+
 > [!NOTE]
 > With API billing, the Juice Shop scan costs about USD 14. Analyzer asks before it exceeds the default limit of USD 20.
 
@@ -271,7 +279,7 @@ appsec-analyzer distribution update-engine ./northstar-appsec
 
 pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The install command only works if the repository is reachable for your GitHub account. The package is not yet on PyPI.
 
-To update a pipx installation, run `appsec-analyzer update`. It shows the source it installs from, asks for a yes, and then runs `pipx upgrade appsec-analyzer`. It needs an interactive terminal outside CI and has no option that skips the question. For other installations it prints that you update the way you installed Analyzer. Organization commands do not have it.
+To update a pipx installation, run `appsec-analyzer update`. It shows the source it installs from, asks for a yes, and then runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`. The extra option makes pipx reinstall from the source even if the version number is unchanged, which is the case for installations from the GitHub repository. pipx may still print "already at latest version". It needs an interactive terminal outside CI and has no option that skips the question. For other installations it prints that you update the way you installed Analyzer. Organization commands do not have it.
 
 <details>
 <summary>Install with pip or from a local checkout</summary>
