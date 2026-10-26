@@ -68,6 +68,10 @@ Intended and negative cases cover a missing RE2 package that stops the scan with
 
 Let users select local Git repositories or supported Git URLs, combine repositories into one assessment, choose analysis depth, and select a separate result directory. Reject unsupported component or directory restrictions instead of silently analyzing a different scope.
 
+Ask for the depth before any model call only when all of these hold: no command-line option, scan profile, or organization profile chose it, a person is at the terminal, the run is not a resume, and neither `--non-interactive`, `--quiet`, nor a start from the Claude Code dialogue is used. Offer `quick`, `standard`, and `thorough`, each with the spending limit that would apply, its relative cost and runtime, and the verification it adds. Enter selects `standard`. Name no minutes and no typical cost, because Analyzer has not measured them. Never echo the typed answer. An unreadable or invalid answer cancels the run before any model call. Otherwise keep `standard` and ask nothing.
+
+Intended and negative cases cover Enter, a number, and a name as answers; a depth given on the command line or by a scan profile that is not asked again; CI, a missing terminal, quiet, non-interactive, and resume runs that do not wait; and an end of input or three invalid answers that start nothing.
+
 ## REQ-003: Know what was examined
 
 Record source revisions, captured source state, context sources, exclusions, and coverage gaps. Keep conclusions within the examined snapshot and reject source changes that would invalidate its evidence.

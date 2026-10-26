@@ -45,7 +45,7 @@ appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
   --profile claude --budget 30 --output /private/system-assessment
 ```
 
-The supported depths are `quick`, `standard`, and `thorough`. They change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model` (the survey's model), `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
+The supported depths are `quick`, `standard`, and `thorough`. If you give no depth and no profile sets one, `assess` asks which to use when it runs in an interactive terminal. The question shows each depth's spending limit, relative cost and runtime, and what it verifies; Enter selects `standard`. It is skipped with `--non-interactive`, `--quiet`, `--resume`, in CI, and without a terminal, where `standard` applies. The depths change work limits and select the corresponding model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles; `--stride-model` (the survey's model), `--triage-model`, and `--merger-model` override specific roles. Check [model selection](model-selection.md) before spending.
 
 Before analysis, the startup header shows the effective settings in three groups: Run, Scope, and Workflow & results. It includes billing, budget or call limit, depth, time, parallelism, models, and output formats. Use `--verbose` for individual role models and budget details. Skipped trust checks are always shown.
 

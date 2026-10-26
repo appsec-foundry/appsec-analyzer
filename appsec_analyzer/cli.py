@@ -558,7 +558,11 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with CLI subscription profiles)",
     )
     cost_group.add_argument(
-        "--assessment-depth", choices=("quick", "standard", "thorough"), default="standard", action=_Explicit
+        "--assessment-depth",
+        choices=("quick", "standard", "thorough"),
+        default="standard",
+        action=_Explicit,
+        help="How much to verify (default: standard; an interactive terminal asks when you give none)",
     )
     cost_group.add_argument(
         "--max-parallel",
@@ -606,7 +610,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     control_group.add_argument(
         "--non-interactive",
         action="store_true",
-        help="Never prompt for a higher budget or how to start beside an unfinished assessment (use in CI)",
+        help="Never prompt for the depth, a higher budget, or how to start beside an unfinished assessment (use in CI)",
     )
     control_group.add_argument(
         "--verbose",
@@ -1043,6 +1047,21 @@ def _assessment_host(ns: argparse.Namespace) -> str:
     return _PROFILE_HOSTS["claude"]
 
 
+def _asks_for_depth(ns: argparse.Namespace, profile: dict, explicit) -> bool:
+    """REQ-002: ask only a person at a terminal, and only when no command-line option, profile, or run chose a depth."""
+    if ns.command != "assess" or "assessment_depth" in explicit or ns.profile in _LEGACY_CODEX_PROFILES:
+        return False
+    origin = profile["origins"]["settings"]["assessment_depth"]
+    if origin != "analyzer default" and not origin.startswith("builtin:"):
+        return False
+    if ns.resume or ns.interactive_launch or ns.launch_defaults or ns.non_interactive or ns.quiet:
+        return False
+    _engine_imports()
+    from runtime.interactive_budget import can_prompt
+
+    return can_prompt(non_interactive=ns.non_interactive, quiet=ns.quiet)
+
+
 def _prepare_profile(ns: argparse.Namespace, default: str = "claude") -> None:
     if getattr(ns, "run_profile", None):
         return
@@ -1068,17 +1087,26 @@ def _prepare_profile(ns: argparse.Namespace, default: str = "claude") -> None:
     if not selection:
         selection = default
     explicit = getattr(ns, "explicit", ())
-    profile = resolve_scan(
-        selection,
-        depth=ns.assessment_depth if "assessment_depth" in explicit else None,
-        budget=ns.hard_budget if "hard_budget" in explicit else None,
-        max_parallel=ns.max_parallel,
-        max_calls=ns.max_calls,
-        outputs=ns.outputs,
-        abuse_case_files=ns.abuse_case_file,
-        repositories=ns.repo or [str(Path.cwd())],
-        model_override=ns.model if model_prefix or selection in ("lite", "bedrock") else None,
-    )
+
+    def resolve(depth):
+        return resolve_scan(
+            selection,
+            depth=depth,
+            budget=ns.hard_budget if "hard_budget" in explicit else None,
+            max_parallel=ns.max_parallel,
+            max_calls=ns.max_calls,
+            outputs=ns.outputs,
+            abuse_case_files=ns.abuse_case_file,
+            repositories=ns.repo or [str(Path.cwd())],
+            model_override=ns.model if model_prefix or selection in ("lite", "bedrock") else None,
+        )
+
+    profile = resolve(ns.assessment_depth if "assessment_depth" in explicit else None)
+    if _asks_for_depth(ns, profile, explicit):
+        from appsec_analyzer.depth_prompt import choose
+        from appsec_analyzer.profiles import DEPTHS
+
+        profile = resolve(choose({depth: resolve(depth) for depth in DEPTHS}))
     from appsec_analyzer.assessment_entry import apply_launch_defaults
 
     apply_launch_defaults(ns, profile, explicit)

@@ -296,6 +296,7 @@ requirements:
       - appsec_analyzer/assessment/**
       - skills/appsec-analyzer/**
       - appsec_analyzer/cli.py
+      - appsec_analyzer/depth_prompt.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -317,6 +318,16 @@ requirements:
       - tests/test_resolve_config.py::TestCLI::test_quick_shortcut_maps_to_assessment_depth
       - tests/test_resolve_config.py::TestCLI::test_thorough_shortcut_maps_to_assessment_depth
       - tests/test_multi_repo_assessment.py::test_unsupported_modes_stop_before_admission
+      - tests/test_assess_depth_prompt.py::test_enter_picks_standard_and_the_question_names_cost_runtime_and_coverage
+      - tests/test_assess_depth_prompt.py::test_number_or_name_picks_that_depth
+      - tests/test_assess_depth_prompt.py::test_a_depth_on_the_command_line_is_not_asked_again
+      - tests/test_assess_depth_prompt.py::test_modes_that_must_not_wait_keep_standard_without_a_question
+      - tests/test_assess_depth_prompt.py::test_resuming_an_assessment_does_not_ask_for_a_new_depth
+      - tests/test_assess_depth_prompt.py::test_without_a_terminal_standard_runs_without_a_question
+      - tests/test_assess_depth_prompt.py::test_a_scan_profile_that_sets_the_depth_is_not_overruled
+      - tests/test_assess_depth_prompt.py::test_a_scan_profile_without_a_depth_still_asks
+      - tests/test_assess_depth_prompt.py::test_cancelled_or_invalid_answers_start_nothing
+      - tests/test_assess_depth_prompt.py::test_the_typed_answer_is_never_echoed
 
   REQ-003:
     applies_to:
