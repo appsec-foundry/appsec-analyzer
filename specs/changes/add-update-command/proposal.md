@@ -17,4 +17,6 @@ Risks raised before approval:
 - A skip-the-question option would allow unattended installs, for example from a cron job. It was left out.
 - The command makes no model call and sends no assessment data.
 
+Found after the first implementation: `pipx upgrade appsec-analyzer` does nothing for an installation from a Git source while the version number stays the same, because pipx reports "already at latest version". A test with a temporary pipx installation (pipx 1.0.0, a local Git repository as source) showed that `pipx upgrade --pip-args=--force-reinstall` installs the newest commit in place, while `pipx upgrade --force` did not, and `pipx install --force` returned an older commit twice. `pipx reinstall` also worked but removes the installation first, so a network failure would leave none. Both `update` and the offer from REQ-043 use the working command. This was not run against GitHub.
+
 Simpler variant that was not chosen: a command that only shows the `pipx upgrade` command to run.

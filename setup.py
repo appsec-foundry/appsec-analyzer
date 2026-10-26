@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import re
 import shutil
 from pathlib import Path
 
 from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
+from setuptools.command.sdist import sdist
 
 ROOT = Path(__file__).resolve().parent
 RUNTIME_DIRS = ("scripts", "agents", "data", "schemas", "templates")
@@ -38,6 +41,14 @@ USER_DOCS = (
     "organization-distributions.md",
 )
 _LOCAL_LINK = re.compile(r"\]\(([^)#]+)(?:#[^)]*)?\)")
+
+
+def _read_git(root: Path) -> dict:
+    # The runtime module reads Git the same way; load it by path because the package is not importable yet.
+    spec = importlib.util.spec_from_file_location("appsec_version_info", ROOT / "appsec_analyzer" / "version_info.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.read_git(root)
 
 
 def _ignore(directory: str, names: list[str]) -> set[str]:
@@ -116,6 +127,20 @@ class BuildAnalyzer(build_py):
             shutil.copy2(source, docs / name)
             _copy_local_link_targets(source, package)
         shutil.copy2(ROOT / "engine.json", package / "engine.json")
+        info = _read_git(ROOT)
+        if info:
+            (package / "build-info.json").write_text(json.dumps(info) + "\n", encoding="utf-8")
+        elif (ROOT / "build-info.json").is_file():
+            # A build from a source archive has no Git data; it carries the stamp made when the archive was built.
+            shutil.copy2(ROOT / "build-info.json", package / "build-info.json")
+
+
+class StampedSdist(sdist):
+    def make_release_tree(self, base_dir, files) -> None:
+        super().make_release_tree(base_dir, files)
+        info = _read_git(ROOT)
+        if info:
+            Path(base_dir, "build-info.json").write_text(json.dumps(info) + "\n", encoding="utf-8")
 
 
 setup(
@@ -133,5 +158,5 @@ setup(
     install_requires=["PyYAML>=6,<7", "jsonschema>=4.20,<5", "Jinja2>=3.1,<4"],
     extras_require={"requirements": ["requests>=2.32,<3", "beautifulsoup4>=4.12,<5"]},
     entry_points={"console_scripts": ["appsec-analyzer=appsec_analyzer.cli:main"]},
-    cmdclass={"build_py": BuildAnalyzer},
+    cmdclass={"build_py": BuildAnalyzer, "sdist": StampedSdist},
 )

@@ -16,6 +16,8 @@ python3 -m venv /tmp/analyzer-install-test
 
 The wheel and source archive include the Apache-2.0 license; Git preserves source history. The wheel contains the CLI, engine, schemas, catalogs, templates, entry skill, and user documentation. The source archive also contains historical and technical documentation. Neither should include local assessment output or fixture data.
 
+`appsec-analyzer --version` reports a release only if the built commit has a tag like `v0.1.0`; tag it before building, or the build reports its commit and date. The source archive carries the stamp, so a wheel built from it reports the same.
+
 Runtime dependencies are PyYAML 6.x, jsonschema 4.x, and Jinja2 3.x. The optional requirements extra adds requests and BeautifulSoup for catalog tools. Git is required for local source checks. Document and diagram exports can need additional tools.
 
 Inspect both archives before distribution. Exclude the temporary `scripts/run-headless.sh` wrapper, retired plugin metadata and gates, test runner, fixture `.env` files, and generated reports. Record hashes in a local `SHA256SUMS` file beside the artifacts. Pushing, tagging, uploading, and publication are separate steps.

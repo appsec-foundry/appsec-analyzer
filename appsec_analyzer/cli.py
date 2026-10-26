@@ -126,12 +126,28 @@ def _command_overview(registered) -> str:
     return "\n".join(lines)
 
 
+class _Version(argparse.Action):
+    """Print the release version, or the commit and its date, and exit; read only when the option is used."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
+        super().__init__(
+            option_strings, dest=dest, default=default, nargs=0, help="Show the installed version and exit"
+        )
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from appsec_analyzer.version_info import describe
+
+        print(f"{parser.prog} {describe()}")
+        parser.exit()
+
+
 def _parser(*, organization=None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=organization.command if organization else "appsec-analyzer",
         usage="%(prog)s [-h] <command> [options]",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--version", action=_Version)
     # The grouped overview in the description replaces the flat command list. An explicit prog keeps the
     # custom usage line out of the subcommands' own usage. main() answers a missing command with examples.
     commands = parser.add_subparsers(

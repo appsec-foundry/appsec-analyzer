@@ -233,7 +233,7 @@ def test_yes_updates_installation_and_does_not_start_review(tmp_path, monkeypatc
     calls = _update_setup(monkeypatch)
     with pytest.raises(review.ReviewError, match="was updated, run the command again"):
         review.review_assessment(str(source))
-    assert calls == [["/usr/bin/pipx", "upgrade", "appsec-analyzer"]]
+    assert calls == [["/usr/bin/pipx", "upgrade", "--pip-args=--force-reinstall", "appsec-analyzer"]]
     assert "https://example.test/appsec-analyzer.git" in capsys.readouterr().out
 
 

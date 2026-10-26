@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from appsec_analyzer import cli
+from appsec_analyzer import ENGINE_VERSION, INTERFACE_VERSION, cli
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -118,3 +119,16 @@ def test_package_module_starts_the_same_command(tmp_path):
     failed = run("appsec_analyzer", "assess")
     assert failed.returncode == 2
     assert "assess needs --repo" in failed.stderr
+
+
+def test_version_option_prints_one_line_and_leaves_the_version_command_alone(capsys, monkeypatch):
+    monkeypatch.setattr("appsec_analyzer.version_info.describe", lambda: "17f22aa9 (2026-10-26)")
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["--version"])
+    assert stop.value.code == 0
+    assert capsys.readouterr().out == "appsec-analyzer 17f22aa9 (2026-10-26)\n"
+    assert cli.main(["version"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "engine_version": ENGINE_VERSION,
+        "interface_version": INTERFACE_VERSION,
+    }

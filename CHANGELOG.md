@@ -18,11 +18,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Experimental: the headless runner accepts repeated `--repo` options to assess several checkouts as one system, with cross-repository evidence and attribution. Replacing a combined report requires `--rebuild`.
 - Threat Analyst supports code hypotheses, selected abuse cases, change-specific questions (`--question`), and read-only design exploration (`--explore`).
 - Headless assessments accept HTTPS and SSH Git URLs with authenticated access and automatic temporary checkout cleanup.
-- `appsec-analyzer update` updates a pipx installation of Analyzer with `pipx upgrade` after an explicit yes. It makes no model call.
+- `appsec-analyzer update` updates a pipx installation of Analyzer with `pipx upgrade --pip-args=--force-reinstall` after an explicit yes. It makes no model call.
+- `appsec-analyzer --version` prints the release version, or the commit and its date when the build is not a release.
 - `python -m appsec_analyzer` starts the public CLI from a checkout or when the command is not on `PATH`; `python -m appsec_analyzer.cli` remains supported.
 
 ### Changed
 
+- Assessment reports name the tool as AppSec Analyzer instead of appsec-advisor and show the Analyzer version of the run. A report rendered again later keeps the version that ran the assessment.
 - `assess` no longer sends a test prompt to a low-cost model before the run. The access and provider checks remain; a rejected login, key or quota now shows at the first model call in Reconnaissance.
 - `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`). Starting without a command shows examples and help guidance, with exit code 2.
 - Standard and thorough runs prioritize built-in business abuse cases not already covered by verification; team-supplied and explicitly requested cases keep their place.

@@ -19,6 +19,8 @@ ASSISTANTS = {"claude-cli": "claude", "codex-cli": "codex"}
 SESSION_TIMEOUT = 4 * 60 * 60
 PIPX_PACKAGE = "appsec-analyzer"
 UPDATE_TIMEOUT = 10 * 60
+# A plain `pipx upgrade` keeps an installation from a Git source while the version number is unchanged.
+PIPX_UPGRADE = ("upgrade", "--pip-args=--force-reinstall", PIPX_PACKAGE)
 
 
 class ReviewError(ValueError):
@@ -42,14 +44,16 @@ def _pipx_source() -> str | None:
 
 
 def _offer_update() -> str:
-    """Offer `pipx upgrade` for a result of a newer Analyzer; return a note for the diagnostic."""
+    """Offer a pipx upgrade for a result of a newer Analyzer; return a note for the diagnostic."""
     interactive = not os.environ.get("CI") and sys.stdin.isatty() and sys.stdout.isatty()
     source = _pipx_source() if interactive else None
     search_path = os.pathsep.join(p for p in os.get_exec_path() if Path(p).is_absolute())
     pipx = shutil.which("pipx", path=search_path) if source else None
     if not pipx:
         return ""
-    print(f"Update the installed Analyzer from {source} with `pipx upgrade {PIPX_PACKAGE}`? [y/N] ", end="", flush=True)
+    print(
+        f"Update the installed Analyzer from {source} with `pipx {' '.join(PIPX_UPGRADE)}`? [y/N] ", end="", flush=True
+    )
     try:
         answer = input().strip().lower()
     except EOFError:
@@ -57,7 +61,7 @@ def _offer_update() -> str:
     if answer not in ("y", "yes"):
         return ""
     try:
-        result = subprocess.run([pipx, "upgrade", PIPX_PACKAGE], timeout=UPDATE_TIMEOUT, check=False)
+        result = subprocess.run([pipx, *PIPX_UPGRADE], timeout=UPDATE_TIMEOUT, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return "; the update could not be completed"
     if result.returncode:

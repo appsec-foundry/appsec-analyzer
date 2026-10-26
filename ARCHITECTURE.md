@@ -72,6 +72,7 @@ Workflows share the code that executes scanners. Each workflow still decides whi
 | --- | --- |
 | Size-limited artifact reads and writing new output files | [artifacts.py](appsec_analyzer/artifacts.py) |
 | Validating completed assessments for export and review | [saved_assessment.py](appsec_analyzer/saved_assessment.py) |
+| Version shown by `--version`: a release tag, else commit and date, from the build stamp written by `setup.py` or from Git in a checkout | [version_info.py](appsec_analyzer/version_info.py) |
 | Requirements catalog checks | [catalogs.py](appsec_analyzer/catalogs.py) |
 | Safe terminal fields and export targets | [terminal.py](appsec_analyzer/terminal.py), [targets.py](appsec_analyzer/targets.py) |
 | Scanner execution and result validation | [scanners/execution.py](appsec_analyzer/scanners/execution.py) |
