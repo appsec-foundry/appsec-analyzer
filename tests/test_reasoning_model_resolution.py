@@ -132,7 +132,7 @@ class TestHaikuEconomyAlias:
         ns = rc.build_parser().parse_args(["--reasoning-model", "haiku-economy"])
         out = rc.resolve_reasoning_model(ns, "standard")
         assert out["reasoning_model"] == "sonnet-economy"
-        assert out["stride_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
 
     def test_extended_models_alias_matches_canonical(self):
         rc = _load_resolver()
@@ -163,9 +163,9 @@ class TestDefaultCoupling:
         ns = rc.build_parser().parse_args([])
         out = rc.resolve_reasoning_model(ns, "quick")
         assert out["reasoning_model"] == "sonnet-economy"
-        assert out["stride_model"] == "claude-sonnet-4-6"
-        assert out["triage_model"] == "claude-sonnet-4-6"
-        assert out["merger_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
+        assert out["triage_model"] == "claude-sonnet-5-5"
+        assert out["merger_model"] == "claude-sonnet-5-5"
 
     def test_quick_explicit_sonnet_override(self):
         """Users who want pre-2026-05 behaviour pass --reasoning-model sonnet."""
@@ -186,7 +186,7 @@ class TestDefaultCoupling:
         # STRIDE stays cost-pinned to Sonnet 4.6 (Sonnet 5 REGRESSED discovery
         # recall). The `standard` quality buy-back (2026-07-05) upgrades the
         # aggregation/judgment stages triage + merger to Sonnet 5.
-        assert out["stride_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
         assert out["triage_model"] == "claude-sonnet-5-5"
         assert out["merger_model"] == "claude-sonnet-5-5"
 
@@ -247,7 +247,7 @@ class TestPerStageModelFlags:
         # stride stays cost-pinned to Sonnet 4.6; merger takes the standard
         # buy-back (Sonnet 5); only triage is overridden to Opus by the
         # per-stage flag (the flag wins over the buy-back).
-        assert out["stride_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
         assert out["triage_model"] == "opus"
         assert out["merger_model"] == "claude-sonnet-5-5"
 

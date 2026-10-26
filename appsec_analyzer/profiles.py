@@ -602,6 +602,9 @@ def apply_runtime_profile(profile: dict, cfg: dict, arguments: list[str], *, mod
             # operator did not select their own model value.
             origin = profile["origins"]["models"][role].get("model", "")
             chosen = legacy.get(keys[role]) if origin.startswith("builtin:") else None
+            # The bare alias follows the host's Sonnet; the built-in profile names the version.
+            if chosen == "sonnet":
+                chosen = None
             if model:
                 chosen = model
             flag = {

@@ -315,7 +315,7 @@ class TestResolveReasoningModel:
         assert out["reasoning_model"] == "sonnet-economy"
         # STRIDE stays cost-pinned to Sonnet 4.6 (Sonnet 5 regressed recall).
         # The standard buy-back (2026-07-05) upgrades triage + merger to Sonnet 5.
-        assert out["stride_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
         assert out["triage_model"] == "claude-sonnet-5-5"
         assert out["merger_model"] == "claude-sonnet-5-5"
 
@@ -331,9 +331,9 @@ class TestResolveReasoningModel:
         assert out["reasoning_model"] == "sonnet-economy"
         # sonnet-economy keeps the Reasoning core on the Sonnet tier,
         # cost-pinned to the concrete Sonnet 4.6.
-        assert out["stride_model"] == "claude-sonnet-4-6"
-        assert out["triage_model"] == "claude-sonnet-4-6"
-        assert out["merger_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
+        assert out["triage_model"] == "claude-sonnet-5-5"
+        assert out["merger_model"] == "claude-sonnet-5-5"
 
     def test_explicit_opus(self):
         ns = rc.build_parser().parse_args(["--reasoning-model", "opus"])
@@ -353,14 +353,14 @@ class TestResolveReasoningModel:
                 "--triage-model",
                 "claude-sonnet-5",
                 "--stride-model",
-                "claude-sonnet-4-6",
+                "claude-sonnet-5-5",
                 "--merger-model",
                 "claude-opus-4-7",
             ]
         )
         out = rc.resolve_reasoning_model(ns, "standard")
         assert out["triage_model"] == "claude-sonnet-5"
-        assert out["stride_model"] == "claude-sonnet-4-6"
+        assert out["stride_model"] == "claude-sonnet-5-5"
         assert out["merger_model"] == "claude-opus-4-7"
 
     def test_version_id_flag_wins_over_tier_and_env(self, monkeypatch):
@@ -380,7 +380,7 @@ class TestResolveReasoningModel:
         cfg = rc.resolve(["--triage-model", "claude-sonnet-5"], REPO_ROOT)
         assert cfg["reasoning_model"] == "sonnet-economy"  # tier unmutated
         assert cfg["triage_model"] == "claude-sonnet-5"  # buy-back (flag agrees)
-        assert cfg["stride_model"] == "claude-sonnet-4-6"  # STRIDE stays cheap
+        assert cfg["stride_model"] == "claude-sonnet-5-5"  # STRIDE stays cheap
         # merger now takes the standard buy-back (Sonnet 5) by default too.
         assert cfg["merger_model"] == "claude-sonnet-5-5"
 
@@ -399,8 +399,8 @@ class TestResolveExtendedModelsRendererAbuse:
     def test_quick_pins_renderer_abuse_to_46(self):
         # quick/thorough pin every Sonnet-tier subagent to concrete 4.6.
         out = rc.resolve_extended_models("sonnet-economy", "quick")
-        assert out["renderer_model"] == "claude-sonnet-4-6"
-        assert out["abuse_verifier_model"] == "claude-sonnet-4-6"
+        assert out["renderer_model"] == "claude-sonnet-5-5"
+        assert out["abuse_verifier_model"] == "claude-sonnet-5-5"
 
     def test_sonnet_tier_optin_keeps_alias(self):
         # The explicit `sonnet` tier (--reasoning-model sonnet) opts into latest
@@ -422,8 +422,8 @@ class TestResolveExtendedModelsRendererAbuse:
         assert out["renderer_model"] == "claude-sonnet-5-5"
         assert out["abuse_verifier_model"] == "claude-sonnet-5-5"
         # ...while the mechanical qa stages stay on cheap 4.6.
-        assert out["qa_content_model"] == "claude-sonnet-4-6"
-        assert out["qa_routine_model"] == "claude-sonnet-4-6"
+        assert out["qa_content_model"] == "claude-sonnet-5-5"
+        assert out["qa_routine_model"] == "claude-sonnet-5-5"
 
     def test_defaults_on_non_economy_tier(self):
         out = rc.resolve_extended_models("sonnet", "standard")
@@ -447,26 +447,14 @@ class TestResolveExtendedModelsRendererAbuse:
 
 
 class TestOrchestratorRecommendation:
-    """Advisory session-model recommendation from repo size (2026-07-05).
-    Recommends Sonnet 5 only for VERY large repos (window safety), else 4.6
-    (~half cost). Never binding — the skill surfaces it, the user chooses."""
+    """Advisory session-model recommendation: always Sonnet 5.5, whatever the repo size.
+    Never binding — the skill surfaces it, the user chooses."""
 
-    def test_normal_repo_recommends_46(self):
-        out = rc.recommend_orchestrator_model(641)  # Juice-Shop-sized
-        assert out["orchestrator_recommended_model"] == "claude-sonnet-4-6"
-        assert out["orchestrator_recommendation_repo_files"] == 641
-
-    def test_threshold_boundary_recommends_5(self):
-        out = rc.recommend_orchestrator_model(rc.ORCHESTRATOR_SONNET5_FILE_THRESHOLD)
+    @pytest.mark.parametrize("src_count", [0, 641, 100_000])
+    def test_recommends_sonnet_55_at_every_size(self, src_count):
+        out = rc.recommend_orchestrator_model(src_count)
         assert out["orchestrator_recommended_model"] == "claude-sonnet-5-5"
-
-    def test_just_below_threshold_recommends_46(self):
-        out = rc.recommend_orchestrator_model(rc.ORCHESTRATOR_SONNET5_FILE_THRESHOLD - 1)
-        assert out["orchestrator_recommended_model"] == "claude-sonnet-4-6"
-
-    def test_threshold_is_above_juice_shop(self):
-        # Calibration invariant: a Juice-Shop-sized repo must land on 4.6.
-        assert rc.ORCHESTRATOR_SONNET5_FILE_THRESHOLD > 641
+        assert out["orchestrator_recommendation_repo_files"] == src_count
 
     def test_resolve_populates_recommendation(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -886,7 +874,7 @@ class TestIntegrationScenarios:
         # Concrete Sonnet cost-pinned to 4.6 since 2026-07-04.
         assert cfg["reasoning_model"] == "sonnet-economy"
         # STRIDE cost-pinned to 4.6; standard buy-back upgrades triage + merger.
-        assert cfg["stride_model"] == "claude-sonnet-4-6"
+        assert cfg["stride_model"] == "claude-sonnet-5-5"
         assert cfg["triage_model"] == "claude-sonnet-5-5"
         assert cfg["merger_model"] == "claude-sonnet-5-5"
         assert cfg["architect_review"] is False

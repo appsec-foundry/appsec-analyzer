@@ -52,6 +52,10 @@ def canonical_reasoning_model(mode):
     return REASONING_ALIASES.get(mode, mode)
 
 
+# The latest Sonnet, as an exact id rather than the `sonnet` alias, so a headless run pins the
+# version instead of following the session. The pin follows the latest Sonnet release.
+SONNET5 = "claude-sonnet-5-5"
+
 MODEL_MATRIX = {
     "sonnet": {
         "stride": "sonnet",
@@ -84,20 +88,14 @@ MODEL_MATRIX = {
     # recon-scanner, qa-routine, config-scanner). Quick mode additionally gets
     # a STRIDE depth reduction via resolve_stride_profile(). (Alias: haiku-economy.)
     #
-    # COST PIN (2026-07-04): the concrete Sonnet is pinned here to ``claude-sonnet-4-6``
-    # rather than the bare alias ``"sonnet"`` (→ now Sonnet 5). Reason: same
-    # price/token, but the 4.6 tokenizer counts the same text in ~30% FEWER tokens
-    # than Sonnet 5 (+ no adaptive thinking by default) → the subagent half of a
-    # full scan drops from ~$60 back to the ~$37 level, without violating the
-    # Sonnet-tier principle (4.6 IS Sonnet, just the previous version).
-    # sonnet-economy is the default for quick/standard, so it applies automatically
-    # for all plugin users. Opt in to Sonnet 5 (quality): ``--reasoning-model
-    # sonnet``. Exact pin per stage: ``APPSEC_{STRIDE,TRIAGE,MERGER}_MODEL=…``.
-    # Deprecation note: when claude-sonnet-4-6 is retired, bump it here.
+    # Sonnet 4.6 is no longer selected anywhere: the economy tier pins the latest
+    # Sonnet, ``claude-sonnet-5-5``, rather than the bare ``"sonnet"`` alias, so a
+    # headless run names the version instead of following the host session. Exact
+    # pin per stage: ``APPSEC_{STRIDE,TRIAGE,MERGER}_MODEL=…``.
     "sonnet-economy": {
-        "stride": "claude-sonnet-4-6",
-        "triage": "claude-sonnet-4-6",
-        "merger": "claude-sonnet-4-6",
+        "stride": SONNET5,
+        "triage": SONNET5,
+        "merger": SONNET5,
     },
 }
 
@@ -107,13 +105,7 @@ MODEL_MATRIX = {
 # sonnet-economy has depth-specific routing.
 HAIKU = "haiku"
 SONNET = "sonnet"
-# Explicit latest-Sonnet pin used for the `standard` quality buy-back (2026-07-05):
-# the aggregation/judgment stages measurably improve on Sonnet 5 (see
-# docs/model-selection.md "Benchmarks"). Kept as an exact id, not the `sonnet`
-# alias, so a headless run pins the version rather than following the session.
-# The pin follows the latest Sonnet release; Sonnet 5.5 has no A/B of its own.
-SONNET5 = "claude-sonnet-5-5"
-# The economy pin; a combined assessment moves STRIDE off it (MD-9).
+# Sonnet 4.6 is never selected by default; an explicit setting of it is still recognised and warned about.
 SONNET46 = "claude-sonnet-4-6"
 
 EXTENDED_MODEL_MATRIX: dict[tuple[str, str], dict[str, str]] = {
@@ -134,7 +126,7 @@ EXTENDED_MODEL_MATRIX: dict[tuple[str, str], dict[str, str]] = {
         # renderer + abuse_verifier follow the `sonnet` alias → host session at
         # every depth (no depth variation, like orchestrator). Manual pin via
         # APPSEC_RENDERER_MODEL / APPSEC_ABUSE_VERIFIER_MODEL for quality buy-back
-        # (Sonnet-5) or cost (4.6) without moving the whole session.
+        # without moving the whole session.
         #
         # evidence_verifier stays on SONNET at every tier and depth — including
         # sonnet-economy, where every other extraction role drops to Haiku.
@@ -606,24 +598,6 @@ def resolve_cheap_stride(ns: argparse.Namespace, depth: str) -> dict:
 # itself (a 650-file repo is "normal-sized" there and would read "large" here).
 LARGE_REPO_SOURCE_FILE_THRESHOLD = 400
 
-# Orchestrator (session-model) recommendation threshold — DISTINCT from and much
-# higher than LARGE_REPO_SOURCE_FILE_THRESHOLD above (which only flags "longer run").
-# The orchestrator holds the largest resident context; on a *very* large repo a
-# small-window session model (Sonnet 4.6 in the harness) risks mid-run compaction,
-# which can drop finalization steps. At/above this source-file count we RECOMMEND the
-# large-window Sonnet 5 as the SESSION model (higher cost, for more compaction
-# headroom); below it we recommend Sonnet 4.6 (much cheaper, only very limited
-# orchestrator benefit). Advisory only — the user always chooses (see the
-# interactive prompt in the compact full runtime).
-# CALIBRATION CAVEAT: this is a coarse heuristic, not a measured compaction point.
-# We have one calibration repo (Juice-Shop, ~650 source files by the count below);
-# 2500 is simply a margin well above it so a normal app recommends 4.6. Source-file
-# count is a *proxy* — the orchestrator's resident context is really driven by the
-# analyzed component count and finding volume (roughly bounded, not linear in files),
-# so the true compaction point does not track this number precisely. Kept because it
-# is the only cheap signal available pre-recon, and the recommendation is fail-safe
-# (defaults to the cheap model, user overrides).
-ORCHESTRATOR_SONNET5_FILE_THRESHOLD = 2500
 SOURCE_FILE_EXTENSIONS = (
     ".ts",
     ".tsx",
@@ -717,34 +691,15 @@ def resolve_repo_size_cap(cfg: dict, repo_root: Path, *, source_count: int | Non
 
 
 def recommend_orchestrator_model(src_count: int) -> dict:
-    """Advisory session-model recommendation from repo source-file count.
+    """Advisory session-model recommendation: Sonnet 5.5, the only Sonnet the analyzer selects.
 
     The orchestrator = the CC session model; the plugin cannot switch it. This
     only RECOMMENDS — the skill surfaces it and the user chooses (a divergent
     choice needs a session restart because a running loop cannot change its own
-    model). Recommends Sonnet 5.5 only for *very* large repos (window safety);
-    otherwise Sonnet 4.6 (much cheaper, only very limited orchestrator benefit).
+    model).
     """
-    if src_count >= ORCHESTRATOR_SONNET5_FILE_THRESHOLD:
-        model = SONNET5
-        reason = (
-            f"very large repo ({src_count} source files >= "
-            f"{ORCHESTRATOR_SONNET5_FILE_THRESHOLD}) — the orchestrator accumulates a "
-            f"large resident context; Sonnet 5.5's larger window reduces the risk of "
-            f"mid-run compaction (higher cost). Note: this is a coarse file-count "
-            f"heuristic — a margin above our single calibration repo, not a measured "
-            f"compaction threshold"
-        )
-    else:
-        model = "claude-sonnet-4-6"
-        reason = (
-            f"normal-sized repo ({src_count} source files < "
-            f"{ORCHESTRATOR_SONNET5_FILE_THRESHOLD}) — Sonnet 4.6 as the session model "
-            f"has significantly lower cost than a Sonnet-5 or Opus session, which "
-            f"bring only very limited benefit on the orchestrator role at this repo "
-            f"size, and its window is sufficient here (Sonnet 5.5 is recommended once a "
-            f"repo crosses {ORCHESTRATOR_SONNET5_FILE_THRESHOLD} files)"
-        )
+    model = SONNET5
+    reason = f"{src_count} source files — Sonnet 5.5 is the latest Sonnet and the one model the analysis roles run on"
     return {
         "orchestrator_recommended_model": model,
         "orchestrator_recommendation_reason": reason,
@@ -769,11 +724,9 @@ def resolve_reasoning_model(ns: argparse.Namespace, depth: str) -> dict:
 
     The ``sonnet-economy`` tier keeps STRIDE/triage/merger on the Sonnet
     TIER (Threat-Reasoning is the tool's primary value contribution and
-    must not be downgraded to Haiku). Since 2026-07-04 the concrete Sonnet
-    is cost-pinned to ``claude-sonnet-4-6`` (same tier, ~30% fewer tokens
-    than Sonnet 5 at equal per-token price — see the MODEL_MATRIX comment).
-    Opt into Sonnet 5 with ``--reasoning-model sonnet``; pin an exact model
-    per stage with ``APPSEC_{STRIDE,TRIAGE,MERGER}_MODEL``. The Haiku savings
+    must not be downgraded to Haiku). The concrete Sonnet is pinned to
+    ``claude-sonnet-5-5``, never to Sonnet 4.6 (see the MODEL_MATRIX comment).
+    Pin an exact model per stage with ``APPSEC_{STRIDE,TRIAGE,MERGER}_MODEL``. The Haiku savings
     come from the deterministic-leaning agents (context-resolver,
     recon-scanner, qa-routine fixes, config-scanner) — see
     resolve_extended_models.
@@ -798,18 +751,6 @@ def resolve_reasoning_model(ns: argparse.Namespace, depth: str) -> dict:
         mode = "opus"
 
     models = dict(MODEL_MATRIX[mode])
-
-    # Quality buy-back at the everyday `standard` default (2026-07-05): upgrade the
-    # aggregation/judgment stages — triage (severity calibration) and merger (dedup)
-    # — to Sonnet 5, where a Juice-Shop A/B measured a real gain (see
-    # docs/model-selection.md "Benchmarks"). STRIDE stays on 4.6: Sonnet 5 REGRESSED
-    # discovery recall. `quick` keeps the all-4.6 economy floor; `thorough` is Opus.
-    # Env/CLI overrides below still win. Caveat: an explicit version id only takes
-    # effect on the headless / hybrid-dispatch path — an interactive run inherits the
-    # session model regardless (the bare `sonnet` alias resolves to the session).
-    if mode == "sonnet-economy" and depth == "standard":
-        models["triage"] = SONNET5
-        models["merger"] = SONNET5
 
     # Step 2: env var override (over the matrix default).
     env_map = {
@@ -881,16 +822,15 @@ def resolve_extended_models(reasoning_mode: str, depth: str) -> dict:
     if reasoning_mode != "sonnet":
         # renderer + abuse-case verifier are the quality-showcase stages (MS / CISO
         # framing; verdict decisiveness — 4.6 punts to `inconclusive`): latest Sonnet
-        # (Sonnet 5.5) at standard AND thorough, cheapest 4.6 only at the quick tier.
-        showcase = SONNET5 if depth in ("standard", "thorough") else "claude-sonnet-4-6"
+        # (Sonnet 5.5) at every depth.
         for _k in ("renderer", "abuse_verifier"):
             if models.get(_k) == SONNET:
-                models[_k] = showcase
-        # qa_content + qa_routine are mechanical / contract stages → concrete 4.6
+                models[_k] = SONNET5
+        # qa_content + qa_routine are mechanical / contract stages → concrete 5.5
         # wherever they would otherwise be the bare alias (Haiku stays Haiku).
         for _k in ("qa_content", "qa_routine"):
             if models.get(_k) == SONNET:
-                models[_k] = "claude-sonnet-4-6"
+                models[_k] = SONNET5
 
     env_map = {
         "context_resolver": "APPSEC_CONTEXT_RESOLVER_MODEL",
@@ -1085,7 +1025,7 @@ def resolve_enrich_arch_fragments(ns: argparse.Namespace, depth: str, dry_run: b
       • ``--enrich-arch`` forces on at any depth (e.g. quick + enrich).
 
     Token cost when enabled: ~25-30k input + ~5-8k output (~$0.50-1.00 at
-    sonnet-4-6) on top of the standard Stage 2 budget.
+    Sonnet 5.5) on top of the standard Stage 2 budget.
     """
     if dry_run:
         return {"enrich_arch_fragments": False, "enrich_arch_label": "disabled (dry-run)"}
@@ -1366,7 +1306,7 @@ def build_parser() -> argparse.ArgumentParser:
     # `--reasoning-model sonnet-economy --triage-model opus` = Sonnet STRIDE with
     # Opus triage (cheap run, calibrated severities).
     # Accept EITHER a tier alias (``sonnet`` / ``opus``) OR an explicit version id
-    # (``claude-sonnet-5`` / ``claude-sonnet-4-6`` / ``claude-opus-4-7``). No
+    # (``claude-sonnet-5-5`` / ``claude-opus-4-7``). No
     # ``choices=`` whitelist: the version set changes too often to hardcode, and
     # the ``APPSEC_{STRIDE,TRIAGE,MERGER}_MODEL`` env vars already accept any
     # string — the CLI flags now match that. A typo'd id is passed through to the
@@ -1376,7 +1316,7 @@ def build_parser() -> argparse.ArgumentParser:
     # clamps any Opus id (alias or ``claude-opus-*``) to Sonnet last.
     _model_help = (
         "Tier alias (sonnet|opus) or explicit version id "
-        "(e.g. claude-sonnet-5, claude-sonnet-4-6). Overrides the "
+        "(e.g. claude-sonnet-5-5). Overrides the "
         "--reasoning-model tier for this stage only."
     )
     p.add_argument("--stride-model", default=None, metavar="MODEL", help=_model_help)
@@ -1954,17 +1894,6 @@ def resolve_assessment(
             if key.endswith("_model") and key != "reasoning_model" and not explicit.get(key):
                 cfg[key] = model
         cfg.update(apply_opus_ban(cfg, bool(cfg.get("opus_disabled") or cfg.get("disable_opus"))))
-    # MD-9: each combined STRIDE artifact comes back from one tool-less call, where
-    # Sonnet 4.6 exhausts its thinking without returning one at any effort level
-    # (user-service replay, 2026-10-11). Only the economy pin moves; an explicit
-    # stage model, environment pin, or shared model is kept and warned about.
-    if cfg.get("stride_model") == SONNET46 and not (ns.stride_model or os.environ.get("APPSEC_STRIDE_MODEL") or model):
-        cfg["stride_model"] = SONNET5
-        cfg["stride_model_moved_from"] = SONNET46
-        cfg["reasoning_label"] = (
-            f"{cfg['reasoning_model']} (STRIDE: {SONNET5}, triage: {cfg['triage_model']}, "
-            f"merger: {cfg['merger_model']})"
-        )
     # MD-10: controller discovery returns validated components and cited
     # interfaces from tool-less calls. On Juice Shop (2026-10-14) Haiku passed
     # the thinking stop or repeated a rejected artifact until the exchange

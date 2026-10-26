@@ -1,29 +1,29 @@
 schema_version: 1
 adapter: claude-cli
 defaults:
-  model: sonnet
+  model: claude-sonnet-5-5
   reasoning_effort: medium
 depths:
   quick:
     roles:
       abuse_case_deriver:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       abuse_case_verifier:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       post_stride_synthesizer:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       recon_scanner:
         model: haiku
       stride_analyzer:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       threat_merger:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       triage_validator:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       ms_renderer:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       secarch_renderer:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
   standard:
     roles:
       abuse_case_deriver:
@@ -35,7 +35,7 @@ depths:
       recon_scanner:
         model: haiku
       stride_analyzer:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5-5
       threat_merger:
         model: claude-sonnet-5-5
       triage_validator:

@@ -38,13 +38,13 @@ def test_lineup_groups_roles_by_model() -> None:
 def test_session_model_change_does_not_move_analysis_roles() -> None:
     """The lineup must show what a session-model switch actually buys.
 
-    Switching the session to Opus moves orchestration only — STRIDE stays on
-    4.6 and triage/merge stay on Sonnet 5. That is the fact the line exists to
+    Switching the session to Opus moves orchestration only — STRIDE, triage
+    and merge stay on Sonnet 5.5. That is the fact the line exists to
     make visible.
     """
     opus = model_lineup.lineup("claude-opus-4-8")
     assert "claude-opus-4-8 (session/orchestrator" in opus
-    assert "claude-sonnet-4-6 (STRIDE" in opus, "STRIDE must still be shown on its own model when the session is Opus"
+    assert "claude-sonnet-5-5 (STRIDE" in opus, "STRIDE must still be shown on its own model when the session is Opus"
 
 
 def test_reasoning_tier_is_reflected() -> None:

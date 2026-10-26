@@ -50,25 +50,48 @@ def test_explicit_stage_pin_wins_over_shared_model(tmp_path):
 
 
 @pytest.mark.parametrize("depth", ["quick", "standard"])
-def test_combined_assessment_moves_economy_stride_off_sonnet_46(tmp_path, monkeypatch, depth):
+def test_economy_stride_runs_on_the_latest_sonnet_and_never_on_sonnet_46(tmp_path, monkeypatch, depth):
     monkeypatch.delenv("APPSEC_STRIDE_MODEL", raising=False)
     arguments = ["--no-requirements", "--assessment-depth", depth]
     resolved = config.resolve_assessment(scope(tmp_path), arguments, ROOT)
-    assert resolved["stride_model"] == config.SONNET5
-    assert f"STRIDE: {config.SONNET5}" in resolved["reasoning_label"]
-    # Only STRIDE moves; the other economy roles keep their pins (discovery: MD-10).
     single = config.resolve(
         ["--repo", str(tmp_path), "--output", str(tmp_path / "single"), "--full", *arguments],
         ROOT,
         create_output_dir=False,
         source_count=1,
     )
-    assert single["stride_model"] == config.SONNET46
-    assert resolved["stride_model_moved_from"] == config.SONNET46
-    moved = {"stride_model", "recon_scanner_model"}
+    assert resolved["stride_model"] == single["stride_model"] == config.SONNET5
+    assert "stride_model_moved_from" not in resolved
+    # Discovery is the only role the combined assessment moves (MD-10).
+    moved = {"recon_scanner_model"}
     assert {k: v for k, v in resolved.items() if k.endswith("_model") and k not in moved} == {
         k: v for k, v in single.items() if k.endswith("_model") and k not in moved
     }
+    # The advisory session-model recommendation is not a role.
+    assert config.SONNET46 not in {
+        v for k, v in resolved.items() if k.endswith("_model") and k != "orchestrator_recommended_model"
+    }
+
+
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+def test_built_in_claude_lineup_names_neither_sonnet_46_nor_the_bare_alias(tmp_path, depth):
+    from orchestrator import orchestration_controller as controller
+
+    from appsec_analyzer import profiles
+
+    resolved = config.resolve_assessment(scope(tmp_path), ["--no-requirements", "--assessment-depth", depth], ROOT)
+    resolved.setdefault("actor_discovery_model", "sonnet")
+    settings = profiles.model_settings("claude", depth)
+    profile = {
+        "adapter": "claude-cli",
+        "models": {role: profiles.resolve_model(each, "claude-cli") for role, each in settings["definitions"].items()},
+        "origins": {"models": {role: {"model": "builtin:claude:test"} for role in settings["definitions"]}},
+        "settings": {"outputs": []},
+    }
+    profiles.apply_runtime_profile(profile, resolved, [])
+    lineup = controller._assessment_model_lines(resolved)[0].removeprefix("Models: ")
+    models = {group.split(" (")[0] for group in lineup.split("; ")}
+    assert models <= {config.SONNET5, "opus"}
 
 
 def test_controller_discovery_leaves_the_haiku_recon_default(tmp_path, monkeypatch):
