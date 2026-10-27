@@ -425,6 +425,8 @@ The path is relative to the repository root. Rules passed this way are also chec
 
 Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
 
+**Example:** [Thorough assessment of OWASP Juice Shop](https://github.com/appsec-foundry/appsec-analyzer-examples/blob/main/security-assessment-juice-shop-thorough-v0.1.0.md). The [examples repository](https://github.com/appsec-foundry/appsec-analyzer-examples) also has the quick and standard assessments of the same commit, their data files, and all diagrams.
+
 The runtime architecture with its data flows and attack paths:
 
 <a href="docs/images/figure1-example.svg">
