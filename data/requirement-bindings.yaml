@@ -1851,16 +1851,12 @@ requirements:
 
   REQ-024:
     applies_to:
-      - appsec_analyzer/scanners/**
-      - scripts/runtime/source_preflight.py
-      - appsec_analyzer/artifacts.py
       - appsec_analyzer/engine.py
       - appsec_analyzer/threat_analysis.py
       - appsec_analyzer/analyze_threats/**
       - scripts/contexts/analyst_documents.py
       - scripts/contexts/build_analyst_context.py
       - schemas/analyst-context.schema.json
-      - appsec_analyzer/authnz_review.py
       - skills/analyze-threats/**
       - scripts/appsec-analyst-cli
       - scripts/orchestrator/analyst_controller.py
@@ -1874,7 +1870,6 @@ requirements:
     decisions:
       - EX-1
     documents:
-      - docs/authnz-review.md
       - docs/threat-analyst.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
@@ -1884,9 +1879,6 @@ requirements:
       - tests/test_threat_analysis_cli.py::test_terminal_question_asks_scope_and_never_assumes_whole_repository
       - tests/test_threat_analysis_cli.py::test_preview_discovers_context_without_job_or_model
       - tests/test_threat_analysis_cli.py::test_dialogue_collects_real_answers_and_resumes_same_job
-      - tests/test_authnz_review_cli.py::test_review_runs_real_scanners_retains_signals_and_exports_both_formats
-      - tests/test_authnz_review_cli.py::test_console_only_review_leaves_no_saved_artifacts
-      - tests/test_authnz_review_cli.py::test_gate_fails_on_retained_high_findings_and_partial_is_never_clean
       - tests/test_analyst_isolation.py::test_importing_the_analyst_modules_creates_no_job
       - tests/test_analyst_isolation.py::test_public_inspection_never_activates_the_analyst
       - tests/test_analyst_controller.py::test_configuring_the_organization_profile_starts_nothing
@@ -2378,3 +2370,21 @@ requirements:
       - tests/test_copilot_cli.py::test_bounded_process_execution
       - tests/test_copilot_cli.py::test_public_assess_selects_copilot_subscription_without_usd
       - tests/test_copilot_cli.py::test_public_assess_rejects_usd_budget_for_copilot_before_preflight
+
+  REQ-044:
+    applies_to:
+      - appsec_analyzer/authnz_review.py
+      - appsec_analyzer/scanners/**
+      - scripts/runtime/source_preflight.py
+      - appsec_analyzer/artifacts.py
+      - appsec_analyzer/engine.py
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - docs/authnz-review.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_authnz_review_cli.py::test_review_runs_real_scanners_retains_signals_and_exports_both_formats
+      - tests/test_authnz_review_cli.py::test_console_only_review_leaves_no_saved_artifacts
+      - tests/test_authnz_review_cli.py::test_gate_fails_on_retained_high_findings_and_partial_is_never_clean

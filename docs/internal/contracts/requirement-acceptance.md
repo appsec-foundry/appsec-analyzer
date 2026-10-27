@@ -174,18 +174,6 @@ Use a fresh private working directory so repository or result-directory assistan
 
 After a completed assessment, print a shell-quoted `appsec-analyzer review RESULT_DIR` next step without launching it or blocking unattended scans. Preserve existing exit codes, including a completed assessment with a failing policy gate.
 
-## REQ-043: Update Analyzer
-
-When `review` rejects a completed private assessment because its state file does not match the installed Analyzer's state schema, an interactive terminal outside CI may offer to update the installed Analyzer. Other rejections, such as an incomplete, changed, linked, or secret-containing result, never trigger the offer.
-
-Before asking, name what would be installed and from where. Install nothing without an explicit yes; silence, end of input, and no leave the installation unchanged and end `review` with the existing diagnostic. Non-interactive runs and CI print only the diagnostic.
-
-Offer the update only when Analyzer can identify how it was installed and that route needs no further decision. Otherwise print only the diagnostic. Do not offer it when the installation is pinned by an organization distribution. The update makes no model call and sends no assessment data anywhere.
-
-After the update, do not start `review` again or open the result in the same process; the user runs the command again. A failed update reports its cause, leaves the previous installation usable, and does not change the saved assessment.
-
-`appsec-analyzer update` offers the same update without a rejected result. It follows the same rules, except for the default answer: name the source first, make no model call, and send no data. The user started this command, so the question is `[Y/n]` and Enter, `y`, or `yes` installs; the offer after a rejected result stays `[y/N]` and needs an explicit yes. It offers no option that skips the question. Outside an interactive terminal, in CI, without a recorded pipx installation, with an organization distribution, or without a pipx executable on an absolute PATH entry, it installs nothing and exits with a diagnostic that names the way to update. `n`, `no`, any other answer, and end of input install nothing and are not errors. A failed update exits with an error that reports its cause.
-
 ## REQ-016: Follow, stop, and resume a run
 
 Let users inspect status, stop a run, and resume compatible interrupted work. Preserve accepted work when resuming and identify stale or incompatible state. A changed Analyzer version alone does not prevent resuming: the run keeps its deadline, limits, recorded costs and elapsed time, and reuses only accepted steps that are still compatible. When source, settings, profile or the time limit changed, or an unfinished cost reservation cannot be reconciled, `--resume` does not refuse: it continues the unfinished run as a new run, as a start without `--resume` does, with the limits of the current command and the accepted steps that still match, and the start shows what prevented a plain resume. A completed run, an exhausted budget of an unchanged run, and unreadable or altered state still refuse. The start header says `Resumed` and why the run continues as a new run. A run that continues an unfinished run keeps the deterministic scanner results in its private work directory and reuses them only for identical source files, depth and Analyzer runtime; a damaged, altered or linked result is recomputed, and no result is kept or read inside the analyzed checkout. Store the effective operator profile with the run. On resume, preserve resolved OpenAI alias targets and revalidate their models, options, and prices against the installed catalog; changed definitions or incompatible runtime state require a new run. Expose progress, actionable failure reasons, and recovery steps. Never describe interrupted or incomplete work as complete.
@@ -233,6 +221,18 @@ An independently packaged organization distribution may pin the engine and ship 
 ## REQ-019: Handle version changes clearly
 
 Version public interfaces and incompatible artifact or organization-contract changes. Provide explicit migration or rejection for incompatible state.
+
+## REQ-043: Update Analyzer
+
+When `review` rejects a completed private assessment because its state file does not match the installed Analyzer's state schema, an interactive terminal outside CI may offer to update the installed Analyzer. Other rejections, such as an incomplete, changed, linked, or secret-containing result, never trigger the offer.
+
+Before asking, name what would be installed and from where. Install nothing without an explicit yes; silence, end of input, and no leave the installation unchanged and end `review` with the existing diagnostic. Non-interactive runs and CI print only the diagnostic.
+
+Offer the update only when Analyzer can identify how it was installed and that route needs no further decision. Otherwise print only the diagnostic. Do not offer it when the installation is pinned by an organization distribution. The update makes no model call and sends no assessment data anywhere.
+
+After the update, do not start `review` again or open the result in the same process; the user runs the command again. A failed update reports its cause, leaves the previous installation usable, and does not change the saved assessment.
+
+`appsec-analyzer update` offers the same update without a rejected result. It follows the same rules, except for the default answer: name the source first, make no model call, and send no data. The user started this command, so the question is `[Y/n]` and Enter, `y`, or `yes` installs; the offer after a rejected result stays `[y/N]` and needs an explicit yes. It offers no option that skips the question. Outside an interactive terminal, in CI, without a recorded pipx installation, with an organization distribution, or without a pipx executable on an absolute PATH entry, it installs nothing and exits with a diagnostic that names the way to update. `n`, `no`, any other answer, and end of input install nothing and are not errors. A failed update exits with an error that reports its cause.
 
 ## REQ-039: Build your own command on Analyzer
 
@@ -289,6 +289,8 @@ Offer explicitly invoked design analysis, change review, and hypothesis checks s
 Expose `analyze-threats` as a question-first entry over the existing analyst controller and retain `analyst` subcommands. Default to the current Git repository, ask for an ambiguous scope only in an interactive terminal, and never infer a repository-wide audit from a question. Explicit flags select design, staged/worktree changes, committed paths, abuse cases or a commit comparison. Display selected sources, document status, Claude CLI model and per-call USD limit before model execution. Preview starts no job or model call. Noninteractive invocation requires an unambiguous scope and reports required unanswered questions as incomplete. Terminal dialogue submits only actual user answers; EOF preserves a waiting job, cancellation closes it, and resume reuses frozen inputs. Saving answers remains explicit through the retained analyst interface.
 
 Discover conventional threat-model, requirements and specification documents within bounded repository scope; allow explicit repository-relative document paths and disabling discovery. Preserve origin, content digest, document role, revision and baseline/proposed identity. Read committed documents at the selected revision and staged documents from the index; never replace them with worktree copies. Multiple candidate threat models require explicit selection; record automatic omissions and reject unavailable explicit inputs. Apply file, aggregate, count, symlink and sensitivity limits before delivery. Documents remain declarations, cannot grant execution authority, and cannot replace code evidence for findings. Validate model-proposed document citations against delivered IDs and exact lines before publication. Preserve existing structured YAML adapters and distinguish document IDs from structured finding and requirement IDs.
+
+## REQ-044: Review authentication and authorization
 
 Offer a separate AuthN/AuthZ review of one admitted local Git checkout without requiring a threat model. Run the route inventory, authentication scanner and static authorization confirmer before bounded tool-less reasoning through Claude CLI. Retain deterministic in-scope scanner signals despite model omissions; validate report references and scanner-backed confirmation outside the model. Apply the selected finite USD budget, source masking and output secret checks. Save only on explicit selection, in a fresh or empty private destination outside the source; preserve existing assessments and reject concurrent output claims. Incomplete reviews never pass as clean, and gate failure is distinct from operational failure or cancellation. Expose unsupported providers, imported-model context and resume as limits rather than silently running a full assessment.
 
