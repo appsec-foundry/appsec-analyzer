@@ -7,7 +7,7 @@
 [![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 
 > [!NOTE]
-> **Alpha.** Commands and report formats may change. Live assessment quality is still being qualified; review findings before acting on them.
+> **Alpha.** Broad use in practice is still to come, so feedback from real projects is welcome.
 
 AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or on several that form one system.
 
