@@ -1,6 +1,6 @@
 # Juice Shop depth comparison: quick, standard, and thorough
 
-On 2026-10-26 and 2026-10-27, one run per assessment depth assessed the same Juice Shop commit with the current Analyzer and the `claude` profile. `quick` cost USD 8.17 and took 22 minutes, `standard` USD 14.71 and 41 minutes, and `thorough` USD 39.74 and 1 hour 36 minutes across several attempts. Thorough reported the widest coverage and the most verified results; survey and verification on Opus account for 78% of its cost. Part of its additional register entries describe the same problem twice, and severities and abuse-case verdicts varied between runs in ways that depth does not explain. One run per depth on one application cannot separate the effect of depth from variation between runs.
+On 2026-10-26 and 2026-10-27, one run per assessment depth assessed the same Juice Shop commit with the current Analyzer and the `claude` profile. `quick` cost USD 8.17 and took 22 minutes, `standard` USD 14.71 and 41 minutes, and `thorough` USD 39.74 and 1 hour 36 minutes across several attempts. Thorough reported the widest coverage and the most verified results; survey and verification on Opus account for 78% of its cost. Part of its additional register entries describe the same problem twice, and severities and abuse-case verdicts varied between runs in ways that depth does not explain. Among the methods, the survey found most of thorough's new topics, verification paid off mainly for authorization, and route-authentication verification mostly repeated other findings; [the division of work](#division-of-work-between-the-methods) records the details and the changes made afterwards. One run per depth on one application cannot separate the effect of depth from variation between runs.
 
 ## Evidence and scope
 
@@ -289,15 +289,97 @@ Thorough confirmed three business cases that standard did not check because of i
 
 In standard, T-090 and T-103 (`routes/deluxe.ts:43`) and T-044 and T-045 (role at registration) are comparable pairs. Part of the increase from 104 to 147 entries is therefore duplication, not additional weaknesses.
 
-**Severity of the same problem varies between runs.** The memories endpoint is Critical in quick (T-008), Medium in standard (T-091), and High in thorough (T-038, T-039). The code execution through the stored user name is Critical in quick and thorough, but High in standard. The Critical counts of 5, 3, and 5 follow these differences more than depth.
+**Severity of the same problem varies between runs.** The memories listing at `routes/memory.ts:24` is Medium in quick (T-048) and standard (T-091), and High in thorough (T-038, T-039). The code execution through the stored user name is Critical in quick and thorough, but High in standard. The Critical counts of 5, 3, and 5 follow these differences and a false positive more than depth.
 
-**Critical ratings without confirmed exploitability.** Each run has one Critical entry classified as `insecure-practice` rather than `confirmed-exploitable`: quick T-008 (scanner only, evidence `ambiguous`), standard T-011 (evidence `ambiguous`), and thorough T-001 (scanner only, evidence verified).
+**A false positive is Critical in every run.** The scanner rule AUTHZ-001 reports an owner ID taken from the request body: quick T-008 (`routes/memory.ts:15`) and T-009 (`routes/order.ts:148`), standard T-011 (`routes/order.ts:150`), and thorough T-001 (`routes/dataExport.ts:26` and `routes/wallet.ts`). These entries are the Critical entries classified as `insecure-practice` rather than `confirmed-exploitable`. Juice Shop's middleware `appendUserId()` (`lib/insecurity.ts:178`) overwrites `req.body.UserId` with the signed-in user's ID before these handlers run (`server.ts:312`, `356`, `621`, `626`), so the attacker cannot choose the owner. [Scanners](#scanners) describes what verification saw and what changed.
 
-**Abuse-case verdicts differ between runs with the same verifier model.** Both runs used Sonnet for abuse-case verification. AC-T-005 and AC-T-006 are fully viable and Critical in standard but inconclusive in thorough; AC-T-001 changes the other way.
+**Abuse-case verdicts differ between runs with the same verifier model.** Both runs used Sonnet for abuse-case verification. AC-T-005 and AC-T-006 are fully viable and Critical in standard but inconclusive in thorough; AC-T-001 changes the other way. AC-T-005 changed because thorough bound it to an unrelated secret, AC-T-006 because the verifier judged the same code differently; see [abuse cases and the methods](#abuse-cases-and-the-methods).
 
 **Run-specific component names.** All runs found the same nine components but named them differently, for example "Juice Shop Express HTTP API", "Juice Shop Express server", and "Juice Shop Express API". This makes comparisons across runs harder.
 
 **Summary display.** The thorough summary reports 164 mitigations but lists only P1, P2, and P3, which add up to 163; the one P4 mitigation is not shown. The console output the user captured for the quick run names the report file `security-assessment-juice-shop-standard-v0.6.0b6`, while the saved `summary.txt` of that run names `security-assessment-juice-shop-quick-v0.6.0b6`. This difference was not reproduced.
+
+## Division of work between the methods
+
+Every register entry names in `found_by` the methods that found it: the deterministic scanners, the survey, and verification. Abuse cases are checked against the finished register and can add entries of their own. For the tables below, each entry was assigned to an aspect through its verification item, otherwise through its CWE in the verification catalog, otherwise through its threat category; this assignment is part of the analysis, not of the runs. Duplicates were judged by reading titles and scenarios.
+
+| Measurement | quick | standard | thorough |
+| --- | ---: | ---: | ---: |
+| Found by the scanners only | 14 | 7 | 6 |
+| Found by the survey only | 28 | 29 | 33 |
+| Found by verification only | not run | 37 | 60 |
+| Found by several methods | 9 | 31 | 45 |
+| Added by abuse cases | not run | 0 | 3 |
+| Cost of survey / verification / abuse cases | USD 3.94 / – / – | USD 4.19 / 4.80 / 0.52 | USD 12.05 / 18.92 / 0.87 |
+
+In short, the scanners alone cover supply chain and CI, the survey found most new topics and every aspect outside the verification catalog, verification pays off for authorization, and the abuse cases added no weakness that the register did not already contain. The weak spots are overlapping verification aspects, scanner findings that verification contradicted without the report saying so, and abuse-case steps bound to the wrong finding or file.
+
+### Scanners
+
+The scanners cost no model calls. Only they report the supply-chain, CI, and container entries: install scripts, missing workflow permissions, image signing, and a root container, three or four per run. Their entries in source code are mostly confirmed by the other methods as depth grows: quick has 10 code entries that only the scanners found, standard and thorough 3 each.
+
+The rule AUTHZ-001 produced a [Critical false positive in every run](#quality-problems). In thorough, verification item TC-AUTHZ-01 reported `control` at exactly these locations (`routes/dataExport.ts:26`, `routes/wallet.ts:12`, `24`, `27`, `routes/order.ts:148`, `150`, `routes/memory.ts:15`), citing `lib/insecurity.ts:178`. T-001 nevertheless stayed Critical without any note, because `case_outcomes.mark_contradicted` marked only findings that the survey had found. In standard, the survey had also found T-011, so it carried `verification_contradicted`, but the report card showed only "Found by: survey and scanners" and dropped the contradiction. The thorough abuse case AC-B-001, fully viable and Critical, rests on T-001 alone.
+
+The REQ-040 acceptance rules already require that a deterministic rule finding stays and records its disagreement unless a post-check confirms the control. No post-check confirmed it here: the ownership post-check recognizes only an explicit comparison of owner and caller, and at `routes/wallet.ts:24` and `27` it even rejected the model's control claim, because the owner field is set by middleware. Quick runs no verification, so only a more precise scanner rule would help there.
+
+### Survey
+
+The survey is the only method for availability, audit, session management, and business logic, and in standard also for data protection (6 entries). Of the about 13 topics that only thorough reported, the survey found 7 alone: unsigned coupons (T-030), the client-supplied campaign date (T-081), the open redirect (T-058), the missing CSRF protection (T-080), the profile image URL (T-079), the WebSocket without authentication (T-060, T-077), and the text CAPTCHA answer (T-064). Verification found 2 alone (plaintext TOTP secrets T-047 and T-118, unencrypted card numbers T-117), and both methods found 4 (T-089, T-091, T-115, T-095). Thorough ran the survey on Opus, so this gain mixes model and depth.
+
+The survey also finds entries in the verified aspects that verification misses: 14 in standard and 25 in thorough. One is the WebSocket handshake (T-060), although the guidance of TC-AUTHN-01 names WebSocket handlers explicitly. The survey tends to summarize, for example thorough T-002 "Missing object ownership checks across basket, coupon, checkout, address", while verification reports route by route.
+
+### Verification by aspect
+
+Jobs, calls, and cost come from the job receipts; "verification only" counts register entries that only verification found.
+
+| Aspect | standard: USD, verification only | thorough: jobs / calls / USD | thorough: verification only | Assessment of the thorough entries |
+| --- | --- | --- | ---: | --- |
+| AuthZ | 2.34, 26 | 9 / 16 / 5.63 | 20 | Pays off: route-level ownership and role gaps that the survey only summarizes |
+| DataProt | not verified | 6 / 12 / 3.63 | 15 | About 4 new topics, the rest repeat other entries or are minor variants |
+| InputVal | 1.35, 7 | 5 / 8 / 3.75 | 6 | Mostly confirms the survey (11 entries found by both) |
+| AuthN | 0.92, 4 | 4 / 9 / 2.36 | 7 | Mixed: a few new entries (T-011, T-061, password policy), 3 repeats |
+| AuthNRoutes | not verified | 6 / 9 / 3.06 | 10 | 9 repeat an AuthZ, DataProt, or InputVal entry, 1 partly (T-128 and T-135 on the `/ftp` route); missed the WebSocket |
+| AI | 0.19, 0 | 1 / 2 / 0.49 | 2 | Both repeat survey entries (T-105 and T-015, T-150 and T-051) |
+
+Standard does not verify AuthNRoutes, and its AuthZ verification reported the same unguarded routes: key and log directories (T-039), product update (T-043), hint update (T-062), security answers (T-066), administration routes (T-108), and metrics (T-109).
+
+### Duplicates between methods and aspects
+
+About 30 of the 147 thorough entries repeat another entry. About half of them come from verification aspects among themselves:
+
+- Key directory: T-101 (InputVal, `server.ts:277`), T-129 (AuthNRoutes) and T-145 (AuthZ, both `server.ts:278`).
+- Access logs: T-102, T-130, T-146, and the survey's T-103.
+- Memories listing: T-038 (DataProt), T-096 (AuthZ), T-133 (AuthNRoutes), and the survey's T-039.
+- Further pairs: metrics (T-097, T-134), product update (T-050, T-055), hint update (T-132, T-148), security answers (T-013, T-057), and orders selected by masked e-mail (T-106, T-137, T-138).
+
+The cause is in the catalog: an unguarded route that serves sensitive files meets TC-AUTHN-01 (CWE-306), TC-AUTHZ-02 (CWE-862), TC-DATA-01, and the directory-listing check of input handling. The other half comes from survey and verification citing different lines for the same problem, the handler against the route registration in `server.ts` or the helper against its caller (`lib/xml.ts:35` and `routes/fileUpload.ts:76`), or citing another CWE family on the same line.
+
+Verification candidates carry a `route_id` that is the same across aspects; 87 of the 128 thorough verification findings have one. 24 routes have findings from several aspects, but most of these are different weaknesses of one route, such as NoSQL injection and the missing owner check in order tracking. Only the pair CWE-306 and CWE-862 on one route describes the same missing guard, in 6 cases. Merging by line would be wrong, because `server.ts:501` registers many generated routes.
+
+### Abuse cases and the methods
+
+The abuse cases cost USD 0.52 in standard and USD 0.87 in thorough and found no weakness outside the register. Apart from the entries that the cases added themselves, every confirmed step cites an existing entry; the only other step without one (AC-T-007, `routes/chat.ts:184`) points to a line already in the register. 9 of the 14 thorough cases have a single step, and 7 of these are bound to a single entry. A fully viable case takes its declared goal impact, so AC-T-004 is Critical while its finding is High; this is intended.
+
+- AC-T-005 changed because of its binding. Step 1 accepts any hard-coded secret, and the wallet mnemonic T-089 (CWE-798) tied with the RSA key that signs the session tokens, T-018 (CWE-321), at the same score; the step's own CWE-798 decided for the mnemonic, and the verifier refuted the chain. Standard bound the JWT signing key (T-023).
+- AC-T-006 was bound to the same B2B order evaluation in both runs (standard T-038, thorough T-049). Standard judged it fully viable, thorough inconclusive because of the `notevil` sandbox. This is variation of the verifier.
+- Thorough added three entries from abuse cases. T-207 (High) comes from AC-T-001 step 3, whose source probe matched `.agents/skills/create-threat-model/SKILL.md:148`, an untracked Markdown file in the assessed working tree that is not part of the commit. The probe excluded `agents/` but not `.agents/` and did not check the file type. T-208 repeats T-078 (`routes/wallet.ts:27`). T-209 comes from the derived case MODEL-AC-002, has `ambiguous` evidence, and that case does not appear among the listed cases.
+
+Turning confirmed steps into findings is REQ-011 behavior and stays.
+
+### Decisions and changes
+
+Decided by the product owner on 2026-10-27:
+
+- No depth verifies AuthNRoutes by default; a scan or organization profile can still select it. On Juice Shop this saves about USD 3 per thorough run. The decision rests on one run.
+- Verification keeps the survey's model. A separate model role would change the identity of every model profile, and its effect on results is unmeasured.
+
+Changed after this analysis, without new requirements:
+
+- `mark_contradicted` also marks scanner findings at a location where verification evidenced a control for their CWE, and the report card shows the contradiction below the methods of a finding that several methods found. Replayed on the saved runs, thorough T-001 is marked at its four locations, and standard keeps its two marks.
+- The abuse-case source probe skips documentation files (`.md`, `.rst`, `.txt`, `.adoc`, and files under a `docs` directory).
+- Step 1 of AC-T-005 prefers material that signs the application's tokens. Replayed on the saved findings, thorough binds T-018 instead of T-089, and standard keeps its binding.
+
+Not changed: the ownership post-check, the scanner rule AUTHZ-001, and the verifier's variation. The merge of CWE-306 and CWE-862 findings on one route is no longer needed for the defaults; the duplicates return when a profile selects AuthNRoutes.
 
 ## Comparison with the 2026-10-17 measurement
 
@@ -317,5 +399,6 @@ The following generic changes would address the observed problems for any reposi
 - Rate an `insecure-practice` entry with `ambiguous` evidence below Critical, or mark such Critical entries separately in the summary.
 - Show P4 mitigations in the run summary line, or state that the line lists only P1 to P3.
 - Keep component names stable across runs of the same source.
+- Let the ownership post-check and the scanner rule AUTHZ-001 recognize an owner field that middleware sets from the session, so that such a control can be confirmed and the rule stops firing at quick depth.
 
-Verification on Opus is the largest single cost of thorough (USD 18.92). Running thorough verification on Sonnet would be a candidate cost reduction; its effect on verification results is unmeasured.
+Verification on Opus is the largest single cost of thorough (USD 18.92). Running thorough verification on Sonnet would be a candidate cost reduction; its effect on verification results is unmeasured, and the model of verification cannot yet be set apart from the survey's (see [decisions and changes](#decisions-and-changes)).

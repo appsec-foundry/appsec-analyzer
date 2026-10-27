@@ -6,7 +6,7 @@ Status: working document for REQ-040, written 2026-10-19 and last updated 2026-1
 
 - The work is on `main`. The branch `feat/aspect-test-cases` was merged in b6bf523c, and everything after it was built on `main`. Nothing is released.
 - Verification investigates the aspects AuthN, AuthNRoutes, AuthZ, InputVal, DataProt, and AI. SessionMgmt is accepted but has no starting points. The catalog is at version 6.
-- Shipped defaults in `data/assessment-depths.yaml`: quick runs the survey only, standard verifies AuthN, AuthZ, InputVal, DataProt, and AI, and thorough adds AuthNRoutes. The product owner chose them on 2026-10-24 from the third measuring run.
+- Shipped defaults in `data/assessment-depths.yaml`: quick runs the survey only, standard verifies AuthN, AuthZ, InputVal, and AI, and thorough adds DataProt. The product owner chose them on 2026-10-24 from the third measuring run, moved DataProt to thorough in e9aa0c97, and on 2026-10-27 took AuthNRoutes out of thorough after the [depth comparison](depth-comparison-juice-shop-2026-10-27.md#division-of-work-between-the-methods), in which AuthZ verification reported the same unguarded routes.
 - The four pilot runs are recorded below. The cost work since 2026-10-23, its three measuring runs, and the next steps are in [the open points](verification-cost-open-points-2026-10-23.md).
 
 ## Target picture

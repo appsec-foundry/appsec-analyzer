@@ -64,8 +64,9 @@ On 2026-10-26 and 2026-10-27, one run per depth assessed the same Juice Shop sou
 Read the counts with care:
 
 - More findings do not mean as many more weaknesses. In the thorough run, several problems appear two or three times, for example once from the survey and once from verification under another weakness type.
-- The same problem can get a different severity in another run. An endpoint that returns user records together with uploaded photos was Critical in `quick`, Medium in `standard`, and High in `thorough`.
-- Abuse-case results also varied. Two attack chains that `standard` confirmed as Critical stayed unresolved in `thorough`, although both runs used the same model for this check.
+- The same problem can get a different severity in another run. Code execution through the stored user name was Critical in `quick` and `thorough`, but High in `standard`.
+- Every run rated a request field as Critical that a scanner rule reported, although the application overwrites that field with the signed-in user before it is used. Where verification sees such a protection, the report marks the finding as contradicted by verification. `quick` runs no verification and shows no such mark.
+- Abuse-case results also varied. Two attack chains that `standard` confirmed as Critical stayed unresolved in `thorough`, although both runs used the same model for this check. One was linked to an unrelated secret, which Analyzer no longer does; the other check judged the same code differently.
 
 These are single runs on one application, not a benchmark. Costs and results depend on the project, models, limits, budget, and retries.
 
