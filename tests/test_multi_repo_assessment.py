@@ -437,7 +437,7 @@ def test_preflight_checks_form_a_block_above_the_grid(monkeypatch):
     # The checks finished before the run, so the progress file gets no event for them.
     assert events == []
     assert lines == [
-        "  Preflight",
+        "  Pre-run checks",
         "    ✓ Repository         local Git checkout",
         "    ⚠ Trust check        skipped (trusted mode)",
         "    · Provider           not tested; no model call before the assessment",
@@ -447,7 +447,7 @@ def test_preflight_checks_form_a_block_above_the_grid(monkeypatch):
     console.step("Discovering every selected repository")
     assert lines[5] == ""
     assert lines[6].split() == ["TIME", "PHASE", "EVENT", "PROGRESS", "ELAPSED", "LEFT", "DETAIL"]
-    assert sum(line.startswith("TIME") for line in lines) == 1 and lines.count("  Preflight") == 1
+    assert sum(line.startswith("TIME") for line in lines) == 1 and lines.count("  Pre-run checks") == 1
 
 
 def _column(header, row, name):
@@ -1104,7 +1104,7 @@ def test_compact_header_distinguishes_limits_and_retains_warnings(subscription, 
     assert rows["Models"] == "m1 (14 roles) · m2 (recon_scanner)"
     assert rows["Artifacts"] == "security-assessment.md · security-assessment.yaml"
     assert "report take priority" in detailed["Budget"]
-    # The start check's result is a Preflight row, not a header fact.
+    # The start check's result is a Pre-run checks row, not a header fact.
     assert rows["Trust mode"].partition(" (")[0] == trust_mode
 
 

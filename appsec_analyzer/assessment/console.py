@@ -488,7 +488,7 @@ class _AssessmentConsole:
         self.results: dict[str, str] = {}
         self.review_coverage: dict[str, dict[str, str]] = {}
         self.headed, self.shown = False, None
-        # Whether the Preflight block stands open above the grid.
+        # Whether the Pre-run checks block stands open above the grid.
         self.checked = False
         # Called once a phase has started, e.g. to report a plugin change at once.
         self.on_phase = None
@@ -1218,7 +1218,7 @@ class _AssessmentConsole:
     _CHECK_WIDTH = 17
 
     def preflight(self, checks) -> None:
-        """Completed start checks as a Preflight block under the run summary, above the grid.
+        """Completed start checks as a Pre-run checks block under the run summary, above the grid.
 
         Console only: the checks finished before the run, so no progress event follows.
         A later call, such as the platform settings check, continues the same block.
@@ -1228,7 +1228,7 @@ class _AssessmentConsole:
         st = self.st
         if not self.checked:
             self.checked = True
-            self._unstamped(st("  Preflight", "bold"))
+            self._unstamped(st("  Pre-run checks", "bold"))
         # Like the facts: a long message wraps flush under its own column on a terminal or under --width.
         indent = 4 + 2 + self._CHECK_WIDTH + 2
         fit = self.columns() - 1 - indent if st.enabled or self.max_columns else 0
