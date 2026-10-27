@@ -452,10 +452,9 @@ def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
         assert fresh.worked_before == 4200 and not fresh.resume
         assert _assessment_continuation(fresh, fresh.budget) == (
             "Earlier run",
-            # Reused steps are charged to the new run, so the header says so, and what the earlier run took.
-            f"results of the unfinished run started {_utc(earlier['started_at'])} are taken over where nothing "
-            "changed; they need no new model calls, but their cost counts toward the limit"
-            f" · 1h10m worked · USD {earlier['accounting']['spent_usd']:.2f} spent",
+            # Reused steps are charged to the new run, so the header says so, and what the earlier run spent.
+            f"reuses matching steps of the unfinished run from {_utc(earlier['started_at'])} · "
+            f"USD {earlier['accounting']['spent_usd']:.2f}, counted toward the limit",
         )
     assert stored(scope)["worked_seconds"] >= 4200
     # A run without earlier accepted jobs, and one that rebuilt, reuse nothing.

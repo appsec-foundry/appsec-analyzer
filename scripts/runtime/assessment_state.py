@@ -180,10 +180,11 @@ class AssessmentState:
         # Working seconds of the earlier attempts a resume continues; pauses between them do not count.
         self.worked_before = 0
         # Start of the unfinished run whose accepted jobs a new run took into its cache, its working
-        # seconds, and what it had spent: USD, or model calls on a subscription.
+        # seconds, and its model calls and USD spent.
         self.reused_run_started = None
         self.reused_run_worked = 0
-        self.reused_run_spent = None
+        self.reused_run_calls = 0
+        self.reused_run_usd = 0.0
         self._attempt_started = time.monotonic()
 
     @contextmanager
@@ -448,9 +449,8 @@ class AssessmentState:
                             self.reused_run_started = unfinished["started_at"]
                             self.reused_run_worked = unfinished.get("worked_seconds", 0)
                             accounting = unfinished["accounting"]
-                            self.reused_run_spent = (
-                                accounting["calls"] if self.budget.subscription else accounting["spent_usd"]
-                            )
+                            self.reused_run_calls = accounting["calls"]
+                            self.reused_run_usd = accounting["spent_usd"]
                 for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
                     (self.output / name).unlink()
                 self._superseded = kept

@@ -169,6 +169,20 @@ def test_retry_and_resume_details_hide_costs_without_hiding_work():
     )
     _, text = controller._assessment_continuation(state, budget, show_costs=False)
     assert "3 model calls used" in text and "deadline" in text and "USD" not in text
+    # A new run that reuses an unfinished run's steps counts what they cost, in model calls when costs are hidden.
+    reused = SimpleNamespace(
+        resume=False,
+        reused_run_started=100,
+        reused_run_calls=6,
+        reused_run_usd=0.5,
+        resume_blocker=None,
+        worked_before=50,
+    )
+    key, text = controller._assessment_continuation(reused, budget, show_costs=False)
+    assert key == "Earlier run" and "6 model calls, counted toward the limit" in text and "USD" not in text
+    reused.resume_blocker = "the assessment settings changed since it started"
+    key, text = controller._assessment_continuation(reused, budget, show_costs=False)
+    assert key == "Resumed" and "6 model calls used" in text and "USD" not in text
 
 
 @pytest.mark.parametrize("api_prices", [False, True])

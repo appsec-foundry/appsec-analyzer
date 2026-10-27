@@ -3319,27 +3319,25 @@ def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, st
             value += "\nthe plugin changed, so only unchanged model steps are reused"
         return "Resumed", value
     if state.reused_run_started is not None:
-        # A reused step is charged to this run, so it counts toward the new limit.
-        counted = "model calls count" if budget.subscription else "cost counts"
-        spent = state.reused_run_spent
-        spent = (
-            f" · {spent} model calls used" if budget.subscription else f" · USD {spent:.2f} spent" if show_costs else ""
-        )
-        took = (
-            f"steps that still match are taken over without model calls, but their {counted} toward the limit"
-            if state.resume_blocker
-            else f"results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
-            f"changed; they need no new model calls, but their {counted} toward the limit"
-        )
-        worked = f" · {_elapsed(state.worked_before)} worked{spent}"
+        # A reused step is charged to this run, so it counts toward the new limit. Hidden costs show
+        # model calls instead, as the question before the start does.
+        calls = budget.subscription or not show_costs
+        spent = f"{state.reused_run_calls} model calls" if calls else f"USD {state.reused_run_usd:.2f}"
         if state.resume_blocker:
             # The operator asked for --resume: say that it continues, and why it runs as a new run.
+            counted = "model calls count" if budget.subscription else "cost counts"
             return (
                 "Resumed",
-                f"continues the unfinished run started {utc(state.reused_run_started)}{worked}\n"
-                f"{_sentence(state.resume_blocker)}, so it runs as a new run: {took}",
+                f"continues the unfinished run started {utc(state.reused_run_started)} · "
+                f"{_elapsed(state.worked_before)} worked · {spent} {'used' if calls else 'spent'}\n"
+                f"{_sentence(state.resume_blocker)}, so it runs as a new run: steps that still match are taken "
+                f"over without model calls, but their {counted} toward the limit",
             )
-        return "Earlier run", took + worked
+        return (
+            "Earlier run",
+            f"reuses matching steps of the unfinished run from {utc(state.reused_run_started)} · "
+            f"{spent}, counted toward the limit",
+        )
     if state.resume_blocker:
         return (
             "Resumed",
