@@ -304,7 +304,7 @@ appsec-analyzer version
 
 If the `appsec-analyzer` command is not on your `PATH`, `python -m appsec_analyzer` starts the same command from the environment where you installed the package.
 
-`pipx install .` from the checkout works as well. [Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
+With pipx, run `pipx install --force .` in the checkout; `--force` replaces an existing installation. pipx installs the checkout as it is, including uncommitted changes, and keeps it as the source. To update, change the checkout, for example with `git pull`, and run `appsec-analyzer update`; it then reinstalls from the checkout instead of GitHub. To return to the GitHub version, run `pipx install --force git+https://github.com/appsec-foundry/appsec-analyzer.git`. [Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
 
 </details>
 
