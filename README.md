@@ -63,28 +63,45 @@ Analyzed repositories are untrusted input: their content cannot authorize tools 
 
 ## Commands
 
-`appsec-analyzer --help` shows the commands in the same groups as the table below. `appsec-analyzer <command> --help` lists the options of each command.
+`appsec-analyzer --help` shows the commands in the same groups as the tables below. `appsec-analyzer <command> --help` lists the options of each command.
 
 `assess` and the focused analysis commands make model calls. They send source excerpts to your provider (see [Security and data use](#security-and-data-use)) and stop at a [cost limit](#cost-limits). `review` starts your coding assistant, which uses its own account.
 
+**Start here**
+
 | Command | Purpose |
 | --- | --- |
-| **Start here** | |
 | [`assess`](#assess-full-security-assessment) | Full security assessment of a repository or a system of repositories. |
 | [`review`](#review-discuss-an-assessment-with-your-coding-agent) | Discuss a finished assessment and plan fixes with Claude Code or Codex. |
-| **Quick checks without model calls** | |
+
+**Quick checks without model calls**
+
+| Command | Purpose |
+| --- | --- |
 | [`score`](#score-deterministic-security-rating) | Quick security rating from 0 to 100. |
 | [`scan-sources`](#scan-sources-raw-scanner-observations) | Raw scanner observations without a rating. |
 | [`repo-profile`](#repo-profile-size-languages-and-layout) | Size, languages, and build manifests of a local directory before a scan. |
-| **Focused analysis with model calls** | |
+
+**Focused analysis with model calls**
+
+| Command | Purpose |
+| --- | --- |
 | [`analyze-threats`](#analyze-threats-answer-a-security-question) | Answer one security question about the code, a planned design, or a change. |
 | [`authnz-review`](#authnz-review-authentication-and-authorization-review) | Review authentication and authorization only. |
 | [`audit-requirements`](#audit-requirements-requirements-audit) | Check a repository against a security requirements catalog. |
-| **Work with an assessment** | |
+
+**Work with an assessment**
+
+| Command | Purpose |
+| --- | --- |
 | `status`, `progress`, `results`, `stop` | Follow, inspect, or stop a running assessment. |
 | [`export`](#export-other-report-formats) | Convert a finished assessment to SARIF, HTML, PDF, and other formats. |
 | [`abuse-cases`](#abuse-cases-list-the-defined-cases) | List the defined abuse cases, or show one with the result a saved assessment records. |
-| **Setup and integration** | |
+
+**Setup and integration**
+
+| Command | Purpose |
+| --- | --- |
 | `preflight` | Check repository access and provider setup before you spend budget. |
 | `profiles` | List and validate scan and model profiles. |
 | [`platform-settings`](#platform-settings-github-and-gitlab-security-settings) | Security settings of a GitHub or GitLab repository, such as branch protection. |
