@@ -42,6 +42,15 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
    appsec-analyzer review ~/assessments/juice-shop
    ```
 
+While `assess` runs, the console shows the run settings, the scope, and the progress of each phase with elapsed and remaining time.
+
+<details>
+<summary>Example console output</summary>
+
+![Console output of appsec-analyzer assess: run settings, scope, and a progress table per phase](docs/images/assess-console.png)
+
+</details>
+
 To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) for details.
 
 > [!NOTE]
