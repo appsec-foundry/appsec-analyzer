@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -1483,7 +1484,7 @@ def test_an_interrupted_assessment_exits_without_a_traceback(monkeypatch, capsys
     monkeypatch.setattr(controller, "assess_repositories", interrupted)
     assert controller.assess_main(["--repo", "x", "--output", "y"]) == 130
     captured = capsys.readouterr()
-    assert "✗ assessment interrupted" in captured.err and "Traceback" not in captured.err
+    assert "⏸ Assessment interrupted" in captured.err and "Traceback" not in captured.err
 
 
 @pytest.mark.parametrize("reason, wording", [("citation", "cites a different source"), ("unread", "was not read")])
@@ -1513,10 +1514,10 @@ def test_rejected_analysis_explains_component_file_and_recovery(monkeypatch, cap
     monkeypatch.setattr(controller, "assess_repositories", rejected)
     assert controller.assess_main(["--repo", "x", "--output", str(tmp_path / "out")]) == 1
     output = capsys.readouterr().err
-    assert "Threat analysis" in output and "Component: HTTP server" in output
+    assert "Threat analysis" in output and "component HTTP server" in output
     assert "batch 10 of 24" in output and "after 3 attempts" in output
     assert "routes/dataExport.ts:26" in output and wording in output
-    assert "--resume instead of --rebuild" in output and "If the rejection repeats" in output
+    assert "--resume" in output and "read the diagnostics first" in output
     assert str(error.diagnostic_path) in output
     assert all(value not in output for value in ("job-private", "component-private", "Traceback", "\x1b"))
 
@@ -1533,7 +1534,7 @@ def test_interrupted_rate_limit_reports_cause_and_resume_action(monkeypatch, cap
     assert "--resume" in error
 
 
-def test_architecture_failure_names_repository_and_exchange_usage(monkeypatch, capsys):
+def test_architecture_failure_names_repository_without_exchange_counters(monkeypatch, capsys):
     from runtime.assessment_host import ModelAnswerFailure, Rejection
 
     error = ModelAnswerFailure(
@@ -1557,9 +1558,9 @@ def test_architecture_failure_names_repository_and_exchange_usage(monkeypatch, c
     assert controller.assess_main(["--repo", "x", "--output", "y"]) == 1
     output = capsys.readouterr().err
     assert "Architecture could not produce" in output
-    assert "Repository: shop" in output and "Component:" not in output
-    assert "after 1 attempt." in output and "1 attempts" not in output
-    assert "Job exchanges used: 6; source-read rounds: 5" in output
+    assert "repository shop" in output and "component" not in output
+    assert "after 1 attempt" in output and "1 attempts" not in output
+    assert "exchanges" not in output and "source-read rounds" not in output
     assert "different receiving endpoints" in output and "repo-private" not in output
 
 
@@ -1574,7 +1575,7 @@ def test_exhausted_usage_window_is_not_reported_as_rate_limit(monkeypatch, capsy
     monkeypatch.setattr(controller, "assess_repositories", exhausted)
     assert controller.assess_main(["--repo", "x", "--output", "y"]) == controller.ASSESS_PAUSED_EXIT
     error = capsys.readouterr().err
-    assert "usage limit reached" in error and "resets at" in error and "--resume" in error
+    assert "usage limit reached" in error and re.search(r"after \d\d:\d\d", error) and "--resume" in error
     assert "rate limit" not in error and "--max-parallel" not in error
     assert "untrusted host diagnostic" not in error
 
@@ -1593,8 +1594,8 @@ def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch,
     error = capsys.readouterr().err
     assert "provider rate limit" in error and "--resume" in error
     assert "untrusted host diagnostic" not in error
-    assert "accepted steps are kept" in error
-    assert ("cooldown of 3600 s" in error) == (reset is not None)
+    assert "finished steps are kept" in error
+    assert bool(re.search(r"after \d\d:\d\d", error)) is (reset is not None)
     record = json.loads(path.read_text().splitlines()[-1])
     assert record["status"] == "paused" and record["resumable"] is True
 
@@ -1616,7 +1617,7 @@ def test_a_rate_limit_stop_advises_fewer_parallel_jobs_in_a_new_run(monkeypatch,
     if advice is None:
         assert "--max-parallel" not in error
     else:
-        assert advice in error and "without --resume" in error and "reuses the accepted steps" in error
+        assert advice in error and "without --resume" in error and "finished steps are reused" in error
 
 
 @pytest.mark.parametrize("names", [("edge", "service"), ("west", "east")])

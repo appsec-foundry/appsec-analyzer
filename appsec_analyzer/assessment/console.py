@@ -93,8 +93,25 @@ def usage_text(before: dict, after: dict, total: bool = False, *, show_costs: bo
     return " · ".join(parts)
 
 
-def model_failure_lines(error) -> list[str]:
-    """Present a rejected analysis using job context, keeping technical IDs in diagnostics."""
+STOP_LABEL_WIDTH = 11
+KEPT = ("Status", "finished steps are kept")
+RESUME = "run the same command again with --resume"
+
+
+def stop_message(headline: str, *rows: tuple[str, str]) -> str:
+    """A run's stop as one block: a blank line, the headline, then labelled rows.
+
+    ``⏸`` marks a stop that ``--resume`` continues and ``✗`` one to look into first.
+    A long row wraps under its own text column, as under ``--width``.
+    """
+    indent = " " * (2 + STOP_LABEL_WIDTH + 2)
+    lines = ["", headline]
+    lines += [_AssessmentConsole.fit(f"  {label:<{STOP_LABEL_WIDTH}}  {text}", indent) for label, text in rows]
+    return "\n".join(lines)
+
+
+def model_failure_rows(error) -> list[tuple[str, str]]:
+    """Rows for a rejected analysis, from job context only; technical IDs stay in diagnostics."""
     from runtime.assessment_diagnostics import safe_reason
     from runtime.assessment_host import ModelAnswerFailure
 
@@ -105,39 +122,35 @@ def model_failure_lines(error) -> list[str]:
     phase = {"stride_analyzer": "Threat analysis", "architecture_analyst": "Architecture"}.get(
         role, _AssessmentConsole.ROLE_LABELS.get(role, "Analysis")
     )
-    lines = [f"✗ assessment stopped: {phase} could not produce a valid result"]
+    reason = f"{phase} could not produce a valid result"
     label = safe_reason(job.get("label", ""))
     batch = re.search(r":(\d+)/(\d+)$", job.get("selector", ""))
     if label:
-        lines.append(
-            f"  {job.get('subject', 'Component')}: {label}" + (f" · batch {batch[1]} of {batch[2]}" if batch else "")
+        reason += f" for {str(job.get('subject', 'Component')).lower()} {label}" + (
+            f" (batch {batch[1]} of {batch[2]})" if batch else ""
         )
     if error.attempts:
-        lines.append(f"  The model's answer failed validation after {_count_noun(error.attempts, 'attempt')}.")
-    if error.calls_used is not None:
-        lines.append(f"  Job exchanges used: {error.calls_used}; source-read rounds: {error.read_rounds or 0}.")
+        reason += f" after {_count_noun(error.attempts, 'attempt')}"
+    rows = [("Reason", reason)]
     issues = getattr(error.rejection, "surface_issues", ())
     if issues:
         for issue in issues[:3]:
             location = safe_reason(f"{issue['file']}:{issue['line']}")
-            reason = (
+            why = (
                 "the required source line was not read"
                 if issue["reason"] == "unread"
                 else "the source was read, but the model's decision cites a different source"
             )
-            lines.append(f"  {location}: {reason}.")
+            rows.append(("Detail", f"{location}: {why}"))
     elif error.rejection:
-        lines.append("  Reason: " + safe_reason(str(error.rejection)))
+        rows.append(("Detail", safe_reason(str(error.rejection))))
     else:
-        lines.append("  Reason: " + safe_reason(job.get("reason", str(error))))
-    lines += [
-        "  Accepted steps are kept. With unchanged source and settings and time remaining, retry the same command",
-        "  with --resume instead of --rebuild. If the rejection repeats, investigate it before retrying again.",
-    ]
+        rows.append(("Detail", safe_reason(job.get("reason", str(error)))))
+    rows += [KEPT, ("Continue", f"{RESUME}; if it stops the same way, read the diagnostics first")]
     diagnostics = getattr(error, "diagnostic_path", None)
     if diagnostics:
-        lines.append(f"  Diagnostics: {diagnostics}")
-    return lines
+        rows.append(("Diagnostics", str(diagnostics)))
+    return rows
 
 
 class _AssessmentProgress:

@@ -26,7 +26,7 @@ if __name__ == "__main__" and _sys.argv[1:2] == ["assess"]:
 
     def _assessment_startup_exception(exc_type, exc, traceback):
         if issubclass(exc_type, KeyboardInterrupt):
-            _sys.stderr.write("\n⏸ assessment interrupted\n")
+            _sys.stderr.write("\n⏸ Assessment interrupted\n")
         else:
             _sys.__excepthook__(exc_type, exc, traceback)
 
@@ -89,10 +89,13 @@ from shared.artifact_names import (  # noqa: E402
 )
 
 from appsec_analyzer.assessment.console import (
+    KEPT,
+    RESUME,
     _AssessmentConsole,
     _AssessmentProgress,
     _count_noun,
     _elapsed,
+    stop_message,
 )
 from appsec_analyzer.model_roles import (
     PROFILE_ROLE_ALIASES,
@@ -5123,6 +5126,22 @@ def _save_closing(outcome: dict, elapsed: str) -> None:
         print(f"⚠ completion summary not saved: {_cap_reason(str(exc))}", file=sys.stderr)
 
 
+def _stop(headline: str, *rows: tuple[str, str], stream=None) -> None:
+    """Print how a run stopped in the shared stop format."""
+    print(stop_message(headline, *rows), file=stream or sys.stderr, flush=True)
+
+
+def _resume_rows(before: str = "", *, capacity: bool = False) -> list[tuple[str, str]]:
+    """The rows for a stop that --resume continues; ``before`` is what to do or wait for first."""
+    if capacity:
+        return [
+            ("Reason", "provider rate limit reported recently"),
+            KEPT,
+            ("Continue", "wait for provider capacity, then " + RESUME),
+        ]
+    return [KEPT, ("Continue", before + RESUME)]
+
+
 def assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     """Command-line entry for `assess`; prints a short summary and returns an exit code."""
     code = 1
@@ -5160,27 +5179,26 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
             # A stopped run must not print its last message onto the status line.
             _AssessmentConsole.stop()
     except KeyboardInterrupt:
-        print("\n✗ assessment interrupted by operator or signal; accepted steps are kept", file=sys.stderr)
-        if _AssessmentProgress.recent_rate_limit():
-            print(
-                "  A provider rate limit was reported recently. Wait for capacity, then retry with --resume instead of --rebuild.",
-                file=sys.stderr,
-            )
-        else:
-            print("  Continue with --resume instead of --rebuild when ready.", file=sys.stderr)
+        _stop("⏸ Assessment interrupted", *_resume_rows(capacity=_AssessmentProgress.recent_rate_limit()))
         return 130
     except AssessmentPaused as exc:
-        print(f"⏸ Paused after phase {exc.number}/{exc.total} — {exc.phase}; continue with --resume", flush=True)
+        _stop(
+            f"⏸ Assessment paused after phase {exc.number}/{exc.total} {exc.phase}", *_resume_rows(), stream=sys.stdout
+        )
         return ASSESS_PAUSED_EXIT
     except BudgetExhausted as exc:
-        print(f"⏸ assessment incomplete: {_cap_reason(str(exc))}", file=sys.stderr)
+        rows = [
+            ("Reason", _cap_reason(str(exc))),
+            KEPT,
+            (
+                "Continue",
+                "raise the limit and run the same command again without --resume; "
+                "the reused steps count toward the new limit",
+            ),
+        ]
         if getattr(exc, "report", None):
-            print(f"  Incomplete budget report: {exc.report}", file=sys.stderr)
-        print(
-            "  Increase the total limit and rerun without --resume to reuse compatible accepted steps; "
-            "what they cost counts toward the new limit.",
-            file=sys.stderr,
-        )
+            rows.append(("Report", str(exc.report)))
+        _stop("⏸ Assessment paused", *rows)
         return ASSESS_PAUSED_EXIT
     except CallError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -5204,65 +5222,41 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         SchemaError,
     ) as exc:
         if isinstance(exc, HostCancelled) and not isinstance(exc, HostTimeout):
-            print(
-                f"⏸ assessment interrupted: {_cap_reason(str(exc))}; accepted steps are kept, continue with --resume instead of --rebuild",
-                file=sys.stderr,
-            )
-            if _AssessmentProgress.recent_rate_limit():
-                print(
-                    "  A provider rate limit was reported recently. Wait for capacity before resuming.", file=sys.stderr
-                )
-            return ASSESS_PAUSED_EXIT
-        if isinstance(exc, TransportError) and exc.reason == "rate_limit" and exc.usage_window:
-            # The allowance is used up; fewer parallel jobs would not change the wait.
-            print("⏸ assessment paused: Claude usage limit reached; accepted steps are kept", file=sys.stderr)
-            if exc.retry_after_s:
-                until = time.strftime("%H:%M", time.localtime(time.time() + exc.retry_after_s))
-                print(f"  The usage allowance resets at {until} (in {exc.retry_after_s:.0f} s).", file=sys.stderr)
-            print(
-                "  Wait until then, then retry with --resume instead of --rebuild if the run is still within its time limit.",
-                file=sys.stderr,
-            )
+            # The host's text names internal jobs; the operator needs only the way on.
+            _stop("⏸ Assessment interrupted", *_resume_rows(capacity=_AssessmentProgress.recent_rate_limit()))
             return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason == "rate_limit":
-            print("⏸ assessment paused: provider rate limit; accepted steps are kept", file=sys.stderr)
+            until = ""
             if exc.retry_after_s:
-                until = time.strftime("%H:%M", time.localtime(time.time() + exc.retry_after_s))
-                print(f"  Provider requested a cooldown of {exc.retry_after_s:.0f} s, until {until}.", file=sys.stderr)
-            print(
-                "  Wait for provider capacity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
-                file=sys.stderr,
-            )
+                until = f"after {time.strftime('%H:%M', time.localtime(time.time() + exc.retry_after_s))}, "
+            # The allowance is used up; fewer parallel jobs would not change the wait.
+            rows = [("Reason", "Claude usage limit reached" if exc.usage_window else "provider rate limit")]
+            rows += _resume_rows(until)
             # The setting is part of the run's identity, so a lower value needs a new run, which reuses accepted steps.
-            if (parallel := _AssessmentProgress.max_parallel or 1) > 1:
-                print(
-                    "  Fewer parallel model jobs make another rate limit less likely: rerun the same command without "
-                    f"--resume and with --max-parallel {parallel // 2} (this run used {parallel}); it reuses the "
-                    "accepted steps.",
-                    file=sys.stderr,
+            if not exc.usage_window and (parallel := _AssessmentProgress.max_parallel or 1) > 1:
+                rows.append(
+                    (
+                        "Tip",
+                        f"to make another rate limit less likely, run it without --resume and with "
+                        f"--max-parallel {parallel // 2} (this run used {parallel}); finished steps are reused",
+                    )
                 )
+            _stop("⏸ Assessment paused", *rows)
             return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason in NETWORK_FAILURES:
-            print(
-                f"⏸ assessment paused: provider connection lost ({exc.reason}); accepted steps are kept",
-                file=sys.stderr,
-            )
-            print(
-                "  Check connectivity, then retry with --resume instead of --rebuild if the run is still within its time limit.",
-                file=sys.stderr,
+            _stop(
+                "⏸ Assessment paused",
+                ("Reason", f"provider connection lost ({exc.reason})"),
+                *_resume_rows("check your connection, then "),
             )
             return ASSESS_PAUSED_EXIT
-        from appsec_analyzer.assessment.console import model_failure_lines
+        from appsec_analyzer.assessment.console import model_failure_rows
 
-        failure_lines = model_failure_lines(exc) or [f"✗ assessment stopped: {_cap_reason(str(exc))}"]
-        for line in failure_lines:
-            print(_AssessmentConsole.fit(line), file=sys.stderr)
+        rows = model_failure_rows(exc) or [("Reason", _cap_reason(str(exc)))]
         draft = _unpublished_draft(argv, before)
         if draft:
-            print(
-                f"  Unpublished draft kept for diagnosis in {draft}; it did not pass publication.",
-                file=sys.stderr,
-            )
+            rows.append(("Draft", f"unpublished, kept for diagnosis in {draft}; it did not pass publication"))
+        _stop("✗ Assessment stopped", *rows)
         return 1
     seconds = time.monotonic() - started
     elapsed = _elapsed(seconds)

@@ -1537,7 +1537,7 @@ def test_a_host_failure_ends_with_a_message_not_a_traceback(tmp_path, monkeypatc
     monkeypatch.setattr(controller, "assess_repositories", fail)
     assert controller.assess_main(["--repo", "a", "--repo", "b"]) == 1
     err = capsys.readouterr().err
-    assert "stopped: host returned no parseable result" in err and "Unpublished draft" not in err
+    assert "Assessment stopped" in err and "host returned no parseable result" in err and "unpublished" not in err
 
 
 @pytest.mark.parametrize("dependency", ["jsonschema", "yaml"])
@@ -1594,7 +1594,7 @@ runpy.run_path(script, run_name='__main__')
             pytest.fail(f"startup did not stop after SIGINT: {stdout!r}, {stderr!r}")
         if failure == "interrupt":
             assert process.returncode in (-signal.SIGINT, 128 + signal.SIGINT)
-            assert stderr.strip() == "⏸ assessment interrupted"
+            assert stderr.strip() == "⏸ Assessment interrupted"
         else:
             assert process.returncode == 1
             assert "RuntimeError: synthetic dependency failure" in stderr and "Traceback" in stderr
@@ -1642,7 +1642,7 @@ def test_a_lost_provider_connection_pauses_the_run_for_resume(tmp_path, monkeypa
 
     monkeypatch.setattr(controller, "assess_repositories", fail)
     assert controller.assess_main(["--repo", "a", "--repo", "b", "--output", str(tmp_path / "out")]) == code
-    assert ("assessment paused: provider connection lost" in capsys.readouterr().err) is (code == 3)
+    assert ("provider connection lost" in capsys.readouterr().err) is (code == 3)
 
 
 def test_a_contract_check_failure_ends_with_a_message_not_a_traceback(monkeypatch, capsys):
@@ -1653,7 +1653,7 @@ def test_a_contract_check_failure_ends_with_a_message_not_a_traceback(monkeypatc
 
     monkeypatch.setattr(controller, "assess_repositories", fail)
     assert controller.assess_main(["--repo", "a", "--repo", "b"]) == 1
-    assert "stopped: [] should be non-empty" in capsys.readouterr().err
+    assert "Assessment stopped" in (error := capsys.readouterr().err) and "[] should be non-empty" in error
 
 
 def test_a_stopped_run_names_its_kept_draft_as_unpublished(tmp_path, monkeypatch, capsys):
@@ -1666,7 +1666,7 @@ def test_a_stopped_run_names_its_kept_draft_as_unpublished(tmp_path, monkeypatch
 
     monkeypatch.setattr(controller, "assess_repositories", fail)
     assert controller.assess_main(["--repo", "a", "--repo", "b", "--output", str(tmp_path / "out")]) == 1
-    assert f"Unpublished draft kept for diagnosis in {draft}" in capsys.readouterr().err
+    assert f"unpublished, kept for diagnosis in {draft}" in capsys.readouterr().err
 
 
 def test_a_run_stopped_before_rendering_does_not_claim_an_earlier_draft(tmp_path, monkeypatch, capsys):
@@ -1680,7 +1680,7 @@ def test_a_run_stopped_before_rendering_does_not_claim_an_earlier_draft(tmp_path
     monkeypatch.setattr(controller, "assess_repositories", fail)
     assert controller.assess_main(["--repo", "a", "--repo", "b", "--output", str(tmp_path / "out")]) == 1
     err = capsys.readouterr().err
-    assert "stopped: This output directory" in err and "Unpublished draft" not in err
+    assert "Assessment stopped" in err and "This output directory" in err and "unpublished" not in err
 
 
 # ---------------------------------------------------------------------------
@@ -2903,7 +2903,7 @@ def test_budget_stop_uses_incomplete_exit_status(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(controller, "assess_repositories", stop)
     assert controller.assess_main(["--repo", "r", "--output", str(tmp_path)]) == 3
     output = capsys.readouterr()
-    assert "incomplete" in output.err and "budget-report.md" in output.err
+    assert "Assessment paused" in output.err and "budget-report.md" in output.err
     assert "✓" not in output.out
 
 
