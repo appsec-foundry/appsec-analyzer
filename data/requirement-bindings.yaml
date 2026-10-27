@@ -1257,10 +1257,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
       - specs/changes/offer-update-for-newer-results/proposal.md
       - specs/changes/add-update-command/proposal.md
+      - specs/changes/enter-confirms-update-command/proposal.md
     coverage: partial
     guards:
-      - tests/test_public_update_cli.py::test_yes_upgrades_the_pipx_installation_and_names_the_source
-      - tests/test_public_update_cli.py::test_anything_but_yes_installs_nothing
+      - tests/test_public_update_cli.py::test_yes_or_enter_upgrades_the_pipx_installation_and_names_the_source
+      - tests/test_public_update_cli.py::test_anything_but_yes_or_enter_installs_nothing
       - tests/test_public_update_cli.py::test_nothing_is_asked_or_installed_when_it_must_not_be
       - tests/test_public_update_cli.py::test_update_takes_no_assume_yes_option
       - tests/test_public_update_cli.py::test_organization_commands_do_not_offer_update
@@ -1803,7 +1804,7 @@ requirements:
       - tests/test_assessment_host.py::test_last_exchange_requires_completion_and_keeps_the_same_call_limit
       - tests/test_multi_repo_analysis.py::test_architecture_read_rounds_leave_room_to_correct_real_flow_invariants
       - tests/test_active_stride_policy.py::test_active_architecture_prompt_matches_the_toolless_finalized_component_job
-      - tests/test_multi_repo_controller.py::test_architecture_failure_names_repository_and_exchange_usage
+      - tests/test_multi_repo_controller.py::test_architecture_failure_names_repository_without_exchange_counters
       - tests/test_assessment_host.py::test_a_last_exchange_read_is_not_served_when_the_host_ignores_the_schema
       - tests/test_assessment_host.py::test_final_completion_still_requires_evidence_validation
       - tests/test_assessment_host.py::test_invalid_host_context_limits_fail_before_dispatch

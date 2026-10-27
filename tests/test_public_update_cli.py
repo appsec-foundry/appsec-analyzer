@@ -1,4 +1,4 @@
-"""Offline contracts of the `update` command: no installation without an explicit yes."""
+"""Offline contracts of the `update` command: no installation without a yes or Enter."""
 
 from __future__ import annotations
 
@@ -30,18 +30,19 @@ def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE):
     return calls
 
 
-@pytest.mark.parametrize("answer", ["y", "YES"])
-def test_yes_upgrades_the_pipx_installation_and_names_the_source(monkeypatch, capsys, answer):
+@pytest.mark.parametrize("answer", ["y", "YES", ""])
+def test_yes_or_enter_upgrades_the_pipx_installation_and_names_the_source(monkeypatch, capsys, answer):
     calls = _setup(monkeypatch, answer=answer)
     assert cli.main(["update"]) == 0
     assert calls == [["/usr/bin/pipx", "upgrade", "--pip-args=--force-reinstall", "appsec-analyzer"]]
     output = capsys.readouterr().out
     assert SOURCE in output
+    assert "[Y/n]" in output
     assert "Update finished" in output
 
 
-@pytest.mark.parametrize("answer", ["", "n", "no", "maybe"])
-def test_anything_but_yes_installs_nothing(monkeypatch, capsys, answer):
+@pytest.mark.parametrize("answer", ["n", "no", "maybe"])
+def test_anything_but_yes_or_enter_installs_nothing(monkeypatch, capsys, answer):
     calls = _setup(monkeypatch, answer=answer)
     assert cli.main(["update"]) == 0
     assert calls == []

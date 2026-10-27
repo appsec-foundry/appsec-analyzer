@@ -12,7 +12,7 @@ from appsec_analyzer.review import PIPX_UPGRADE, UPDATE_TIMEOUT, _pipx_source
 
 
 def update_installation() -> int:
-    """Upgrade a pipx installation after an explicit yes; install nothing otherwise."""
+    """Upgrade a pipx installation after a yes or Enter; install nothing otherwise."""
     source = _pipx_source()
     if not source:
         raise ValueError(
@@ -27,13 +27,13 @@ def update_installation() -> int:
     if not pipx:
         raise ValueError("pipx was not found on PATH; install pipx or update the way you installed Analyzer")
     print(
-        f"Update the installed Analyzer from {source} with `pipx {' '.join(PIPX_UPGRADE)}`? [y/N] ", end="", flush=True
+        f"Update the installed Analyzer from {source} with `pipx {' '.join(PIPX_UPGRADE)}`? [Y/n] ", end="", flush=True
     )
     try:
         answer = input().strip().lower()
     except EOFError:
-        answer = ""
-    if answer not in ("y", "yes"):
+        answer = "n"
+    if answer not in ("", "y", "yes"):
         print("Nothing was installed.")
         return 0
     try:
