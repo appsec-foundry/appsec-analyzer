@@ -376,6 +376,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | `--profile NAME` | Model profile. Default: `claude`. |
 | `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock; with a Claude subscription, usage at API prices. Default: 20. |
 | `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. In an interactive terminal, `assess` asks for the depth when you give none. |
+| `--quick`, `--standard`, `--thorough` | Shortcuts for `--assessment-depth` with that level. Two different depths in one command are refused. |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 4, or 3 when the default applies and the components divide by three; 2 for Codex and Copilot subscriptions. |

@@ -71,6 +71,34 @@ def test_a_depth_on_the_command_line_is_not_asked_again(run):
     assert "Depth (" not in err
 
 
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+def test_a_depth_shortcut_selects_that_depth_without_a_question(run, depth):
+    code, started, err = run(f"--{depth}", typed="3\n")
+    assert (code, started) == (0, depth) and "Depth (" not in err
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--quick", "--thorough"],
+        ["--standard", "--quick"],
+        ["--quick", "--assessment-depth", "thorough"],
+        ["--assessment-depth", "thorough", "--quick"],
+        ["--assessment-depth", "standard", "--quick"],
+    ],
+)
+def test_conflicting_depth_selections_start_nothing(run, options, capsys):
+    with pytest.raises(SystemExit) as stop:
+        run(*options)
+    assert stop.value.code == 2 and run.started == []
+    assert "conflicts with the depth already given" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("options", [["--quick", "--quick"], ["--quick", "--assessment-depth", "quick"]])
+def test_the_same_depth_given_twice_is_accepted(run, options):
+    assert run(*options)[:2] == (0, "quick")
+
+
 @pytest.mark.parametrize("option", [["--non-interactive"], ["--quiet"]])
 def test_modes_that_must_not_wait_keep_standard_without_a_question(run, option):
     code, depth, err = run(*option, typed="3\n")

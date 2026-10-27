@@ -41,6 +41,22 @@ class _Explicit(argparse.Action):
         namespace.explicit = {*getattr(namespace, "explicit", ()), self.dest}
 
 
+class _Depth(_Explicit):
+    """`--assessment-depth LEVEL` and its `--quick`, `--standard` and `--thorough` shortcuts; two different depths conflict."""
+
+    def __init__(self, option_strings, dest, const=None, **kwargs):
+        if const is not None:
+            kwargs.pop("choices", None)
+            kwargs["nargs"] = 0
+        super().__init__(option_strings, dest, const=const, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        depth = self.const or values
+        if self.dest in getattr(namespace, "explicit", ()) and getattr(namespace, self.dest) != depth:
+            parser.error(f"{option_string} conflicts with the depth already given ({getattr(namespace, self.dest)})")
+        super().__call__(parser, namespace, depth, option_string)
+
+
 def _engine_imports() -> None:
     """Compatibility entry for callers predating the engine boundary."""
     from appsec_analyzer.engine import initialize
@@ -581,9 +597,18 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         "--assessment-depth",
         choices=("quick", "standard", "thorough"),
         default="standard",
-        action=_Explicit,
+        action=_Depth,
         help="How much to verify (default: standard; an interactive terminal asks when you give none)",
     )
+    for depth in ("quick", "standard", "thorough"):
+        cost_group.add_argument(
+            f"--{depth}",
+            dest="assessment_depth",
+            const=depth,
+            default=argparse.SUPPRESS,
+            action=_Depth,
+            help=f"Same as --assessment-depth {depth}",
+        )
     cost_group.add_argument(
         "--max-parallel",
         type=int,
