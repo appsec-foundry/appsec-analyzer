@@ -1,13 +1,14 @@
 # appsec-analyzer
 
 [![Version](https://img.shields.io/badge/version-0.1.0a0-orange.svg)](engine.json)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#appsec-analyzer)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](setup.py)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Claude CLI](https://img.shields.io/badge/default%20provider-Claude%20CLI-5A67D8.svg)](docs/model-selection.md)
+[![Review with](https://img.shields.io/badge/review%20with-Claude%20Code%20%7C%20Codex-5A67D8.svg)](#review-discuss-an-assessment-with-your-coding-agent)
 [![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 
 > [!NOTE]
-> **Alpha.** Broad use in practice is still to come, so feedback from real projects is welcome.
+> **Alpha.** Early version, actively developed. Feedback from real-world projects welcome.
 
 AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or on several that form one system.
 
