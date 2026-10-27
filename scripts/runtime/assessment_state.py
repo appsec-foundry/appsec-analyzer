@@ -73,6 +73,8 @@ _IDENTITY_LABELS = (
 # accepted jobs wait in cache/ until a job adopts or discards them, so the
 # resume check never counts a receipt the run's accounting has not charged.
 JOBS_NAME = "jobs"
+# Deterministic results of an unchanged source and plugin (scanner output), which a new run may reuse.
+DERIVED_NAME = "derived"
 CACHE_NAME = "cache"
 # The changelog of the completed assessment a new scan replaces (REQ-017).
 # It lives under the work directory, so a resume and a restart after an
@@ -429,7 +431,7 @@ class AssessmentState:
                     # Accepted jobs become a cache the job layer rechecks
                     # against each new request; everything else is cleared.
                     _real_directory(self.directory)
-                    keep = set() if self.replace else {JOBS_NAME, CACHE_NAME}
+                    keep = set() if self.replace else {JOBS_NAME, CACHE_NAME, DERIVED_NAME}
                     for child in self.directory.iterdir():
                         if child.name == HISTORY_NAME and not self.replace and self.history_path:
                             continue

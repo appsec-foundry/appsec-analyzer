@@ -103,13 +103,80 @@ def architecture_scan(root: Path, output: Path, depth: str) -> dict:
     return document
 
 
+# Where a resumable run keeps scanner results, and the plugin fingerprint they are valid for.
+_cache: dict = {"directory": None, "runtime_sha256": None}
+
+
+def use_scanner_cache(directory: Path | None, runtime_sha256: str | None = None) -> None:
+    """Keep scanner results of frozen snapshots in ``directory`` until called again with None.
+
+    A result is reused only for the same source files, depth and plugin fingerprint, so a changed
+    source or scanner never returns an older answer. The directory must be private to the run:
+    never one inside the analyzed checkout, whose files a repository controls.
+    """
+    _cache.update(directory=directory, runtime_sha256=runtime_sha256)
+
+
+def _cache_path(scope, rid: str, depth: str, architecture: str | None) -> Path | None:
+    directory, runtime = _cache["directory"], _cache["runtime_sha256"]
+    if directory is None or runtime is None:
+        return None
+    repo = next(row for row in scope.repositories if row.repository_id == rid)
+    key = hashlib.sha256(
+        json.dumps(
+            [1, runtime, depth, architecture, repo.inventory()["files"], list(repo.exclusions)],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    return directory / f"scan-{key}.json"
+
+
+def _cache_read(path: Path):
+    """The stored result, or None when it is missing, damaged or altered."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        payload = stored["payload"]
+        if stored["sha256"] != hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest():
+            return None
+        documents, config, coverage = payload
+        return documents, config, coverage
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _cache_write(path: Path, result) -> None:
+    payload = [result[0], result[1], result[2]]
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        atomic_write_json(path, {"sha256": digest, "payload": payload})
+    except (OSError, ValueError, TypeError):
+        pass  # a result that cannot be kept is recomputed next time
+
+
 def _snapshot_outputs(
     scope, rid: str, depth: str, *, architecture: str | None
 ) -> tuple[list[dict], dict | None, dict | None]:
     """Run the deterministic scanners on one frozen repository snapshot.
 
-    ``architecture`` names the depth of the architecture coverage; None skips it.
+    ``architecture`` names the depth of the architecture coverage; None skips it. A resumed or taken-over
+    run reuses the result of an identical snapshot (see ``use_scanner_cache``).
     """
+    cached = _cache_path(scope, rid, depth, architecture)
+    if cached is not None and (hit := _cache_read(cached)) is not None:
+        return hit
+    result = _compute_snapshot_outputs(scope, rid, depth, architecture=architecture)
+    if cached is not None:
+        _cache_write(cached, result)
+    return result
+
+
+def _compute_snapshot_outputs(
+    scope, rid: str, depth: str, *, architecture: str | None
+) -> tuple[list[dict], dict | None, dict | None]:
     with scope.scanner_snapshot(rid) as root, tempfile.TemporaryDirectory(prefix="appsec-scan-") as directory:
         output = Path(directory)
         try:

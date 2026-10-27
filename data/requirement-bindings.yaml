@@ -1320,6 +1320,12 @@ requirements:
       - tests/test_assessment_state.py::test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_jobs
       - tests/test_assessment_state.py::test_resume_after_a_plugin_change_still_stops_on_a_changed_artifact
       - tests/test_assessment_state.py::test_resume_takes_over_after_a_plugin_change_together_with_changed_settings
+      - tests/test_assessment_state.py::test_the_header_says_resume_and_why_it_runs_as_a_new_run
+      - tests/test_assessment_state.py::test_a_new_run_keeps_derived_results_and_a_rebuild_drops_them
+      - tests/test_scanner_cache.py::test_an_identical_snapshot_reuses_the_stored_result
+      - tests/test_scanner_cache.py::test_a_changed_plugin_runs_the_scanners_again
+      - tests/test_scanner_cache.py::test_an_altered_or_damaged_file_is_not_used
+      - tests/test_scanner_cache.py::test_a_linked_file_is_not_used
       - tests/test_assessment_state.py::test_changed_settings_take_the_run_over_and_name_the_change
       - tests/test_assessment_state.py::test_expired_resume_takes_the_run_over_with_the_new_time_limit
       - tests/test_assessment_state.py::test_resume_of_a_completed_run_with_changed_settings_still_needs_a_new_scan

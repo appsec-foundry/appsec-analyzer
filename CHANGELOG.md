@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- A resumed run, or a new run that takes over an unfinished one, shows a `Resumed` row in its header with the reason, and skips repeating the deterministic scanners when source and Analyzer are unchanged. Scanner results are kept in the output's work directory, never inside the analyzed checkout.
 - `assess --resume` no longer refuses an unfinished run whose source, settings, limits or time limit changed. It continues as a new run that reuses the accepted steps that still match, with the limits of the command, and the run header names the cause. A completed run still needs a start without `--resume`.
 - Assessment reports name the tool as AppSec Analyzer instead of appsec-advisor and show the Analyzer version of the run. A report rendered again later keeps the version that ran the assessment.
 - `assess` no longer sends a test prompt to a low-cost model before the run. The access and provider checks remain; a rejected login, key or quota now shows at the first model call in Reconnaissance.

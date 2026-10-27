@@ -463,17 +463,39 @@ def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
         assert _assessment_continuation(rebuilt, rebuilt.budget) is None
 
 
-def test_the_header_names_why_resume_took_the_unfinished_run_over(scope):
+def test_a_new_run_keeps_derived_results_and_a_rebuild_drops_them(scope):
+    from runtime.assessment_state import DERIVED_NAME
+
+    first, _, _ = _interrupted_with_two_jobs(scope)
+    derived = first.directory / DERIVED_NAME
+    derived.mkdir()
+    (derived / "scan-x.json").write_text("{}")
+    with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}).hold() as taken:
+        assert (taken.directory / DERIVED_NAME / "scan-x.json").is_file()
+    with lifecycle(scope, replace=True).hold() as rebuilt:
+        assert not (rebuilt.directory / DERIVED_NAME).exists()
+
+
+def test_the_header_says_resume_and_why_it_runs_as_a_new_run(scope):
     from orchestrator.orchestration_controller import _assessment_continuation
 
     _interrupted_with_two_jobs(scope)
     with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}).hold() as taken:
         key, value = _assessment_continuation(taken, taken.budget)
-        assert key == "Earlier run"
-        assert value.startswith(
-            "--resume could not continue the run: the assessment settings changed since it started. "
-        )
-        assert "taken over where nothing changed" in value
+        first, second = value.split("\n")
+        assert key == "Resumed" and first.startswith("continues the unfinished run started ")
+        assert second.startswith("The assessment settings changed since it started, so it runs as a new run: ")
+        assert "steps that still match are taken over without model calls" in second
+
+
+def test_the_header_says_resume_when_no_step_can_be_taken_over(scope):
+    from orchestrator.orchestration_controller import _assessment_continuation
+
+    with lifecycle(scope).hold():
+        pass
+    with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}).hold() as taken:
+        key, value = _assessment_continuation(taken, taken.budget)
+        assert key == "Resumed" and "no accepted step could be taken over" in value
 
 
 def test_job_counts_tell_reused_from_run_jobs_per_view_and_in_total(scope):

@@ -320,6 +320,13 @@ class RepositoryView:
         """
         return MappingProxyType({path: _masked_bytes(data) for path, data in self.files.items()})
 
+    @cached_property
+    def _file_rows(self) -> tuple[dict, ...]:
+        """Hash each file once per immutable view; the inventory is asked for again and again."""
+        return tuple(
+            {"path": path, "sha256": _digest(data), "bytes": len(data)} for path, data in sorted(self.files.items())
+        )
+
     def inventory(self) -> dict:
         return {
             "repository_id": self.repository_id,
@@ -327,9 +334,7 @@ class RepositoryView:
             "head": self.head,
             "state_sha256": self.state_sha256,
             "dirty": self.dirty,
-            "files": [
-                {"path": path, "sha256": _digest(data), "bytes": len(data)} for path, data in sorted(self.files.items())
-            ],
+            "files": [dict(row) for row in self._file_rows],
             "exclusions": list(self.exclusions),
         }
 

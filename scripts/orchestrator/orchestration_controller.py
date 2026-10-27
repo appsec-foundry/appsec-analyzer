@@ -958,9 +958,15 @@ def _assessment_session(
             diagnostics=diagnostics,
             redo_stale=state.runtime_changed,
         )
+        from model.assessment_scanner_findings import use_scanner_cache
         from runtime.analyst_host import HostCancelled, HostTimeout
+        from runtime.assessment_state import DERIVED_NAME
         from runtime.multi_repo_discovery import BudgetExhausted
 
+        # A later start reuses the scanner results of an identical source and plugin. Not inside the
+        # analyzed checkout: a repository could plant results there.
+        if not scope.output_in_checkout():
+            use_scanner_cache(state.directory / DERIVED_NAME, state.identity["runtime_sha256"])
         try:
             yield cfg, state, jobs
         except BudgetExhausted as exc:
@@ -994,6 +1000,8 @@ def _assessment_session(
         else:
             if diagnostics:
                 diagnostics.emit("attempt_complete")
+        finally:
+            use_scanner_cache(None)
 
 
 def _write_run_issues(output: Path, cfg: dict[str, Any], issues: list[tuple[str, str, str]]) -> bool:
@@ -3282,6 +3290,10 @@ def _assessment_show_costs(ns, cfg=None) -> bool:
     return getattr(ns, "show_costs", False) or api_billing(((cfg or {}).get("host_profile") or {}).get("kind"))
 
 
+def _sentence(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
 def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, str] | None:
     """The header row of a resumed run or of a new run that reuses an unfinished run's steps (REQ-016)."""
 
@@ -3306,16 +3318,29 @@ def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, st
     if state.reused_run_started is not None:
         # A reused step is charged to this run, so it counts toward the new limit.
         counted = "model calls count" if budget.subscription else "cost counts"
-        cause = f"--resume could not continue the run: {state.resume_blocker}. " if state.resume_blocker else ""
         spent = state.reused_run_spent
         spent = (
             f" · {spent} model calls used" if budget.subscription else f" · USD {spent:.2f} spent" if show_costs else ""
         )
-        return (
-            "Earlier run",
-            f"{cause}results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
+        took = (
+            f"steps that still match are taken over without model calls, but their {counted} toward the limit"
+            if state.resume_blocker
+            else f"results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
             f"changed; they need no new model calls, but their {counted} toward the limit"
-            f" · {_elapsed(state.worked_before)} worked{spent}",
+        )
+        worked = f" · {_elapsed(state.worked_before)} worked{spent}"
+        if state.resume_blocker:
+            # The operator asked for --resume: say that it continues, and why it runs as a new run.
+            return (
+                "Resumed",
+                f"continues the unfinished run started {utc(state.reused_run_started)}{worked}\n"
+                f"{_sentence(state.resume_blocker)}, so it runs as a new run: {took}",
+            )
+        return "Earlier run", took + worked
+    if state.resume_blocker:
+        return (
+            "Resumed",
+            f"{_sentence(state.resume_blocker)}, and no accepted step could be taken over: the analysis starts again",
         )
     return None
 
