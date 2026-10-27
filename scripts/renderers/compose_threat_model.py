@@ -16711,10 +16711,25 @@ def _verification_card(t: dict) -> str:
 
     A finding names its methods when more than one found it or verification did, with the verification
     items behind it. A saved model from before ``found_by`` names verification findings linked to it.
+    A control that verification evidenced at the finding's location is shown below the methods.
     """
     cases = [
         str(c) for c in (t.get("verification") or {}).get("test_case_ids") or [] if _TEST_CASE_ID.fullmatch(str(c))
     ]
+    rows = [row for row in t.get("verification_contradicted") or [] if isinstance(row, dict)]
+    spots = [
+        f"[{row['test_case_id']}](#{str(row['test_case_id']).lower()}) at "
+        f"{_safe_boundary_text(row.get('file'), table=True)}:{row.get('line')}"
+        for row in rows
+        if _TEST_CASE_ID.fullmatch(str(row.get("test_case_id")))
+    ]
+    contradiction = (
+        "**Contradicted by verification:** a control was evidenced at "
+        + "; ".join(spots)
+        + ". Check this finding before acting on it."
+        if spots
+        else ""
+    )
     methods = [_METHOD_NAMES[m] for m in _METHOD_NAMES if m in (t.get("found_by") or [])]
     if len(methods) > 1 or "verification" in methods:
         named = methods[0] if len(methods) == 1 else ", ".join(methods[:-1]) + " and " + methods[-1]
@@ -16728,7 +16743,7 @@ def _verification_card(t: dict) -> str:
                 + _safe_boundary_text(contradicted["reason"])
                 + " Check this finding before acting on it."
             )
-        return card
+        return card + (f"\n\n{contradiction}" if contradiction else "")
     found = [
         str(f)
         for f in (t.get("verification") or {}).get("finding_ids") or []
@@ -16737,20 +16752,7 @@ def _verification_card(t: dict) -> str:
     if found:
         links = ", ".join(f"[{c}](#{c.lower()})" for c in cases)
         return f"**Found by:** survey and verification ({', '.join(found)}{'; ' + links if links else ''})"
-    rows = [row for row in t.get("verification_contradicted") or [] if isinstance(row, dict)]
-    spots = [
-        f"[{row['test_case_id']}](#{str(row['test_case_id']).lower()}) at "
-        f"{_safe_boundary_text(row.get('file'), table=True)}:{row.get('line')}"
-        for row in rows
-        if _TEST_CASE_ID.fullmatch(str(row.get("test_case_id")))
-    ]
-    if spots:
-        return (
-            "**Contradicted by verification:** a control was evidenced at "
-            + "; ".join(spots)
-            + ". Check this survey finding before acting on it."
-        )
-    return ""
+    return contradiction
 
 
 def _render_test_case_findings(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:

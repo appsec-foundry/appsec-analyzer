@@ -731,8 +731,6 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
         _survey("T-003", "CWE-639", "routes/wallet.ts", 12),
         _survey("T-004", "CWE-862", "routes/payment.ts", 30),
         _survey("T-005", "CWE-639", "routes/refund.ts", 40),
-        # Only a survey finding is contradicted, not a scanner finding at the same place.
-        _survey("T-006", "CWE-639", "routes/payment.ts", 30, found_by="scanners"),
     ]
     results = [
         {"test_case_id": "TC-AUTHZ-01", "control_locations": [{"file": "routes/payment.ts", "line": 30}]},
@@ -748,6 +746,40 @@ def test_a_control_verified_at_a_survey_location_contradicts_the_finding_but_kee
     ]
     # Only a CWE of the verification item is contradicted, not another CWE of its family:
     # an ownership check does not show that a role check exists.
+    assert all("verification_contradicted" not in threat for threat in threats[1:])
+
+
+def test_a_control_verified_at_a_scanner_location_records_the_disagreement_and_keeps_the_finding(catalog):
+    threats = [
+        # A rule finding whose instances verification examined: the owner field is set from the session.
+        _survey(
+            "T-001",
+            "CWE-639",
+            "routes/export.ts",
+            26,
+            ("routes/wallet.ts", 12),
+            ("routes/wallet.ts", 24),
+            found_by="scanners",
+        ),
+        # The same rule at a place that verification did not examine stays as it is.
+        _survey("T-002", "CWE-639", "routes/order.ts", 148, found_by="scanners"),
+        # A finding of verification alone is never contradicted by its own controls.
+        _survey("T-003", "CWE-639", "routes/wallet.ts", 12, found_by="verification"),
+    ]
+    threats[0]["risk"] = "Critical"
+    results = [
+        {
+            "test_case_id": "TC-AUTHZ-01",
+            "control_locations": [{"file": "routes/wallet.ts", "line": 24}, {"file": "routes/wallet.ts", "line": 12}],
+        }
+    ]
+    assert tcr.mark_contradicted(threats, results, catalog) == 1
+    assert threats[0]["verification_contradicted"] == [
+        {"test_case_id": "TC-AUTHZ-01", "file": "routes/wallet.ts", "line": 24},
+        {"test_case_id": "TC-AUTHZ-01", "file": "routes/wallet.ts", "line": 12},
+    ]
+    # The mark removes and rescores nothing.
+    assert threats[0]["risk"] == "Critical" and len(threats) == 3
     assert all("verification_contradicted" not in threat for threat in threats[1:])
 
 
@@ -892,6 +924,13 @@ def test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect(
     assert compose._verification_card(disputed).startswith(
         "**Contradicted by verification:** a control was evidenced at [TC-AUTHZ-01](#tc-authz-01) at routes/a.ts:3."
     )
+    # A contradicted finding of several methods keeps the contradiction below its methods.
+    both = {**disputed, "found_by": ["survey", "scanners"]}
+    assert compose._verification_card(both) == (
+        "**Found by:** survey and scanners\n\n**Contradicted by verification:** a control was evidenced at "
+        "[TC-AUTHZ-01](#tc-authz-01) at routes/a.ts:3. Check this finding before acting on it."
+    )
+    assert compose._verification_card({**disputed, "found_by": ["scanners"]}).startswith("**Contradicted by")
     assert compose._verification_card({}) == ""
     findings = [
         {**_verified("TCF-001", "CWE-639", "a.ts", 1), "survey_finding_ids": ["T-001"], "title": "x", "risk": "High"},

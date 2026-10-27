@@ -49,6 +49,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A scanner rule finding at a location where verification evidenced a control now shows "Contradicted by verification", as a survey finding already did. The report card also shows this note for findings that several methods found; before, it was missing there.
 - A run stopped by an exhausted Claude usage allowance says so and names the reset time. It no longer reports a rate limit or advises a lower `--max-parallel`, which does not shorten that wait.
 - Hardcoded secrets, including keys passed as arguments, are masked in all report outputs; the secret gate fails if one remains.
 - Threat Analyst honors organization Opus bans.

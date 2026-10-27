@@ -237,7 +237,7 @@ With verification on:
 
 - Findings from scanner rules carry `rule_ids` and `test_case_ids` in `security-assessment.yaml`, and their details link the verification items and rules.
 - `security-assessment.yaml` gains a `test_case_results` block, with `incomplete_aspects` when the budget ended verification early.
-- Every finding names the methods that found it in `found_by`: `survey`, `scanners`, or `verification`. Findings that hold verification findings carry `verification` with their `TCF-` IDs and verification items, and survey findings that verification contradicts carry `verification_contradicted`. A finding of verification alone that the evidence review refuted carries `evidence_review_contradicted` with the review's reason.
+- Every finding names the methods that found it in `found_by`: `survey`, `scanners`, or `verification`. Findings that hold verification findings carry `verification` with their `TCF-` IDs and verification items, and survey or scanner findings that verification contradicts carry `verification_contradicted`. A finding of verification alone that the evidence review refuted carries `evidence_review_contradicted` with the review's reason.
 - The report gains the appendix Verification Items, which lists every catalog item and its outcome, with one row per component for model-investigated items.
 - The completion summary shows a Verification row with the outcome counts.
 - In SARIF, a linked finding uses the verification item ID as `ruleId`. The finding ID moves to the result property `findingId`.

@@ -217,7 +217,7 @@ def build_block(
     return block
 
 
-def _survey_locations(threat: Mapping[str, Any]) -> list[tuple[str, int]]:
+def _finding_locations(threat: Mapping[str, Any]) -> list[tuple[str, int]]:
     rows = [row for row in threat.get("evidence") or [] if isinstance(row, dict)]
     rows += [row for row in threat.get("instances") or [] if isinstance(row, dict)]
     return [(row["file"], row["line"]) for row in rows if row.get("file") and isinstance(row.get("line"), int)]
@@ -228,24 +228,26 @@ def mark_contradicted(
     results: list[dict[str, Any]],
     catalog: dict[str, Any] | None = None,
 ) -> int:
-    """Mark survey findings at a line where verification evidenced a control for their CWE (REQ-040).
+    """Mark survey and scanner findings at a line where verification evidenced a control for their CWE (REQ-040).
 
-    The merge already made each verification finding part of the finding it repeats. A survey finding
-    that holds no verification finding and has a location where a verification item with its CWE
-    evidenced a control records the item and location in ``verification_contradicted`` and stays in the
-    report, so that a reader can check it. Survey findings at locations verification did not examine
-    stay unchanged. Returns how many findings were marked."""
+    The merge already made each verification finding part of the finding it repeats. A survey or
+    scanner finding that holds no verification finding and has a location where a verification item
+    with its CWE evidenced a control records the item and location in ``verification_contradicted`` and
+    stays in the report, so that a reader can check it. A scanner rule finding thereby records its
+    disagreement with verification. Findings at locations verification did not examine stay unchanged.
+    Returns how many findings were marked."""
     cwes = {case["id"]: set(case["cwe"]) for case in (catalog or load_catalog())["test_cases"]}
     contradicted = 0
     for threat in threats:
-        if "survey" not in (threat.get("found_by") or []) or not threat.get("id") or threat.get("verification"):
+        methods = set(threat.get("found_by") or [])
+        if not methods & {"survey", "scanners"} or not threat.get("id") or threat.get("verification"):
             continue
         rows = [
             {"test_case_id": result["test_case_id"], "file": file, "line": line}
             for result in results
             if threat.get("cwe") in cwes.get(result.get("test_case_id"), ())
             for spot in result.get("control_locations") or []
-            for file, line in _survey_locations(threat)
+            for file, line in _finding_locations(threat)
             if (file, line) == (spot["file"], spot["line"])
         ]
         if rows:

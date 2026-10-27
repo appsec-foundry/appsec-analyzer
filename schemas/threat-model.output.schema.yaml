@@ -1344,7 +1344,7 @@ properties:
               items: { type: string, pattern: "^TC-[A-Z]+-[0-9]{2}$" }
         verification_contradicted:
           description: >-
-            REQ-040: lines of this survey threat where a test case with its CWE evidenced a control. The
+            REQ-040: lines of this survey or scanner threat where a test case with its CWE evidenced a control. The
             threat stays in the report so that a reader can check it.
           type: array
           minItems: 1
