@@ -64,7 +64,7 @@ Cases derived later by a model at thorough depth are not part of that count. Loa
 
 Supply-chain and secret-handling weaknesses can still be found in source and configuration, and secret masking and result checks remain active. These checks do not replace a dependency vulnerability scan or comprehensive repository and Git-history secret scanning. No tests run against the application itself.
 
-Use `standard` as a starting point, including for business logic analysis. `thorough` can find additional problems, but more expensive early analysis can leave less budget for verification and combining related findings. More findings or abuse cases do not by themselves establish better coverage. See [the measured standard and thorough comparison](model-selection.md#choosing-standard-or-thorough) for costs and limits, and check the run summary for skipped model work.
+Use `standard` as a starting point, including for business logic analysis. `thorough` can find additional problems, but more expensive early analysis can leave less budget for verification and combining related findings. More findings or abuse cases do not by themselves establish better coverage. See [the measured depth comparison](model-selection.md#choosing-a-depth) for costs and limits, and check the run summary for skipped model work.
 
 For `claude` and `codex`, the spending limit defaults to USD 20 for `assess`. Use `--budget USD` to override it; `--hard-budget` remains a compatible alias. The CLI prints the selected limit before starting. The controller reserves completion work before optional model calls and records unavailable cost as a conservative charge.
 

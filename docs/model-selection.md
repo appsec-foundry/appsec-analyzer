@@ -40,15 +40,34 @@ An OpenAI `--model` value must match the selected survey model or its requested 
 
 Users can set models and reasoning effort in their own Claude model profiles. The adapter does not expose `max_output_tokens`; a Claude profile containing that field is rejected. The USD budget and existing execution bounds remain in force.
 
-### Choosing standard or thorough
+### Choosing a depth
 
-Start with `standard`. Both Sonnet and Opus can identify business logic problems, such as spending a wallet balance without a valid payment or changing another user's basket. `thorough` can find additional problems, but it changes both analysis limits and model selection; it does not guarantee that every finding is new, correct, or more thoroughly verified.
+Start with `standard`. Use `quick` for a fast first overview, and `thorough` when you want the widest coverage and can pay about two to three times as much as for `standard`. [What each depth does](profiles.md#what-each-depth-does) lists the settings behind each depth.
 
-In one comparison of the same Juice Shop source on 2026-10-17, a standard run using Sonnet for the survey cost USD 15.85 and a thorough run using Opus cost USD 28.01: about USD 12 more, or 77%. The survey, then called the STRIDE analysis, is the component threat-analysis stage; its cost rose from USD 8.35 to USD 21.91. These were two runs of the inherited Advisor engine, not a price estimate or a controlled model benchmark for the current Analyzer release. Costs depend on the project, selected models, work limits, and retries.
+On 2026-10-26 and 2026-10-27, one run per depth assessed the same Juice Shop source (about 820 source files) with the `claude` profile:
 
-The thorough run identified additional cases involving negative basket quantities and expired discounts. Sonnet also found business logic problems, and some apparently new thorough findings were already present in the standard analysis but grouped together or rated below the report's severity threshold. More report entries do not necessarily mean more independent weaknesses.
+| | `quick` | `standard` | `thorough` |
+| --- | ---: | ---: | ---: |
+| Cost | USD 8.17 | USD 14.71 | USD 39.74 |
+| Time | 22 minutes | 41 minutes | 1 hour 36 minutes, including earlier attempts that `--resume` continued |
+| Findings in the register | 51 | 104 | 147 |
+| Critical and High findings | 24 | 35 | 50 |
+| Verification results | none | 31 findings, 3 controls, 14 undecidable | 49 findings, 6 controls, 1 partial, 28 undecidable |
+| Confirmed abuse cases | not checked | 6 of 14, 4 not checked because of the limit | 8 of 14 |
 
-Both runs had a USD 30 limit. The thorough run spent enough on early analysis that later model checks, including all abuse-case verification, were skipped to preserve the report budget. Standard reported five confirmed abuse scenarios; all fourteen thorough scenarios remained inconclusive. Check the run summary for skipped work before treating a completed report as a fully verified assessment. A higher budget permits more work but does not guarantee better findings.
+`quick` found the most severe known problems of this application: SQL injection in login and product search, code execution through the stored user name, XXE and path traversal in file uploads, server-side request forgery, and the JWT signing key in the source code. It missed code execution in B2B orders, which both other depths rated High, and problems with two-factor authentication, CAPTCHA, and the metrics endpoint. It runs no verification and checks no abuse cases, so its findings rest on the survey and the scanners alone.
+
+`standard` found all of these problems, verified the main security aspects, and checked abuse cases. At USD 0.14 per finding, it had the lowest cost per finding.
+
+`thorough` reported the widest coverage: 61 instead of 48 weakness types (CWEs), including an open redirect, unsigned coupon codes, and missing WebSocket handshake authentication that no other depth reported. With Claude, it uses Opus for the survey and for verification, which caused most of the additional cost. Each additional Critical or High finding cost about USD 1.70. The run needed about USD 40, twice the default `--budget` of USD 20. When the budget runs short, Analyzer skips later checks, such as verification and abuse cases, to complete the report. Check the run summary for skipped work before treating a completed report as fully verified.
+
+Read the counts with care:
+
+- More findings do not mean as many more weaknesses. In the thorough run, several problems appear two or three times, for example once from the survey and once from verification under another weakness type.
+- The same problem can get a different severity in another run. An endpoint that returns user records together with uploaded photos was Critical in `quick`, Medium in `standard`, and High in `thorough`.
+- Abuse-case results also varied. Two attack chains that `standard` confirmed as Critical stayed unresolved in `thorough`, although both runs used the same model for this check.
+
+These are single runs on one application, not a benchmark. Costs and results depend on the project, models, limits, budget, and retries.
 
 ## Compatibility and qualification
 

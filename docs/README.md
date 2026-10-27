@@ -23,7 +23,7 @@ The [architecture overview](../ARCHITECTURE.md) describes application workflows,
 
 The [requirement acceptance contract](internal/contracts/requirement-acceptance.md) contains the detailed rules behind the short user requirements. The [ID migration](../specs/changes/plain-requirement-ids/proposal.md) maps earlier category-coded IDs to stable `REQ-NNN` IDs.
 
-The [Juice Shop standard and thorough comparison](internal/analysis/stride-model-cost-comparison-2026-10-17.md) records measured costs, business logic findings, and the limits of drawing model-quality conclusions from two runs.
+The [Juice Shop standard and thorough comparison](internal/analysis/stride-model-cost-comparison-2026-10-17.md) records measured costs, business logic findings, and the limits of drawing model-quality conclusions from two runs. The [Juice Shop depth comparison](internal/analysis/depth-comparison-juice-shop-2026-10-27.md) records costs, time, findings, verification, and abuse-case results of one quick, standard, and thorough run of the standalone Analyzer.
 
 Some [technical contracts](internal/contracts/) describe mechanisms retained from Advisor. Check their scope notes and current callers before using them as standalone interfaces. The [extraction record](internal/extraction/phase-a-record.md), `internal/analysis/`, and `proposals/` contain dated findings and plans. They do not describe released capabilities.
 
