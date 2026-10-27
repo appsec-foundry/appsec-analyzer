@@ -36,15 +36,15 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 
    For your own code, pass its Git URL or local path to `--repo`.
 
+   While `assess` runs, the console shows the run settings, the scope, and the progress of each phase with elapsed and remaining time:
+
+   ![Console output of appsec-analyzer assess: run settings, scope, and a progress table per phase](docs/images/assess-console.png)
+
 3. **Review the findings with your coding agent.** Discuss the results and plan fixes in Claude Code or Codex:
 
    ```sh
    appsec-analyzer review ~/assessments/juice-shop
    ```
-
-While `assess` runs, the console shows the run settings, the scope, and the progress of each phase with elapsed and remaining time:
-
-![Console output of appsec-analyzer assess: run settings, scope, and a progress table per phase](docs/images/assess-console.png)
 
 To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) for details.
 
