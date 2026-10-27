@@ -213,6 +213,45 @@ The table checks known Juice Shop weaknesses by evidence file and keywords in ti
 
 No run reported a YAML bomb in the complaint upload (thorough T-131 mentions YAML parsing only as part of an unauthenticated upload), XSS through video subtitles, or stack traces and API documentation exposed to anonymous callers. Findings in the language-model chat (`routes/chat.ts`) grew from 3 in quick to 5 in standard and 8 in thorough.
 
+### Entries only thorough reported
+
+32 thorough entries have no counterpart in quick or standard: no entry with the same CWE and an overlapping evidence file, the same first evidence location, or a similar title in the same file. None of them is Critical. After reading their titles and scenarios, about 13 describe topics that the other runs did not report:
+
+| ID | Severity | Classification | Finding | Evidence |
+| --- | --- | --- | --- | --- |
+| T-030 | High | `confirmed-exploitable` | Coupon codes are only z85-encoded and unsigned; an attacker can encode a code such as `OCT26-99` and apply an arbitrary discount. | `routes/coupon.ts:15` |
+| T-047, T-118 | High, Medium | `insecure-practice` | TOTP secrets are stored in plaintext. | `routes/2fa.ts:129`, `models/user.ts:112` |
+| T-081 | Medium | `confirmed-exploitable` | Campaign coupon validity depends on a date the client sends. | `routes/order.ts:201` |
+| T-058 | Medium | `confirmed-exploitable` | Open redirect. | `routes/redirect.ts:19` |
+| T-080 | Medium | `insecure-practice`, evidence `ambiguous` | Cookie-authenticated profile update without CSRF protection. | `routes/updateUserProfile.ts:38` |
+| T-079 | Medium | `insecure-practice` | Profile image URL inserted into the profile page without encoding. | `routes/userProfile.ts:88` |
+| T-089 | Medium | `insecure-practice` | Hard-coded Ethereum wallet mnemonic. | `routes/checkKeys.ts:10` |
+| T-091 | Medium | `insecure-practice` | Test account credentials in the frontend bundle. | `frontend/src/app/login/login.component.ts:62` |
+| T-115 | Medium | `insecure-practice` | Plaintext account passwords in the login code. | `routes/login.ts:60` |
+| T-117 | Medium | `insecure-practice` | Payment card numbers stored unencrypted. | `models/card.ts:38` |
+| T-095 | Medium | `confirmed-exploitable` | Confidential discount rule in a chat system prompt that users can extract. | `routes/chat.ts:105` |
+| T-060, T-077 | Medium | `insecure-practice`, `confirmed-exploitable` | WebSocket handshake and channel without authentication. | `lib/startup/registerWebsocketEvents.ts:20`, `:36` |
+| T-064 | Medium | `confirmed-exploitable` | The text CAPTCHA endpoint returns the answer; standard reported this only for the image CAPTCHA. | `routes/captcha.ts:31` |
+
+T-117 belongs to data protection, which only thorough verifies. The remaining 17 entries without a counterpart add little:
+
+- Minor additions: plain HTTP without HSTS (T-100), an unbounded remote download written to disk (T-121), responses that contain the whole user record (T-098, T-112), and client-asserted challenge completion over the WebSocket (T-126), which concerns Juice Shop's challenge mechanism rather than the shop.
+- Variants of topics the other runs reported under another CWE or endpoint: T-061 (security-question enumeration, standard T-077), T-063 (password policy at registration, standard T-049 at reset), T-094 and T-107 (CAPTCHA answers), T-099 (whoami, standard T-074), T-111 (authentication details, standard T-111), T-113 (password in the URL, standard T-072), T-128 (credential database in the FTP directory, standard T-073 and T-081), T-133 (memories listing), and T-153 (role at registration).
+- Weak entries without a recorded finder: T-207 (High, a stolen bearer token is accepted without token binding) is generic, and T-209 (frontend review service) has `ambiguous` evidence.
+
+### Entries thorough did not report
+
+Thorough is not a superset of the smaller runs. These entries have no thorough counterpart:
+
+- standard T-112: weak attempt limiting on TOTP verification, `routes/2fa.ts:31`.
+- standard T-047: the token verification helper skips expiry, issuer, and audience, `lib/insecurity.ts:55`.
+- standard T-063: basket item update accepts arbitrary body fields, `routes/basketItems.ts:70`, evidence `ambiguous`.
+- standard T-060: fetched remote content stored unvalidated, `routes/profileImageUrlUpload.ts:29`.
+- quick T-055: security answers hashed with a hard-coded HMAC key, `models/securityAnswer.ts:45`.
+- standard T-088 and quick T-056: the smoke-test container runs as root, `test/smoke/Dockerfile:1`.
+
+Four further standard entries without a strict match (T-074, T-075, T-076, T-077) have thorough counterparts under another CWE or at another endpoint (T-099, T-107, T-097, T-061).
+
 ## Abuse cases
 
 Quick skips abuse cases. Standard and thorough considered the same 14 cases:
@@ -266,7 +305,9 @@ The [earlier standard and thorough comparison](stride-model-cost-comparison-2026
 
 ## Conclusions and candidate fixes
 
-Standard has the lowest cost per register entry and found every weakness of the coverage table that quick found, plus code execution in B2B orders. Quick found the most severe known weaknesses of this application but missed B2B code execution and runs no verification. Thorough adds coverage at a much higher marginal cost, and its counts overstate the number of additional weaknesses.
+Standard has the lowest cost per register entry and found every weakness of the coverage table that quick found, plus code execution in B2B orders. Quick found the most severe known weaknesses of this application but missed B2B code execution and runs no verification. Thorough adds coverage at a much higher marginal cost, and its counts overstate the number of additional weaknesses. For USD 25.03 more than standard, it reported about 13 new topics, two of them High and none Critical, which is about USD 1.90 per topic. Apart from the unsigned coupons and the plaintext TOTP secrets, its Critical and High entries have counterparts in standard, sometimes with another severity. Thorough suits a second pass before a release or audit of an application that handles payments or sensitive data, with a budget of at least USD 45; it is not a good default.
+
+A second standard run (about USD 15) might report part of thorough's additional topics, because results vary between runs. This is an unmeasured alternative.
 
 These single runs do not establish repeatable differences. Repeat runs per depth with identical budget and Analyzer version are needed to separate depth from variation, and counts should be compared after merging duplicates.
 
