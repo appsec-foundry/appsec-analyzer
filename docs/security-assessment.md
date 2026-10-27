@@ -200,9 +200,9 @@ Findings on neighboring lines remain separate, as do findings about different ro
 | --- | --- | --- |
 | quick | yes | none |
 | standard | yes | `AuthN`, `AuthZ`, `InputVal`, `AI` |
-| thorough | yes | `AuthN`, `AuthNRoutes`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
+| thorough | yes | `AuthN`, `AuthZ`, `InputVal`, `DataProt`, `AI` |
 
-These defaults come from [data/assessment-depths.yaml](../data/assessment-depths.yaml). Standard depth omits `AuthNRoutes`: in a Juice Shop measurement, it cost about as much as authorization verification and mostly repeated existing findings. It also omits `DataProt`, whose findings mostly overlap the survey's, with few new findings of high severity.
+These defaults come from [data/assessment-depths.yaml](../data/assessment-depths.yaml). No depth verifies `AuthNRoutes`, the check of every route's authentication: in Juice Shop measurements, authorization verification reported the same unguarded routes, so nine of its ten own findings repeated another finding. Standard depth also omits `DataProt`, whose findings mostly overlap the survey's, with few new findings of high severity.
 
 `AI` verification runs only for components identified as calling a language model, through a common JavaScript/Python SDK or an architecture flow. For those components, calls through other SDKs and the source lines cited by the architecture also provide starting points. The startup header lists the selected verification aspects under "Threat analysis methods".
 
@@ -216,7 +216,7 @@ Jobs that cannot fit the remaining budget do not run. Their locations remain und
 
 You choose the verified aspects per depth in a scan profile, and an organization can set its own defaults in an organization profile. Analyzer starts from the shipped file, applies the organization profile, and then the scan profile. There is no command-line option for it.
 
-To check every route's authentication as well at standard depth, and authorization already at quick depth, add this to a scan profile:
+To check every route's authentication and data protection as well at standard depth, and authorization already at quick depth, add this to a scan profile:
 
 ```yaml
 schema_version: 1

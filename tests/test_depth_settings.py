@@ -39,7 +39,7 @@ def test_the_shipped_file_reproduces_each_depth_before_it_existed():
     assert [depth_settings.shipped(depth)["verify"] for depth in DEPTHS] == [
         [],
         ["AuthN", "AuthZ", "InputVal", "AI"],
-        ["AuthN", "AuthNRoutes", "AuthZ", "InputVal", "DataProt", "AI"],
+        ["AuthN", "AuthZ", "InputVal", "DataProt", "AI"],
     ]
 
 

@@ -143,7 +143,7 @@ def test_test_cases_default_follows_the_depth(home):
     assert plain["origins"]["settings"]["test_cases"] == "analyzer default for standard depth"
     assert profiles.resolve_scan("claude", depth="quick")["settings"]["test_cases"] is False
     assert profiles.resolve_scan("claude", depth="thorough")["settings"]["test_cases"] == {
-        "aspects": ["AuthN", "AuthNRoutes", "AuthZ", "InputVal", "DataProt", "AI"],
+        "aspects": ["AuthN", "AuthZ", "InputVal", "DataProt", "AI"],
         "disable": [],
     }
     write(home, "scan", "cases", {"schema_version": 1, "test_cases": True})
@@ -161,7 +161,7 @@ def test_depth_values_override_single_depths_and_keep_the_others(home):
     assert standard["depth_settings"]["abuse_cases"] == 5
     assert profiles.resolve_scan("team", depth="quick")["settings"]["test_cases"] is False
     thorough = profiles.resolve_scan("team", depth="thorough")["settings"]
-    assert thorough["test_cases"]["aspects"] == ["AuthN", "AuthNRoutes", "AuthZ", "InputVal", "DataProt", "AI"]
+    assert thorough["test_cases"]["aspects"] == ["AuthN", "AuthZ", "InputVal", "DataProt", "AI"]
     assert thorough["depth_settings"] == depth_settings.shipped("thorough")
     write(
         home,

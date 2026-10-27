@@ -161,7 +161,7 @@ Each assessment depth has default settings, which Analyzer ships in [data/assess
 
 | Setting | quick | standard | thorough | Meaning |
 | --- | --- | --- | --- | --- |
-| `verify` | `[]` | `[AuthN, AuthZ, InputVal, AI]` | `[AuthN, AuthNRoutes, AuthZ, InputVal, DataProt, AI]` | Security aspects that [verification](security-assessment.md#survey-and-verification) checks beside the survey; `[]` runs the survey only. |
+| `verify` | `[]` | `[AuthN, AuthZ, InputVal, AI]` | `[AuthN, AuthZ, InputVal, DataProt, AI]` | Security aspects that [verification](security-assessment.md#survey-and-verification) checks beside the survey; `[]` runs the survey only. |
 | `abuse_cases` | 0 | 3 | 8 | Optional business abuse cases checked, that is, attack scenarios against the application's rules. With 0, a run checks abuse cases only when they are asked for. |
 | `derived_abuse_cases` | 0 | 0 | 3 | Business abuse cases the model may add from the application's own rules, at most 6. |
 | `architect_review` | false | false | true | A second model call reviews the findings. |
