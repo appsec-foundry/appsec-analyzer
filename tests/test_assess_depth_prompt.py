@@ -41,8 +41,8 @@ def test_enter_picks_standard_and_the_question_names_cost_runtime_and_coverage(r
     assert (code, depth) == (0, "standard")
     for depth_name in ("quick", "standard", "thorough"):
         assert depth_name in err
-    assert err.count("limit USD 20") == 3
-    assert "shortest runtime" in err and "longest runtime" in err
+    assert err.count("USD 20") == 3
+    assert "Cost, runtime" in err and "lowest, shortest" in err and "highest, longest" in err
     assert "survey only" in err and "architect review" in err
 
 
@@ -52,9 +52,9 @@ def test_a_claude_subscription_values_each_limit_at_api_prices(run, monkeypatch,
     if api_key:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-api-key")
     err = run()[2]
-    assert err.count("limit USD 20 at API prices") == (0 if api_key else 3)
-    assert ("the most subscription usage a run may take, valued at API prices" in err) is not api_key
-    assert ("the most a run may cost" in err) is api_key
+    assert err.count("at API prices") == (0 if api_key else 1)
+    assert ("Limit: the most subscription usage a run may take, valued at API prices" in err) is not api_key
+    assert ("Limit: the most a run may cost" in err) is api_key
 
 
 @pytest.mark.parametrize(

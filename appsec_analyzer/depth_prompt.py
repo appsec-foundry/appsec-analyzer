@@ -5,16 +5,16 @@ from __future__ import annotations
 import sys
 
 _RELATIVE = {
-    "quick": "lowest cost, shortest runtime",
-    "standard": "medium cost and runtime",
-    "thorough": "highest cost, longest runtime",
+    "quick": "lowest, shortest",
+    "standard": "medium",
+    "thorough": "highest, longest",
 }
 
 
 def _coverage(values: dict) -> str:
     if not values["verify"]:
         return "survey only, no verification"
-    parts = [f"survey and verification of {len(values['verify'])} security aspects"]
+    parts = [f"survey, verification of {len(values['verify'])} security aspects"]
     if values["abuse_cases"]:
         parts.append(f"up to {values['abuse_cases']} business rules")
     if values["architect_review"]:
@@ -33,19 +33,22 @@ def choose(profiles: dict[str, dict]) -> str:
     depths = tuple(profiles)
     priced = usd_at_api_prices(profiles[depths[0]].get("adapter"))
     sys.stderr.write(
-        "No --assessment-depth given. Each depth makes model calls; the limit is "
+        "No --assessment-depth given. Every depth makes model calls.\n"
         + (
-            "the most subscription usage a run may take, valued at API prices.\n"
+            "Limit: the most subscription usage a run may take, valued at API prices.\n\n"
             if priced
-            else "the most a run may cost.\n"
+            else "Limit: the most a run may cost.\n\n"
         )
     )
-    for number, depth in enumerate(depths, 1):
-        settings = profiles[depth]["settings"]
+    limits = [f"USD {profiles[depth]['settings']['budget']:g}" for depth in depths]
+    width = max(len("Limit"), *map(len, limits))
+    sys.stderr.write(f"     {'Depth':<9} {'Limit':<{width}}  {'Cost, runtime':<16}  Covers\n")
+    for number, (depth, limit) in enumerate(zip(depths, limits), 1):
         sys.stderr.write(
-            f"  {number}) {depth:<9} {_RELATIVE[depth]}; limit USD {settings['budget']:g}{' at API prices' if priced else ''}; "
-            f"{_coverage(settings['depth_settings'])}\n"
+            f"  {number}) {depth:<9} {limit:<{width}}  {_RELATIVE[depth]:<16}  "
+            f"{_coverage(profiles[depth]['settings']['depth_settings'])}\n"
         )
+    sys.stderr.write("\n")
     for _ in range(3):
         sys.stderr.write("Depth (1-3 or name, Enter for standard): ")
         sys.stderr.flush()
