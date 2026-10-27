@@ -1563,6 +1563,22 @@ def test_architecture_failure_names_repository_and_exchange_usage(monkeypatch, c
     assert "different receiving endpoints" in output and "repo-private" not in output
 
 
+def test_exhausted_usage_window_is_not_reported_as_rate_limit(monkeypatch, capsys, tmp_path):
+    from runtime.analyst_host import TransportError
+
+    def exhausted(argv):
+        raise TransportError("untrusted host diagnostic", reason="rate_limit", retry_after_s=3600, usage_window=True)
+
+    monkeypatch.setattr(controller._AssessmentProgress, "path", tmp_path / "progress.jsonl")
+    monkeypatch.setattr(controller._AssessmentProgress, "max_parallel", 4)
+    monkeypatch.setattr(controller, "assess_repositories", exhausted)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == controller.ASSESS_PAUSED_EXIT
+    error = capsys.readouterr().err
+    assert "usage limit reached" in error and "resets at" in error and "--resume" in error
+    assert "rate limit" not in error and "--max-parallel" not in error
+    assert "untrusted host diagnostic" not in error
+
+
 @pytest.mark.parametrize("reset", [None, 3600])
 def test_persistent_rate_limit_reports_action_without_raw_host_text(monkeypatch, capsys, tmp_path, reset):
     from runtime.analyst_host import TransportError

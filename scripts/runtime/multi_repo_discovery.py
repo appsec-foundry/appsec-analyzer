@@ -281,6 +281,7 @@ class DiscoveryBudget:
         self._rate_until = 0.0
         self._rate_failures = 0
         self._rate_stopped = False
+        self._rate_usage_window = False
 
     @property
     def failed(self) -> bool:
@@ -395,14 +396,22 @@ class DiscoveryBudget:
                 if should_stop():
                     raise HostCancelled("Discovery cancelled")
                 if self._rate_stopped:
-                    raise TransportError("Provider rate limit; continue with --resume", reason="rate_limit", usd=0.0)
+                    raise TransportError(
+                        "Provider rate limit; continue with --resume",
+                        reason="rate_limit",
+                        usd=0.0,
+                        usage_window=self._rate_usage_window,
+                    )
                 cooldown = self._rate_until - time.monotonic()
                 if cooldown > 0:
                     if cooldown >= admission_deadline - time.monotonic() or cooldown >= self.remaining_seconds():
                         self._rate_stopped = True
                         self._lock.notify_all()
                         raise TransportError(
-                            "Provider cooldown exceeds time left; continue with --resume", reason="rate_limit", usd=0.0
+                            "Provider cooldown exceeds time left; continue with --resume",
+                            reason="rate_limit",
+                            usd=0.0,
+                            usage_window=self._rate_usage_window,
                         )
                     self._lock.wait(min(1.0, cooldown))
                     continue
@@ -457,6 +466,7 @@ class DiscoveryBudget:
             # Either way the run can be resumed.
             with self._lock:
                 if exc.reason == "rate_limit":
+                    self._rate_usage_window = self._rate_usage_window or exc.usage_window
                     index = max(self._rate_failures, self._local.rate_failures)
                     self._rate_failures += 1
                     paid = exc.usd is None or exc.usd > FREE_FAILURE_USD
@@ -494,6 +504,7 @@ class DiscoveryBudget:
                 retry_after_s=exc.retry_after_s,
                 exit_code=exc.exit_code,
                 http_status=exc.http_status,
+                usage_window=exc.usage_window,
             ) from None
         except HostCancelled:
             # A timed-out or cancelled call's process group is stopped; its

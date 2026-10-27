@@ -46,6 +46,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A run stopped by an exhausted Claude usage allowance says so and names the reset time. It no longer reports a rate limit or advises a lower `--max-parallel`, which does not shorten that wait.
 - Hardcoded secrets, including keys passed as arguments, are masked in all report outputs; the secret gate fails if one remains.
 - Threat Analyst honors organization Opus bans.
 - Authentication checks follow more JavaScript middleware and imported handlers; ownership controls count only when they protect every recognized handler registration.

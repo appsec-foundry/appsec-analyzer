@@ -13,14 +13,20 @@ def invoke(budget, host, stop=lambda: False):
 
 
 class Limited:
-    def __init__(self, failures=1, reset=None, usd=0.0):
-        self.failures, self.reset, self.usd = failures, reset, usd
+    def __init__(self, failures=1, reset=None, usd=0.0, usage_window=False):
+        self.failures, self.reset, self.usd, self.usage_window = failures, reset, usd, usage_window
         self.calls = 0
 
     def invoke(self, *args):
         self.calls += 1
         if self.calls <= self.failures:
-            raise TransportError("rate_limit", reason="rate_limit", usd=self.usd, retry_after_s=self.reset)
+            raise TransportError(
+                "rate_limit",
+                reason="rate_limit",
+                usd=self.usd,
+                retry_after_s=self.reset,
+                usage_window=self.usage_window,
+            )
         return HostReply({}, 0.01)
 
 
@@ -71,6 +77,16 @@ def test_provider_reset_is_respected_or_stops_without_retry(clock, monkeypatch, 
         with pytest.raises(TransportError, match="--resume"):
             invoke(budget, Limited(0))
         assert budget.calls == 1
+
+
+@pytest.mark.parametrize("usage_window", [False, True])
+def test_a_usage_window_stop_is_reported_for_the_failed_and_for_later_calls(clock, usage_window):
+    budget = DiscoveryBudget(1, 0.05, 20, 600)
+    with pytest.raises(TransportError) as first:
+        invoke(budget, Limited(reset=3600, usage_window=usage_window))
+    with pytest.raises(TransportError) as later:
+        invoke(budget, Limited(0))
+    assert first.value.usage_window is usage_window and later.value.usage_window is usage_window
 
 
 def test_cooldown_does_not_extend_run_deadline(clock):

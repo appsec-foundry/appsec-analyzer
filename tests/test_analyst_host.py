@@ -412,6 +412,7 @@ def test_a_rejected_usage_window_reports_its_reset_as_the_cooldown(tmp_path):
             "s", "p", {}, 30, lambda: False
         )
     assert caught.value.reason == "rate_limit" and 2600 <= caught.value.retry_after_s <= 2700
+    assert caught.value.usage_window
     assert time.strftime("%H:%M", time.localtime(resets_at)) in str(caught.value)
     # An allowed window leaves the short backoff to the caller.
     with pytest.raises(host.TransportError) as caught:
@@ -419,6 +420,7 @@ def test_a_rejected_usage_window_reports_its_reset_as_the_cooldown(tmp_path):
             "s", "p", {}, 30, lambda: False
         )
     assert caught.value.reason == "rate_limit" and caught.value.retry_after_s is None
+    assert not caught.value.usage_window
 
 
 @pytest.mark.parametrize(

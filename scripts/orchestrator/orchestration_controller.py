@@ -5172,6 +5172,17 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                     "  A provider rate limit was reported recently. Wait for capacity before resuming.", file=sys.stderr
                 )
             return ASSESS_PAUSED_EXIT
+        if isinstance(exc, TransportError) and exc.reason == "rate_limit" and exc.usage_window:
+            # The allowance is used up; fewer parallel jobs would not change the wait.
+            print("⏸ assessment paused: Claude usage limit reached; accepted steps are kept", file=sys.stderr)
+            if exc.retry_after_s:
+                until = time.strftime("%H:%M", time.localtime(time.time() + exc.retry_after_s))
+                print(f"  The usage allowance resets at {until} (in {exc.retry_after_s:.0f} s).", file=sys.stderr)
+            print(
+                "  Wait until then, then retry with --resume instead of --rebuild if the run is still within its time limit.",
+                file=sys.stderr,
+            )
+            return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason == "rate_limit":
             print("⏸ assessment paused: provider rate limit; accepted steps are kept", file=sys.stderr)
             if exc.retry_after_s:

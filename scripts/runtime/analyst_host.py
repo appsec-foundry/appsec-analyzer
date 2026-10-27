@@ -81,6 +81,8 @@ class TransportError(Exception):
     `reason` is a fixed code naming why (see `_failure_reason`), never host or
     model text. `usd` is the call's cost when the host still reported it, so a
     budget can settle the call instead of treating its cost as unknown.
+    `usage_window` marks a rate limit that is the account's exhausted usage
+    allowance, which more parallelism or a shorter wait does not change.
     """
 
     def __init__(
@@ -92,9 +94,11 @@ class TransportError(Exception):
         retry_after_s: float | None = None,
         exit_code: int | None = None,
         http_status: int | None = None,
+        usage_window: bool = False,
     ):
         super().__init__(message)
         self.reason = reason
+        self.usage_window = usage_window
         self.usd = usd
         self.exit_code = exit_code
         self.http_status = http_status
@@ -506,7 +510,8 @@ class ClaudeCliTransport:
             reason = _failure_reason(outcome, api_error)
             hint = _FAILURE_HINTS.get(reason)
             retry_after = None
-            if reason == "rate_limit" and resets_at is not None:
+            usage_window = reason == "rate_limit" and resets_at is not None
+            if usage_window:
                 # A rejected usage window waits for its reset, not for a short backoff.
                 retry_after = max(0.0, resets_at - time.time())
                 hint = f"the Claude usage limit is reached until {time.strftime('%H:%M', time.localtime(resets_at))}"
@@ -516,6 +521,7 @@ class ClaudeCliTransport:
                 usd=_reported_usd(outcome),
                 retry_after_s=retry_after,
                 exit_code=proc.returncode,
+                usage_window=usage_window,
             )
         usd = outcome.get("total_cost_usd")
         return HostReply(
