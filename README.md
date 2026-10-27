@@ -16,7 +16,7 @@ It does not scan dependencies for known CVEs, search comprehensively for secrets
 
 In Claude Code, use it as the plugin [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor).
 
-[Quick start](#quick-start) · [Data use](#security-and-data-use) · [Commands](#commands) · [Cost limits](#cost-limits) · [Install](#install) · [Options](#assessment-options) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Data use](#security-and-data-use) · [Install](#install) · [Commands](#commands) · [Options](#assessment-options) · [Cost limits](#cost-limits) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
 
 ## Quick start
 
@@ -61,6 +61,84 @@ To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) 
 
 Analyzed repositories are untrusted input: their content cannot authorize tools or select provider credentials. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive. See the [security policy](SECURITY.md).
 
+## Install
+
+```sh
+pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
+```
+
+pipx puts `appsec-analyzer` on your `PATH` in its own virtual environment. The repository must be reachable for your GitHub account. The package is not yet on PyPI.
+
+### Update
+
+```sh
+appsec-analyzer update
+```
+
+- Reinstalls Analyzer from the source you installed it from, such as GitHub or a local checkout.
+- Shows that source and asks `[Y/n]`. Enter or `y` confirms, `n` stops.
+- Runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`, which you can also run yourself. The extra option reinstalls even if the version number is unchanged, as is usual for GitHub installations.
+- Hides the pipx output and shows it only if the update fails.
+- Needs an interactive terminal outside CI. No option skips the question.
+- For installations that do not use pipx, it tells you to update the way you installed Analyzer.
+- Organization commands do not have it.
+
+To switch the source, run `pipx install --force` with the new source.
+
+### Version
+
+- `appsec-analyzer --version` prints the release version. A build counts as a release when its commit has a tag like `v0.2.0`. Other builds print the commit and its date.
+- A modified checkout adds `+local changes`. A build without Git data prints `commit unknown`.
+- `appsec-analyzer version` prints the engine and interface versions as JSON.
+
+<details>
+<summary>Install with pip or from a local checkout</summary>
+
+With `pip`, inside an activated virtual environment:
+
+```sh
+python -m pip install \
+  "git+https://github.com/appsec-foundry/appsec-analyzer.git"
+```
+
+From a local checkout, for example to install local changes:
+
+```sh
+git clone https://github.com/appsec-foundry/appsec-analyzer.git
+cd appsec-analyzer
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+appsec-analyzer version
+```
+
+If the `appsec-analyzer` command is not on your `PATH`, `python -m appsec_analyzer` starts the same command from the environment where you installed the package.
+
+With pipx:
+
+- Run `pipx install --force .` in the checkout. `--force` replaces an existing installation.
+- pipx installs the checkout as it is, including uncommitted changes, and keeps it as the source.
+- To update, change the checkout, for example with `git pull`, and run `appsec-analyzer update`. It reinstalls from the checkout instead of GitHub.
+- To return to the GitHub version, run `pipx install --force git+https://github.com/appsec-foundry/appsec-analyzer.git`.
+
+[Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
+
+</details>
+
+<details>
+<summary>Run from a checkout without installing</summary>
+
+Install the runtime dependencies listed in [setup.py](setup.py) first (PyYAML, jsonschema, and Jinja2).
+
+```sh
+cd /path/to/appsec-analyzer
+python3 -m appsec_analyzer scan-sources --repo /path/to/project
+```
+
+Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `assess` and `scan-sources` need `--repo`; pass `--repo .` for the current directory.
+
+</details>
+
 ## Commands
 
 `appsec-analyzer --help` shows the commands in the same groups as the lists below. `appsec-analyzer <command> --help` lists the options of each command.
@@ -98,24 +176,6 @@ Analyzed repositories are untrusted input: their content cannot authorize tools 
 - [`distribution`](#distribution-start-your-organizations-own-command): Create the files for your organization's own command, and align its engine pins after an engine update.
 - [`update`](#install): Update a pipx installation of Analyzer after your yes.
 - `capabilities`: Show the available scanners and provider qualification.
-
-### Cost limits
-
-Each model-backed command stops at a spending limit. The values are default upper limits, not expected costs. With a Claude subscription, that is Claude CLI without `ANTHROPIC_API_KEY`, the limit counts subscription usage at the API prices that Claude CLI reports.
-
-| Command | Default limit | Change with |
-| --- | --- | --- |
-| `assess` | USD 20 per assessment | `--budget USD` |
-| `analyze-threats` | USD 1 per model call | `--max-budget-usd USD` |
-| `authnz-review` | USD 5 per review | `--budget USD` |
-| `audit-requirements` | USD 5 per audit | `--budget USD` |
-
-- In an interactive terminal, `assess` may ask for a higher limit before it skips work.
-- `analyze-threats` limits each model call, not the whole question. One question takes up to four calls.
-- With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`). See [Model provider](#model-provider).
-- `review` uses the assistant's own account and usage limits.
-
-By default, `assess` shows monetary costs only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show usage without costs. `--show-costs` shows the available costs in any mode. It changes no accounting or limits.
 
 ### `assess`: full security assessment
 
@@ -290,83 +350,32 @@ appsec-analyzer distribution update-engine ./northstar-appsec
 - `update-engine` changes the engine version in `setup.cfg`, `requirements.lock` and `organization.yaml`, and stops without changes if one is missing.
 - Building the wheels, installing and releasing remain manual. See the [organization packaging guide](docs/organization-distributions.md).
 
-## Install
+## Assessment options
 
-```sh
-pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
-```
+These options apply to `assess`. Command-line options override the defaults from a scan profile.
 
-pipx puts `appsec-analyzer` on your `PATH` in its own virtual environment. The repository must be reachable for your GitHub account. The package is not yet on PyPI.
+| Option | Effect |
+| --- | --- |
+| `--profile NAME` | Model profile. Default: `claude`. |
+| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock; with a Claude subscription, usage at API prices. Default: 20. |
+| `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. In an interactive terminal, `assess` asks for the depth when you give none. |
+| `--quick`, `--standard`, `--thorough` | Shortcuts for `--assessment-depth` with that level. Two different depths in one command are refused. |
+| `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
+| `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
+| `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 4, or 3 when the default applies and the components divide by three; 2 for Codex and Copilot subscriptions. |
+| `--non-interactive` | For CI. Without it, an interactive terminal may ask for the depth when none is given, and for a higher budget before skipping work. |
+| `--verbose` | Show job and call identities and detailed correction messages. |
+| `--show-costs` | Show costs even with subscription billing; default cost display is API billing only. |
 
-### Update
+`--assessment-depth` sets what `assess` checks beside the [survey](docs/security-assessment.md#survey-and-verification), which always runs:
 
-```sh
-appsec-analyzer update
-```
+- `quick` runs no verification and no business-logic checks.
+- `standard` also verifies authentication, authorization, input validation and, where the application calls a language model, its AI features.
+- `thorough` also checks data protection. With Claude, it uses Opus for the survey and verification. In one Juice Shop comparison, it cost about 2.7× as much as `standard` and needed about USD 40, more than the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
 
-- Reinstalls Analyzer from the source you installed it from, such as GitHub or a local checkout.
-- Shows that source and asks `[Y/n]`. Enter or `y` confirms, `n` stops.
-- Runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`, which you can also run yourself. The extra option reinstalls even if the version number is unchanged, as is usual for GitHub installations.
-- Hides the pipx output and shows it only if the update fails.
-- Needs an interactive terminal outside CI. No option skips the question.
-- For installations that do not use pipx, it tells you to update the way you installed Analyzer.
-- Organization commands do not have it.
+Each verified aspect adds model calls. A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does).
 
-To switch the source, run `pipx install --force` with the new source.
-
-### Version
-
-- `appsec-analyzer --version` prints the release version. A build counts as a release when its commit has a tag like `v0.2.0`. Other builds print the commit and its date.
-- A modified checkout adds `+local changes`. A build without Git data prints `commit unknown`.
-- `appsec-analyzer version` prints the engine and interface versions as JSON.
-
-<details>
-<summary>Install with pip or from a local checkout</summary>
-
-With `pip`, inside an activated virtual environment:
-
-```sh
-python -m pip install \
-  "git+https://github.com/appsec-foundry/appsec-analyzer.git"
-```
-
-From a local checkout, for example to install local changes:
-
-```sh
-git clone https://github.com/appsec-foundry/appsec-analyzer.git
-cd appsec-analyzer
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install .
-appsec-analyzer version
-```
-
-If the `appsec-analyzer` command is not on your `PATH`, `python -m appsec_analyzer` starts the same command from the environment where you installed the package.
-
-With pipx:
-
-- Run `pipx install --force .` in the checkout. `--force` replaces an existing installation.
-- pipx installs the checkout as it is, including uncommitted changes, and keeps it as the source.
-- To update, change the checkout, for example with `git pull`, and run `appsec-analyzer update`. It reinstalls from the checkout instead of GitHub.
-- To return to the GitHub version, run `pipx install --force git+https://github.com/appsec-foundry/appsec-analyzer.git`.
-
-[Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
-
-</details>
-
-<details>
-<summary>Run from a checkout without installing</summary>
-
-Install the runtime dependencies listed in [setup.py](setup.py) first (PyYAML, jsonschema, and Jinja2).
-
-```sh
-cd /path/to/appsec-analyzer
-python3 -m appsec_analyzer scan-sources --repo /path/to/project
-```
-
-Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `assess` and `scan-sources` need `--repo`; pass `--repo .` for the current directory.
-
-</details>
+[Scan and model profiles](docs/profiles.md) explains how to store settings and choose models per role.
 
 ### Model provider
 
@@ -413,32 +422,23 @@ appsec-analyzer assess --repo /path/to/project --profile bedrock --budget 20
 
 [Configuration](docs/configuration.md) describes provider setup in detail. Organizations can ship preconfigured profiles; see the [organization packaging guide](docs/organization-distributions.md).
 
-## Assessment options
+### Cost limits
 
-These options apply to `assess`. Command-line options override the defaults from a scan profile.
+Each model-backed command stops at a spending limit. The values are default upper limits, not expected costs. With a Claude subscription, that is Claude CLI without `ANTHROPIC_API_KEY`, the limit counts subscription usage at the API prices that Claude CLI reports.
 
-| Option | Effect |
-| --- | --- |
-| `--profile NAME` | Model profile. Default: `claude`. |
-| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock; with a Claude subscription, usage at API prices. Default: 20. |
-| `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. In an interactive terminal, `assess` asks for the depth when you give none. |
-| `--quick`, `--standard`, `--thorough` | Shortcuts for `--assessment-depth` with that level. Two different depths in one command are refused. |
-| `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
-| `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
-| `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 4, or 3 when the default applies and the components divide by three; 2 for Codex and Copilot subscriptions. |
-| `--non-interactive` | For CI. Without it, an interactive terminal may ask for the depth when none is given, and for a higher budget before skipping work. |
-| `--verbose` | Show job and call identities and detailed correction messages. |
-| `--show-costs` | Show costs even with subscription billing; default cost display is API billing only. |
+| Command | Default limit | Change with |
+| --- | --- | --- |
+| `assess` | USD 20 per assessment | `--budget USD` |
+| `analyze-threats` | USD 1 per model call | `--max-budget-usd USD` |
+| `authnz-review` | USD 5 per review | `--budget USD` |
+| `audit-requirements` | USD 5 per audit | `--budget USD` |
 
-`--assessment-depth` sets what `assess` checks beside the [survey](docs/security-assessment.md#survey-and-verification), which always runs:
+- In an interactive terminal, `assess` may ask for a higher limit before it skips work.
+- `analyze-threats` limits each model call, not the whole question. One question takes up to four calls.
+- With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`). See [Model provider](#model-provider).
+- `review` uses the assistant's own account and usage limits.
 
-- `quick` runs no verification and no business-logic checks.
-- `standard` also verifies authentication, authorization, input validation and, where the application calls a language model, its AI features.
-- `thorough` also checks data protection. With Claude, it uses Opus for the survey and verification. In one Juice Shop comparison, it cost about 2.7× as much as `standard` and needed about USD 40, more than the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
-
-Each verified aspect adds model calls. A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does).
-
-[Scan and model profiles](docs/profiles.md) explains how to store settings and choose models per role.
+By default, `assess` shows monetary costs only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show usage without costs. `--show-costs` shows the available costs in any mode. It changes no accounting or limits.
 
 ## Abuse cases
 
