@@ -2682,7 +2682,7 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
         type=_console_width,
         metavar="COLUMNS",
         help=f"Wrap console output at most at COLUMNS columns (at least {MIN_CONSOLE_WIDTH}), "
-        "also when it is not a terminal.",
+        "also when it is not a terminal. In a terminal, lines wrap at 140 columns without it.",
     )
     parser.add_argument(
         "--progress-file",
@@ -4975,8 +4975,8 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     rows += _completion_step_rows(
         output, outcome["deliverables"], shlex.join(["appsec-analyzer", "review", str(output)])
     )
-    # Values wrap flush under their column when --width narrows the console.
-    width = _AssessmentConsole.columns() - 1 - 14 if _AssessmentConsole.max_columns else 0
+    # Values wrap flush under their column on a terminal, and off it under --width.
+    width = _AssessmentConsole.columns() - 1 - 14 if _AssessmentConsole.wraps() else 0
     for key, value, role in rows:
         pieces = textwrap.wrap(value, width, break_on_hyphens=False) if 20 < width < len(value) else [value]
         roles = (role,) if role else ()

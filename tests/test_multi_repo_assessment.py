@@ -3322,6 +3322,29 @@ def test_without_width_the_console_keeps_the_terminal_width(monkeypatch):
     assert controller._AssessmentConsole.fit(text) == text
 
 
+def test_without_width_a_terminal_wraps_every_line_at_140_columns(monkeypatch, capsys):
+    """A wide terminal gets no longer lines than 140 columns; a narrower one keeps its own width."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("COLUMNS", "300")
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", None)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True, raising=False)
+    assert controller._AssessmentConsole.columns() == 140
+    monkeypatch.setenv("COLUMNS", "100")
+    assert controller._AssessmentConsole.columns() == 100
+    monkeypatch.setenv("COLUMNS", "300")
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    roles = ", ".join(f"role_{index}" for index in range(40))
+    console.facts("appsec-analyzer — LLM-backed code assessment (alpha)", [("Models", f"claude-sonnet-5-5 ({roles})")])
+    console.phase = "Threat analysis"
+    console.notice("STRIDE evidence does not cite an executable implementation " * 6)
+    warning = controller._AssessmentConsole.fit("⚠ " + "a target the model read but could not settle " * 6)
+    lines = [_ANSI.sub("", line) for line in capsys.readouterr().err.splitlines() if line.strip()]
+    lines += warning.splitlines()
+    assert len(lines) > 4 and all(len(line) <= 139 for line in lines)
+    assert max(len(line) for line in lines) > 100
+
+
 @pytest.mark.parametrize("value", ["59", "0", "wide"])
 def test_width_below_the_grid_minimum_is_rejected(value):
     with pytest.raises(SystemExit):

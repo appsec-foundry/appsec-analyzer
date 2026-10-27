@@ -724,19 +724,27 @@ class _AssessmentConsole:
     # --width: the widest line the console writes, on a terminal and off it.
     max_columns: int | None = None
 
+    # The widest a terminal line gets without --width; longer lines are hard to read on a wide window.
+    DEFAULT_COLUMNS = 140
+
+    @staticmethod
+    def wraps() -> bool:
+        """Whether lines wrap: on a terminal, and off it only under --width."""
+        return _AssessmentConsole.max_columns is not None or sys.stderr.isatty()
+
     @staticmethod
     def columns() -> int:
-        """Columns a line may use: the terminal's, at most --width; --width alone off a terminal."""
+        """Columns a line may use: the terminal's, at most --width or 140; --width alone off a terminal."""
         columns = shutil.get_terminal_size().columns
         limit = _AssessmentConsole.max_columns
         if limit is None:
-            return columns
+            return min(columns, _AssessmentConsole.DEFAULT_COLUMNS) if sys.stderr.isatty() else columns
         return min(columns, limit) if sys.stderr.isatty() else limit
 
     @staticmethod
     def fit(text: str, indent: str = "  ") -> str:
-        """`text` wrapped at --width, continuing under `indent`; unchanged without --width."""
-        if _AssessmentConsole.max_columns is None:
+        """`text` wrapped at the line width, continuing under `indent`; unchanged off a terminal without --width."""
+        if not _AssessmentConsole.wraps():
             return text
         width = _AssessmentConsole.columns() - 1
         return "\n".join(textwrap.wrap(text, width, subsequent_indent=indent, break_on_hyphens=False)) or text
@@ -1077,7 +1085,7 @@ class _AssessmentConsole:
         # Free text comes last, so a long detail never shifts a column.
         row = f"{phase:<{self._PHASE_WIDTH}}  {event:<{self._EVENT_WIDTH}}  {run}  {lead}{detail}"
         if not self.st.enabled:
-            if self.max_columns is None and "\n" not in detail:
+            if not self.wraps() and "\n" not in detail:
                 return row.rstrip()
             head = row[: len(row) - len(detail)]
             indent, pieces = self._wrap_detail(len(head), detail, now, live)
@@ -1111,7 +1119,7 @@ class _AssessmentConsole:
         fit = self.columns() - 1 - indent
         if "\n" in detail:
             # A list: each line starts under the detail column; a long entry continues two columns further in.
-            wrapped = self.st.enabled or self.max_columns is not None
+            wrapped = self.st.enabled or self.wraps()
             return indent, [
                 piece
                 for line in detail.split("\n")
@@ -1125,7 +1133,7 @@ class _AssessmentConsole:
             return indent, [detail]
         if fit >= 20:
             return indent, textwrap.wrap(detail, fit, break_on_hyphens=False)
-        if self.max_columns is None:
+        if not self.wraps():
             return indent, [detail]
         indent = len(self._stamp(now)) + 2
         return indent, ["", *textwrap.wrap(detail, self.columns() - 1 - indent, break_on_hyphens=False)]
@@ -1174,7 +1182,7 @@ class _AssessmentConsole:
                     for line in logo(st, f"v{version} · {mode}" if version else mode, self.columns() - 1):
                         self._out(line)
                 self.write("")
-            elif self.max_columns:
+            elif self.wraps():
                 # The title carries the header's one time stamp; under --width it
                 # wraps instead of being cut at the panel edge.
                 first, *rest = textwrap.wrap(
@@ -1190,7 +1198,7 @@ class _AssessmentConsole:
         # own. On a terminal a long value wraps flush under its own column
         # instead of at the screen edge; key and separators take the rest.
         indent = "    " if sectioned else "  "
-        fit = self.columns() - 1 - (len(indent) + width + 2) if st.enabled or self.max_columns else 0
+        fit = self.columns() - 1 - (len(indent) + width + 2) if st.enabled or self.wraps() else 0
         groups = {"": rows}
         if sectioned:
             groups = {"Run": [], "Scope": [], "Workflow & results": [], "Threat analysis methods": []}
@@ -1244,7 +1252,7 @@ class _AssessmentConsole:
             self._unstamped(st("  Pre-run checks", "bold"))
         # Like the facts: a long message wraps flush under its own column on a terminal or under --width.
         indent = 4 + 2 + self._CHECK_WIDTH + 2
-        fit = self.columns() - 1 - indent if st.enabled or self.max_columns else 0
+        fit = self.columns() - 1 - indent if st.enabled or self.wraps() else 0
         for symbol, label, message in checks:
             pieces = textwrap.wrap(message, fit, break_on_hyphens=False) if fit > 20 and len(message) > fit else []
             first, *more = pieces or [message]
