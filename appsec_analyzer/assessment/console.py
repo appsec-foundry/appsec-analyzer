@@ -374,27 +374,35 @@ class _AssessmentConsole:
     # Suffix of a component's last step when every job it needed was reused.
     REUSED = " · reused"
     _POSITION = re.compile(r"\s*\((\d+)/(\d+)\)$")
-    # Expected share of a run's wall clock per phase, in points. Measured as
-    # the mean phase durations of two single-repository standard runs of nine
-    # components (Juice Shop, 2026-10-16); threat analysis includes the
-    # source scanners and evidence reviews. Controls and threat analysis scale
-    # with the component count, the other phases stay fixed. A display
-    # estimate only: the remaining time follows the speed the run measures.
+    # Expected minutes per phase of a nine-component run with four components at
+    # once, measured on the quick and standard Juice Shop runs of 2026-10-26
+    # (22 and 41 minutes); threat analysis includes the source scanners and
+    # evidence reviews. Controls and threat analysis scale with the component
+    # count, the other phases stay fixed. Survey and verification on Opus are
+    # not measured yet. A display estimate only: the remaining time follows the
+    # speed the run measures once a threat analysis component has finished.
     WEIGHTS = {
-        "Reconnaissance": 3,
-        "Architecture": 4,
-        "Trust boundaries": 12,
-        "Controls": 6,
-        "Threat analysis": 50,
-        "Consolidation": 6,
-        "Abuse cases": 7,
-        "Finalization": 12,
+        "Reconnaissance": 1.5,
+        "Architecture": 2,
+        "Trust boundaries": 1.3,
+        "Controls": 1.2,
+        "Threat analysis": 11.5,
+        "Consolidation": 2.5,
+        "Abuse cases": 1.2,
+        "Finalization": 7,
     }
-    PER_COMPONENT = {"Controls": 6 / 9, "Threat analysis": 50 / 9}
-    # REQ-040: a verification job carries a component's context like one of its
-    # three survey jobs (Juice Shop, 2026-10-23: 27 survey jobs took 21 minutes
-    # and 19 verification jobs 18), so it adds that share to threat analysis.
-    VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 3
+    PER_COMPONENT = {"Controls": 1.2 / 9, "Threat analysis": 11.5 / 9}
+    # REQ-040: a verification job adds half a component's survey to threat
+    # analysis (Juice Shop, 2026-10-26: the survey of nine components took about
+    # 11.5 minutes, 19 verification jobs about 12.5).
+    VERIFY_JOB_WEIGHT = PER_COMPONENT["Threat analysis"] / 2
+    # Finalization follows the depth's quality checks: 3.2 minutes with the core
+    # checks of quick, 7 with the full checks of standard. The extended checks of
+    # thorough are not measured yet and count as full.
+    FINALIZATION = {"core": 3.2, "full": 7, "extended": 7}
+    # The architect review adds to consolidation (Juice Shop thorough,
+    # 2026-10-27: 11 jobs in about 7 minutes before the abuse cases started).
+    ARCHITECT_REVIEW = 7
     # How each threat analysis method examines the code, for the run header (REQ-040). Survey and Verify are
     # separate approaches, not steps that build on each other; the scanners' hits are where both start.
     METHODS = {
@@ -426,11 +434,6 @@ class _AssessmentConsole:
     _BUDGET_SKIP = re.compile(
         r"Coverage gap: (.+?)(?: \([A-Z][A-Z0-9-]{1,79}\))? job skipped: budget reserved for required completion work"
     )
-    # Wall clock of the nine-component, all-phases run those weights describe
-    # (Juice Shop, 33m), for the remaining time before this run has a speed of
-    # its own. It is a prior: the measured speed replaces it.
-    NOMINAL_SECONDS = 33 * 60
-    NOMINAL_WEIGHT = sum(WEIGHTS.values())
     _NAME_WIDTH = max(len(name) for name in WEIGHTS)
     # "n/N " before the phase name, then the event column.
     _PHASE_WIDTH = _NAME_WIDTH + 4
@@ -447,6 +450,8 @@ class _AssessmentConsole:
         # One clock for time stamps and durations, so each line's figures agree.
         self.clock = clock
         self.plan = list(self.WEIGHTS)
+        # The depth's quality checks and whether it runs the architect review; they weigh finalization and consolidation.
+        self.qa_depth, self.architect_review = "full", False
         self.phase, self.started, self.finished_jobs = None, 0.0, 0
         # Finished share of the current phase and of the run, both 0..1 and never falling.
         self.fraction, self.done = 0.0, 0.0
@@ -613,9 +618,13 @@ class _AssessmentConsole:
         """The phases a run executes, in order; skipped abuse cases drop their phase."""
         return [name for name in cls.WEIGHTS if abuse_cases or name != "Abuse cases"]
 
-    def plan_phases(self, *, abuse_cases: bool) -> None:
-        """Number the phases this run will execute; skipped abuse cases shorten the count."""
+    def plan_phases(self, *, abuse_cases: bool, qa_depth: str = "full", architect_review: bool = False) -> None:
+        """Number the phases this run will execute; skipped abuse cases shorten the count.
+
+        The depth's quality checks and architect review weigh finalization and consolidation.
+        """
         self.plan = self.planned_phases(abuse_cases=abuse_cases)
+        self.qa_depth, self.architect_review = qa_depth, architect_review
 
     def plan_components(self, count: int) -> None:
         """Scale Controls and STRIDE to the run's components; RUN then shows a share."""
@@ -771,10 +780,14 @@ class _AssessmentConsole:
     def _weight(self, phase: str) -> float:
         if self.components and phase in self.PER_COMPONENT:
             weight = self.PER_COMPONENT[phase] * self.components
+        elif phase == "Finalization":
+            weight = self.FINALIZATION.get(self.qa_depth, self.WEIGHTS[phase])
         else:
             weight = self.WEIGHTS[phase]
         if phase == "Threat analysis":
             weight += self.verify_jobs * self.VERIFY_JOB_WEIGHT
+        elif phase == "Consolidation" and self.architect_review:
+            weight += self.ARCHITECT_REVIEW
         return weight
 
     def _survey_share(self) -> float:
@@ -975,12 +988,12 @@ class _AssessmentConsole:
         self.advanced_jobs, self.advanced_at = counts, now
 
     def _expected_total(self) -> float:
-        """Seconds the planned phases take at the nominal speed, scaled to the component count.
+        """Seconds the planned phases take at their measured minutes, scaled to the component count.
 
         Used until a component has finished and the run's own speed is known.
         """
         plan = self.plan if self.phase in self.plan else [*self.plan, self.phase]
-        return self.NOMINAL_SECONDS * sum(self._weight(name) for name in plan) / self.NOMINAL_WEIGHT
+        return 60 * sum(self._weight(name) for name in plan)
 
     def _measured(self) -> bool:
         """Whether a threat-analysis component has finished.

@@ -605,34 +605,34 @@ def test_default_console_writes_every_line_in_one_column_grid():
     # Numbered within the phases this run executes. PROGRESS, ELAPSED and LEFT
     # describe the whole run; the free-text detail comes last.
     assert _rows(lines) == [
-        ("1/8 Reconnaissance", "start", "planning", "<1m", "~33m", RECON),
+        ("1/8 Reconnaissance", "start", "planning", "<1m", "~28m", RECON),
         # Components are planned while the phase runs, so its done line has a share.
         # Until a threat-analysis component has finished, LEFT scales the nominal
         # run time to the planned components, so it shrinks once they are known.
-        ("1/8 Reconnaissance", "done", "~5%", "1m", "~17m", "1m38s · 1 repository"),
-        ("3/8 Trust boundaries", "start", "~12%", "1m", "~16m", f"3 crossings · {TRUST}"),
-        ("3/8 Trust boundaries", "done", "~34%", "2m", "~12m", "1m00s · 3 crossings"),
-        ("5/8 Threat analysis", "start", "~36%", "2m", "~11m", f"2 components · {THREATS}"),
+        ("1/8 Reconnaissance", "done", "~8%", "1m", "~16m", "1m38s · 1 repository"),
+        ("3/8 Trust boundaries", "start", "~19%", "1m", "~14m", f"3 crossings · {TRUST}"),
+        ("3/8 Trust boundaries", "done", "~26%", "2m", "~13m", "1m00s · 3 crossings"),
+        ("5/8 Threat analysis", "start", "~28%", "2m", "~13m", f"2 components · {THREATS}"),
         # Each threat analysis line names its method; the run header says how the survey examines the code.
-        ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "Survey    start · 2 components"),
+        ("5/8 Threat analysis", "·", "~28%", "2m", "~13m", "Survey    start · 2 components"),
         # Every STRIDE component gets its own line, so a model status within
         # the heartbeat interval adds none.
-        ("5/8 Threat analysis", "·", "~36%", "2m", "~11m", "Survey    component 1/2 · API"),
+        ("5/8 Threat analysis", "·", "~28%", "2m", "~13m", "Survey    component 1/2 · API"),
         (
             "5/8 Threat analysis",
             "⚠",
-            "~36%",
+            "~28%",
             "3m",
-            "~11m",
+            "~13m",
             "Survey    1 min: no model activity for 95 s (waiting for the API)",
         ),
         # A finished component gets its own event, so `done` marks only a
         # phase's end; the share follows completions, not starts.
-        ("5/8 Threat analysis", "✓", "~46%", "4m", "~5m", "Survey    1/2 API · 2m00s"),
-        ("5/8 Threat analysis", "·", "~46%", "4m", "~5m", "Survey    component 2/2 · Store"),
+        ("5/8 Threat analysis", "✓", "~35%", "4m", "~8m", "Survey    1/2 API · 2m00s"),
+        ("5/8 Threat analysis", "·", "~35%", "4m", "~8m", "Survey    component 2/2 · Store"),
         # MR-17: a successful correction is counted on the done line, its reason only under --verbose.
-        ("5/8 Threat analysis", "done", "~56%", "7m", "~5m", "4m30s · 2 components · 1 answer corrected (survey 1)"),
-        ("8/8 Finalization", "start", "~79%", "7m", "~1m", FINAL),
+        ("5/8 Threat analysis", "done", "~42%", "7m", "~10m", "4m30s · 2 components · 1 answer corrected (survey 1)"),
+        ("8/8 Finalization", "start", "~62%", "7m", "~4m", FINAL),
         ("8/8 Finalization", "done", "100%", "7m", "", "30s"),
     ]
     # No model-call detail or crossing hash in the default view.
@@ -683,9 +683,9 @@ def test_the_progress_file_names_every_row_field_by_field(tmp_path):
         "phase": "Threat analysis",
         "number": 5,
         "total": 8,
-        "progress": "~46%",
+        "progress": "~35%",
         "elapsed": "4m",
-        "left": "~5m",
+        "left": "~8m",
         "method": "Survey",
         "detail": "1/2 API · 2m00s",
     }
@@ -779,7 +779,7 @@ def test_time_stamps_and_durations_read_one_clock():
     assert _rows([done])[0][5] == "3m51s"
 
 
-@pytest.mark.parametrize(("components", "share", "prior"), [(2, "~36%", "~11m"), (12, "~23%", "~30m")])
+@pytest.mark.parametrize(("components", "share", "prior"), [(2, "~28%", "~13m"), (12, "~20%", "~26m")])
 def test_progress_counts_the_planned_components(components, share, prior):
     """Controls and threat analysis scale with the component count; before it is known there is no share.
 
@@ -804,6 +804,36 @@ def test_progress_counts_the_planned_components(components, share, prior):
     console.step("Analyzed component: api (1/2)")
     exact = console.done
     assert console._run_fields(clock())[2] == "~" + controller._elapsed(360 * (1 - exact) / exact)
+
+
+def _prior_minutes(components=None, verify_jobs=0, **plan):
+    console = controller._AssessmentConsole(False, [].append, clock=_Clock())
+    console.plan_phases(**{"abuse_cases": True, **plan})
+    console.step("Discovering every selected repository")
+    if components:
+        console.plan_components(components)
+    console.verify_jobs = verify_jobs
+    return console._expected_total() / 60
+
+
+def test_the_prior_matches_the_measured_quick_and_standard_runs():
+    """Juice Shop, nine components, 2026-10-26: quick took 22 minutes, standard with 19 verification jobs 41."""
+    quick = _prior_minutes(9, abuse_cases=False, qa_depth="core")
+    standard = _prior_minutes(9, verify_jobs=19, qa_depth="full")
+    assert quick == pytest.approx(22.4, rel=0.1)
+    assert standard == pytest.approx(41.0, rel=0.1)
+
+
+def test_quality_checks_and_architect_review_weigh_their_phases():
+    """The core checks of quick shorten finalization; the architect review of thorough lengthens consolidation."""
+    console = controller._AssessmentConsole
+    full = _prior_minutes()
+    assert _prior_minutes(qa_depth="core") == pytest.approx(
+        full - console.FINALIZATION["full"] + console.FINALIZATION["core"]
+    )
+    # Not measured yet: the extended checks count as the full ones.
+    assert _prior_minutes(qa_depth="extended") == pytest.approx(full)
+    assert _prior_minutes(architect_review=True) == pytest.approx(full + console.ARCHITECT_REVIEW)
 
 
 def test_phase_results_and_skipped_phases_shape_the_done_lines():

@@ -4331,7 +4331,11 @@ def assess_repositories(
                         sectioned=True,
                     )
                     console.preflight(getattr(ns, "preflight_checks", ()))
-                    console.plan_phases(abuse_cases=not cfg.get("skip_abuse_case_verification"))
+                    console.plan_phases(
+                        abuse_cases=not cfg.get("skip_abuse_case_verification"),
+                        qa_depth=cfg.get("qa_depth", "full"),
+                        architect_review=bool(cfg.get("architect_review")),
+                    )
                     if state.worked_before:
                         # ELAPSED adds the working time of a resumed run's earlier attempts, or of the
                         # unfinished run a new run takes over.
