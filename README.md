@@ -9,11 +9,11 @@
 > [!NOTE]
 > **Alpha.** Commands and report formats may change. Live assessment quality is still being qualified; review findings before acting on them.
 
-AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or on several repositories that form one system.
+AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or on several that form one system.
 
-It does not scan dependencies for known CVEs, search comprehensively for secrets, or test the running application. Deployment controls and business assumptions still need your own review.
+It does not scan dependencies for known CVEs, search comprehensively for secrets, or test the running application. Review deployment controls and business assumptions yourself.
 
-If you work in Claude Code, you can use AppSec Analyzer through [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor), which packages it as a Claude Code plugin.
+In Claude Code, use it as the plugin [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor).
 
 [Quick start](#quick-start) · [Data use](#security-and-data-use) · [Commands](#commands) · [Cost limits](#cost-limits) · [Install](#install) · [Options](#assessment-options) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
 
