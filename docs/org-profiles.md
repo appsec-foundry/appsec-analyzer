@@ -2,7 +2,7 @@
 
 To include your organization's profile in an internal installation and select it automatically, use a separate organization distribution. The [packaging guide](organization-distributions.md) includes a complete example, wheel builds, offline installation checks and CI instructions. The upstream engine remains a separate pinned dependency.
 
-An organization profile sets defaults for depth, exports, budget limits, context documents, actors, and requirements. Analyzer validates it against [org-profile.schema.yaml](../schemas/org-profile.schema.yaml). The format name `appsec-advisor.org-profile/v2` identifies the file contract; it does not require an Advisor checkout.
+An organization profile sets defaults for depth, exports, budget limits, context documents, actors, and requirements. Analyzer validates it against [org-profile.schema.yaml](../schemas/org-profile.schema.yaml). The format name `appsec-advisor.org-profile/v2` only names the file format. You do not need AppSec Advisor.
 
 Select an existing local profile explicitly:
 
@@ -47,6 +47,4 @@ abuse_cases:
       path_patterns: ["*expense*", "*approv*"]
 ```
 
-An organization profile can add cases with `ORG-AC-NNN` IDs through `abuse_cases.add`, a glob relative to the organization profile's directory, for example `abuse_cases: {add: "abuse-cases/*.yaml"}`. This provides organization-owned cases outside the source repository. Selection is bounded by assessment depth and the packaged case limits. See the archived guide for the full field semantics and source matching rules.
-
-See the [archived Advisor guide](history/advisor/org-profiles.md) for original field definitions and migration context. Its plugin commands are historical. Use [configuration](configuration.md) for current commands and [model selection](model-selection.md) for provider limits.
+An organization profile can add cases with `ORG-AC-NNN` IDs through `abuse_cases.add`, a glob relative to the organization profile's directory, for example `abuse_cases: {add: "abuse-cases/*.yaml"}`. This keeps organization-owned cases outside the source repository. The assessment depth and the packaged case limits cap how many are checked. For current commands see [configuration](configuration.md), and for provider limits see [model selection](model-selection.md).

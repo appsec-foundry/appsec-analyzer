@@ -14,7 +14,7 @@ Store your YAML files under `~/.config/appsec-analyzer/profiles/` and `model-pro
 
 Use `--org-profile FILE` and optionally `--preset NAME` to select [organization defaults](org-profiles.md). `--no-org-profile` disables them for the run.
 
-For custom abuse cases in a single-repository assessment, repeat `--abuse-case-file PATH` or save repository-relative YAML paths in the scan profile's `abuse_case_files` list. CLI selections replace that list. Files can live anywhere inside the repository; the former `docs/security/abuse-cases/` and `.appsec/abuse-cases/` locations remain automatic compatibility inputs. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for the format, model costs, and limits.
+For custom abuse cases, repeat `--abuse-case-file PATH` or list the paths under `abuse_case_files` in a scan profile. See [custom abuse cases](security-assessment.md#custom-abuse-cases) for the format and limits.
 
 ## Other commands
 
@@ -46,8 +46,8 @@ The `codex` profile uses `OPENAI_API_KEY` and models from the installed catalog.
 
 Select `--model "lite claude"` for LiteLLM or `--profile bedrock` for native Bedrock Converse. Configure the operator-owned `providers.yaml` separately from scan/model profiles, and supply `LITELLM_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK` externally. These adapters use USD budgets and remain unqualified for live assessment quality. See [provider connections](providers.md) for the schema, gateway deployment checks, regional pricing, model prefixes and authentication limits.
 
-The `codex-cli` profile requires Linux/macOS and Codex CLI 0.163.0 on `PATH` with a ChatGPT login. It uses the CLI's credential store, forces ChatGPT authentication, and removes API-key and endpoint overrides from the child environment. Configure model roles through Analyzer profiles; Codex user configuration, repository instructions, hooks, MCP servers, and model tools are disabled for these exchanges. It uses `max_calls` instead of `budget`, with defaults of 1,000 exchanges, four hours, and at most two components at a time. Monetary accounting is unavailable. See [setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli).
+The `codex-cli` profile needs Linux or macOS, Codex CLI 0.163.0 on `PATH`, and a ChatGPT login. It uses `max_calls` instead of a USD budget and reports no monetary cost. See [setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
-The `copilot-cli` profile requires Linux/macOS and GitHub Copilot CLI 1.0.101 on `PATH`. It uses the CLI's external login and applies `max_calls` and `max_duration` rather than a USD budget. Each CLI process receives a 30-AI-credit soft limit; it may be exceeded by an in-progress response and does not cap aggregate account usage. The adapter disables custom instructions, built-in MCPs, remote sharing, and all model tools, and accepts only schema-validated JSON. Authentication and model access are not checked without a model call. See [Copilot CLI setup and limits](profiles.md#use-github-copilot-cli).
+The `copilot-cli` profile needs Linux or macOS, GitHub Copilot CLI 1.0.101 on `PATH`, and its login. It uses `max_calls` and `max_duration` instead of a USD budget. See [Copilot CLI setup and limits](profiles.md#use-github-copilot-cli).
 
-The resolver keeps supported `APPSEC_*` model overrides from the extracted controller. It needs no root `config.json`. Requirements source defaults still live in the packaged `skills/audit-security-requirements/config.json`; they do not refer to a neighboring Advisor checkout. See [model selection](model-selection.md) for current options. The [historical configuration guide](history/advisor/configuration.md) describes earlier settings, some of which this CLI does not expose.
+Supported `APPSEC_*` environment variables can override models. See [model selection](model-selection.md) for the current options.

@@ -1,12 +1,10 @@
 # Provider connections
 
-`assess` checks provider setup before cloning. To check separately without generating text, run `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json`. LiteLLM checks its model list with your key. Bedrock checks only credential format and TLS, leaving server authentication and model access unverified.
+Full assessments can use a LiteLLM gateway or the Amazon Bedrock Converse API. Neither has passed live assessment qualification. The requirements audit and the focused analyst do not use these providers.
 
-`preflight --test-model --budget USD` authorizes one separate generation test using a synthetic prompt and the primary model. See [preflight checks and limitations](security-assessment.md#preflight-checks).
+To check the setup without generating text, run `appsec-analyzer preflight --repo /path/to/project --profile "lite claude" --json`. LiteLLM checks its model list with your key. Bedrock checks only the credential format and the TLS connection, so server authentication and model access stay unverified. See [preflight checks](security-assessment.md#preflight-checks), including the optional generation test.
 
-Full assessments can use a LiteLLM gateway or the Amazon Bedrock Converse API. Both adapters have offline transport and controller tests; neither has passed live assessment qualification. The requirements audit and focused analyst keep their existing provider options.
-
-GitHub Copilot CLI is a separate experimental full-assessment adapter with its own login, model settings, call/time limits, and soft per-session AI-credit limit. It does not use `providers.yaml` or gain support for the focused analyst or requirements audit. See [Copilot CLI setup and limits](profiles.md#use-github-copilot-cli).
+GitHub Copilot CLI is a separate experimental adapter with its own login and limits. It does not use `providers.yaml`. See [Copilot CLI setup and limits](profiles.md#use-github-copilot-cli).
 
 ## Configure the connection
 
@@ -56,4 +54,4 @@ appsec-analyzer assess --repo /path/to/project --model "bedrock claude" --budget
 
 Create a model profile with `base: lite` or `base: bedrock`. Each role can select a configured model with its provider prefix, for example `roles.recon_scanner.model: lite small`. Every role in one model profile uses the same adapter. Connect the model profile to a scan profile as described in [scan and model profiles](profiles.md).
 
-`profiles show` and `profiles validate` read configuration without credentials, repository retrieval or model calls. `capabilities` identifies both adapters as unqualified. Before model calls, the startup header identifies the destination; excerpts, supplied context and intermediate answers leave the machine. Provider and gateway settings govern logging, retention, and any cross-region routing; Analyzer does not establish those guarantees. Credentials are read only for transmission and never included in the profile snapshot. Connection details, deployment identity, prices and model options participate in resume compatibility.
+`profiles show` and `profiles validate` read configuration without credentials, repository retrieval, or model calls. `capabilities` lists both adapters as unqualified. The startup header names the destination. Excerpts, context, and intermediate answers leave the machine. Provider and gateway settings govern logging, retention, and cross-region routing. Analyzer guarantees none of these. Credentials are read only to send requests and are never stored in the profile snapshot. A change to the connection details, deployment identity, prices, or model options prevents `--resume`.

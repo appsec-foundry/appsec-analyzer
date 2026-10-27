@@ -42,13 +42,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
    appsec-analyzer review ~/assessments/juice-shop
    ```
 
-To update Analyzer later, run `appsec-analyzer update`. For a pipx installation it shows the source, asks for a yes, and then runs this pipx command, which you can also run yourself:
-
-```sh
-pipx upgrade --pip-args=--force-reinstall appsec-analyzer
-```
-
-See [Install](#install) for details.
+To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) for details.
 
 > [!NOTE]
 > With API billing, the Juice Shop scan costs about USD 14. Analyzer asks before it exceeds the default limit of USD 20.
@@ -106,7 +100,7 @@ Each model-backed command stops at a spending limit. The values are default uppe
 
 In an interactive terminal, `assess` may ask for a higher limit before it skips work. `analyze-threats` limits each model call, not the whole question; one question takes up to four calls. With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`); see [Model provider](#model-provider). `review` uses the assistant's own account and usage limits.
 
-`assess` shows monetary costs in progress and completion output by default only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show usage without costs. Add `--show-costs` to show available cost figures in any mode; unavailable amounts remain labelled unavailable. This display option changes no accounting or spending limits. Limits and budget-increase prompts remain visible.
+By default, `assess` shows monetary costs only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show usage without costs. `--show-costs` shows the available costs in any mode. It changes no accounting or limits.
 
 ### `assess`: full security assessment
 
@@ -279,7 +273,9 @@ appsec-analyzer distribution update-engine ./northstar-appsec
 
 pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The install command only works if the repository is reachable for your GitHub account. The package is not yet on PyPI.
 
-To update a pipx installation, run `appsec-analyzer update`. It shows the source it installs from, asks for a yes, and then runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`. The extra option makes pipx reinstall from the source even if the version number is unchanged, which is the case for installations from the GitHub repository. pipx may still print "already at latest version". It needs an interactive terminal outside CI and has no option that skips the question. For other installations it prints that you update the way you installed Analyzer. Organization commands do not have it. `appsec-analyzer --version` prints the release version, or the commit and its date for a build that is not a release; `appsec-analyzer version` prints the engine and interface versions as JSON. A build counts as a release when its commit has a tag like `v0.2.0`. A build from a modified checkout adds `+local changes`, and a build without Git data prints `commit unknown`.
+To update a pipx installation, run `appsec-analyzer update`. It shows the source it installs from, asks for a yes, and then runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`, which you can also run yourself. The extra option makes pipx reinstall even if the version number is unchanged, as is usual for installations from GitHub. pipx may still print "already at latest version". The command needs an interactive terminal outside CI and has no option that skips the question. For other installations it tells you to update the way you installed Analyzer. Organization commands do not have it.
+
+`appsec-analyzer --version` prints the release version. For a build that is not a release, it prints the commit and its date. A build counts as a release when its commit has a tag like `v0.2.0`. A modified checkout adds `+local changes`, and a build without Git data prints `commit unknown`. `appsec-analyzer version` prints the engine and interface versions as JSON.
 
 <details>
 <summary>Install with pip or from a local checkout</summary>
@@ -400,7 +396,7 @@ An abuse case is something an attacker or a user must not be able to do. Analyze
 
 [Verification](docs/security-assessment.md#survey-and-verification) checks a general security property wherever it applies in a component, such as whether routes check who owns the requested data. An abuse case asks whether an attacker can reach a particular goal, possibly across several steps or components. Attack chains connect existing findings into a path. Business cases check rules such as who may approve a payment. Add your own cases for rules specific to your application.
 
-`assess` checks the cases that fit the code, except at `quick` depth. By default, a standard run checks up to three business rules, a thorough run up to eight. Built-in rules that a verified aspect already checks, such as access to other users' data under authorization verification, come after the others. Rules you supply or request are not affected. A scan profile can change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does). If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
+`assess` checks the cases that fit the code, except at `quick` depth. By default, a standard run checks up to three business rules and a thorough run up to eight. Built-in rules that a verified aspect already covers come after the others. Rules you supply or request are not affected. A scan profile can change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does). If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
 
 To add your own rules, put them in a YAML file in the repository and pass it to `assess`:
 

@@ -63,4 +63,4 @@ Sources default to `outputs: ["catalog"]`. For sources that describe observable 
 
 The harvester also supports blueprint sources and per-source `catalog_file` outputs. Those files provide supporting guidance; they are not independent audit catalogs unless they contain requirements.
 
-The mock server is a source-checkout development utility with synthetic data. It is unnecessary for a local audit. The [historical harvester guide](history/advisor/harvester.md) preserves the previous plugin URL wiring and detailed configuration examples; its plugin commands and publishing workflow are not Analyzer operations.
+The mock server in the source checkout is for development with synthetic data. You do not need it for a local audit.

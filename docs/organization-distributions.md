@@ -114,11 +114,11 @@ max_parallel: 2
 outputs: [markdown, yaml, sarif]
 ```
 
-The model profile named `nordlicht` is read from the sibling `model-profiles/nordlicht.yaml`, so a user's home-directory profiles cannot silently replace it. The [profile guide](profiles.md) explains the available model, scan and report settings. Put spending limits and exports in the scan profile; do not assume every inherited Advisor preset field controls the standalone CLI.
+The model profile named `nordlicht` is read from the sibling `model-profiles/nordlicht.yaml`, so a user's home-directory profiles cannot silently replace it. The [profile guide](profiles.md) explains the available model, scan and report settings. Put spending limits and exports in the scan profile.
 
 The org profile supplies the organization identity, report branding, context and organization abuse cases. The demo includes a question about reading another organization's order. Its context describes business assumptions; it does not establish that the assessed application enforces them.
 
-The sample `requirements/orders.yaml` is for the separate [requirements audit](security-requirements-audit-skill.md). Shipping that file does not automatically enable it in a full assessment. There is no new remote catalog download in this example.
+The sample `requirements/orders.yaml` is for the separate [requirements audit](security-requirements-audit-skill.md). Shipping that file does not enable it in a full assessment.
 
 The installed launcher applies its defaults to `assess`. Other commands keep their documented behavior. The defaults are explicitly overridable:
 
@@ -187,7 +187,7 @@ cd "$RELEASE_DIR"
 sha256sum wheelhouse/*.whl requirements.lock requirements-dependencies.lock ci/assess.sh ENGINE_COMMIT ORG_COMMIT > SHA256SUMS
 ```
 
-Review the archives, the resolved dependency versions and their advisories before approval. The example pins Jinja 3.1.6, whose upstream [release notes](https://github.com/pallets/jinja/releases/tag/3.1.6) describe its security fixes. A lock records a chosen set; it is not a guarantee that later advisories do not affect that set. Commit lock changes in the organization repository when preparing the next release.
+Review the archives, the resolved dependency versions, and their security advisories before approval. A lock records a chosen set of versions. Later advisories can still affect it. Commit lock changes in the organization repository when you prepare the next release.
 
 Keep `wheelhouse/`, both runtime lock files, `SHA256SUMS` and the reviewed source commit IDs together as one approved internal release. Deliver the checksum file through the trusted release channel with the artifacts. A checksum supplied by an untrusted pull request does not establish approval.
 
@@ -301,25 +301,6 @@ If a scan profile names a custom model profile, keep `profiles/` and `model-prof
 
 If an inherited org profile contains Advisor hooks, skill toggles or plugin packaging keys, remove those unsupported declarations from the standalone distribution and express supported settings through scan/model/org profiles. Their presence must not be mistaken for active enforcement.
 
-<a id="engine-only-configuration-for-a-composed-score-plugin"></a>
-## Engine-only configuration for a composed plugin
+## Settings for a plugin host
 
-`organization-config` lets a host pass engine settings through the [organization-config schema](../schemas/organization-config.schema.json). It is separate from the installed distribution launcher. The file names the exact `engine_version`, the selected `advisor_core_version`, and an engine-only `profile`. `compatibility.core` applies to the Advisor version. Hooks, MCP declarations, banners, skills, and coaching do not belong in this file.
-
-Use `organization-config validate --config /installed/plugin/org-profile/analyzer-config.yaml` or `organization-config show --config /installed/plugin/org-profile/analyzer-config.yaml --preset release` for model-free inspection. An explicit inspection `--assessment-depth quick` overrides the selected preset default without changing profile-wide policy. Missing or invalid profiles, unsupported fields, incompatible versions, source-owned configuration and unknown presets fail without upstream fallback. Files use the existing bounded, data-only YAML reader without links, duplicate keys or aliases.
-
-Run a configured workflow with `organization-config run --config /installed/plugin/org-profile/analyzer-config.yaml -- score /source/repository --json`. Version 1 supports `score` and `assess` and declares `profile_source_validation: true`. It accepts base-mode presets plus `policy.disable_opus` and `policy.url_allowlist`.
-
-Score makes no model calls and uses no assessment depth, exports, or branding. A preset depth is visible during inspection but does not change scoring. A nonempty URL allowlist restricts remote Git targets to an exact hostname or dotted subdomain before Git runs or credentials are used. Existing address and redirect checks still apply. Inner score arguments cannot weaken the policy. Output and exit status stay unchanged.
-
-This interface rejects other profile fields and workflows. Use the assessment/distribution path for unsupported fields. Spend guidance does not become a hard limit, and agent instructions do not become executable policy. Organization restrictions apply only when this configuration is explicitly selected. Offline configuration checks do not verify real model or platform behavior.
-
-For full assessments, use the same public envelope with `organization-config run --config /installed/plugin/org-profile/analyzer-config.yaml -- assess --repo /source/repository`. Running it may use models and requires separate authorization. Only the existing base-mode presets and the two policy fields are admitted. A selected preset supplies depth unless the inner CLI explicitly sets `--assessment-depth`; scan/model profiles and direct CLI budget/export options keep their existing behavior. Opus selections on the Claude path are clamped before host preflight and again by the existing controller; unknown or Opus-family provider models fail the restriction before credentials are used.
-
-Inspect the same invocation without source access, credentials or models with `organization-config show --config /installed/plugin/org-profile/analyzer-config.yaml -- assess --repo /source/repository --assessment-depth quick`. Inspection resolves supported profile settings, checks policy and reports the effective `assessment_profile`; it does not execute an assessment. `validate` accepts the same optional workflow arguments. Invalid arguments and disallowed destinations fail instead of selecting a default workflow. Control option names must be exact; abbreviations are refused.
-
-Hosts that copy an external Advisor profile must pass its original canonical path as outer `--profile-source FILE`, before `--`. Analyzer checks that path and the engine configuration against every selected repository. Inner profile or preset options cannot replace the outer selection. Advisor handles its explicit no-profile choice before dispatch.
-
-CLI context and requirements destinations are checked against the URL policy before provider setup. Later context readers receive the effective-profile file. For composed configurations, `APPSEC_URL_ALLOWLIST` cannot widen the mandatory allowlist. Other organization-profile paths keep their earlier behavior.
-
-The controller receives validated organization settings as data, with a content hash and no filesystem profile path. A temporary copied profile does not become a resume identity or an actor/abuse-case profile. Context capture saves supported policy in `.org-profile-effective.json`. Changing policy or preset changes session identity; moving an otherwise identical configuration does not. This handoff does not migrate hooks, UI, or saved-result workflows.
+A plugin host that passes engine settings with `organization-config` instead of an installed distribution is described in the [organization-config contract](internal/contracts/organization-config.md).

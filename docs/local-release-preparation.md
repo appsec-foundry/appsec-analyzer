@@ -2,9 +2,9 @@
 
 For a separate internal package that includes organization defaults and pins this engine, follow [organization distribution packaging](organization-distributions.md). The source and wheel include the complete example under `examples/organization-distribution/`.
 
-This is an unpublished development preview. Later Advisor integration is outside this repository’s current scope. Build from the `dev` branch in a separate temporary clone to keep local files and test output out of the archive:
+This is an unpublished development preview. Later Advisor integration is outside this repository’s current scope. Build from the `dev` branch in a separate temporary clone to keep local files and test output out of the archive.
 
-Run `make release-check-analyzer BASE=<base-commit>` before building, replacing `<base-commit>` with the commit before the release changes under review. The comparison commit must be available in the checkout; using `HEAD` checks only uncommitted changes. The gate checks requirement changes and the public standalone contracts, and inventories a wheel and source archive, including incremental build cleanup and installed guide links. The inherited whole-suite and test-route catalog still need separate reconciliation before a full repository release gate can be claimed.
+Run `make release-check-analyzer BASE=<base-commit>` before building. Replace `<base-commit>` with the commit before the release changes under review. That commit must exist in the checkout, and `HEAD` checks only uncommitted changes. The gate checks requirement changes and the public contracts, and inventories a wheel and a source archive, including incremental build cleanup and the links in the installed guides. The inherited whole-suite and test-route catalog still need separate reconciliation before you can call this a full release gate.
 
 ```sh
 git clone --no-hardlinks -b dev /path/to/appsec-analyzer /tmp/analyzer-release-source
@@ -25,20 +25,10 @@ Inspect both archives before distribution. Exclude the temporary `scripts/run-he
 ## Qualification and compatibility limits
 
 - `assess` runs the full assessment and makes model calls; `scan-sources` and `score REPO` are deterministic commands without a model provider. The separate [score](security-score.md) is a limited indication and does not establish security approval.
-- `assess --host claude-cli` is a compatibility adapter with offline fake-host
-  end-to-end coverage. A real CLI session, model selection, and run cost have
-  not been qualified here.
-- Direct OpenAI Responses profiles are explicitly selectable with `--host openai`
-  and have offline wire, decoder, egress, and budget tests. Their end-to-end
-  assessment quality has not been qualified in a live run. Fixed gateway routes
-  remain unavailable through the public command.
-- `codex-cli` supports Codex CLI 0.163.0 with ChatGPT login on Linux/macOS. It has offline decoder, boundary, lifecycle, and full-controller coverage; the installed CLI has a loopback-only wire qualification test. Live assessment quality and plan consumption have not been qualified. See [setup and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
-- `audit-requirements` accepts one local catalog and one repository. The
-  historical Advisor plugin audit's remote catalog precedence, PDF output,
-  and resume are not available at this boundary. This audit does not declare
-  a complete security assessment.
-- Historical Advisor run directories are not silently migrated. Resume needs
-  compatible Analyzer state and an unchanged admitted source.
+- `assess --host claude-cli` is a compatibility adapter with offline fake-host end-to-end tests. A real CLI session, model selection, and run cost have not been qualified.
+- The OpenAI Responses profiles can be selected with `--host openai`. They have offline tests for the wire format, decoding, network egress, and budgets. Their assessment quality has not been qualified in a live run. Fixed gateway routes are not available through the public command.
+- `codex-cli` supports Codex CLI 0.163.0 with a ChatGPT login on Linux and macOS. It has offline tests, and the installed CLI passes a loopback-only wire test. Live assessment quality and plan consumption have not been qualified. See [setup and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
+- `audit-requirements` accepts one local catalog and one repository. Remote catalogs, PDF output, and resume from the earlier Advisor audit are not available. The audit is not a complete security assessment.
+- Run directories from Advisor are not migrated. Resume needs compatible Analyzer state and an unchanged admitted source.
 
-The [extraction record](internal/extraction/phase-a-record.md) identifies the
-frozen source commit, historical mapping, checks, and current open work.
+The [extraction record](internal/extraction/phase-a-record.md) lists the frozen source commit, the mapping from Advisor, the checks, and the open work.

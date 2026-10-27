@@ -46,25 +46,15 @@ Codex CLI defaults to 1,000 exchanges, four hours total, and at most two compone
 - `--max-duration SECONDS`: 1–43,200 seconds.
 - `--max-parallel N`: 1–16 components.
 
-Analyzer reserves calls and time for required analysis and report work. Each exchange also has a timeout and size limits. The connection uses HTTP/SSE with CLI retries disabled. Its 60-second idle timeout resets on incoming events; the controller also enforces a total per-call limit. See the [Codex provider configuration](https://learn.chatgpt.com/docs/config-file/config-reference) for transport settings.
+Analyzer reserves calls and time for required analysis and report work. Each exchange also has a timeout and size limits. An exchange count does not measure tokens or ChatGPT credits, so these limits cannot guarantee completion within your plan allowance.
 
-An exchange count does not measure tokens or ChatGPT credits. These limits cannot guarantee completion within your plan allowance.
+Requests are limited to 320,000 UTF-8 bytes, so large inputs can need more exchanges. An input-size error needs a smaller request or an Analyzer fix. `--resume` alone cannot fix an unchanged oversized request.
 
-Codex CLI requests are limited to 320,000 UTF-8 bytes including role instructions and the output contract, so a source packet can reach the same size as on other hosts. Survey source batches account for that overhead before dispatch; further reads and correction packets retain the remaining context limit. Large inputs can therefore require more model exchanges. An input-size error requires a smaller request or an Analyzer fix; `--resume` alone cannot resolve an unchanged oversized request.
+Analyzer asks Codex for structured JSON and checks it against the full result schema. It accepts only the last completed agent message of a completed turn. Earlier commentary is not a result. Stop messages and private diagnostics use fixed codes for malformed streams, incomplete answers, invalid JSON, invalid results, unexpected tools, disconnection, timeout, TLS failure, and unavailable models. They do not record model answers. An invalid answer does not prove a login problem: check CLI compatibility before you retry. Unexpected tools mean you should check isolation. A Codex reconnect notice does not by itself mean the call failed. A generic `transport` error means the cause could not be classified. After an Analyzer update, use a new output directory to keep a failed run for diagnosis.
 
-Analyzer requests structured JSON from Codex and checks it against the full result schema, source rules, and permissions. Missing optional fields and explicit `null` stay distinct. Duplicate or ambiguous fields are rejected. Results use native JSON values, so text does not need an extra layer of JSON escaping.
+Do not pass `--budget` or `--hard-budget` with `codex-cli`. They are rejected, as is a `budget` field in a subscription scan profile. The startup summary shows ChatGPT subscription use and the call limit. Completion and status show no dollar charge (monetary accounting is `null`). For separately billed OpenAI API use, select `codex` and set `OPENAI_API_KEY`.
 
-Codex may send commentary before its final answer. Analyzer accepts only the last completed agent message from a completed turn, following the [Codex output contract](https://learn.chatgpt.com/docs/non-interactive-mode#make-output-machine-readable). Earlier commentary is not a result.
-
-Stop messages and private diagnostics use fixed codes for malformed streams, incomplete answers, invalid JSON, invalid structured results, and unexpected tools. They do not record model answers. An invalid answer does not prove a login problem. Check CLI compatibility and the reported response format before retrying; unexpected tools require checking isolation. After an Analyzer update, use a new output directory to preserve the failed run for diagnosis.
-
-A Codex reconnect notice does not by itself mean the call failed. Analyzer shows it without provider text, then checks the final outcome. Failure codes distinguish disconnection, timeout, connection failure, TLS failure, and unavailable models. Rate limits and exhausted allowance are separate. Diagnostics classify error events and stderr without retaining their raw text. A generic `transport` error means the cause could not be classified.
-
-Do not pass `--budget` or `--hard-budget` with `codex-cli`; they are rejected, as is a `budget` field in a subscription scan profile. The startup summary identifies ChatGPT subscription use and the call limit. Completion and status show no invented dollar charge: monetary accounting is `null`. For separately billed OpenAI API use, select `codex` and configure `OPENAI_API_KEY`.
-
-Codex CLI sends selected source excerpts, context, and intermediate answers to OpenAI. Analyzer uses fresh private working directories, disables model tools and repository/user agent configuration, and requests temporary sessions. It does not read or copy authentication tokens. Your account or workspace governs provider-side data handling; temporary local sessions do not guarantee provider retention.
-
-The adapter removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Incompatible managed Codex settings stop the run.
+Codex CLI sends selected source excerpts, context, and intermediate answers to OpenAI. Analyzer runs it in fresh private working directories with model tools and repository and user agent configuration disabled, and requests temporary sessions. It does not read or copy authentication tokens. It removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Incompatible managed Codex settings stop the run. Your account or workspace governs provider-side data handling. Temporary local sessions do not guarantee provider retention.
 
 If login expires, run `codex login` again. If your allowance is exhausted, wait for it to reset or manage it in ChatGPT, then rerun the original command with the same `--output` and `--resume`. Resume keeps the original call limit and deadline while they hold. If the deadline has expired, or you changed the limits, `--resume` starts a new run with your limits; compatible accepted jobs are reused and their call counts are retained. If the original call limit is exhausted, raise it in the command. Never use `--rebuild` merely to retry a quota error.
 
@@ -122,11 +112,7 @@ The filename supplies the name `release`. Names use lowercase letters, digits, a
 
 `budget` is always USD and is available for `claude` and `codex`; `codex-cli` uses `max_calls` instead. `outputs` selects exports; Markdown and structured YAML are always retained as the base result. Supported formats are `markdown`, `yaml`, `html`, `pdf`, `sarif`, `threatdragon`, and `pentest-tasks`. HTML and PDF still need the export tools described in the [assessment guide](security-assessment.md). An unavailable optional export produces a warning.
 
-`max_parallel` limits how many jobs control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run at once. It defaults to 4, or 2 on Codex and Copilot subscriptions, and accepts integers from 1 to 16. Use 1 for serial processing. While you leave the default, a run whose number of components divides by three uses three jobs at a time; a value you set always applies as given. Higher values can encounter provider rate limits. The controller uses the selected value for both its worker pool and its time reserve for required analysis.
-
-Provider rate limits pause new calls and can pause the run with exit code 3. Accepted work stays saved. Wait for capacity, then repeat the command with `--resume`; the original deadline still applies. If rate limits recur, repeat the command without `--resume` and with the smaller `--max-parallel` value that the pause message names; the new run reuses the accepted jobs. See [retry rules and recovery](security-assessment.md#rate-limits-and-connection-failures).
-
-Persistent connection failures pause required work with exit code 3; optional jobs record a coverage gap. Login, quota, certificate, configuration, and request errors are not retried. See [connection failure recovery](security-assessment.md#rate-limits-and-connection-failures).
+`max_parallel` limits how many jobs control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run at once. It accepts integers from 1 to 16. Use 1 for serial processing. The default is 4, or 2 on Codex and Copilot subscriptions, and 3 for a run whose number of components divides by three. A value you set always applies as given. Higher values can run into provider rate limits. For pauses and recovery, see [rate limits and connection failures](security-assessment.md#rate-limits-and-connection-failures).
 
 Report attributes are text values, with up to 32 keys and 256 characters per value. They appear near the report title and under `meta.report_attributes` in the YAML result. They label the report; they do not change severity, authorize actions, or become analysis instructions. Keep credentials and confidential personal data out of them.
 
@@ -264,7 +250,7 @@ The Claude CLI supports reasoning effort through its effort option. This adapter
 
 The Analyzer aliases `gpt-sol`, `gpt-luna`, and `gpt-astra` resolve through the installed [model catalog](../data/model-catalog.yaml). They are Analyzer aliases, not names sent directly to the API. A concrete ID such as `gpt-6.1-sol` selects that model explicitly. Catalog updates include prices and supported parameters; a new entry does not establish assessment quality.
 
-By default, OpenAI requests omit `max_output_tokens`. Analyzer adds no output-token cap below the model's own maximum. Before sending a request, it reserves enough USD for the bounded input and the model's maximum output. A larger model can therefore need a larger available budget even if its eventual response is short. Transport byte limits and execution timeouts still apply.
+By default, OpenAI requests omit `max_output_tokens`, so Analyzer sets no output cap below the model's own maximum. Before it sends a request, it reserves enough USD for the largest input and the model's maximum output. A larger model can therefore need a larger available budget even if its response is short.
 
 If you deliberately want a smaller per-call limit, set it for the required role:
 
@@ -314,10 +300,6 @@ Copyable examples are [developer.yaml](../examples/profiles/developer.yaml), [re
 
 ## Resume a run
 
-The private assessment state stores the resolved profile, including each role's model and settings. OpenAI aliases remain fixed to the stored model IDs on `--resume`. The current catalog must still recognize those IDs and their options. Changing the profile, effective configuration, or cost information makes `--resume` continue as a new run that reuses compatible accepted jobs, because the stored model IDs no longer apply.
+The private assessment state stores the resolved profile, including each role's model and settings. On `--resume`, OpenAI aliases stay fixed to the stored model IDs, and the current catalog must still recognize those IDs and their options. If you change the profile, the effective configuration, or the cost information, `--resume` continues as a new run that reuses compatible accepted jobs.
 
-Runs created before profile snapshots were introduced cannot resume through the new profile path. Start a new assessment when Analyzer reports this incompatibility. Existing `--profile claude`, `--profile codex`, and compatible legacy `--host` commands remain supported for new runs.
-
-Saved configuration includes `test_cases`, depth settings, requested and skipped abuse cases, and the effective verification aspects. Changing them requires a new run. Older snapshots without these settings count as `false`: they can resume at quick depth, but need a new run at standard or thorough depth because those defaults now enable verification.
-
-`max_parallel` is part of the saved configuration. Changing it requires a new run. Snapshots created before this setting was recorded require a new run through the profile path; existing reports remain readable.
+The saved configuration also includes `test_cases`, the depth settings, requested and skipped abuse cases, the verification aspects, and `max_parallel`. Changing any of them requires a new run. Runs saved by older Analyzer versions may lack some of these settings. Analyzer then reports the incompatibility, and you start a new assessment. Existing reports stay readable.

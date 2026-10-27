@@ -24,9 +24,9 @@ These defaults apply to every role except `recon_scanner`, which uses `gpt-luna`
 
 By default, requests omit `max_output_tokens`. Analyzer imposes no cap below the model maximum. An explicit limit is optional and includes both reasoning and visible output tokens. Incomplete answers caused by that limit fail with `output_token_limit`.
 
-Each OpenAI request is limited to 240,000 bytes, including instructions, the output contract, and JSON escaping. That is below the catalog’s 272,000 input-token threshold for long-context pricing. Large components can therefore need more exchanges than with Claude CLI.
+Each OpenAI request is limited to 240,000 bytes, which keeps it below the long-context pricing threshold. Large components can therefore need more exchanges than with Claude CLI.
 
-Before a call, Analyzer reserves the cost of its allowed input and output. It uses your output limit, or the model maximum if none is set. The catalog snapshot for the default Sol model uses conservative rates of USD 2.50 per million input tokens, including possible cache-write charges, and USD 10 per million output tokens. A reservation can prevent a call even if its eventual answer would be short. The total approved budget still applies.
+Before a call, Analyzer reserves the cost of the largest input and output the call may use. For the output it takes your limit, or the model maximum if you set none. The default Sol model is priced at USD 2.50 per million input tokens (including possible cache-write charges) and USD 10 per million output tokens. A reservation can prevent a call even if the answer would have been short. The approved budget still applies.
 
 An OpenAI `--model` value must match the selected survey model or its requested alias. Claude role flags and `--reasoning-model` are rejected on this adapter; use a model profile for per-role OpenAI settings. Before a paid run, check the [official model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [pricing table](https://developers.openai.com/api/docs/pricing).
 
@@ -66,7 +66,7 @@ Read the counts with care:
 - More findings do not mean as many more weaknesses. In the thorough run, several problems appear two or three times, for example once from the survey and once from verification under another weakness type.
 - The same problem can get a different severity in another run. Code execution through the stored user name was Critical in `quick` and `thorough`, but High in `standard`.
 - Every run rated a request field as Critical that a scanner rule reported, although the application overwrites that field with the signed-in user before it is used. Where verification sees such a protection, the report marks the finding as contradicted by verification. `quick` runs no verification and shows no such mark.
-- Abuse-case results also varied. Two attack chains that `standard` confirmed as Critical stayed unresolved in `thorough`, although both runs used the same model for this check. One was linked to an unrelated secret, which Analyzer no longer does; the other check judged the same code differently.
+- Abuse-case results also varied. Two attack chains that `standard` confirmed as Critical stayed unresolved in `thorough`, although both runs used the same model for this check.
 
 These are single runs on one application, not a benchmark. Costs and results depend on the project, models, limits, budget, and retries.
 
@@ -76,4 +76,4 @@ Existing `--host claude-cli` and `--host openai` calls remain supported. The old
 
 `--org-profile` selects separate organization assessment settings. The requirements audit continues to use `--host claude-cli`.
 
-Offline protocol, boundary, and budget tests do not establish assessment quality. The `codex`, `codex-cli`, `lite`, and `bedrock` profiles have not completed live end-to-end qualification at any depth. User model combinations also remain unqualified. The legacy generic gateway remains unavailable through the CLI; the separate LiteLLM adapter uses an explicitly configured operator connection. See [LiteLLM and Bedrock setup](providers.md) for model prefixes, authentication, pricing and limits.
+The `codex`, `codex-cli`, `lite`, and `bedrock` profiles have not completed live end-to-end qualification at any depth. User model combinations also remain unqualified. The legacy generic gateway remains unavailable through the CLI; the separate LiteLLM adapter uses an explicitly configured operator connection. See [LiteLLM and Bedrock setup](providers.md) for model prefixes, authentication, pricing and limits.
