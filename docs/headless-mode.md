@@ -34,7 +34,7 @@ For ChatGPT plan usage on a trusted local machine, install the supported Codex C
 
 Create `/private/source-scan` before running `scan-sources`. It prints readable scanner observations, or versioned JSON with `--json`. `--output` also saves `scan-result.json`.
 
-`assess` shows progress and creates a private default destination if you omit `--output`. A stop request preserves accepted work for a compatible `--resume`. `--rebuild` starts over.
+`assess` shows progress and creates a private default destination if you omit `--output`. A stop request preserves accepted work for `--resume`, which reuses the steps that still match. `--rebuild` starts over.
 
 Provider rate limits pause new calls and can pause the run with exit code 3. Accepted work stays saved. Wait for capacity, then repeat the command with `--resume`; the original deadline still applies. See [retry rules and recovery](security-assessment.md#rate-limits-and-connection-failures).
 

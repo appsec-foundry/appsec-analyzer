@@ -138,12 +138,17 @@ class AssessmentState:
     HEARTBEAT_SECONDS = 20
     STALE_AFTER_SECONDS = 60
 
-    def __init__(self, scope, *, configuration, runtime_sha256, budget, resume=False, replace=False):
+    def __init__(
+        self, scope, *, configuration, runtime_sha256, budget, resume=False, replace=False, resume_blocker=None
+    ):
         if not isinstance(scope, AssessmentScope) or not isinstance(budget, AssessmentBudget):
             raise ExchangeError("Assessment lifecycle requires an admitted scope and full budget")
         if not isinstance(runtime_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", runtime_sha256):
             raise ExchangeError("Assessment lifecycle requires the trusted runtime fingerprint")
         self.scope, self.budget, self.resume, self.replace = scope, budget, resume, replace
+        # Why --resume could not continue the run and took it over as a new run (REQ-016); set by `_open`
+        # or by a caller that already knows.
+        self.resume_blocker = resume_blocker
         # Component workers poll `should_stop` concurrently; one checkpoint at a time.
         self._checkpoint_lock = threading.RLock()
         self.output = scope.output
@@ -248,16 +253,18 @@ class AssessmentState:
                 and self.state["status"] != "complete"
                 and {**earlier, "runtime_sha256": self.identity["runtime_sha256"]} == self.identity
             )
-            if earlier != self.identity and not self.runtime_changed:
-                again = (
-                    "A new scan is required: run again without --resume"
-                    if self.state["status"] == "complete"
-                    else self._new_run_hint(self.state["identity"])
-                )
+            if earlier != self.identity and not self.runtime_changed and self.state["status"] == "complete":
                 raise ExchangeError(
-                    f"Assessment cannot resume: {self._changed(self.state['identity'])} changed since it "
-                    f"started. {again}"
+                    f"Assessment cannot resume: {self._changed(earlier)} changed since it started. "
+                    "A new scan is required: run again without --resume"
                 )
+            # An unfinished run that cannot continue is taken over as a new run, which reuses the
+            # accepted steps that still match, instead of refusing --resume.
+            self.resume_blocker = self.resume_blocker or self._resume_blocker(earlier)
+            if self.resume_blocker:
+                self.runtime_changed = False
+                self.resume = False
+        if self.resume:
             self.budget.max_usd = self._authorized_budget(self.state)
             accounting = self.state["accounting"]
             if not self.budget.subscription and not math.isfinite(accounting["spent_usd"]):
@@ -335,6 +342,17 @@ class AssessmentState:
             return None
         if isinstance(changelog, list) and changelog and all(isinstance(entry, dict) for entry in changelog):
             return changelog
+        return None
+
+    def _resume_blocker(self, earlier) -> str | None:
+        """Why an unfinished run cannot be continued as it is, or None."""
+        if earlier != self.identity and not self.runtime_changed:
+            return f"{self._changed(earlier)} changed since it started"
+        if self.state["status"] != "complete":
+            if self.state["expires_at"] <= time.time():
+                return "its time limit has passed"
+            if self.state["accounting"]["unavailable"]:
+                return "an unfinished cost reservation cannot be reconciled"
         return None
 
     def _changed(self, identity) -> str:

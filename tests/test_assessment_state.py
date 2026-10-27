@@ -319,15 +319,13 @@ def test_complete_session_binds_deliverables_and_detects_later_changes(scope):
         ("budget", AssessmentBudget(2.0, 0.05, 10, 60), "the budget or time limits changed"),
     ],
 )
-def test_changed_settings_reject_resume_and_name_the_change(scope, field, value, named):
-    with lifecycle(scope).hold():
+def test_changed_settings_take_the_run_over_and_name_the_change(scope, field, value, named):
+    with lifecycle(scope).hold() as first:
         pass
-    with pytest.raises(
-        ExchangeError, match=f"cannot resume: {named} since it started. Run the same command without --resume for a new"
-    ) as caught:
-        with lifecycle(scope, resume=True, **{field: value}).hold():
-            pytest.fail("Changed request must not resume")
-    assert "source code" not in str(caught.value)
+    with lifecycle(scope, resume=True, **{field: value}).hold() as taken:
+        # --resume continues as a new run that reuses accepted steps (REQ-016).
+        assert not taken.resume and taken.state["run_id"] != first.state["run_id"]
+        assert taken.resume_blocker == f"{named} since it started"
 
 
 def _plugin_change_jobs(state, host_factory):
@@ -465,6 +463,19 @@ def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):
         assert _assessment_continuation(rebuilt, rebuilt.budget) is None
 
 
+def test_the_header_names_why_resume_took_the_unfinished_run_over(scope):
+    from orchestrator.orchestration_controller import _assessment_continuation
+
+    _interrupted_with_two_jobs(scope)
+    with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}).hold() as taken:
+        key, value = _assessment_continuation(taken, taken.budget)
+        assert key == "Earlier run"
+        assert value.startswith(
+            "--resume could not continue the run: the assessment settings changed since it started. "
+        )
+        assert "taken over where nothing changed" in value
+
+
 def test_job_counts_tell_reused_from_run_jobs_per_view_and_in_total(scope):
     first, dispatched, factory = _interrupted_with_two_jobs(scope)
     with lifecycle(scope).hold() as fresh:
@@ -482,14 +493,14 @@ def test_job_counts_tell_reused_from_run_jobs_per_view_and_in_total(scope):
         assert jobs.has_accepted("recon_scanner", "kept")
 
 
-def test_resume_refuses_a_plugin_change_together_with_changed_settings(scope):
+def test_resume_takes_over_after_a_plugin_change_together_with_changed_settings(scope):
     with lifecycle(scope).hold():
         pass
-    previous = stored(scope)
-    with pytest.raises(ExchangeError, match="cannot resume: the assessment settings and the plugin version changed"):
-        with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}, runtime_sha256="b" * 64).hold():
-            pytest.fail("Changed settings must not resume, whatever else changed")
-    assert stored(scope) == previous
+    with lifecycle(
+        scope, resume=True, configuration={"stride_model": "sonnet"}, runtime_sha256="b" * 64
+    ).hold() as taken:
+        assert not taken.resume and not taken.runtime_changed
+        assert taken.resume_blocker == "the assessment settings and the plugin version changed since it started"
 
 
 def test_a_new_run_after_a_plugin_change_reuses_only_unchanged_jobs(scope):
@@ -522,12 +533,10 @@ def test_runtime_change_cannot_reset_exhausted_resume_limits(scope, subscription
     )
     first = lifecycle(scope, budget=budget(), configuration=configuration)
     with first.hold():
-        first.budget.calls = 10
+        first.budget.calls = 11
         if not subscription:
-            first.budget.spent_usd = 1.0
+            first.budget.spent_usd = 1.5
     previous = stored(scope)
-    previous["started_at"] -= 120
-    previous["expires_at"] -= 120
     path = scope.output / ".assessment-state.json"
     path.write_text(json.dumps(previous))
     with pytest.raises(ExchangeError, match="resume budget is exhausted"):
@@ -550,16 +559,17 @@ def test_resume_after_a_plugin_change_still_refuses_a_completed_run_or_unknown_c
         assert not reopened.runtime_changed
 
 
-def test_resume_after_a_plugin_change_keeps_unknown_cost_blocking(scope):
+def test_resume_after_a_plugin_change_takes_over_unknown_cost_as_a_new_run(scope):
     with lifecycle(scope).hold():
         pass
     recorded = stored(scope)
     recorded["accounting"]["unavailable"] = True
     (scope.output / ".assessment-state.json").write_text(json.dumps(recorded))
-    with pytest.raises(ExchangeError, match="cannot reconcile an unfinished cost reservation"):
-        with lifecycle(scope, resume=True, runtime_sha256="b" * 64).hold():
-            pytest.fail("Unknown costs must not be refunded by a plugin change")
-    assert stored(scope) == recorded
+    with lifecycle(scope, resume=True, runtime_sha256="b" * 64).hold() as taken:
+        assert not taken.resume and not taken.runtime_changed
+        assert taken.resume_blocker == "an unfinished cost reservation cannot be reconciled"
+        # The unknown cost is not refunded: the new run starts its own accounting.
+        assert taken.state["accounting"]["unavailable"] is False
 
 
 def test_changed_source_cannot_resume_or_complete(scope):
@@ -573,19 +583,15 @@ def test_changed_source_cannot_resume_or_complete(scope):
             pytest.fail("Changed source must not resume")
 
 
-def test_changed_source_refuses_resume_without_promising_reuse(scope):
+def test_changed_source_takes_the_run_over_without_promising_reuse(scope):
     with lifecycle(scope).hold():
         pass
     (scope.repositories[0].root / "app.py").write_text("print('changed')\n")
     changed = admit([str(repository.root) for repository in scope.repositories], str(scope.output))
-    with pytest.raises(
-        ExchangeError,
-        match=r"the selected source code changed since it started\. Run the same command without --resume for a new "
-        r"scan; it repeats every model step because the source changed",
-    ) as caught:
-        with lifecycle(changed, resume=True).hold():
-            pytest.fail("Changed source must not resume")
-    assert "reuses" not in str(caught.value)
+    with lifecycle(changed, resume=True).hold() as taken:
+        assert not taken.resume
+        assert taken.resume_blocker == "the selected source code changed since it started"
+        assert taken.reused_run_started is None
 
 
 def test_cost_reservation_is_durable_before_dispatch_and_unknown_cost_blocks_resume(scope):
@@ -623,9 +629,8 @@ def test_cost_reservation_is_durable_before_dispatch_and_unknown_cost_blocks_res
             )
     assert stored(scope)["status"] == "failed"
     assert stored(scope)["accounting"]["unavailable"] is True
-    with pytest.raises(ExchangeError, match="unfinished cost reservation"):
-        with lifecycle(scope, resume=True).hold():
-            pytest.fail("Unknown costs must not be refunded")
+    with lifecycle(scope, resume=True).hold() as taken:
+        assert not taken.resume and taken.resume_blocker == "an unfinished cost reservation cannot be reconciled"
 
 
 def test_a_refused_call_with_a_reported_cost_leaves_the_run_resumable(scope):
@@ -916,16 +921,31 @@ def test_symlinked_work_directory_cannot_resume(scope, tmp_path):
             pytest.fail("Work directory must remain private")
 
 
-def test_expired_resume_does_not_restart_time_budget(scope):
+def test_expired_resume_takes_the_run_over_with_the_new_time_limit(scope):
     with lifecycle(scope).hold():
         pass
     state = stored(scope)
     state["expires_at"] = int(time.time()) - 1
     state["started_at"] = state["expires_at"] - 60
     (scope.output / ".assessment-state.json").write_text(json.dumps(state))
-    with pytest.raises(ExchangeError, match="budget is exhausted"):
+    with lifecycle(scope, resume=True).hold() as taken:
+        assert not taken.resume and taken.resume_blocker == "its time limit has passed"
+        assert taken.state["expires_at"] > time.time()
+
+
+def test_resume_of_a_completed_run_with_changed_settings_still_needs_a_new_scan(scope):
+    with lifecycle(scope).hold() as state:
+        (scope.output / "threat-model.yaml").write_text("version: 2\n")
+        state.complete(["threat-model.yaml"])
+    with pytest.raises(ExchangeError, match="A new scan is required: run again without --resume"):
+        with lifecycle(scope, resume=True, configuration={"stride_model": "sonnet"}).hold():
+            pytest.fail("A completed run is not continued")
+
+
+def test_resume_without_a_run_in_the_output_still_says_so(scope):
+    with pytest.raises(ExchangeError, match="holds no assessment to resume"):
         with lifecycle(scope, resume=True).hold():
-            pytest.fail("Resume must not grant another timeout")
+            pytest.fail("Nothing to resume")
 
 
 @pytest.mark.parametrize("change", ["nonfinite", "extended-deadline", "extra-field"])

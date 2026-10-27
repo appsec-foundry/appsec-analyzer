@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- `assess --resume` no longer refuses an unfinished run whose source, settings, limits or time limit changed. It continues as a new run that reuses the accepted steps that still match, with the limits of the command, and the run header names the cause. A completed run still needs a start without `--resume`.
 - Assessment reports name the tool as AppSec Analyzer instead of appsec-advisor and show the Analyzer version of the run. A report rendered again later keeps the version that ran the assessment.
 - `assess` no longer sends a test prompt to a low-cost model before the run. The access and provider checks remain; a rejected login, key or quota now shows at the first model call in Reconnaissance.
 - `appsec-analyzer scan` is renamed to `assess`. `assess --non-interactive` requires `--repo` and an explicit `--profile` (or legacy `--host`). Starting without a command shows examples and help guidance, with exit code 2.

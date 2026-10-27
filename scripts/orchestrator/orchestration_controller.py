@@ -798,6 +798,7 @@ def _assessment_session(
     budget,
     host_factory,
     resume=False,
+    resume_blocker=None,
     model=None,
     rebuild=False,
     api_profile=None,
@@ -915,6 +916,7 @@ def _assessment_session(
         runtime_sha256=_assessment_runtime_fingerprint(),
         budget=budget,
         resume=resume,
+        resume_blocker=resume_blocker,
         replace=rebuild,
     )
 
@@ -3304,13 +3306,14 @@ def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, st
     if state.reused_run_started is not None:
         # A reused step is charged to this run, so it counts toward the new limit.
         counted = "model calls count" if budget.subscription else "cost counts"
+        cause = f"--resume could not continue the run: {state.resume_blocker}. " if state.resume_blocker else ""
         spent = state.reused_run_spent
         spent = (
             f" · {spent} model calls used" if budget.subscription else f" · USD {spent:.2f} spent" if show_costs else ""
         )
         return (
             "Earlier run",
-            f"results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
+            f"{cause}results of the unfinished run started {utc(state.reused_run_started)} are taken over where nothing "
             f"changed; they need no new model calls, but their {counted} toward the limit"
             f" · {_elapsed(state.worked_before)} worked{spent}",
         )
@@ -4053,10 +4056,18 @@ def assess_repositories(
     else:
         ns, rest = _assessment_argument_parser().parse_known_args(argv)
     ns.output = _assessment_destination(ns)
+    resume_blocker = None
     if run_profile is not None:
-        from appsec_analyzer.profiles import restore_profile
+        from appsec_analyzer.profiles import ProfileError, restore_profile
 
-        run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
+        try:
+            run_profile = restore_profile(run_profile, Path(ns.output), resume=ns.resume)
+        except ProfileError:
+            if not ns.resume:
+                raise
+            # REQ-016: --resume takes the run over as a new run instead of refusing a changed profile.
+            resume_blocker = "the operator profile changed"
+            run_profile = restore_profile(run_profile, Path(ns.output), resume=False)
         if ns.max_parallel is None:
             ns.max_parallel = run_profile["settings"]["max_parallel"]
             ns.parallel_is_default = run_profile["origins"]["settings"].get("max_parallel") == "analyzer default"
@@ -4229,6 +4240,7 @@ def assess_repositories(
                 budget=budget,
                 host_factory=factory,
                 resume=ns.resume,
+                resume_blocker=resume_blocker,
                 model=ns.model,
                 rebuild=ns.rebuild,
                 api_profile=api_profile,
@@ -4337,7 +4349,7 @@ def assess_repositories(
                     state.directory,
                     token_env=getattr(ns, "platform_token_env", None),
                     # After a plugin change the checks run again with today's code.
-                    resume=ns.resume and not state.runtime_changed,
+                    resume=state.resume and not state.runtime_changed,
                     # A start check, so the console continues the Preflight block with it.
                     say=(lambda symbol, text: console.preflight([(symbol, "Platform settings", text)]))
                     if console

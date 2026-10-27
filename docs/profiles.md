@@ -66,7 +66,7 @@ Codex CLI sends selected source excerpts, context, and intermediate answers to O
 
 The adapter removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Incompatible managed Codex settings stop the run.
 
-If login expires, run `codex login` again. If your allowance is exhausted, wait for it to reset or manage it in ChatGPT, then rerun the original command with the same `--output` and `--resume`. Resume keeps the original call limit and deadline. If those local limits are exhausted, start a new run without `--resume` or `--rebuild`, adjusting the limits if needed; compatible accepted jobs are reused and their call counts are retained. Never use `--rebuild` merely to retry a quota error.
+If login expires, run `codex login` again. If your allowance is exhausted, wait for it to reset or manage it in ChatGPT, then rerun the original command with the same `--output` and `--resume`. Resume keeps the original call limit and deadline while they hold. If the deadline has expired, or you changed the limits, `--resume` starts a new run with your limits; compatible accepted jobs are reused and their call counts are retained. If the original call limit is exhausted, raise it in the command. Never use `--rebuild` merely to retry a quota error.
 
 To save your limits, create a scan profile under a new name such as `subscription-review.yaml`:
 
@@ -314,7 +314,7 @@ Copyable examples are [developer.yaml](../examples/profiles/developer.yaml), [re
 
 ## Resume a run
 
-The private assessment state stores the resolved profile, including each role's model and settings. OpenAI aliases remain fixed to the stored model IDs on `--resume`. The current catalog must still recognize those IDs and their options. Changing the profile, effective configuration, or cost information requires a new run. Existing lifecycle checks also reject incompatible sources, settings, or runtime updates, including catalog updates.
+The private assessment state stores the resolved profile, including each role's model and settings. OpenAI aliases remain fixed to the stored model IDs on `--resume`. The current catalog must still recognize those IDs and their options. Changing the profile, effective configuration, or cost information makes `--resume` continue as a new run that reuses compatible accepted jobs, because the stored model IDs no longer apply.
 
 Runs created before profile snapshots were introduced cannot resume through the new profile path. Start a new assessment when Analyzer reports this incompatibility. Existing `--profile claude`, `--profile codex`, and compatible legacy `--host` commands remain supported for new runs.
 
