@@ -16,7 +16,7 @@ It does not scan dependencies for known CVEs, search comprehensively for secrets
 
 In Claude Code, use it as the plugin [AppSec Advisor](https://github.com/appsec-foundry/appsec-advisor).
 
-[Quick start](#quick-start) · [Data use](#security-and-data-use) · [Install](#install) · [Commands](#commands) · [Options](#assessment-options) · [Cost limits](#cost-limits) · [Abuse cases](#abuse-cases) · [Reports](#reports-and-exports) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Reports](#reports-and-exports) · [Data use](#security-and-data-use) · [Install](#install) · [Commands](#commands) · [Options](#assessment-options) · [Cost limits](#cost-limits) · [Abuse cases](#abuse-cases) · [Documentation](#documentation)
 
 ## Quick start
 
@@ -51,6 +51,42 @@ To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) 
 
 > [!NOTE]
 > With API billing, the Juice Shop scan costs about USD 14. Analyzer asks before it exceeds the default limit of USD 20.
+
+## Reports and exports
+
+Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
+
+**Example:** [Thorough assessment of OWASP Juice Shop](https://github.com/appsec-foundry/appsec-analyzer-examples/blob/main/security-assessment-juice-shop-thorough-v0.1.0.md). The [examples repository](https://github.com/appsec-foundry/appsec-analyzer-examples) also has the quick and standard assessments of the same commit, their data files, and all diagrams.
+
+The runtime architecture with its data flows and attack paths:
+
+<a href="docs/images/figure1-example.svg">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-crop-dark.svg">
+  <img src="docs/images/figure1-example-crop.svg" alt="Detail of the runtime architecture and attack paths in the Juice Shop assessment">
+</picture>
+</a>
+
+The build pipeline and the most severe supply-chain attacks on it:
+
+<a href="docs/images/figure1b-example.svg">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1b-example-crop-dark.svg">
+  <img src="docs/images/figure1b-example-crop.svg" alt="Detail of the build pipeline and supply-chain attack paths in the Juice Shop assessment">
+</picture>
+</a>
+
+Request more formats when you start the scan, for example `assess --repo /path/to/project --sarif --html`:
+
+| Flag | Output |
+| --- | --- |
+| `--sarif` | SARIF 2.1.0 findings for code-scanning tools. |
+| `--html` | HTML report. Requires Pandoc. |
+| `--pdf` | PDF report. Requires Pandoc and WeasyPrint; diagrams may also need Mermaid CLI and Chrome. |
+| `--threatdragon` | OWASP Threat Dragon model. |
+| `--pentest-tasks` | Tasks for follow-up penetration testing. |
+
+To convert a finished assessment later, use [`export`](#export-other-report-formats).
 
 ## Security and data use
 
@@ -486,42 +522,6 @@ abuse_cases:
 - Limits and further fields are described under [custom abuse cases](docs/security-assessment.md#custom-abuse-cases).
 - To use the same rules in several repositories, put them in an [organization profile](docs/org-profiles.md#business-abuse-cases).
 - To check a single built-in or organization case without a full assessment, run `analyze-threats --abuse-case <ID>`.
-
-## Reports and exports
-
-Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
-
-**Example:** [Thorough assessment of OWASP Juice Shop](https://github.com/appsec-foundry/appsec-analyzer-examples/blob/main/security-assessment-juice-shop-thorough-v0.1.0.md). The [examples repository](https://github.com/appsec-foundry/appsec-analyzer-examples) also has the quick and standard assessments of the same commit, their data files, and all diagrams.
-
-The runtime architecture with its data flows and attack paths:
-
-<a href="docs/images/figure1-example.svg">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1-example-crop-dark.svg">
-  <img src="docs/images/figure1-example-crop.svg" alt="Detail of the runtime architecture and attack paths in the Juice Shop assessment">
-</picture>
-</a>
-
-The build pipeline and the most severe supply-chain attacks on it:
-
-<a href="docs/images/figure1b-example.svg">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/figure1b-example-crop-dark.svg">
-  <img src="docs/images/figure1b-example-crop.svg" alt="Detail of the build pipeline and supply-chain attack paths in the Juice Shop assessment">
-</picture>
-</a>
-
-Request more formats when you start the scan, for example `assess --repo /path/to/project --sarif --html`:
-
-| Flag | Output |
-| --- | --- |
-| `--sarif` | SARIF 2.1.0 findings for code-scanning tools. |
-| `--html` | HTML report. Requires Pandoc. |
-| `--pdf` | PDF report. Requires Pandoc and WeasyPrint; diagrams may also need Mermaid CLI and Chrome. |
-| `--threatdragon` | OWASP Threat Dragon model. |
-| `--pentest-tasks` | Tasks for follow-up penetration testing. |
-
-To convert a finished assessment later, use [`export`](#export-other-report-formats).
 
 ## Documentation
 
