@@ -36,13 +36,20 @@ def update_installation() -> int:
     if answer not in ("", "y", "yes"):
         print("Nothing was installed.")
         return 0
+    print("Reinstalling ...", flush=True)
     try:
-        result = subprocess.run([pipx, *PIPX_UPGRADE], timeout=UPDATE_TIMEOUT, check=False)
+        result = subprocess.run(
+            [pipx, *PIPX_UPGRADE],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=UPDATE_TIMEOUT,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired):
         raise ValueError("the update could not be completed") from None
     if result.returncode:
-        raise ValueError("the update failed, see its output above")
-    print(
-        'Update finished. pipx may say "already at latest version" when only the code changed; Analyzer was reinstalled anyway.'
-    )
+        print(result.stdout, end="", file=sys.stderr)
+        raise ValueError("the update failed, see the pipx output above")
+    print(f"Analyzer was reinstalled from {source}.")
     return 0

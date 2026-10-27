@@ -11,6 +11,7 @@ import pytest
 from appsec_analyzer import cli, update
 
 SOURCE = "https://example.test/appsec-analyzer.git"
+PIPX_OUTPUT = "appsec-analyzer is already at latest version 0.1.0a0\n"
 
 
 def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE):
@@ -18,7 +19,7 @@ def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE):
 
     def run(argv, **kwargs):
         calls.append(argv)
-        return subprocess.CompletedProcess(argv, returncode)
+        return subprocess.CompletedProcess(argv, returncode, stdout=PIPX_OUTPUT)
 
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
@@ -38,7 +39,8 @@ def test_yes_or_enter_upgrades_the_pipx_installation_and_names_the_source(monkey
     output = capsys.readouterr().out
     assert SOURCE in output
     assert "[Y/n]" in output
-    assert "Update finished" in output
+    assert f"Analyzer was reinstalled from {SOURCE}." in output
+    assert "already at latest version" not in output
 
 
 @pytest.mark.parametrize("answer", ["n", "no", "maybe"])
@@ -63,7 +65,10 @@ def test_end_of_input_installs_nothing(monkeypatch):
 def test_failed_upgrade_exits_with_an_error(monkeypatch, capsys):
     _setup(monkeypatch, returncode=1)
     assert cli.main(["update"]) == 2
-    assert "the update failed" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "the update failed" in captured.err
+    assert PIPX_OUTPUT in captured.err
+    assert "reinstalled" not in captured.out
 
 
 @pytest.mark.parametrize("case", ["ci", "no-terminal", "not-pipx", "no-pipx-executable"])
