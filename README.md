@@ -50,7 +50,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) for details.
 
 > [!NOTE]
-> With API billing, the Juice Shop scan costs about USD 14. Analyzer asks before it exceeds the default limit of USD 20.
+> With API billing, the Juice Shop scan costs about USD 15 and takes about 40 minutes. Analyzer asks before it exceeds the default limit of USD 20. Costs of the other depths are listed under [Assessment options](#assessment-options).
 
 ## Reports and exports
 
@@ -407,7 +407,17 @@ These options apply to `assess`. Command-line options override the defaults from
 
 - `quick` runs no verification and no business-logic checks.
 - `standard` also verifies authentication, authorization, input validation and, where the application calls a language model, its AI features.
-- `thorough` also checks data protection. With Claude, it uses Opus for the survey and verification. In one Juice Shop comparison, it cost about 2.7× as much as `standard` and needed about USD 40, more than the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
+- `thorough` also checks data protection. With Claude, it uses Opus for the survey and verification. It costs about 2.7× as much as `standard` and can exceed the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
+
+Typical cost and duration with API billing, measured on OWASP Juice Shop (about 820 source files) with the `claude` profile:
+
+| Depth | Cost | Duration |
+| --- | ---: | ---: |
+| `quick` | about USD 8 | about 20 minutes |
+| `standard` | about USD 15 | about 40 minutes |
+| `thorough` | about USD 40 | about 1.5 hours |
+
+Larger repositories cost more and take longer. The `thorough` run was continued with `--resume`, so its time includes earlier attempts. The figures are one run per depth, not guarantees.
 
 Each verified aspect adds model calls. A scan or organization profile can change [what each depth does](docs/profiles.md#what-each-depth-does).
 
