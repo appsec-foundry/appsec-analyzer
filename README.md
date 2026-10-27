@@ -107,7 +107,10 @@ Each model-backed command stops at a spending limit. The values are default uppe
 | `authnz-review` | USD 5 per review | `--budget USD` |
 | `audit-requirements` | USD 5 per audit | `--budget USD` |
 
-In an interactive terminal, `assess` may ask for a higher limit before it skips work. `analyze-threats` limits each model call, not the whole question; one question takes up to four calls. With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`); see [Model provider](#model-provider). `review` uses the assistant's own account and usage limits.
+- In an interactive terminal, `assess` may ask for a higher limit before it skips work.
+- `analyze-threats` limits each model call, not the whole question. One question takes up to four calls.
+- With the `codex-cli` or `copilot-cli` profile, `assess` has no USD limit and counts model exchanges instead, 1000 by default (`--max-calls`). See [Model provider](#model-provider).
+- `review` uses the assistant's own account and usage limits.
 
 By default, `assess` shows monetary costs only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show usage without costs. `--show-costs` shows the available costs in any mode. It changes no accounting or limits.
 
@@ -251,7 +254,11 @@ appsec-analyzer abuse-cases AC-B-001 --repo /path/to/project
 
 ### `platform-settings`: GitHub and GitLab security settings
 
-`platform-settings` checks security settings of a repository on github.com or gitlab.com, such as required reviews, blocked force pushes, secret scanning, and workflow permissions. It sends read requests to the platform API only, makes no model calls, and sends no source code. Each of seven checks is reported as `set`, `not set`, or `not checkable`, with the reason. Without a read-only token only public data is visible, so many results are `not checkable`. See [Platform security settings](docs/platform-security-settings.md).
+`platform-settings` checks security settings of a repository on github.com or gitlab.com, such as required reviews, blocked force pushes, secret scanning, and workflow permissions. See [Platform security settings](docs/platform-security-settings.md).
+
+- Sends read requests to the platform API only. Makes no model calls and sends no source code.
+- Reports each of seven checks as `set`, `not set`, or `not checkable`, with the reason.
+- Without a read-only token only public data is visible, so many results are `not checkable`.
 
 ```sh
 # Public data only
@@ -276,15 +283,39 @@ appsec-analyzer distribution init northstar ./northstar-appsec
 appsec-analyzer distribution update-engine ./northstar-appsec
 ```
 
-`init` needs a name of 2 to 30 lowercase letters and digits, and a directory that does not exist or is empty. The profiles, context, abuse cases and requirements it creates are sample content to replace. `update-engine` changes the engine version in `setup.cfg`, `requirements.lock` and `organization.yaml`, and stops without changes if one is missing. Building the wheels, installing and releasing remain manual; see the [organization packaging guide](docs/organization-distributions.md).
+- `init` needs a name of 2 to 30 lowercase letters and digits, and a directory that does not exist or is empty. The profiles, context, abuse cases and requirements it creates are sample content to replace.
+- `update-engine` changes the engine version in `setup.cfg`, `requirements.lock` and `organization.yaml`, and stops without changes if one is missing.
+- Building the wheels, installing and releasing remain manual. See the [organization packaging guide](docs/organization-distributions.md).
 
 ## Install
 
-pipx creates its own virtual environment and puts `appsec-analyzer` on your `PATH`. The install command only works if the repository is reachable for your GitHub account. The package is not yet on PyPI.
+```sh
+pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
+```
 
-To update a pipx installation, run `appsec-analyzer update`. It reinstalls from the source you installed from, such as GitHub or a local checkout, shows that source, and asks `[Y/n]`. To switch the source, install again with `pipx install --force` and the new source. Enter or `y` confirms, `n` stops. After a confirmation it runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`, which you can also run yourself. The extra option makes pipx reinstall even if the version number is unchanged, as is usual for installations from GitHub. The command hides the pipx output and shows it only if the update fails. The command needs an interactive terminal outside CI and has no option that skips the question. For other installations it tells you to update the way you installed Analyzer. Organization commands do not have it.
+pipx puts `appsec-analyzer` on your `PATH` in its own virtual environment. The repository must be reachable for your GitHub account. The package is not yet on PyPI.
 
-`appsec-analyzer --version` prints the release version. For a build that is not a release, it prints the commit and its date. A build counts as a release when its commit has a tag like `v0.2.0`. A modified checkout adds `+local changes`, and a build without Git data prints `commit unknown`. `appsec-analyzer version` prints the engine and interface versions as JSON.
+### Update
+
+```sh
+appsec-analyzer update
+```
+
+- Reinstalls Analyzer from the source you installed it from, such as GitHub or a local checkout.
+- Shows that source and asks `[Y/n]`. Enter or `y` confirms, `n` stops.
+- Runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`, which you can also run yourself. The extra option reinstalls even if the version number is unchanged, as is usual for GitHub installations.
+- Hides the pipx output and shows it only if the update fails.
+- Needs an interactive terminal outside CI. No option skips the question.
+- For installations that do not use pipx, it tells you to update the way you installed Analyzer.
+- Organization commands do not have it.
+
+To switch the source, run `pipx install --force` with the new source.
+
+### Version
+
+- `appsec-analyzer --version` prints the release version. A build counts as a release when its commit has a tag like `v0.2.0`. Other builds print the commit and its date.
+- A modified checkout adds `+local changes`. A build without Git data prints `commit unknown`.
+- `appsec-analyzer version` prints the engine and interface versions as JSON.
 
 <details>
 <summary>Install with pip or from a local checkout</summary>
@@ -309,7 +340,14 @@ appsec-analyzer version
 
 If the `appsec-analyzer` command is not on your `PATH`, `python -m appsec_analyzer` starts the same command from the environment where you installed the package.
 
-With pipx, run `pipx install --force .` in the checkout; `--force` replaces an existing installation. pipx installs the checkout as it is, including uncommitted changes, and keeps it as the source. To update, change the checkout, for example with `git pull`, and run `appsec-analyzer update`; it then reinstalls from the checkout instead of GitHub. To return to the GitHub version, run `pipx install --force git+https://github.com/appsec-foundry/appsec-analyzer.git`. [Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
+With pipx:
+
+- Run `pipx install --force .` in the checkout. `--force` replaces an existing installation.
+- pipx installs the checkout as it is, including uncommitted changes, and keeps it as the source.
+- To update, change the checkout, for example with `git pull`, and run `appsec-analyzer update`. It reinstalls from the checkout instead of GitHub.
+- To return to the GitHub version, run `pipx install --force git+https://github.com/appsec-foundry/appsec-analyzer.git`.
+
+[Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
 
 </details>
 
@@ -401,13 +439,25 @@ Each verified aspect adds model calls. A scan or organization profile can change
 
 ## Abuse cases
 
-An abuse case is something an attacker or a user must not be able to do. Analyzer comes with two sets. [business.yaml](data/abuse-cases/business.yaml) has seven business rules: a user must not, for example, see other users' data, give themselves a higher role, approve their own request, or redeem a coupon twice. [technical.yaml](data/abuse-cases/technical.yaml) has attack chains such as account takeover through XSS or admin access through a forged JWT.
+An abuse case is something an attacker or a user must not be able to do. Analyzer comes with two sets:
 
-[Verification](docs/security-assessment.md#survey-and-verification) checks a general security property wherever it applies in a component, such as whether routes check who owns the requested data. An abuse case asks whether an attacker can reach a particular goal, possibly across several steps or components. Attack chains connect existing findings into a path. Business cases check rules such as who may approve a payment. Add your own cases for rules specific to your application.
+- [business.yaml](data/abuse-cases/business.yaml) has seven business rules. A user must not see other users' data, give themselves a higher role, approve their own request, or redeem a coupon twice.
+- [technical.yaml](data/abuse-cases/technical.yaml) has attack chains, such as account takeover through XSS or admin access through a forged JWT.
 
-`assess` checks the cases that fit the code, except at `quick` depth. By default, a standard run checks up to three business rules and a thorough run up to eight. Built-in rules that a verified aspect already covers come after the others. Rules you supply or request are not affected. A scan profile can change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does). If the code allows an abuse case, the report gets a new finding or links the case to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report. When the code does not answer the question, the case stays open. It is not counted as safe.
+[Verification](docs/security-assessment.md#survey-and-verification) checks a general property wherever it applies, such as whether routes check who owns the requested data. An abuse case asks whether an attacker can reach one goal, possibly across several steps or components. Add your own cases for rules specific to your application.
 
-To add your own rules, put them in a YAML file in the repository and pass it to `assess`:
+### How `assess` uses them
+
+- Checks the cases that fit the code. `quick` depth skips them.
+- By default, checks up to three built-in business rules at `standard` depth and up to eight at `thorough`. Rules that a verified aspect already covers come last.
+- Always checks rules you supply or request.
+- Lets a scan profile change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does).
+- Reports a case the code allows as a new finding or links it to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report.
+- Leaves a case open when the code does not answer the question. An open case is not counted as safe.
+
+### Add your own rules
+
+Put them in a YAML file in the repository and pass it to `assess`:
 
 ```sh
 appsec-analyzer assess --repo /path/to/project \
@@ -428,7 +478,11 @@ abuse_cases:
     scope_qualifier: {path_patterns: ["*cart*", "*order*"]}
 ```
 
-The path is relative to the repository root. Rules passed this way are also checked at `quick` depth. Limits and further fields are described under [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). To use the same rules in several repositories, put them in an [organization profile](docs/org-profiles.md#business-abuse-cases). To check a single built-in or organization case without a full assessment, run `analyze-threats --abuse-case <ID>`.
+- The path is relative to the repository root.
+- Rules passed this way are also checked at `quick` depth.
+- Limits and further fields are described under [custom abuse cases](docs/security-assessment.md#custom-abuse-cases).
+- To use the same rules in several repositories, put them in an [organization profile](docs/org-profiles.md#business-abuse-cases).
+- To check a single built-in or organization case without a full assessment, run `analyze-threats --abuse-case <ID>`.
 
 ## Reports and exports
 
