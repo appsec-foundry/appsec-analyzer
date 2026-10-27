@@ -63,6 +63,8 @@ from shared._finding_state import is_refuted
 from shared._severity_policy import abuse_case_priority, normalize_risks
 from validators.validate_intermediate import validate_recon_signals
 
+from model.case_outcomes import is_documentation
+
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -326,6 +328,11 @@ def _source_probe(step: dict, repo_root: Path | None) -> dict | None:
         # "source evidence" for a role-claim step (juice-shop 2026-07-24) —
         # the scan quoting its own prior output back at itself.
         if not _is_runtime_surface_evidence(rel_str):
+            continue
+        # Documentation only describes code: a Markdown skill file outside
+        # `docs/` became the evidence of a token-reuse step, and the confirmed
+        # step was promoted into the register (juice-shop 2026-10-27).
+        if is_documentation(rel_str):
             continue
         if hints and not _glob_matches(rel, hints):
             continue

@@ -359,6 +359,9 @@ abuse_cases:
             - "(?i)(hardcoded|committed|exposed).*(key|secret|credential)"
             - "(?i)(private key|signing key|encryption key)"
             - "(?i)directory listing|unauthenticated.*(file|directory|endpoint)"
+            # Material that signs the application's own tokens outranks an
+            # unrelated secret such as a wallet mnemonic of the same CWE.
+            - "(?i)(jwt|json web token|session token|sign(s|ed|ing)? (session |access |auth )?tokens?)"
           control_patterns:
             - "(?i)vault|kms|secret manager|process\\.env"
           control_sufficiency: any

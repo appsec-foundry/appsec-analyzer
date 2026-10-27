@@ -43,6 +43,24 @@ def test_token_role_step_rejects_coupon_even_with_same_cwe_and_file(cwe):
     assert mac.match_step(step, [coupon, token])["matched_finding_id"] == "T-059"
 
 
+def test_exposed_secret_step_prefers_the_token_signing_key_over_an_unrelated_secret():
+    catalog = yaml.safe_load((REPO_ROOT / "data/abuse-cases/technical.yaml").read_text())
+    case = next(c for c in catalog["abuse_cases"] if c["id"] == "AC-T-005")
+    step = case["chain"][0]
+    # The unrelated secret carries the step's own CWE, the signing key a CWE of its family.
+    wallet = dict(
+        _finding("T-089", "Hardcoded Ethereum wallet mnemonic and private key in key-check", file="routes/keys.ts"),
+        cwe="CWE-798",
+    )
+    signing = dict(
+        _finding("T-018", "Hardcoded RSA private key used to sign session JWTs", file="lib/security.ts"),
+        cwe="CWE-321",
+    )
+    assert mac.match_step(step, [wallet, signing])["matched_finding_id"] == "T-018"
+    # Without a signing key the step still binds the other exposed secret for the verifier to judge.
+    assert mac.match_step(step, [wallet])["matched_finding_id"] == "T-089"
+
+
 def _finding(fid, text, controls="", file="src/x.ts", line=10):
     return {
         "t_id": fid,
@@ -425,6 +443,22 @@ def test_direct_source_probe_ignores_prior_run_telemetry(tmp_path: Path):
 
     assert result["structural_verdict"] == "not_applicable"
     assert result["step_matches"][0]["evidence"] is None
+
+
+def test_direct_source_probe_ignores_documentation_outside_docs(tmp_path: Path):
+    case = _case([_step(1, "innerHTML")])
+    for name in ("docs-only", "with-code"):
+        skill = tmp_path / name / ".agents" / "skills" / "review"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("Never call render(innerHTML) with input.\n", encoding="utf-8")
+        (tmp_path / name / "README.rst").write_text("render(innerHTML);\n", encoding="utf-8")
+    (tmp_path / "with-code" / "src").mkdir()
+    (tmp_path / "with-code" / "src" / "view.ts").write_text("render(innerHTML);\n", encoding="utf-8")
+
+    result = mac.match_case(case, [], signals=None, repo_root=tmp_path / "docs-only")
+    assert result["structural_verdict"] == "not_applicable"
+    step = mac.match_case(case, [], signals=None, repo_root=tmp_path / "with-code")["step_matches"][0]
+    assert step["evidence"]["file"] == "src/view.ts"
 
 
 def test_refuted_findings_are_not_matchable_abuse_inputs():
