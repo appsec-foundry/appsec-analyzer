@@ -57,6 +57,21 @@ def test_findings_are_qualified_and_owned_inside_their_repository(tmp_path, name
         assert threat["evidence"]["line"] >= 1
 
 
+@pytest.mark.parametrize(
+    ("names", "paths"),
+    [(("edge", "service"), ("src/token.js", "lib/tool.py")), (("north", "south"), ("web/auth.js", "jobs/run.py"))],
+)
+def test_the_tally_names_every_scanner_and_matches_the_findings(tmp_path, names, paths):
+    from model.assessment_scanner_findings import SCANNER_LABELS
+
+    files = {names[0]: {paths[0]: JWT}, names[1]: {paths[1]: SHELL}}
+    scope, components, _ = finalized(tmp_path, names=names, files=files)
+    tally = {}
+    result = scan(scope, components, tally=tally)
+    assert list(tally) == list(SCANNER_LABELS)
+    assert sum(tally.values()) == sum(len(rows) for rows in result.values()) > 0
+
+
 def test_the_most_specific_component_of_the_same_repository_owns_a_finding(tmp_path):
     scope, components, _ = fixture(tmp_path, files={"edge": {"src/token.js": JWT}})
     repo = by_label(scope)["edge"]

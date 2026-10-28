@@ -1389,7 +1389,8 @@ class _AssessmentConsole:
             return
         if prefix == "Scanners · ":
             # The run header says what the scanners check; their line says what they found and how long it took.
-            self.record("·", f"{text[len(prefix) :]} · {_duration(now - self.started)}", now)
+            head, *detail = text[len(prefix) :].split("\n")
+            self.record("·", "\n".join([f"{head} · {_duration(now - self.started)}", *detail]), now)
             return
         if prefix in self.STATED:
             self.record("·", text, now)

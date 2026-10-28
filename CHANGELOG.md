@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- The scanner line of the `assess` console lists the hits of each deterministic scanner (source auth, authz confirm, mass assignment, config/IaC, architecture), including scanners with none.
 - The `assess` header shows the model host (Claude CLI, Codex CLI, GitHub Copilot CLI, LiteLLM gateway, Amazon Bedrock API) in a `Host` row before the billing row.
 - Discovery now serves a missing serving unit's entry file with its correction, so a model that omitted the frontend or API component can model it instead of repeating its answer.
 - API billing is detected from `ANTHROPIC_AUTH_TOKEN` and from the Claude CLI's own credential source (settings key, key helper, Bedrock, Vertex), not only from `ANTHROPIC_API_KEY`; such runs no longer show as subscription usage.

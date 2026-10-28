@@ -1870,7 +1870,8 @@ def _assessment_stride(
             "verification."
         )
     progress("Running deterministic source scanners")
-    scanned = assessment_scanner_findings.scan(scope, components, depth=depth)
+    tally: dict[str, int] = {}
+    scanned = assessment_scanner_findings.scan(scope, components, depth=depth, tally=tally)
     # REQ-040 pilot: its jobs reuse each component's STRIDE context envelope.
     envelopes = {} if pilot is not None and isinstance(test_cases, dict) and test_cases["aspects"] else None
     if envelopes is not None:
@@ -1880,7 +1881,8 @@ def _assessment_stride(
         planned = assessment_test_cases.plan_pilot(scope, architecture, scanned, test_cases, progress=progress)
     # Their hits are where the survey and verification start; the run header says what the scanners check.
     hits = sum(len(rows) for rows in scanned.values())
-    progress(f"Scanners · {_count_noun(hits, 'hit') if hits else 'no hits'}")
+    detail = " · ".join(f"{label} {count}" for label, count in tally.items())
+    progress(f"Scanners · {_count_noun(hits, 'hit') if hits else 'no hits'}" + (f"\n{detail}" if detail else ""))
 
     # Completion order, which differs from component order under MR-16.
     import itertools

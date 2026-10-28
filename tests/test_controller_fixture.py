@@ -669,7 +669,8 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert planned < min(said.index(text) for text in said if text.startswith("Surveying component"))
     # The scanners name their hits before the survey; the run header says what they check.
     (scanners,) = [text for text in said if text.startswith("Scanners · ")]
-    assert re.fullmatch(r"Scanners · (\d+ hits?|no hits)", scanners)
+    assert re.fullmatch(r"Scanners · (\d+ hits?|no hits)(\n.+)?", scanners)
+    assert "Source auth " in scanners and "Architecture " in scanners
     assert said.index(scanners) < min(said.index(text) for text in said if text.startswith("Surveying component"))
     # Before the first job the run says whether the remaining budget covers them all.
     (start,) = [text for text in said if text.startswith("Verify start · ")]
