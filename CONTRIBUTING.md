@@ -36,7 +36,7 @@ Choose additional explicit test files for changed producers and consumers. Requi
 | Requirements | Catalog, audit, and affected producer tests; record the change in `specs/changes/<name>/proposal.md`. |
 | Documentation or contributor instructions | Review the diff, formatting, local links, and consistency. For changed command examples, compare CLI help or implementation and run only affected documentation contract tests. Editorial changes and historical command references need no broad gate. |
 
-Some inherited tools still refer to missing Advisor files. The test-group catalog in `scripts/run_tests.py` has missing tests and invalid routes; `make lint` and `make release-check` invoke missing files. Use `make release-check-analyzer BASE=<base-commit>` for the standalone offline distribution gate. These are open extraction defects, not instructions to recreate excluded features. This repository has no `.github/` workflows or CODEOWNERS.
+Some inherited tools still refer to missing Advisor files. The test-group catalog in `scripts/run_tests.py` has missing tests and invalid routes; `make lint` and `make release-check` invoke missing files. Use `make release-check-analyzer BASE=<base-commit>` for the standalone offline distribution gate. These are open extraction defects, not instructions to recreate excluded features. The [coverage workflow](.github/workflows/coverage.yml) runs the offline suite directly. This repository has no CODEOWNERS.
 
 The active context-routing tests build the Analyzer package and run in the standalone gate. Tests dedicated to excluded Advisor hooks, plugin packaging, status helpers, and release tools have been removed. The standalone requirements catalog checker works independently of Claude hook registration.
 
@@ -46,7 +46,30 @@ The whole suite now collects, but execution is not green. The first current fail
 PYTHONPATH=.:scripts python3 -m pytest tests --continue-on-collection-errors -q --tb=short
 ```
 
-Do not exclude remaining failing modules or reduce coverage thresholds to make that result pass. The inherited coverage configuration measures `scripts/`, not the public `appsec_analyzer/` package. The [repository review](docs/internal/analysis/repository-review-2026-10-17.md) records cleanup work and verification limits. A focused green run does not qualify the complete distribution.
+Do not exclude remaining failing modules or reduce coverage thresholds to make that result pass. The inherited `make test` and `make coverage` commands measure `scripts/`. The CI command below measures both `scripts/` and the public `appsec_analyzer/` package. The [repository review](docs/internal/analysis/repository-review-2026-10-17.md) records cleanup work and verification limits. A focused green run does not qualify the complete distribution.
+
+## Coverage and Codecov
+
+The [coverage workflow](.github/workflows/coverage.yml) runs on pull requests, pushes to `main`, and manual dispatch. It uses Python 3.12 and runs the full offline pytest suite, including the slower controller tests. Live host tests stay disabled, and no provider credentials are supplied. Existing test failures and collection errors fail the test job; adding Codecov does not establish that the suite passes.
+
+To run the same coverage checks locally after setting up the development environment:
+
+```sh
+make coverage-ci
+```
+
+This writes `coverage.xml` and keeps the measurement data in `.coverage-data/`. The total coverage must reach the existing 50% floor. A separate check applies the same floor to `scripts/`, so adding the application package cannot hide a regression below the engine floor. The XML report is saved as a GitHub Actions artifact for seven days, even if tests fail, provided the report was produced. A missing report fails the artifact step.
+
+To enable Codecov in a GitHub repository:
+
+1. Sign in to [Codecov](https://app.codecov.io/) with GitHub, grant its GitHub App access to this repository, and activate the repository. Copy its repository upload token.
+2. Open the GitHub repository's **Settings → Secrets and variables → Actions → New repository secret**. Name it `CODECOV_TOKEN` and paste the token into the secret field. Keep the token out of chat, shell commands, and repository files.
+3. After these files are committed and pushed, let the `main` workflow run or choose **Actions → Coverage → Run workflow** on `main`. This supplies the first comparison report. The upload job fails with a setup message if the token is missing; invalid tokens and upload errors also fail the job.
+4. Review the resulting checks before requiring them in a branch rule. For pull requests from branches in this repository, require **Offline tests and coverage**, **Upload coverage**, `codecov/project`, and `codecov/patch`. The [Codecov configuration](codecov.yml) requires no decrease against the base report and at least 80% coverage of changed executable lines.
+
+Tests run without the Codecov secret. A separate upload job consumes only the XML artifact and Git metadata; it does not install or run project code. Uploads run for `main` and pull requests from branches in this repository, except Dependabot. Fork and Dependabot pull requests still run tests and retain the report artifact, but skip upload because they have no repository secret. Do not require Codecov checks for those pull requests with this configuration; they may remain pending. Manual runs on other branches also skip upload.
+
+Enabling the upload sends coverage paths, line-hit data, and commit metadata to Codecov. It does not send assessment reports or model inputs. The uploader's plugins and automatic report search are disabled, so only the named coverage report is selected. The workflow pins action commits and the Codecov CLI version and keeps the uploader's integrity checks enabled.
 
 ## Live qualification
 

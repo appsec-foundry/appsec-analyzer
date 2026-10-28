@@ -119,6 +119,17 @@ coverage:  ## Run the suite + write an HTML coverage report to htmlcov/index.htm
 		status=$$?; rm -rf .coverage-data; exit $$status
 	@echo "HTML report: htmlcov/index.html"
 
+.PHONY: coverage-ci
+coverage-ci:  ## Run all offline tests, measure both packages, and write coverage.xml
+	@APPSEC_LIVE_HOST=0 PYTHONPATH="$(CURDIR):$(CURDIR)/scripts" $(PYTHON) -m pytest tests \
+		--continue-on-collection-errors -q --tb=short --cov \
+		--cov-report=term-missing --cov-report=xml:coverage.xml; \
+		test_status=$$?; \
+		$(PYTHON) -m coverage report --include='scripts/*'; \
+		engine_status=$$?; \
+		if [ "$$test_status" -ne 0 ]; then exit "$$test_status"; fi; \
+		exit "$$engine_status"
+
 .PHONY: test-incremental
 test-incremental:  ## Fast focused subset: incremental-scan reconciliation + 2-run main() E2E (no LLM)
 	@$(PYTHON) scripts/run_tests.py incremental -q

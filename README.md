@@ -546,4 +546,6 @@ abuse_cases:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and tests, and [product requirements](requirements.md) for intended behavior. Read [AGENTS.md](AGENTS.md) before changing runtime behavior or report contracts.
 
+The [coverage setup](CONTRIBUTING.md#coverage-and-codecov) explains the offline CI checks and how to add the Codecov token through GitHub's settings.
+
 AppSec Analyzer grew out of AppSec Advisor and is distributed under the [Apache 2.0 license](LICENSE).

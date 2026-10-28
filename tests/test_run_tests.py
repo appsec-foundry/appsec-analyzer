@@ -8,9 +8,12 @@ import re
 import subprocess
 import sys
 from pathlib import PurePosixPath
+from xml.etree import ElementTree
 
 import pytest
 import run_tests as runner
+import yaml
+from coverage import Coverage
 
 
 @pytest.mark.parametrize("group", runner.GROUPS)
@@ -885,6 +888,152 @@ def test_modules_on_the_golden_fixture_replay_route_to_it():
     assert "scripts/renderers/figure1_dfd.py" in on_replay
     for path in on_replay:
         assert "tests/test_threat_fixture.py" in runner.SOURCE_TESTS[path], path
+
+
+@pytest.fixture
+def ci_coverage_workflow():
+    # BaseLoader preserves GitHub's YAML 1.2 `on` key and boolean spellings.
+    return yaml.load((runner.ROOT / ".github/workflows/coverage.yml").read_text(), Loader=yaml.BaseLoader)
+
+
+def test_ci_coverage_keeps_credentials_out_of_test_execution(ci_coverage_workflow):
+    workflow = ci_coverage_workflow
+    assert set(workflow["on"]) == {"push", "pull_request", "workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+    tests = workflow["jobs"]["tests"]
+    assert "secrets." not in json.dumps(tests)
+    assert tests["env"]["APPSEC_LIVE_HOST"] == "0"
+    upload = workflow["jobs"]["codecov"]
+    assert upload["needs"] == "tests"
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in upload["if"]
+    assert "github.actor != 'dependabot[bot]'" in upload["if"]
+    assert "github.ref == 'refs/heads/main'" in upload["if"]
+    for job in workflow["jobs"].values():
+        assert "env" not in job or "secrets." not in json.dumps(job["env"])
+        for step in job["steps"]:
+            if "uses" in step:
+                assert re.fullmatch(r"[\w-]+/[\w-]+@[0-9a-f]{40}", step["uses"])
+                if step["uses"].startswith("actions/checkout@"):
+                    assert step["with"]["persist-credentials"] == "false"
+    assert not any("pip install" in step.get("run", "") for step in upload["steps"])
+    action = next(step for step in upload["steps"] if step.get("uses", "").startswith("codecov/"))
+    options = action["with"]
+    assert options["files"] == ".ci-coverage/coverage.xml"
+    assert options["disable_search"] == "true"
+    assert options["plugins"] == "noop"
+    assert options["fail_ci_if_error"] == "true"
+    assert options.get("skip_validation", "false") == "false"
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", options["version"])
+
+
+@pytest.mark.parametrize("token", ["", "synthetic-upload-value", "$(touch unexpected-token-command)"])
+def test_ci_coverage_token_check_fails_closed_without_disclosure(ci_coverage_workflow, tmp_path, token):
+    steps = ci_coverage_workflow["jobs"]["codecov"]["steps"]
+    check = next(step for step in steps if step.get("name") == "Check upload token is configured")
+    result = subprocess.run(
+        ["bash", "-e", "-c", check["run"]],
+        cwd=tmp_path,
+        env={"PATH": os.defpath, "CODECOV_TOKEN": token},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == (0 if token else 1)
+    if token:
+        assert token not in result.stdout + result.stderr
+    else:
+        assert "Add CODECOV_TOKEN" in result.stdout
+    assert not (tmp_path / "unexpected-token-command").exists()
+
+
+@pytest.mark.parametrize(("test_status", "engine_status"), [(0, 0), (0, 2), (1, 0), (2, 0), (5, 2)])
+def test_ci_coverage_make_preserves_test_and_engine_failures(tmp_path, test_status, engine_status):
+    executable = tmp_path / "python"
+    log = tmp_path / "calls.jsonl"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "if sys.argv[2] == 'pytest':\n"
+        "    assert os.environ['APPSEC_LIVE_HOST'] == '0'\n"
+        "with open(os.environ['CI_COVERAGE_LOG'], 'a') as output:\n"
+        "    output.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "sys.exit(int(os.environ['CI_TEST_STATUS' if sys.argv[2] == 'pytest' else 'CI_ENGINE_STATUS']))\n"
+    )
+    executable.chmod(0o700)
+    result = subprocess.run(
+        ["make", "--no-print-directory", "coverage-ci", f"PYTHON={executable}"],
+        cwd=runner.ROOT,
+        env={
+            "PATH": os.defpath,
+            "CI_COVERAGE_LOG": str(log),
+            "CI_TEST_STATUS": str(test_status),
+            "CI_ENGINE_STATUS": str(engine_status),
+            "APPSEC_LIVE_HOST": "1",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert len(calls) == 2
+    assert calls[0][:3] == ["-m", "pytest", "tests"]
+    assert "--continue-on-collection-errors" in calls[0]
+    assert "--cov" in calls[0]
+    assert "--cov-report=xml:coverage.xml" in calls[0]
+    assert calls[1] == ["-m", "coverage", "report", "--include=scripts/*"]
+    expected_status = test_status or engine_status
+    if expected_status:
+        assert result.returncode != 0
+        assert f"Error {expected_status}" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+
+
+def test_ci_coverage_scope_and_floor():
+    measurement = Coverage(config_file=str(runner.ROOT / "pyproject.toml"))
+    assert set(measurement.get_option("run:source")) == {"scripts", "appsec_analyzer"}
+    assert measurement.get_option("report:fail_under") == 50
+
+
+def test_ci_coverage_writes_real_xml_for_both_packages_and_subprocesses(tmp_path):
+    for package in ("scripts", "appsec_analyzer"):
+        directory = tmp_path / package
+        directory.mkdir()
+        (directory / "__init__.py").write_text("")
+        (directory / f"{package}_probe.py").write_text("def value():\n    return 42\n")
+    (tmp_path / "test_probe.py").write_text(
+        "import subprocess, sys\n"
+        "def test_both_packages():\n"
+        "    from appsec_analyzer.appsec_analyzer_probe import value\n"
+        "    assert value() == 42\n"
+        "    subprocess.run([sys.executable, '-c',\n"
+        "        'from scripts.scripts_probe import value; assert value() == 42'], check=True)\n"
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "test_probe.py",
+            "-p",
+            "pytest_cov",
+            "--cov",
+            f"--cov-config={runner.ROOT / 'pyproject.toml'}",
+            "--cov-report=xml:coverage.xml",
+            "-q",
+        ],
+        cwd=tmp_path,
+        env={"PATH": os.defpath, "PYTHONPATH": str(tmp_path), "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = ElementTree.parse(tmp_path / "coverage.xml").getroot()
+    classes = report.findall(".//class")
+    for package in ("scripts", "appsec_analyzer"):
+        probe = next(item for item in classes if item.attrib["filename"].endswith(f"{package}_probe.py"))
+        assert probe.attrib["line-rate"] == "1"
 
 
 @pytest.mark.parametrize(
