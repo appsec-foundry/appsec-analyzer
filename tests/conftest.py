@@ -13,6 +13,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
 
+@pytest.fixture(autouse=True)
+def claude_cli_reports_subscription(monkeypatch):
+    """Billing detection must not depend on the developer's real Claude login."""
+    from appsec_analyzer.assessment import console
+
+    console._claude_cli_bills_api.cache_clear()
+    monkeypatch.setenv("APPSEC_CLAUDE_EXECUTABLE", "/nonexistent/claude")
+    yield
+    console._claude_cli_bills_api.cache_clear()
+
+
 @pytest.fixture
 def run_plugin_script():
     """Run one repository-owned engine script without a shell."""

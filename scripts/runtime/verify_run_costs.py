@@ -1241,7 +1241,7 @@ def verify_run_costs(
         round((1 - totals.cost / no_cache_cost) * 100, 1) if no_cache_cost > 0 and totals.cost > 0 else 0.0
     )
 
-    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
     # Compare the run's recorded STRIDE model with the pricing model
     agent_models = _detect_agent_models(output_dir, learned_alias_releases(agent_log, start, end))
