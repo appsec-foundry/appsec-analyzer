@@ -284,3 +284,29 @@ def test_offline_assessment_applies_visibility_and_keeps_real_accounting(
     assert "USD 5.00" in text  # The authorized limit stays visible in subscription mode too.
     rows = controller._completion_cost_rows(outcome)
     assert rows[0][0] == ("Cost" if expected else "Usage")
+
+
+@pytest.mark.parametrize(
+    ("harness", "shown"),
+    [
+        ("claude-cli", "Claude CLI"),
+        ("codex-cli", "Codex CLI"),
+        ("lite", "LiteLLM gateway"),
+        ("bedrock", "Amazon Bedrock API"),
+    ],
+)
+@pytest.mark.parametrize("compact", [False, True])
+def test_header_names_the_model_host_before_billing(harness, shown, compact):
+    ns = controller._assessment_argument_parser().parse_args(["--repo", "/r", "--output", "/o", "--hard-budget", "5"])
+    ns.model_host = harness
+    budget = controller._assessment_budget(ns)
+    keys = [k for k, _ in controller._assessment_intro(ns, budget, "standard", "Models: m1", "P", compact=compact)]
+    rows = dict(controller._assessment_intro(ns, budget, "standard", "Models: m1", "P", compact=compact))
+    assert rows["Host"] == shown
+    assert keys.index("Host") + 1 == keys.index("Billing")
+
+
+def test_header_without_a_known_host_has_no_host_row():
+    ns = controller._assessment_argument_parser().parse_args(["--repo", "/r", "--output", "/o", "--hard-budget", "5"])
+    rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "standard", "Models: m1", "P"))
+    assert "Host" not in rows

@@ -1870,7 +1870,8 @@ def _assessment_stride(
             "verification."
         )
     progress("Running deterministic source scanners")
-    scanned = assessment_scanner_findings.scan(scope, components, depth=depth)
+    tally: dict[str, int] = {}
+    scanned = assessment_scanner_findings.scan(scope, components, depth=depth, tally=tally)
     # REQ-040 pilot: its jobs reuse each component's STRIDE context envelope.
     envelopes = {} if pilot is not None and isinstance(test_cases, dict) and test_cases["aspects"] else None
     if envelopes is not None:
@@ -1880,7 +1881,8 @@ def _assessment_stride(
         planned = assessment_test_cases.plan_pilot(scope, architecture, scanned, test_cases, progress=progress)
     # Their hits are where the survey and verification start; the run header says what the scanners check.
     hits = sum(len(rows) for rows in scanned.values())
-    progress(f"Scanners · {_count_noun(hits, 'hit') if hits else 'no hits'}")
+    detail = " · ".join(f"{label} {count}" for label, count in tally.items())
+    progress(f"Scanners · {_count_noun(hits, 'hit') if hits else 'no hits'}" + (f"\n{detail}" if detail else ""))
 
     # Completion order, which differs from component order under MR-16.
     import itertools
@@ -3118,6 +3120,18 @@ def _method_rows(test_cases, depth: str = "standard") -> list[tuple[str, str]]:
     return rows
 
 
+# What the header's Host row calls each model host.
+HOST_NAMES = {
+    "claude-cli": "Claude CLI",
+    "codex-cli": "Codex CLI",
+    "copilot-cli": "GitHub Copilot CLI",
+    "lite": "LiteLLM gateway",
+    "bedrock": "Amazon Bedrock API",
+    "openai": "OpenAI API",
+    "gateway": "Gateway",
+}
+
+
 def _assessment_intro(
     ns,
     budget,
@@ -3173,6 +3187,7 @@ def _assessment_intro(
         ("Options", _assessment_options(ns, cfg)) if cfg is not None else ("", ""),
     ]
     host = (cfg or {}).get("host_profile") or {}
+    model_host = getattr(ns, "model_host", None)
     if host.get("kind") in ("lite", "bedrock"):
         plan.append(
             (
@@ -3194,6 +3209,7 @@ def _assessment_intro(
         *([continued] if continued else []),
         # An operator's own scan profile, which `assess` may also use without --profile.
         *([("Profile", f"{profile['name']} · {profile['files'][0]}")] if own_profile else []),
+        *([("Host", HOST_NAMES.get(model_host, model_host))] if model_host else []),
         (
             "Billing",
             f"{budget.subscription_label} via "
@@ -4131,6 +4147,7 @@ def assess_repositories(
     if not ns.repo:
         raise CallError("an assessment requires at least one --repo selection")
     adapter = (run_profile or {}).get("adapter")
+    ns.model_host = adapter or getattr(api_profile, "kind", None) or "claude-cli"
     budget = _assessment_budget(
         ns,
         rest,

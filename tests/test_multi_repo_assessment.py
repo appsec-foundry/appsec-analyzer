@@ -3660,6 +3660,20 @@ def test_controller_draws_uncalled_routes_once_per_authentication_method(tmp_pat
     assert "Session cookie" in build_figure1_dfd_svg({**components, **result}, {}, {}, detail=False)
 
 
+def test_scanner_line_lists_each_scanner_under_the_hit_count_and_duration():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.plan_components(1)
+    console.step("Running deterministic source scanners")
+    clock.tick(16)
+    console.step(
+        "Scanners · 4 hits\nSource auth 3 · Authz confirm 1 · Mass assignment 0 · Config/IaC 0 · Architecture 0"
+    )
+    text = "\n".join(lines)
+    assert "Scanners" in text and "4 hits · 16s" in text
+    assert "Source auth 3 · Authz confirm 1 · Mass assignment 0 · Config/IaC 0 · Architecture 0" in text
+
+
 def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls():
     """REQ-040: verification, planned before the survey, has its own steps; finished jobs, not starts, advance it.
 

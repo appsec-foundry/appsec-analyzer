@@ -302,8 +302,23 @@ def _qualify(threat: dict, rid: str, repo, owned: list[dict]) -> None:
     owned.append(threat)
 
 
-def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[dict]]:
+# What the run console calls each scanner, in the order its hits are counted.
+SCANNER_LABELS = (
+    "Source auth",
+    "Authz confirm",
+    "Mass assignment",
+    "Config/IaC",
+    "Architecture",
+)
+
+
+def scan(
+    scope, components: dict, *, depth: str = "standard", tally: dict[str, int] | None = None
+) -> dict[str, list[dict]]:
     """Return verifier-ready scanner findings keyed by finalized component ID.
+
+    ``tally``, when given, receives the hits of every scanner in ``SCANNER_LABELS``, including
+    those with none, summed over the repositories.
 
     Config/IaC findings join the source-scanner findings. An absence finding
     is anchored at line 1 of the first file it searched, the file-level
@@ -317,6 +332,8 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
     validator = Draft202012Validator(yaml.safe_load(SCHEMA.read_text(encoding="utf-8")))
     scope.verify_unchanged()
     result: dict[str, list[dict]] = {row["id"]: [] for row in components["components"]}
+    if tally is not None:
+        tally.update(dict.fromkeys(SCANNER_LABELS, 0))
     hypotheses: dict[str, int] = {}
     for repo in sorted(scope.repositories, key=lambda row: row.repository_id):
         rid = repo.repository_id
@@ -334,7 +351,7 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
         ]
         documents, config, coverage = _snapshot_outputs(scope, rid, depth, architecture=depth)
         threats = []
-        for document in documents:
+        for label, document in zip(SCANNER_LABELS, documents):
             errors = sorted(validator.iter_errors(document), key=lambda error: list(error.path))
             # The shared schema also admits an error stub; here it would hide
             # a failed scan behind an empty finding list.
@@ -344,6 +361,8 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
                 if finding["file"] not in repo.files or not finding["line"]:
                     raise ValueError("A deterministic scanner finding lacks a source line in its repository")
                 threats.append(_source_auth_finding_to_threat(finding, local))
+                if tally is not None:
+                    tally[label] += 1
         for finding in (config or {}).get("findings", []):
             anchor = _config_anchor(finding)
             if anchor is None:
@@ -362,6 +381,8 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
                 raise ValueError("A deterministic scanner finding has no owner in its repository")
             apply_intake(threat, dispatch_component=owner[0], component_name=owner[1])
             threats.append(threat)
+            if tally is not None:
+                tally["Config/IaC"] += 1
         renumber_hypotheses(coverage, hypotheses)
         for threat in _architecture_threats(coverage):
             anchor = threat["evidence"]["file"]
@@ -373,6 +394,8 @@ def scan(scope, components: dict, *, depth: str = "standard") -> dict[str, list[
                 raise ValueError("A deterministic scanner finding has no owner in its repository")
             apply_intake(threat, dispatch_component=owner[0], component_name=owner[1])
             threats.append(threat)
+            if tally is not None:
+                tally["Architecture"] += 1
         owned = {row["id"]: set(row["paths"]) for row in local}
         for threat in threats:
             if threat["component_id"] not in result:
