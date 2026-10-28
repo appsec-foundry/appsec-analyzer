@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Git URL preflight honors `HTTPS_PROXY` and `NO_PROXY`, announces the host it is checking, and names the host in a timeout message.
 - The remaining time in the `assess` console follows phase durations measured on quick and standard runs. Quick no longer starts with about 30 minutes for a run of about 22, and standard no longer shows too little time during threat analysis and finalization. The estimate accounts for the depth's quality checks and the architect review of thorough.
 - A resumed run, or a new run that takes over an unfinished one, shows a `Resumed` row in its header with the reason, and skips repeating the deterministic scanners when source and Analyzer are unchanged. Scanner results are kept in the output's work directory, never inside the analyzed checkout.
 - `assess --resume` no longer refuses an unfinished run whose source, settings, limits or time limit changed. It continues as a new run that reuses the accepted steps that still match, with the limits of the command, and the run header names the cause. A completed run still needs a start without `--resume`.

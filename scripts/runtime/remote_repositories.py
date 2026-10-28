@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 MAX_REPOSITORIES = 16
 FETCH_SECONDS = 120
+PREFLIGHT_TIMEOUT = 30
 MAX_BYTES = 536_870_912
 MAX_ENTRIES = 100_000
 SECRET_ENV = ("APPSEC_GIT_TOKEN", "APPSEC_GIT_USERNAME", "APPSEC_GIT_SSH_KEY_FILE")
@@ -98,11 +100,47 @@ def parse_remote(value: str) -> Remote | None:
     return Remote(url, parsed.scheme, host.lower(), port, name[:80])
 
 
-def _address(remote: Remote) -> str:
-    """Pin the explicit destination; private hosts are legitimate operator inputs."""
+def _check_allowlist(remote: Remote) -> None:
     allowed = os.environ.get("APPSEC_URL_ALLOWLIST", "")
     if allowed and remote.host not in {h.strip().lower() for h in allowed.split(",")}:
         raise RemoteError("Git host is not in APPSEC_URL_ALLOWLIST")
+
+
+def _proxy(remote: Remote) -> str | None:
+    """Operator proxy for an HTTPS remote from ``https_proxy`` and ``no_proxy``.
+
+    Only the operator's environment selects it; repository content never does. The proxy
+    resolves and reaches the Git host, so the local address pinning does not apply.
+    """
+    if remote.scheme != "https":
+        return None
+    url = urllib.request.getproxies_environment().get("https")
+    if not url or urllib.request.proxy_bypass_environment(remote.host):
+        return None
+    try:
+        parsed = urlsplit(url)
+        parsed.port  # noqa: B018 - rejects an invalid port
+        usable = parsed.scheme in {"http", "https", "socks5", "socks5h"} and bool(parsed.hostname)
+    except ValueError:
+        usable = False
+    if not usable or any(ord(c) <= 32 or ord(c) == 127 for c in url):
+        raise RemoteError("HTTPS_PROXY must be an http, https or socks5 URL with a host")
+    return url
+
+
+def describe_route(remote: Remote) -> str:
+    """Destination for progress output; never includes proxy credentials."""
+    proxy = _proxy(remote)
+    if not proxy:
+        return remote.host
+    parsed = urlsplit(proxy)
+    host = f"[{parsed.hostname}]" if ":" in (parsed.hostname or "") else parsed.hostname
+    return f"{remote.host} via proxy {host}" + (f":{parsed.port}" if parsed.port else "")
+
+
+def _address(remote: Remote) -> str:
+    """Pin the explicit destination; private hosts are legitimate operator inputs."""
+    _check_allowlist(remote)
     try:
         addresses = [
             ipaddress.ip_address(row[4][0])
@@ -154,7 +192,10 @@ def _credentials(remote: Remote, directory: Path) -> list[tuple[str, str]]:
 
 
 def _git_env(remote: Remote, directory: Path) -> dict[str, str]:
-    address = _address(remote)
+    proxy = _proxy(remote)
+    if proxy:
+        _check_allowlist(remote)
+    address = None if proxy else _address(remote)
     env = _base_env()
     config = [
         ("core.hooksPath", os.devnull),
@@ -163,13 +204,14 @@ def _git_env(remote: Remote, directory: Path) -> dict[str, str]:
         (f"protocol.{remote.scheme}.allow", "always"),
         ("http.followRedirects", "false"),
         ("http.sslVerify", "true"),
-        ("http.proxy", ""),
+        ("http.proxy", proxy or ""),
         ("credential.interactive", "false"),
     ]
     if remote.scheme == "https":
         config.extend(_credentials(remote, directory))
-        pinned = f"[{address}]" if ":" in address else address
-        config.append(("http.curloptResolve", f"{remote.host}:{remote.port}:{pinned}"))
+        if address:
+            pinned = f"[{address}]" if ":" in address else address
+            config.append(("http.curloptResolve", f"{remote.host}:{remote.port}:{pinned}"))
         if "APPSEC_GIT_TOKEN" in os.environ:
             for key in ("APPSEC_GIT_TOKEN", "APPSEC_GIT_USERNAME"):
                 value = os.environ.get(key, "git")
@@ -346,9 +388,12 @@ def check_access(remote: Remote) -> None:
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            code = proc.wait(timeout=30)
+            code = proc.wait(timeout=PREFLIGHT_TIMEOUT)
         except subprocess.TimeoutExpired:
-            raise RemoteError("Git preflight timed out; check network access and retry") from None
+            raise RemoteError(
+                f"Git preflight timed out after {PREFLIGHT_TIMEOUT} s reaching {describe_route(remote)}; "
+                "check network access, or set HTTPS_PROXY if a proxy is required, and retry"
+            ) from None
         except OSError:
             raise RemoteError("Git preflight could not start; check Git and credential-helper installation") from None
         finally:

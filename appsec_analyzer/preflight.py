@@ -41,14 +41,15 @@ _REASONS = {
 }
 
 
-def _say(ns, label, message, *, status="muted", always=False):
+def _say(ns, label, message, *, status="muted", always=False, immediate=False):
     """One ``  ✓ Label       value`` row under a single ``Preflight`` heading.
 
     Before an assessment, completed checks wait for the console, which shows
     them as a Pre-run checks block under the run summary; a failure still prints here.
+    ``immediate`` prints a progress row at once, unless the run is quiet.
     """
     symbol = {"ok": "✓", "warn": "⚠", "critical": "✗", "muted": "·"}[status]
-    if getattr(ns, "command", "preflight") != "preflight" and status != "critical" and not always:
+    if getattr(ns, "command", "preflight") != "preflight" and status != "critical" and not always and not immediate:
         ns.preflight_checks = (*getattr(ns, "preflight_checks", ()), (symbol, label, message))
         return
     if always or not ns.quiet:
@@ -71,7 +72,7 @@ def _say(ns, label, message, *, status="muted", always=False):
 
 def run(ns, *, api_profile=None, runtime=None):
     from runtime.multi_repo_scope import _selected_root
-    from runtime.remote_repositories import MAX_REPOSITORIES, check_access, parse_remote
+    from runtime.remote_repositories import MAX_REPOSITORIES, check_access, describe_route, parse_remote
 
     repositories = ns.repo or [str(Path.cwd())]
     if len(repositories) > MAX_REPOSITORIES:
@@ -90,6 +91,7 @@ def run(ns, *, api_profile=None, runtime=None):
         label = "Repository" if len(repositories) == 1 else f"Repo {index}/{len(repositories)}"
         try:
             if remote:
+                _say(ns, label, f"checking read access to {describe_route(remote)}", immediate=True)
                 check_access(remote)
             else:
                 _selected_root(value)
