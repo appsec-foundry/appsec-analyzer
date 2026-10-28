@@ -3118,6 +3118,18 @@ def _method_rows(test_cases, depth: str = "standard") -> list[tuple[str, str]]:
     return rows
 
 
+# What the header's Host row calls each model host.
+HOST_NAMES = {
+    "claude-cli": "Claude CLI",
+    "codex-cli": "Codex CLI",
+    "copilot-cli": "GitHub Copilot CLI",
+    "lite": "LiteLLM gateway",
+    "bedrock": "Amazon Bedrock API",
+    "openai": "OpenAI API",
+    "gateway": "Gateway",
+}
+
+
 def _assessment_intro(
     ns,
     budget,
@@ -3173,6 +3185,7 @@ def _assessment_intro(
         ("Options", _assessment_options(ns, cfg)) if cfg is not None else ("", ""),
     ]
     host = (cfg or {}).get("host_profile") or {}
+    model_host = getattr(ns, "model_host", None)
     if host.get("kind") in ("lite", "bedrock"):
         plan.append(
             (
@@ -3194,6 +3207,7 @@ def _assessment_intro(
         *([continued] if continued else []),
         # An operator's own scan profile, which `assess` may also use without --profile.
         *([("Profile", f"{profile['name']} · {profile['files'][0]}")] if own_profile else []),
+        *([("Host", HOST_NAMES.get(model_host, model_host))] if model_host else []),
         (
             "Billing",
             f"{budget.subscription_label} via "
@@ -4131,6 +4145,7 @@ def assess_repositories(
     if not ns.repo:
         raise CallError("an assessment requires at least one --repo selection")
     adapter = (run_profile or {}).get("adapter")
+    ns.model_host = adapter or getattr(api_profile, "kind", None) or "claude-cli"
     budget = _assessment_budget(
         ns,
         rest,
