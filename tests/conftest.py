@@ -19,9 +19,14 @@ def claude_cli_reports_subscription(monkeypatch):
     from appsec_analyzer.assessment import console
 
     console._claude_cli_bills_api.cache_clear()
+    console._claude_cli_provider.cache_clear()
     monkeypatch.setenv("APPSEC_CLAUDE_EXECUTABLE", "/nonexistent/claude")
+    for name in list(os.environ):
+        if console._CLAUDE_BASE_URL.fullmatch(name) or console._CLAUDE_CLOUD_SWITCH.fullmatch(name):
+            monkeypatch.delenv(name)
     yield
     console._claude_cli_bills_api.cache_clear()
+    console._claude_cli_provider.cache_clear()
 
 
 @pytest.fixture

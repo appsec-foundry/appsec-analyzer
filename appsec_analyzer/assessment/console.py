@@ -71,6 +71,64 @@ def _claude_cli_bills_api() -> bool:
     return bool(status.get("apiKeySource")) or status.get("apiProvider") not in (None, "firstParty")
 
 
+_CLAUDE_CLOUD_PROVIDERS = {"bedrock": "Amazon Bedrock", "vertex": "Google Vertex", "foundry": "Microsoft Foundry"}
+_CLAUDE_CLOUD_SWITCH = re.compile(r"CLAUDE_CODE_USE_([A-Z0-9_]+)")
+_CLAUDE_BASE_URL = re.compile(r"ANTHROPIC_(?:[A-Z0-9_]+_)?BASE_URL")
+
+
+@functools.lru_cache(maxsize=1)
+def _claude_cli_provider() -> str | None:
+    """The cloud provider the Claude CLI reports for its login, or nothing for Anthropic directly."""
+    executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
+    try:
+        result = subprocess.run([executable, "auth", "status"], capture_output=True, timeout=10, check=False)
+        status = json.loads(result.stdout[:8192])
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    provider = status.get("apiProvider") if isinstance(status, dict) else None
+    return provider if isinstance(provider, str) and provider != "firstParty" else None
+
+
+def claude_cli_route() -> str:
+    """Where Claude CLI sends its requests, for the header's Host row: ``Claude CLI``, plus ``via …`` when it
+    does not talk to Anthropic directly.
+
+    The provider comes from the CLI itself, with any ``CLAUDE_CODE_USE_<PROVIDER>`` switch as fallback, and the
+    gateway from any ``ANTHROPIC_*BASE_URL`` variable. A gateway is shown as
+    its host name only, so a path, port or credential in the operator's URL never reaches the terminal.
+    """
+    from urllib.parse import urlsplit
+
+    from appsec_analyzer.terminal import field
+
+    environment = sorted(os.environ.items())
+    provider = _claude_cli_provider() or next(
+        (
+            match[1].lower()
+            for name, value in environment
+            if (match := _CLAUDE_CLOUD_SWITCH.fullmatch(name)) and value.strip().lower() in ("1", "true")
+        ),
+        None,
+    )
+    gateway = None
+    for name, value in environment:
+        if not _CLAUDE_BASE_URL.fullmatch(name):
+            continue
+        try:
+            host = urlsplit(value.strip()).hostname
+        except ValueError:
+            continue
+        if host and host != "api.anthropic.com":
+            gateway = host
+            break
+    via = []
+    if provider:
+        via.append(_CLAUDE_CLOUD_PROVIDERS.get(provider) or field(provider))
+    if gateway:
+        via.append(f"gateway {field(gateway)}")
+    return f"Claude CLI via {', '.join(via)}" if via else "Claude CLI"
+
+
 def api_billing(adapter: str | None = None) -> bool:
     """Use the assessment header's existing provider and API-key selection."""
     if adapter in ("codex-cli", "copilot-cli"):
