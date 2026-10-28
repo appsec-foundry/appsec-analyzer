@@ -19,6 +19,13 @@ from runtime import remote_repositories as remote
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def no_ambient_proxy(monkeypatch):
+    for name in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.upper(), raising=False)
+
+
 def git(*args, cwd=None, env=None, input=None):
     return subprocess.run(["git", *args], cwd=cwd, env=env, input=input, text=True, capture_output=True, check=True)
 
@@ -271,6 +278,43 @@ def test_transport_pinning_authentication_and_configuration_isolation(tmp_path, 
     assert cfg["protocol.allow"] == "never" and cfg["core.hooksPath"] == os.devnull
 
 
+def test_https_proxy_from_environment_is_used_without_local_resolution(tmp_path, monkeypatch):
+    monkeypatch.setattr(remote, "_credentials", lambda *_: [])
+    monkeypatch.setattr(remote, "_address", lambda _: pytest.fail("the proxy resolves the Git host"))
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:secret@proxy.example:3128")
+    target = remote.parse_remote("https://git.example/team/a.git")
+    cfg = dict(config(remote._git_env(target, tmp_path)))
+    assert cfg["http.proxy"] == "http://user:secret@proxy.example:3128"
+    assert "http.curloptResolve" not in cfg
+    assert cfg["http.followRedirects"] == "false" and cfg["http.sslVerify"] == "true"
+    assert remote.describe_route(target) == "git.example via proxy proxy.example:3128"
+    assert "secret" not in remote.describe_route(target)
+
+
+def test_proxy_keeps_the_host_allowlist_and_honours_no_proxy(tmp_path, monkeypatch):
+    monkeypatch.setattr(remote, "_credentials", lambda *_: [])
+    monkeypatch.setattr(remote, "_address", lambda _: "192.0.2.10")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    monkeypatch.setenv("APPSEC_URL_ALLOWLIST", "git.example")
+    with pytest.raises(remote.RemoteError, match="ALLOWLIST"):
+        remote._git_env(remote.parse_remote("https://other.example/team/a.git"), tmp_path)
+    monkeypatch.setenv("NO_PROXY", "git.example")
+    direct = dict(config(remote._git_env(remote.parse_remote("https://git.example/team/a.git"), tmp_path)))
+    assert direct["http.proxy"] == "" and direct["http.curloptResolve"] == "git.example:443:192.0.2.10"
+
+
+@pytest.mark.parametrize("value", ["file:///tmp/p", "proxy.example:3128", "http://", "http://p.example:99999"])
+def test_unusable_proxy_is_rejected(value, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", value)
+    with pytest.raises(remote.RemoteError, match="HTTPS_PROXY"):
+        remote._proxy(remote.parse_remote("https://git.example/team/a.git"))
+
+
+def test_ssh_remote_ignores_http_proxy(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    assert remote._proxy(remote.parse_remote("git@git.example:team/a.git")) is None
+
+
 @pytest.mark.parametrize("address", ["127.0.0.1", "169.254.169.254", "::1", "::ffff:127.0.0.1", "224.0.0.1"])
 def test_prohibited_network_destinations_fail_before_transport(monkeypatch, address):
     monkeypatch.delenv("APPSEC_URL_ALLOWLIST", raising=False)
@@ -474,7 +518,7 @@ def test_preflight_timeout_stops_child_group(tmp_path, monkeypatch):
 
     monkeypatch.setattr(remote.subprocess, "Popen", Process)
     monkeypatch.setattr(remote, "_stop", lambda proc: stopped.append(proc))
-    with pytest.raises(remote.RemoteError, match="preflight timed out"):
+    with pytest.raises(remote.RemoteError, match=r"preflight timed out after 30 s reaching git\.example"):
         remote.check_access(remote.parse_remote("git@git.example:team/storefront.git"))
     assert len(stopped) == 1
 

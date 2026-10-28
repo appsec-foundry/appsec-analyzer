@@ -256,6 +256,19 @@ def test_url_preflight_checks_read_access_without_output_or_clone(monkeypatch, c
     assert "source.git" not in capsys.readouterr().out
 
 
+def test_url_preflight_announces_the_access_check_before_it_runs(monkeypatch, capsys):
+    cli._engine_imports()
+    from runtime import remote_repositories
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.delenv("https_proxy", raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    shown = []
+    monkeypatch.setattr(remote_repositories, "check_access", lambda remote: shown.append(capsys.readouterr().err))
+    assert cli.main(["preflight", "--repo", "https://git.example/team/source.git", "--json"]) == 0
+    assert "checking read access to git.example via proxy proxy.example:3128" in shown[0]
+
+
 def test_default_api_preflight_checks_all_models_without_generation(repository, metadata, monkeypatch, capsys):
     from appsec_analyzer import profiles
 

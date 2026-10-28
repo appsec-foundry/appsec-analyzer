@@ -32,6 +32,8 @@ Keep credentials out of Git URLs. HTTPS can use your Git credential helper or ex
 
 Set `APPSEC_URL_ALLOWLIST` to restrict destinations to exact hostnames, separated by commas. Retrieval rejects prohibited network addresses, disables redirects, and does not load repository-owned Git hooks or filters.
 
+HTTPS retrieval uses the proxy from `HTTPS_PROXY` and honors `NO_PROXY`. The proxy must be an `http`, `https`, `socks5`, or `socks5h` URL. The proxy resolves the Git host, so Analyzer cannot check the destination address itself; `APPSEC_URL_ALLOWLIST` still applies. SSH remotes ignore proxy variables. The preflight prints the host, and the proxy host and port if one is used, before it contacts Git. It stops after 30 seconds.
+
 ## Spending limits
 
 `assess` makes model calls. The `claude` and `codex` profiles default to USD 20; `audit-requirements` and `authnz-review` default to USD 5. Set a positive, finite `--budget USD` to change the limit. Audit and AuthNZ review require at least USD 0.05. `--hard-budget` is a compatible alias.
