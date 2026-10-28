@@ -52,6 +52,8 @@ Analyzer reserves calls and time for required analysis and report work. Each exc
 
 Requests are limited to 320,000 UTF-8 bytes, so large inputs can need more exchanges. An input-size error needs a smaller request or an Analyzer fix. `--resume` alone cannot fix an unchanged oversized request.
 
+An `invalid_request` error means the host rejected the request or its output schema; it does not mean the model is unavailable. Correct the request before retrying. `--resume` alone cannot fix it. Analyzer checks regular-expression constraints locally because the host may reject expressions used by report contracts.
+
 Analyzer asks Codex for structured JSON and checks it against the full result schema. It accepts only the last completed agent message of a completed turn. Earlier commentary is not a result. Stop messages and private diagnostics use fixed codes for malformed streams, incomplete answers, invalid JSON, invalid results, unexpected tools, disconnection, timeout, TLS failure, and unavailable models. They do not record model answers. An invalid answer does not prove a login problem: check CLI compatibility before you retry. Unexpected tools mean you should check isolation. A Codex reconnect notice does not by itself mean the call failed. A generic `transport` error means the cause could not be classified. After an Analyzer update, use a new output directory to keep a failed run for diagnosis.
 
 Do not pass `--budget` or `--hard-budget` with `codex-cli`. They are rejected, as is a `budget` field in a subscription scan profile. The startup summary shows ChatGPT subscription use and the call limit. Completion and status show no dollar charge (monetary accounting is `null`). For separately billed OpenAI API use, select `codex` and set `OPENAI_API_KEY`.

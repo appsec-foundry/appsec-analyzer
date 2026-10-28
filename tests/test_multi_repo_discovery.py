@@ -492,6 +492,22 @@ def test_oversized_request_is_not_presented_as_fixed_by_resume(tmp_path):
     assert limits.calls == 1
 
 
+def test_invalid_schema_is_not_retried_or_presented_as_fixed_by_resume(tmp_path):
+    class InvalidHost:
+        def invoke(self, *args):
+            raise TransportError("host rejected output schema", reason="invalid_request", usd=0.0)
+
+    limits = budget()
+    with pytest.raises(TransportError) as caught:
+        discovery.discover(
+            sources(tmp_path), host_factory=lambda ceiling: InvalidHost(), budget=limits, should_stop=lambda: False
+        )
+    assert caught.value.reason == "invalid_request"
+    assert "output schema must be corrected" in str(caught.value)
+    assert "rerun the same command" not in str(caught.value)
+    assert limits.calls == 1
+
+
 @pytest.mark.parametrize("count", [3_000, 12_000])
 def test_a_large_repository_lists_cited_and_source_files_first_and_counts_the_rest(count):
     from runtime.assessment_host import _prompt

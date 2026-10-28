@@ -164,6 +164,8 @@ def transport_summary(error: TransportError) -> str:
     reason = failure_fields(error)["reason"]
     if reason == "request_too_large":
         return "request_too_large; the request must be reduced before retrying; --resume alone does not fix it"
+    if reason == "invalid_request":
+        return "invalid_request; the host rejected the request or output schema; correct it before retrying; --resume alone does not fix it"
     hints = {
         "connection_timeout": "the selected CLI provider timed out; check connectivity and provider availability",
         "connection_failed": "the selected CLI provider could not maintain its connection; check connectivity",

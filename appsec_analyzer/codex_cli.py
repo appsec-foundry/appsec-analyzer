@@ -157,15 +157,17 @@ def _failure(failures, stderr, code):
         ("rate_limit", ("rate_limit", "rate limit", "429")),
         ("authentication_failed", ("unauthorized", "authentication", "401", "403")),
         ("host_configuration", ("error loading config", "reserved built-in provider")),
-        ("model_unavailable", ("model_not_found", "model not found", "not supported", "does not exist")),
+        ("invalid_request", ("invalid_request", "invalid schema", "invalid regex", "invalid_json_schema")),
+        ("model_unavailable", ("model_not_found", "model not found")),
         ("tls_error", ("certificate", "tls handshake")),
         ("connection_timeout", ("timed out", "timeout")),
         ("stream_disconnected", ("stream disconnected", "stream closed", "connection closed")),
         ("connection_failed", ("error sending request", "failed to connect", "connection reset", "dns error")),
         ("server_error", ("internal server error", "service unavailable", "bad gateway")),
-        ("invalid_request", ("invalid_request", "invalid schema")),
     )
     reason = next((reason for reason, markers in rules if any(marker in text for marker in markers)), None)
+    if reason is None and re.search(r"\bmodel\b[^\n]{0,160}\b(?:not supported|does not exist|not available)\b", text):
+        reason = "model_unavailable"
     if reason is None:
         from runtime.analyst_host import _stderr_failure
 

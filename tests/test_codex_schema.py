@@ -27,6 +27,35 @@ def test_source_strings_are_data_even_when_they_contain_invalid_json_syntax():
         schema.decode({"payload": json.dumps({"quote": quote, "line": 12})})
 
 
+def test_management_summary_regex_is_local_and_still_enforced():
+    from orchestrator.assessment_stage2 import ms_schema
+    from runtime.assessment_host import host_schema, response_schema
+
+    # Use the actual summary restriction, rather than a schema invented for the test.
+    complete = CodexSchema(host_schema(response_schema(ms_schema())))
+    assert all("pattern" not in node for node in complete.definitions.values())
+    canonical = ms_schema()["properties"]["verdict"]["properties"]["opening"]
+    schema = CodexSchema(closed({"headline": canonical}))
+    assert all("pattern" not in node for node in schema.definitions.values())
+    valid = "The customer service exposes stored information to callers without a reliable ownership check."
+    assert schema.decode({"payload": {"headline": valid}}) == {"headline": valid}
+    with pytest.raises(ValueError, match="wire schema"):
+        schema.decode({"payload": {"headline": valid + " F-001"}})
+
+
+def test_local_patterns_are_enforced_in_recursive_contracts():
+    canonical = closed(
+        {
+            "name": {"type": "string", "pattern": "^(?!forbidden).+$"},
+            "children": {"type": "array", "items": {"$ref": "#"}},
+        }
+    )
+    schema = CodexSchema(canonical)
+    assert schema.decode({"payload": {"name": "allowed", "children": []}}) == {"name": "allowed", "children": []}
+    with pytest.raises(ValueError, match="wire schema"):
+        schema.decode({"payload": {"name": "allowed", "children": [{"name": "forbidden", "children": []}]}})
+
+
 @pytest.mark.parametrize("present,value", [(False, None), (True, None), (True, "value")])
 def test_optional_fields_preserve_absence_and_explicit_null(present, value):
     schema = CodexSchema(closed({"optional": {"type": ["string", "null"]}}, []))

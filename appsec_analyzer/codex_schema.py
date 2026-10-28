@@ -7,6 +7,7 @@ Canonical validation remains with the assessment controller.
 
 from __future__ import annotations
 
+import copy
 import json
 
 from jsonschema import Draft202012Validator
@@ -36,7 +37,13 @@ class CodexSchema:
         payload = self._compile(canonical, canonical)
         self.schema = {**_object({"payload": payload}), "$defs": self.definitions}
         Draft202012Validator.check_schema(self.schema)
-        self.validator = Draft202012Validator(self.schema)
+        local_schema = copy.deepcopy(self.schema)
+        self.validation_definitions = local_schema["$defs"]
+        self.validator = Draft202012Validator(local_schema)
+        # Keep the original wire validation locally. Host regex dialects reject
+        # expressions such as the Management Summary's negative lookahead.
+        for node in self.definitions.values():
+            node.pop("pattern", None)
 
     def _index(self, node, depth=0):
         if depth > 64:
@@ -179,7 +186,7 @@ class CodexSchema:
         if kind == "union":
             candidates = []
             for child in plan:
-                validator = Draft202012Validator({**child, "$defs": self.definitions})
+                validator = Draft202012Validator({**child, "$defs": self.validation_definitions})
                 if validator.is_valid(value):
                     candidates.append(self._decode(child, value, depth + 1))
             if not candidates or len({json.dumps(v, sort_keys=True, allow_nan=False) for v in candidates}) != 1:

@@ -15,6 +15,13 @@ def records(log):
     return [json.loads(line) for line in log.path.read_text().splitlines()]
 
 
+def test_rejected_output_schema_needs_correction_before_retry():
+    message = diagnostics.transport_summary(TransportError("PRIVATE_PROVIDER_TEXT", reason="invalid_request"))
+    assert "output schema" in message and "correct it before retrying" in message
+    assert "--resume alone does not fix it" in message
+    assert "PRIVATE" not in message
+
+
 def test_parallel_calls_keep_job_identity_and_never_log_inputs_or_answers(tmp_path):
     log = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
 
