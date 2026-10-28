@@ -310,3 +310,47 @@ def test_header_without_a_known_host_has_no_host_row():
     ns = controller._assessment_argument_parser().parse_args(["--repo", "/r", "--output", "/o", "--hard-budget", "5"])
     rows = dict(controller._assessment_intro(ns, controller._assessment_budget(ns), "standard", "Models: m1", "P"))
     assert "Host" not in rows
+
+
+@pytest.mark.parametrize(
+    ("env", "status", "expected"),
+    [
+        ({}, {"apiProvider": "firstParty"}, "Claude CLI"),
+        ({"ANTHROPIC_BASE_URL": "https://api.anthropic.com"}, {}, "Claude CLI"),
+        (
+            {"ANTHROPIC_BASE_URL": "https://user:secret@ai-gw.example.org:8443/v1/claude?key=x"},
+            {"apiProvider": "firstParty"},
+            "Claude CLI via gateway ai-gw.example.org",
+        ),
+        ({}, {"apiProvider": "bedrock"}, "Claude CLI via Amazon Bedrock"),
+        ({"CLAUDE_CODE_USE_VERTEX": "1"}, {}, "Claude CLI via Google Vertex"),
+        (
+            {"ANTHROPIC_BEDROCK_BASE_URL": "https://gw.example.org/bedrock"},
+            {"apiProvider": "bedrock"},
+            "Claude CLI via Amazon Bedrock, gateway gw.example.org",
+        ),
+        ({"ANTHROPIC_BASE_URL": "not a url"}, {}, "Claude CLI"),
+        ({"ANTHROPIC_FOUNDRY_BASE_URL": "https://gw2.example.org"}, {}, "Claude CLI via gateway gw2.example.org"),
+        ({"CLAUDE_CODE_USE_ACME": "true"}, {}, "Claude CLI via acme"),
+        ({}, {"apiProvider": "acme"}, "Claude CLI via acme"),
+    ],
+)
+def test_host_row_names_the_gateway_or_cloud_provider_claude_cli_routes_through(monkeypatch, env, status, expected):
+    import json
+    import subprocess
+
+    from appsec_analyzer.assessment import console
+
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, stdout=json.dumps(status).encode())
+    )
+    console._claude_cli_provider.cache_clear()
+    assert controller._model_host_name("claude-cli") == expected
+
+
+def test_other_hosts_keep_their_fixed_host_names(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gw.example.org")
+    assert controller._model_host_name("codex-cli") == "Codex CLI"
+    assert controller._model_host_name("lite") == "LiteLLM gateway"

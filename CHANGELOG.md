@@ -24,8 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- The start check of `assess` and `preflight` stops with the `pip install` command when `jsonschema` is older than 4.20, instead of failing in the middle of a run.
 - The scanner line of the `assess` console lists the hits of each deterministic scanner (source auth, authz confirm, mass assignment, config/IaC, architecture), including scanners with none.
-- The `assess` header shows the model host (Claude CLI, Codex CLI, GitHub Copilot CLI, LiteLLM gateway, Amazon Bedrock API) in a `Host` row before the billing row.
+- The `assess` header shows the model host (Claude CLI, Codex CLI, GitHub Copilot CLI, LiteLLM gateway, Amazon Bedrock API) in a `Host` row before the billing row; Claude CLI also names the gateway host (from `ANTHROPIC_*BASE_URL`) or cloud provider it is routed through.
 - Discovery now serves a missing serving unit's entry file with its correction, so a model that omitted the frontend or API component can model it instead of repeating its answer.
 - API billing is detected from `ANTHROPIC_AUTH_TOKEN` and from the Claude CLI's own credential source (settings key, key helper, Bedrock, Vertex), not only from `ANTHROPIC_API_KEY`; such runs no longer show as subscription usage.
 - Git URL preflight honors `HTTPS_PROXY` and `NO_PROXY`, announces the host it is checking, and names the host in a timeout message.

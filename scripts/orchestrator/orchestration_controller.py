@@ -3132,6 +3132,15 @@ HOST_NAMES = {
 }
 
 
+def _model_host_name(model_host: str) -> str:
+    """The Host row's text; Claude CLI also names a gateway or cloud provider it is routed through."""
+    if model_host == "claude-cli":
+        from appsec_analyzer.assessment.console import claude_cli_route
+
+        return claude_cli_route()
+    return HOST_NAMES.get(model_host, model_host)
+
+
 def _assessment_intro(
     ns,
     budget,
@@ -3209,7 +3218,7 @@ def _assessment_intro(
         *([continued] if continued else []),
         # An operator's own scan profile, which `assess` may also use without --profile.
         *([("Profile", f"{profile['name']} · {profile['files'][0]}")] if own_profile else []),
-        *([("Host", HOST_NAMES.get(model_host, model_host))] if model_host else []),
+        *([("Host", _model_host_name(model_host))] if model_host else []),
         (
             "Billing",
             f"{budget.subscription_label} via "

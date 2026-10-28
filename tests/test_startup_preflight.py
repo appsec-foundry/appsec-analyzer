@@ -493,3 +493,36 @@ def test_skip_preflight_starts_the_assessment_without_access_or_provider_checks(
         "skipped (--skip-preflight); access, provider and model errors show up later",
     )
     assert "--skip-preflight" not in request.arguments
+
+
+def test_minimum_dependency_versions_match_the_declared_requirements():
+    import re
+    from pathlib import Path
+
+    from appsec_analyzer import preflight
+
+    declared = re.search(r"install_requires=\[(.*?)\]", (Path(__file__).parents[1] / "setup.py").read_text(), re.S)[1]
+    for name, minimum in preflight._MINIMUM_VERSIONS.items():
+        assert f"{name}>={'.'.join(map(str, minimum))}" in declared
+
+
+@pytest.mark.parametrize(
+    ("installed", "stops"), [("4.17.3", True), ("3.2.0", True), (None, True), ("4.20.0", False), ("4.26.0", False)]
+)
+def test_an_outdated_or_missing_dependency_stops_before_any_check(monkeypatch, installed, stops):
+    import importlib.metadata
+
+    from appsec_analyzer import preflight
+
+    def fake_version(name):
+        if installed is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    ns = type("Namespace", (), {"quiet": True, "command": "assess"})()
+    if stops:
+        with pytest.raises(ValueError, match=r"pip install -U \"jsonschema>=4\.20\""):
+            preflight._check_dependencies(ns)
+    else:
+        preflight._check_dependencies(ns)

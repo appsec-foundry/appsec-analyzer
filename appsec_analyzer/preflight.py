@@ -15,6 +15,9 @@ from urllib.parse import urlsplit
 from appsec_analyzer.terminal import field
 
 _LABEL = 12
+# Minimum versions of the runtime dependencies whose API the engine relies on (``registry=`` needs jsonschema 4.18+).
+# Keep in step with install_requires in setup.py; a test compares them.
+_MINIMUM_VERSIONS = {"jsonschema": (4, 20)}
 _SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -70,10 +73,40 @@ def _say(ns, label, message, *, status="muted", always=False, immediate=False):
         )
 
 
+def _check_dependencies(ns) -> None:
+    """Stop before any model call when an installed dependency is older than the engine supports.
+
+    A too-old library otherwise fails deep inside the pipeline, after model calls were paid for.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    for name, minimum in _MINIMUM_VERSIONS.items():
+        try:
+            installed = version(name)
+        except PackageNotFoundError:
+            installed = ""
+        numbers = []
+        for part in installed.split(".")[: len(minimum)]:
+            digits = "".join(character for character in part if character.isdigit())
+            numbers.append(int(digits) if digits else 0)
+        if tuple(numbers) < minimum:
+            wanted = ".".join(map(str, minimum))
+            _say(
+                ns,
+                "Dependencies",
+                f"{name} {field(installed) or 'missing'}, {wanted} or newer required",
+                status="critical",
+            )
+            raise ValueError(
+                f'Preflight dependency {name} is too old or missing; run: pip install -U "{name}>={wanted}"'
+            )
+
+
 def run(ns, *, api_profile=None, runtime=None):
     from runtime.multi_repo_scope import _selected_root
     from runtime.remote_repositories import MAX_REPOSITORIES, check_access, describe_route, parse_remote
 
+    _check_dependencies(ns)
     repositories = ns.repo or [str(Path.cwd())]
     if len(repositories) > MAX_REPOSITORIES:
         raise ValueError("Preflight accepts at most 16 repositories")
