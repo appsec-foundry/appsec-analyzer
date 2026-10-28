@@ -418,6 +418,14 @@ def _private_directory(path: Path) -> None:
         os.close(fd)
 
 
+def _row(symbol: str, status: str, label: str, message: str) -> None:
+    """A progress row in the layout of the ``Preflight`` rows."""
+    from renderers.term_style import Style
+
+    style = Style.for_stream(sys.stderr)
+    print(f"  {style(symbol, status)} {style(f'{label:<12}', 'muted')}{message}", file=sys.stderr, flush=True)
+
+
 @contextmanager
 def checkout_arguments(argv: list[str], on_clone=None):
     """Resolve all URL selections atomically; never mutate caller-owned local roots.
@@ -456,9 +464,14 @@ def checkout_arguments(argv: list[str], on_clone=None):
             if root.exists() or root.is_symlink():
                 raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
             created.append(root)
-            if "--quiet" not in argv:
-                print(f"Preparing remote repository {number}/{len(remotes)} ({remote.scheme.upper()})", file=sys.stderr)
+            quiet = "--quiet" in argv
+            label = "Repository" if len(remotes) == 1 else f"Repo {number}/{len(remotes)}"
+            if not quiet:
+                _row("·", "muted", label, f"cloning {remote.name} from {describe_route(remote)}, latest commit only")
+            started = time.monotonic()
             clone(remote, root)
+            if not quiet:
+                _row("✓", "ok", label, f"cloned in {time.monotonic() - started:.0f} s")
             if on_clone:
                 on_clone(number, len(remotes), remote)
             result[index] = str(root)
