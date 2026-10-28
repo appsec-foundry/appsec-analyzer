@@ -418,6 +418,14 @@ def _private_directory(path: Path) -> None:
         os.close(fd)
 
 
+def _row(symbol: str, status: str, label: str, message: str) -> None:
+    """A progress row in the layout of the ``Preflight`` rows."""
+    from renderers.term_style import Style
+
+    style = Style.for_stream(sys.stderr)
+    print(f"  {style(symbol, status)} {style(f'{label:<12}', 'muted')}{message}", file=sys.stderr, flush=True)
+
+
 @contextmanager
 def checkout_arguments(argv: list[str], on_clone=None):
     """Resolve all URL selections atomically; never mutate caller-owned local roots.
@@ -457,17 +465,13 @@ def checkout_arguments(argv: list[str], on_clone=None):
                 raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
             created.append(root)
             quiet = "--quiet" in argv
+            label = "Repository" if len(remotes) == 1 else f"Repo {number}/{len(remotes)}"
             if not quiet:
-                print(
-                    f"Cloning {remote.name} {number}/{len(remotes)} from {describe_route(remote)} "
-                    f"({remote.scheme.upper()}, latest commit only)",
-                    file=sys.stderr,
-                    flush=True,
-                )
+                _row("·", "muted", label, f"cloning {remote.name} from {describe_route(remote)}, latest commit only")
             started = time.monotonic()
             clone(remote, root)
             if not quiet:
-                print(f"Cloned {remote.name} in {time.monotonic() - started:.0f} s", file=sys.stderr, flush=True)
+                _row("✓", "ok", label, f"cloned in {time.monotonic() - started:.0f} s")
             if on_clone:
                 on_clone(number, len(remotes), remote)
             result[index] = str(root)
