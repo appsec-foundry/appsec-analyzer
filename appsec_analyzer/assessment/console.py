@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import textwrap
 import threading
@@ -51,13 +53,33 @@ def _tokens(count: int) -> str:
     return f"{count / 1000:.0f}k" if count < 1_000_000 else f"{count / 1_000_000:.1f}M"
 
 
+@functools.lru_cache(maxsize=1)
+def _claude_cli_bills_api() -> bool:
+    """Whether the Claude CLI authenticates with an API key or a cloud provider, not a subscription login.
+
+    The CLI knows where its credentials come from (environment, ``settings.json``, ``apiKeyHelper``,
+    Console login, Bedrock, Vertex), so ask it instead of inspecting only this process's environment.
+    """
+    executable = os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude"
+    try:
+        result = subprocess.run([executable, "auth", "status"], capture_output=True, timeout=10, check=False)
+        status = json.loads(result.stdout[:8192])
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+    if not isinstance(status, dict):
+        return False
+    return bool(status.get("apiKeySource")) or status.get("apiProvider") not in (None, "firstParty")
+
+
 def api_billing(adapter: str | None = None) -> bool:
     """Use the assessment header's existing provider and API-key selection."""
     if adapter in ("codex-cli", "copilot-cli"):
         return False
     if adapter in ("openai", "lite", "bedrock", "gateway"):
         return True
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return True
+    return _claude_cli_bills_api()
 
 
 def usd_at_api_prices(adapter: str | None = None) -> bool:

@@ -29,6 +29,52 @@ def test_billing_defaults_and_explicit_override(monkeypatch, adapter, api_key):
     assert usd_at_api_prices(adapter) is (adapter in (None, "claude-cli") and not api_key)
 
 
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ({"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"}, False),
+        (
+            {
+                "loggedIn": True,
+                "authMethod": "oauth_token",
+                "apiProvider": "firstParty",
+                "apiKeySource": "apiKeyHelper",
+            },
+            True,
+        ),
+        ({"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"}, True),
+        ([], False),
+    ],
+)
+def test_claude_cli_credentials_decide_api_billing_without_environment_key(monkeypatch, status, expected):
+    import json
+    import subprocess
+
+    from appsec_analyzer.assessment import console
+
+    console._claude_cli_bills_api.cache_clear()
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, stdout=json.dumps(status).encode())
+    )
+    assert console.api_billing("claude-cli") is expected
+    assert console.usd_at_api_prices("claude-cli") is (not expected)
+
+
+def test_auth_token_in_the_environment_means_api_billing(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "synthetic-token")
+    assert api_billing("claude-cli") is True
+    assert usd_at_api_prices("claude-cli") is False
+
+
+def test_unavailable_claude_cli_status_means_subscription(monkeypatch):
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    assert api_billing("claude-cli") is False
+
+
 @pytest.mark.parametrize("api_prices", [False, True])
 @pytest.mark.parametrize("compact", [False, True])
 def test_claude_subscription_header_values_the_limit_at_api_prices(api_prices, compact):

@@ -1797,7 +1797,7 @@ def _write_assessment_summary(sid: str) -> None:
             pass
 
     # --- Billing model ---
-    is_api = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    is_api = bool((os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN") or "").strip())
 
     # --- Plugin version metadata (best-effort, never crash) ---
     plugin_version = "unknown"
