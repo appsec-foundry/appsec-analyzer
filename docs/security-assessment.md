@@ -28,9 +28,11 @@ Provider checks:
 - **LiteLLM** reads the gateway's `/v1/models` list, including a configured endpoint prefix.
 - **Bedrock** checks the credential format and a verified TLS connection to the regional endpoint.
 - **Claude CLI** checks the login status, or that API or OAuth credentials are present.
-- **Codex CLI** checks its reviewed version, its isolation features, and the local ChatGPT login.
+- **Codex CLI** checks its minimum version base, required isolation options and features, and the local ChatGPT login.
 
 The OpenAI and LiteLLM requests send model names and credentials to the provider, but no source and no generation request. Missing models, rejected credentials, unreadable metadata, malformed replies, and connection failures stop the start. None of these checks proves that you may run a model, that quota is left, or that the assessment will be good. The output says what was not verified.
+
+`assess` does not run a separate generation test before the analysis.
 
 To test real generation, `preflight --test-model` sends one short synthetic message to the survey model (the primary model). You authorize it with a separate limit:
 
