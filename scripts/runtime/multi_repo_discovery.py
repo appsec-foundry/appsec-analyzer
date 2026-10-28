@@ -715,9 +715,25 @@ def discover(
             units = ((inventories or {}).get(repo.repository_id) or {}).get("serving_units", {}).get("units", [])
             missing = serving_units.uncovered(units, artifact["components"])
             if missing:
-                raise ExchangeError(
+                # Serve the first entry file of each unit with the correction: a model that is only
+                # told to read one tends to repeat its answer without the unit.
+                reads = [
+                    (
+                        repo.repository_id,
+                        next(path for path in unit["entry_files"] if (repo.repository_id, path) in allowed),
+                        1,
+                    )
+                    for unit in missing[: serving_units.MAX_UNITS]
+                    if any((repo.repository_id, path) in allowed for path in unit["entry_files"])
+                ]
+                raise Rejection(
                     "No component carries these serving units; read one entry file of each and model it: "
-                    + serving_units.describe(missing)
+                    + serving_units.describe(missing),
+                    [
+                        f"no component lists a file of {serving_units.describe([unit])}"
+                        for unit in missing[: serving_units.MAX_UNITS]
+                    ],
+                    reads=reads,
                 )
             from contexts.multi_repo_analysis import validate_executable_evidence
 

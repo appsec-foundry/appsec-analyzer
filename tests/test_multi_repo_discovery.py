@@ -183,6 +183,34 @@ def test_unread_component_path_is_named_and_served_for_the_correction(tmp_path):
     assert all(row["unread_paths"] == [] for row in result.retrieval)
 
 
+@pytest.mark.parametrize("entry_files", [["docs.txt"], ["absent.txt", "docs.txt"]])
+def test_missing_serving_unit_is_rejected_with_its_entry_file_served(tmp_path, entry_files):
+    """A model told only to read an entry file can repeat its answer; the host serves the file instead."""
+    sources(tmp_path)
+    for name in ("edge", "service"):
+        (tmp_path / name / "docs.txt").write_text("Client entry.\n")
+    scope = admit([str(tmp_path / "edge"), str(tmp_path / "service")], str(tmp_path / "output2"))
+    rid = scope.repositories[0].repository_id
+    inventories = {rid: {"serving_units": {"units": [{"kind": "client-app", "root": "", "entry_files": entry_files}]}}}
+    corrections = []
+
+    class Host(ScriptedHost):
+        def invoke(self, system, prompt, schema, timeout_s, should_stop):
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            reply = super().invoke(system, prompt, schema, timeout_s, should_stop)
+            if reply.payload["action"] == "complete" and "rejected_result" in packet:
+                corrections.append(packet)
+                reply.payload["artifact"]["components"][0]["paths"].append("docs.txt")
+            return reply
+
+    discovery.discover(
+        scope, host_factory=Host(scope).factory, budget=budget(), should_stop=lambda: False, inventories=inventories
+    )
+    assert len(corrections) == 1
+    assert "serving units" in corrections[0]["rejected_result"]["reason"]
+    assert "docs.txt" in {s["path"] for s in corrections[0]["source_slices"]}
+
+
 def test_unservable_component_path_still_rejects_the_result(tmp_path, monkeypatch):
     """A real but unretrieved source cannot support a component, even when the rejection names it."""
     from runtime import assessment_host

@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Discovery now serves a missing serving unit's entry file with its correction, so a model that omitted the frontend or API component can model it instead of repeating its answer.
 - API billing is detected from `ANTHROPIC_AUTH_TOKEN` and from the Claude CLI's own credential source (settings key, key helper, Bedrock, Vertex), not only from `ANTHROPIC_API_KEY`; such runs no longer show as subscription usage.
 - Git URL preflight honors `HTTPS_PROXY` and `NO_PROXY`, announces the host it is checking, and names the host in a timeout message.
 - The remaining time in the `assess` console follows phase durations measured on quick and standard runs. Quick no longer starts with about 30 minutes for a run of about 22, and standard no longer shows too little time during threat analysis and finalization. The estimate accounts for the depth's quality checks and the architect review of thorough.
