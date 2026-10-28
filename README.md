@@ -541,6 +541,7 @@ abuse_cases:
 - [Hosts, models, and cost](docs/model-selection.md): provider support and spending limits.
 - [Command-line operation](docs/headless-mode.md): unattended runs and lifecycle commands.
 - [Documentation index](docs/README.md): all current guides and maintainer references.
+- [AppSec Analyzer Tools](https://github.com/appsec-foundry/appsec-analyzer-tools): companion repository.
 
 ## Contributing
 
