@@ -3,8 +3,8 @@
 [![Version](https://img.shields.io/badge/version-0.1.0a0-orange.svg)](engine.json)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#appsec-analyzer)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](setup.py)
+[![Codecov](https://codecov.io/gh/appsec-foundry/appsec-analyzer/branch/main/graph/badge.svg)](https://app.codecov.io/gh/appsec-foundry/appsec-analyzer)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Review with](https://img.shields.io/badge/review%20with-Claude%20Code%20%7C%20Codex-5A67D8.svg)](#review-discuss-an-assessment-with-your-coding-agent)
 [![SARIF](https://img.shields.io/badge/SARIF-v2.1.0-blue.svg)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 
 > [!NOTE]
