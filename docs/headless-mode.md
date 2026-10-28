@@ -31,7 +31,7 @@ A [scan profile](profiles.md) selects the model profile, depth, USD budget, expo
 
 The experimental `lite` and `bedrock` profiles need a separate operator connection and external credentials first. See [provider setup](providers.md).
 
-For ChatGPT plan usage on a trusted local machine, install Codex CLI 0.163.0, sign in with `codex login`, and run:
+For ChatGPT plan usage on a trusted local machine, install Codex CLI 0.163.0 or newer, sign in with `codex login`, and run:
 
 ```sh
 appsec-analyzer assess --repo /checkout --profile codex-cli \

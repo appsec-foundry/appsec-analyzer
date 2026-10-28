@@ -27,7 +27,7 @@ Inspect both archives before distribution. Exclude the temporary `scripts/run-he
 - `assess` runs the full assessment and makes model calls; `scan-sources` and `score REPO` are deterministic commands without a model provider. The separate [score](security-score.md) is a limited indication and does not establish security approval.
 - `assess --host claude-cli` is a compatibility adapter with offline fake-host end-to-end tests. A real CLI session, model selection, and run cost have not been qualified.
 - The OpenAI Responses profiles can be selected with `--host openai`. They have offline tests for the wire format, decoding, network egress, and budgets. Their assessment quality has not been qualified in a live run. Fixed gateway routes are not available through the public command.
-- `codex-cli` supports Codex CLI 0.163.0 with a ChatGPT login on Linux and macOS. It has offline tests, and the installed CLI passes a loopback-only wire test. Live assessment quality and plan consumption have not been qualified. See [setup and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
+- `codex-cli` supports Codex CLI 0.163.0 or newer with a ChatGPT login on Linux and macOS. It has offline tests, and the installed CLI passes a loopback-only wire test. Live assessment quality and plan consumption have not been qualified. See [setup and limits](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 - `audit-requirements` accepts one local catalog and one repository. Remote catalogs, PDF output, and resume from the earlier Advisor audit are not available. The audit is not a complete security assessment.
 - Run directories from Advisor are not migrated. Resume needs compatible Analyzer state and an unchanged admitted source.
 

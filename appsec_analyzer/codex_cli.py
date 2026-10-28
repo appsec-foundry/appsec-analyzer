@@ -1,7 +1,8 @@
 """Bounded, isolated Codex CLI exchanges using its managed ChatGPT login.
 
-Only the reviewed CLI version is admitted: its tool configuration is checked
-against a synthetic local Responses endpoint by the offline qualification test.
+CLI compatibility is checked through a minimum version and required isolation
+capabilities. Offline qualification checks tool configuration against a synthetic
+local Responses endpoint; it does not qualify live assessment quality.
 No credential file is read or copied by Analyzer.
 """
 
@@ -32,7 +33,32 @@ from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, Transpor
 
 from appsec_analyzer.codex_schema import CodexSchema
 
-SUPPORTED_VERSION = "0.163.0"
+MINIMUM_VERSION = "0.163.0"
+REQUIRED_EXEC_FLAGS = frozenset(
+    (
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
+        "--ephemeral",
+        "--sandbox",
+        "--json",
+        "--output-schema",
+    )
+)
+
+
+def compatible_version(output: bytes) -> str:
+    """Check the version base, allowing prerelease and build identifiers."""
+    match = re.fullmatch(
+        rb"codex-cli (0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})"
+        rb"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?",
+        output.strip(),
+    )
+    if match and tuple(int(part) for part in match.groups()) >= tuple(map(int, MINIMUM_VERSION.split("."))):
+        return output.strip().decode("ascii").split()[1]
+    raise ValueError(f"codex-cli requires Codex CLI version {MINIMUM_VERSION} or newer; see docs/profiles.md")
+
+
 MAX_BYTES = 1_048_576
 # The prompt goes through stdin, instructions and schema through files. The
 # bound leaves a STRIDE packet the shared MAX_CONTEXT_BYTES after the role
@@ -255,7 +281,7 @@ def preflight(*, repositories=()) -> dict:
 def _preflight(*, repositories=()) -> dict:
     executable = shutil.which("codex")
     if executable is None or os.name != "posix":
-        raise ValueError("codex-cli requires Codex CLI 0.163.0 on Linux or macOS; see docs/profiles.md")
+        raise ValueError("codex-cli requires Codex CLI 0.163.0 or newer on Linux or macOS; see docs/profiles.md")
     executable = str(Path(executable).resolve())
     from appsec_analyzer.profiles import ProfileError, reject_source_paths
 
@@ -266,8 +292,16 @@ def _preflight(*, repositories=()) -> dict:
     env = environment()
     with tempfile.TemporaryDirectory(prefix="appsec-codex-check-") as work:
         code, out, _ = _run([executable, "--version"], cwd=work, env=env)
-        if code or out.strip() != f"codex-cli {SUPPORTED_VERSION}".encode():
-            raise ValueError("codex-cli requires reviewed Codex CLI version 0.163.0")
+        if code:
+            raise ValueError("Codex CLI version is unavailable")
+        version = compatible_version(out)
+        code, out, _ = _run([executable, "exec", "--help"], cwd=work, env=env)
+        if code:
+            raise ValueError("Codex CLI isolation options are unavailable; codex exec --help failed")
+        flags = {flag.decode("ascii") for flag in re.findall(rb"(?<![\w-])--[a-z][a-z-]*(?![\w-])", out)}
+        missing = REQUIRED_EXEC_FLAGS - flags
+        if missing:
+            raise ValueError("Codex CLI isolation options are unavailable: " + ", ".join(sorted(missing)))
         code, out, _ = _run([executable, "features", "list"], cwd=work, env=env)
         if code:
             raise ValueError("Codex CLI feature configuration is unavailable")
@@ -278,16 +312,21 @@ def _preflight(*, repositories=()) -> dict:
                 raise ValueError("Codex CLI feature configuration is invalid")
             if parts[1] not in ("removed", "deprecated"):
                 features[parts[0]] = False
-        if (
-            not {"shell_tool", "hooks", "apps", "plugins", "multi_agent", "skip_host_skill_discovery"}
-            <= features.keys()
-        ):
-            raise ValueError("Codex CLI isolation features are unavailable")
+        missing = {
+            "shell_tool",
+            "hooks",
+            "apps",
+            "plugins",
+            "multi_agent",
+            "skip_host_skill_discovery",
+        } - features.keys()
+        if missing:
+            raise ValueError("Codex CLI isolation features are unavailable: " + ", ".join(sorted(missing)))
         features["skip_host_skill_discovery"] = True
         code, out, err = _run([executable, "-c", 'forced_login_method="chatgpt"', "login", "status"], cwd=work, env=env)
         if code or b"Logged in using ChatGPT" not in (out + err).splitlines():
             raise ValueError("Codex CLI needs a ChatGPT login; run codex login before starting Analyzer")
-    return {"executable": executable, "version": SUPPORTED_VERSION, "features": features}
+    return {"executable": executable, "version": version, "features": features}
 
 
 class CodexCliTransport:
@@ -346,7 +385,9 @@ class CodexCliTransport:
         ]
 
     def invoke(self, system, prompt, schema, timeout_s, should_stop):
-        if type(system) is not str or type(prompt) is not str or type(schema) is not dict:
+        # The controller's Prompt is a str subclass carrying cache boundaries.
+        # Codex consumes its full text, without using the cache metadata.
+        if type(system) is not str or not isinstance(prompt, str) or type(schema) is not dict:
             raise TransportError("Invalid Codex request", reason="invalid_request")
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise TransportError("Invalid Codex timeout", reason="invalid_request")

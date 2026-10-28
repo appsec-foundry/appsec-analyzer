@@ -431,7 +431,7 @@ Each verified aspect adds model calls. A scan or organization profile can change
 | --- | --- | --- |
 | `claude` (default) | Claude CLI | `claude` on your `PATH` with a working login or externally configured Anthropic API credentials. |
 | `codex` (experimental) | OpenAI API | `OPENAI_API_KEY`. |
-| `codex-cli` (experimental) | Codex CLI with your ChatGPT plan | Codex CLI 0.163.0, signed in with `codex login`. See [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). |
+| `codex-cli` (experimental) | Codex CLI with your ChatGPT plan | Codex CLI 0.163.0 or newer, signed in with `codex login`. See [Codex CLI setup and limits](docs/profiles.md#use-your-chatgpt-plan-with-codex-cli). |
 | `copilot-cli` (experimental) | GitHub Copilot CLI | Copilot CLI 1.0.101 and its separately configured login. See [Copilot CLI setup and limits](docs/profiles.md#use-github-copilot-cli). |
 | `lite` (experimental) | LiteLLM gateway | `LITELLM_API_KEY` and a gateway entry in `providers.yaml` with verified prices. See [LiteLLM setup](docs/providers.md#use-litellm). |
 | `bedrock` (experimental) | Amazon Bedrock Converse API | `AWS_BEARER_TOKEN_BEDROCK` and a Bedrock entry in `providers.yaml` with verified prices. See [Bedrock setup](docs/providers.md#use-amazon-bedrock). |

@@ -81,6 +81,30 @@ def test_structured_reply_and_isolated_configuration(transport, monkeypatch):
     assert not Path(seen["cwd"]).exists()
 
 
+def test_controller_prompt_reaches_codex_without_losing_text(transport, monkeypatch):
+    from runtime.assessment_host import Prompt, _prompt
+
+    prompt = _prompt({"context": {"name": "artificial café"}, "source_slices": []})
+    assert isinstance(prompt, Prompt)
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(kwargs["data"])
+        return 0, events({"ok": True}), b""
+
+    monkeypatch.setattr(codex_cli, "_run", run)
+    reply = transport.invoke("trusted", prompt, {}, 5, lambda: False)
+    assert reply.payload == {"ok": True}
+    assert seen == [str(prompt).encode("utf-8")]
+
+
+@pytest.mark.parametrize("prompt", [None, 123, True, b"source", {"source": "text"}, ["source"]])
+def test_nontext_prompts_are_rejected_before_cli_start(transport, monkeypatch, prompt):
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: pytest.fail("invalid prompt must not start CLI"))
+    with pytest.raises(TransportError, match="Invalid Codex request"):
+        transport.invoke("trusted", prompt, {}, 5, lambda: False)
+
+
 @pytest.mark.parametrize(
     "reply",
     [
@@ -423,12 +447,14 @@ def test_bounded_process_execution(tmp_path, mode, exception):
         )
 
 
-def test_preflight_rejects_api_login_and_unreviewed_versions(tmp_path, monkeypatch):
+def test_preflight_rejects_api_login_and_incompatible_versions(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/fixture/codex")
 
     def run(argv, **kwargs):
         if "--version" in argv:
             return 0, b"codex-cli 0.163.0\n", b""
+        if "--help" in argv:
+            return 0, "\n".join(codex_cli.REQUIRED_EXEC_FLAGS).encode(), b""
         if "features" in argv:
             return 0, b"\n".join((k + " stable false").encode() for k in FEATURES), b""
         return 0, b"", b"Logged in using an API key"
@@ -436,8 +462,8 @@ def test_preflight_rejects_api_login_and_unreviewed_versions(tmp_path, monkeypat
     monkeypatch.setattr(codex_cli, "_run", run)
     with pytest.raises(ValueError, match="ChatGPT login"):
         codex_cli.preflight()
-    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, b"codex-cli 0.164.0\n", b""))
-    with pytest.raises(ValueError, match="reviewed"):
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, b"codex-cli 0.162.0\n", b""))
+    with pytest.raises(ValueError, match="0.163.0 or newer"):
         codex_cli.preflight()
 
 
@@ -450,7 +476,7 @@ def test_subscription_controller_publishes_validated_reports(tmp_path, monkeypat
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     run = profiles.resolve_scan("codex-cli", depth="quick", max_calls=1111)
-    run["cli_version"] = codex_cli.SUPPORTED_VERSION
+    run["cli_version"] = codex_cli.MINIMUM_VERSION
     root, output = tmp_path / "app", tmp_path / "out"
     checkout(root)
     host = FullHost()
@@ -559,20 +585,73 @@ def test_controller_selects_codex_transport_and_role_settings(tmp_path, monkeypa
     assert host.model == "gpt-6.1-sol" and host.effort == "medium"
 
 
-def test_preflight_success_keeps_all_tools_disabled(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "version",
+    [
+        "0.163.0",
+        "0.164.0",
+        "0.165.0",
+        "0.200.0",
+        "1.0.0",
+        "0.165.0-alpha.1",
+        "0.165.0+custom",
+        "0.166.0-dev.20261028+local.abc123",
+    ],
+)
+def test_preflight_success_keeps_all_tools_disabled(tmp_path, monkeypatch, version):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/fixture/codex")
 
     def run(argv, **kwargs):
         if "--version" in argv:
-            return 0, b"codex-cli 0.163.0\n", b""
+            return 0, f"codex-cli {version}\n".encode(), b""
+        if "--help" in argv:
+            return 0, "\n".join(codex_cli.REQUIRED_EXEC_FLAGS).encode(), b""
         if "features" in argv:
             return 0, b"\n".join((k + " stable true").encode() for k in FEATURES), b""
         return 0, b"", b"Logged in using ChatGPT\n"
 
     monkeypatch.setattr(codex_cli, "_run", run)
     runtime = codex_cli.preflight()
+    assert runtime["version"] == version
     assert runtime["features"]["skip_host_skill_discovery"] is True
     assert all(value is False for key, value in runtime["features"].items() if key != "skip_host_skill_discovery")
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        b"codex-cli 0.162.9",
+        b"codex-cli 0.162.9-dev",
+        b"codex-cli 0.165.0-",
+        b"codex-cli 0.165.0+",
+        b"codex-cli 0.165.0-dev..1",
+        b"codex-cli 00.165.0",
+        b"0.165.0",
+        b"codex-cli 0.165.0\ninjected",
+        b"codex-cli \xff",
+    ],
+)
+def test_compatibility_rejects_old_or_ambiguous_versions(output):
+    with pytest.raises(ValueError, match="Codex CLI version"):
+        codex_cli.compatible_version(output)
+
+
+@pytest.mark.parametrize("missing", sorted(codex_cli.REQUIRED_EXEC_FLAGS) + sorted(FEATURES))
+def test_preflight_rejects_missing_isolation_capability(monkeypatch, missing):
+    monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/fixture/codex")
+
+    def run(argv, **kwargs):
+        if "--version" in argv:
+            return 0, b"codex-cli 0.165.0\n", b""
+        if "--help" in argv:
+            return 0, "\n".join(codex_cli.REQUIRED_EXEC_FLAGS - {missing}).encode(), b""
+        if "features" in argv:
+            return 0, "\n".join(k + " stable true" for k in FEATURES if k != missing).encode(), b""
+        pytest.fail("incompatible CLI must fail before checking login")
+
+    monkeypatch.setattr(codex_cli, "_run", run)
+    with pytest.raises(ValueError, match="isolation (options|features) are unavailable"):
+        codex_cli.preflight()
 
 
 def test_preflight_timeout_is_an_actionable_public_error(tmp_path, monkeypatch, capsys):

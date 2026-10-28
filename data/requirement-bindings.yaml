@@ -2266,7 +2266,7 @@ requirements:
       - tests/test_assessment_host.py::test_refused_proposals_consume_read_allowance_without_going_negative
       - tests/test_assessment_host.py::test_repeated_unlisted_proposals_exhaust_exchange_limit_without_retrieval
       - tests/test_assessment_host.py::test_fatal_proposal_still_stops_after_preloaded_read_round_is_spent
-      - tests/test_codex_cli.py::test_preflight_rejects_api_login_and_unreviewed_versions
+      - tests/test_codex_cli.py::test_preflight_rejects_api_login_and_incompatible_versions
       - tests/test_copilot_cli.py::test_preflight_requires_reviewed_executable_outside_source
       - tests/test_copilot_cli.py::test_failure_text_is_not_exposed
       - tests/test_active_stride_policy.py::test_active_stride_prompt_has_evidence_rules_and_no_removed_tool_procedure

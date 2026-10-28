@@ -46,7 +46,7 @@ The `codex` profile uses `OPENAI_API_KEY` and models from the installed catalog.
 
 Select `--model "lite claude"` for LiteLLM or `--profile bedrock` for native Bedrock Converse. Configure the operator-owned `providers.yaml` separately from scan/model profiles, and supply `LITELLM_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK` externally. These adapters use USD budgets and remain unqualified for live assessment quality. See [provider connections](providers.md) for the schema, gateway deployment checks, regional pricing, model prefixes and authentication limits.
 
-The `codex-cli` profile needs Linux or macOS, Codex CLI 0.163.0 on `PATH`, and a ChatGPT login. It uses `max_calls` instead of a USD budget and reports no monetary cost. See [setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli).
+The `codex-cli` profile needs Linux or macOS, Codex CLI 0.163.0 or newer on `PATH`, and a ChatGPT login. It uses `max_calls` instead of a USD budget and reports no monetary cost. See [setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
 The `copilot-cli` profile needs Linux or macOS, GitHub Copilot CLI 1.0.101 on `PATH`, and its login. It uses `max_calls` and `max_duration` instead of a USD budget. See [Copilot CLI setup and limits](profiles.md#use-github-copilot-cli).
 

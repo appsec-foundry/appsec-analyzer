@@ -23,7 +23,9 @@ Additional built-ins are `lite` for LiteLLM Responses and `bedrock` for native B
 
 Select `codex-cli` to run full assessments through the Codex CLI's existing ChatGPT login. It is an experimental connection with offline transport and full-controller tests; live assessment quality has not been qualified. Your account or workspace must allow the selected model and Codex usage. This profile uses ChatGPT plan allowance or available credits; Analyzer cannot report the remaining allowance or enforce a monetary ceiling.
 
-Prerequisites: Linux or macOS, Codex CLI **0.163.0** installed on your `PATH` outside the analyzed repositories, and a working ChatGPT login. Other CLI versions are rejected until their isolation settings have been reviewed. Follow the [official Codex CLI installation instructions](https://developers.openai.com/codex/cli) to install the supported version. An API-key login does not satisfy this profile.
+Prerequisites: Linux or macOS, Codex CLI **0.163.0 or newer** installed on your `PATH` outside the analyzed repositories, and a working ChatGPT login. An API-key login does not satisfy this profile. Follow the [official Codex CLI installation instructions](https://developers.openai.com/codex/cli).
+
+Preflight checks the minimum version base, required isolation command options, and feature switches. Newer versions, prerelease versions, and custom builds are accepted when these checks pass; no per-version code update is needed. Older version bases and CLIs missing the required capabilities are rejected. Runtime uses strict configuration validation and rejects unexpected tool output. These checks do not qualify future versions for live assessment quality.
 
 1. Check the installed version and sign in with ChatGPT:
 

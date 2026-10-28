@@ -194,7 +194,7 @@ def test_cli_preflight_never_clones_or_starts_assessment(repository, monkeypatch
 def test_codex_preflight_displays_completed_checks_and_unverified_access(repository, monkeypatch, capsys):
     from appsec_analyzer import codex_cli
 
-    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.MINIMUM_VERSION})
     monkeypatch.setattr(codex_cli.CodexCliTransport, "invoke", lambda *a, **kw: pytest.fail("no model call"))
     assert cli.main(["preflight", "--repo", str(repository), "--profile", "codex-cli", "--json"]) == 0
     captured = capsys.readouterr()
@@ -216,7 +216,7 @@ def test_assessment_preflight_hands_completed_checks_to_the_console(repository, 
     from orchestrator import orchestration_controller
 
     seen = []
-    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.MINIMUM_VERSION})
     monkeypatch.setattr(
         orchestration_controller,
         "assess_main",
@@ -327,7 +327,7 @@ def test_remote_checkout_is_a_preflight_row_and_the_summary_names_the_url(monkey
 
     url = "https://git.example/team/source.git"
     seen = []
-    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.MINIMUM_VERSION})
     monkeypatch.setattr(remote_repositories.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(remote_repositories, "check_access", lambda remote: None)
     monkeypatch.setattr(remote_repositories, "clone", lambda remote, root: root.mkdir())
@@ -356,7 +356,7 @@ def test_live_probe_requires_explicit_budget(repository, monkeypatch):
 def test_subscription_probe_requires_explicit_call_limit(repository, monkeypatch):
     from appsec_analyzer import codex_cli, preflight
 
-    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.SUPPORTED_VERSION})
+    monkeypatch.setattr(codex_cli, "preflight", lambda **kw: {"version": codex_cli.MINIMUM_VERSION})
     monkeypatch.setattr(preflight, "_test_model", lambda *a, **kw: pytest.fail("no unapproved plan use"))
     assert cli.main(["preflight", "--repo", str(repository), "--profile", "codex-cli", "--test-model"]) == 2
 

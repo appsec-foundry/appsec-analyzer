@@ -55,7 +55,7 @@ def test_real_codex_has_no_tools_and_ignores_project_and_user_configuration(
     )
     (tmp_path / "AGENTS.md").write_text("FORBIDDEN_PROJECT_INSTRUCTION\n")
     version = subprocess.run([executable, "--version"], env=env, capture_output=True, text=True, check=True)
-    assert version.stdout.strip() == "codex-cli " + codex_cli.SUPPORTED_VERSION
+    codex_cli.compatible_version(version.stdout.encode())
     features = subprocess.run([executable, "features", "list"], env=env, capture_output=True, text=True, check=True)
     disabled = {
         parts[0]: False

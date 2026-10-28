@@ -145,7 +145,7 @@ Use `status` or `progress` with the output directory to inspect a run, `stop` to
 
 Monetary costs appear by default only with API billing. Subscription runs, including Claude CLI without `ANTHROPIC_API_KEY`, show call and token counts without costs. `--show-costs` shows the available costs in every billing mode. Unknown amounts are labelled unavailable, never estimated or shown as zero. The flag changes no accounting, limits, or model use. Spending limits and budget questions stay visible, and `--quiet` still hides live progress.
 
-To use your ChatGPT plan allowance, install Codex CLI 0.163.0 on Linux or macOS, sign in with `codex login`, and run:
+To use your ChatGPT plan allowance, install Codex CLI 0.163.0 or newer on Linux or macOS, sign in with `codex login`, and run:
 
 ```sh
 appsec-analyzer assess --repo /path/to/project --profile codex-cli --max-calls 1000 --max-duration 14400
