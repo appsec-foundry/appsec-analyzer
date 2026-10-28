@@ -456,9 +456,18 @@ def checkout_arguments(argv: list[str], on_clone=None):
             if root.exists() or root.is_symlink():
                 raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
             created.append(root)
-            if "--quiet" not in argv:
-                print(f"Preparing remote repository {number}/{len(remotes)} ({remote.scheme.upper()})", file=sys.stderr)
+            quiet = "--quiet" in argv
+            if not quiet:
+                print(
+                    f"Cloning {remote.name} {number}/{len(remotes)} from {describe_route(remote)} "
+                    f"({remote.scheme.upper()}, latest commit only)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            started = time.monotonic()
             clone(remote, root)
+            if not quiet:
+                print(f"Cloned {remote.name} in {time.monotonic() - started:.0f} s", file=sys.stderr, flush=True)
             if on_clone:
                 on_clone(number, len(remotes), remote)
             result[index] = str(root)

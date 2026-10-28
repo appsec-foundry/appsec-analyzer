@@ -538,3 +538,19 @@ def test_git_failure_is_redacted_and_partial_clone_is_removed(transport, tmp_pat
     assert "Git checkout failed" in diagnostic
     assert "Traceback" not in diagnostic and "nonexistent.git" not in diagnostic
     assert not list(transport.rglob("nonexistent"))
+
+
+def test_clone_progress_names_the_host_route_and_completion(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    monkeypatch.setattr(remote, "clone", lambda target, root: root.mkdir())
+    monkeypatch.setattr(remote.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    argv = ["--repo", "https://git.example/team/a.git", "--output", str(tmp_path / "out")]
+    with remote.checkout_arguments(argv):
+        pass
+    err = capsys.readouterr().err.splitlines()
+    assert err[0] == "Cloning a 1/1 from git.example via proxy proxy.example:3128 (HTTPS, latest commit only)"
+    assert err[1].startswith("Cloned a in ")
+    with remote.checkout_arguments([*argv, "--quiet"]):
+        pass
+    assert capsys.readouterr().err == ""
