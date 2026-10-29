@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Private HTTPS Git URLs and merge or pull request URLs can use a token from `GIT_TOKEN` or `GITLAB_TOKEN` (GitLab hosts only), or from any variable named with `--git-token-env`; a failed access now names the variables it looked for.
 - Standard and thorough assessments verify authentication, authorization, input validation, and language model use alongside STRIDE analysis; thorough also checks data protection. Verification adds model cost, shown in advance, and produces item-level results with linked findings and explicit contradictions. Profiles can also record scanner-linked verification items without model calls; see [verification configuration](docs/security-assessment.md#configure-verification).
 - Assessment depths and business abuse cases are configurable through organization and scan profiles. Standard and thorough runs check business abuse cases; thorough adds application-specific cases. `appsec-analyzer abuse-cases` lists definitions and saved results without model calls.
 - `appsec-analyzer platform-settings` checks GitHub and GitLab repository security settings through read-only API requests, without model calls.

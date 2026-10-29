@@ -28,7 +28,7 @@ For custom abuse cases, repeat `--abuse-case-file PATH` or list the paths under 
 
 ## Git repository access
 
-Keep credentials out of Git URLs. HTTPS can use your Git credential helper or external `APPSEC_GIT_TOKEN` and optional `APPSEC_GIT_USERNAME`. SSH uses existing authentication and trusted host keys; `APPSEC_GIT_SSH_KEY_FILE` selects an external key file.
+Keep credentials out of Git URLs. HTTPS uses a token from your environment or your Git credential helper. Analyzer takes the first token it finds in this order: the variable named by `--git-token-env NAME` (or `APPSEC_GIT_TOKEN_ENV`), `APPSEC_GIT_TOKEN`, `GIT_TOKEN`, then `GITLAB_TOKEN`. `GITLAB_TOKEN` is used only for `gitlab.com` and the host in `GITLAB_HOST`, so it never reaches another Git host. A variable you name is used for every URL in the run. Pass the variable's name, never the token. `APPSEC_GIT_USERNAME` sets the token's username when the provider needs one (default: `git`). When access fails, the message names the variables Analyzer looked for, or the one whose token was rejected. SSH uses existing authentication and trusted host keys; `APPSEC_GIT_SSH_KEY_FILE` selects an external key file.
 
 Set `APPSEC_URL_ALLOWLIST` to restrict destinations to exact hostnames, separated by commas. Retrieval rejects prohibited network addresses, disables redirects, and does not load repository-owned Git hooks or filters.
 

@@ -33,6 +33,10 @@ PREFLIGHT_TIMEOUT = 30
 MAX_BYTES = 536_870_912
 MAX_ENTRIES = 100_000
 SECRET_ENV = ("APPSEC_GIT_TOKEN", "APPSEC_GIT_USERNAME", "APPSEC_GIT_SSH_KEY_FILE")
+# The first variable set wins unless TOKEN_NAME_ENV (or --git-token-env) names another one.
+# GITLAB_TOKEN goes only to GitLab hosts, so an ambient token never reaches an arbitrary Git URL.
+TOKEN_ENV = ("APPSEC_GIT_TOKEN", "GIT_TOKEN", "GITLAB_TOKEN")
+TOKEN_NAME_ENV = "APPSEC_GIT_TOKEN_ENV"
 
 
 class RemoteError(ValueError):
@@ -161,6 +165,46 @@ def _address(remote: Remote) -> str:
     return str(addresses[0])
 
 
+def _gitlab_host(host: str) -> bool:
+    configured = re.sub(r"^[a-z][a-z0-9+.-]*://", "", os.environ.get("GITLAB_HOST", "").strip().lower())
+    return host == "gitlab.com" or (bool(configured) and host == configured.split("/")[0].rsplit(":", 1)[0])
+
+
+def select_token(host: str) -> tuple[str, str] | None:
+    """Return (variable, token) for an HTTPS host, or None when no token variable applies.
+
+    A variable named by ``APPSEC_GIT_TOKEN_ENV`` must be set and is used for every host.
+    """
+    named = os.environ.get(TOKEN_NAME_ENV, "")
+    if named:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", named):
+            raise RemoteError("--git-token-env takes the name of one environment variable")
+        if named not in os.environ:
+            raise RemoteError(f"{named} is not set; --git-token-env must name a variable that holds a Git token")
+        return named, os.environ[named]
+    for name in TOKEN_ENV:
+        value = os.environ.get(name)
+        if value is None or (name != "APPSEC_GIT_TOKEN" and not value):
+            continue
+        if name == "GITLAB_TOKEN" and not _gitlab_host(host):
+            continue
+        return name, value
+    return None
+
+
+def credential_hint(remote: Remote) -> str:
+    """Name the variables a failed access needed, without exposing any value."""
+    if remote.scheme == "ssh":
+        return "load the key into the SSH agent or set APPSEC_GIT_SSH_KEY_FILE, and trust the host key in known_hosts"
+    selected = select_token(remote.host)
+    if selected:
+        return f"the token from {selected[0]} was not accepted; check its scope and APPSEC_GIT_USERNAME"
+    return (
+        "set APPSEC_GIT_TOKEN, GIT_TOKEN or GITLAB_TOKEN (GitLab hosts only: gitlab.com or GITLAB_HOST), "
+        "name another variable with --git-token-env NAME, or configure a Git credential helper"
+    )
+
+
 def _base_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k not in {"SSH_ASKPASS", "DISPLAY"}}
 
@@ -197,6 +241,8 @@ def _git_env(remote: Remote, directory: Path) -> dict[str, str]:
         _check_allowlist(remote)
     address = None if proxy else _address(remote)
     env = _base_env()
+    for name in (*TOKEN_ENV, os.environ.get(TOKEN_NAME_ENV)):
+        env.pop(name, None)
     config = [
         ("core.hooksPath", os.devnull),
         ("core.fsmonitor", "false"),
@@ -212,11 +258,13 @@ def _git_env(remote: Remote, directory: Path) -> dict[str, str]:
         if address:
             pinned = f"[{address}]" if ":" in address else address
             config.append(("http.curloptResolve", f"{remote.host}:{remote.port}:{pinned}"))
-        if "APPSEC_GIT_TOKEN" in os.environ:
-            for key in ("APPSEC_GIT_TOKEN", "APPSEC_GIT_USERNAME"):
-                value = os.environ.get(key, "git")
+        selected = select_token(remote.host)
+        if selected:
+            for value in (selected[1], os.environ.get("APPSEC_GIT_USERNAME", "git")):
                 if not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
                     raise RemoteError("Git credential environment values must be nonempty single lines")
+            # The helper reads this name, whichever variable supplied the token.
+            env["APPSEC_GIT_TOKEN"] = selected[1]
             helper = "!" + shlex.join([sys.executable, str(Path(__file__).resolve()), "--credential"])
             config.extend([("credential.helper", ""), ("credential.helper", helper)])
     else:
@@ -303,7 +351,7 @@ def _stop(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
-def _git(command: list[str], root: Path, env: dict[str, str]) -> None:
+def _git(command: list[str], root: Path, env: dict[str, str], hint: str = "") -> None:
     deadline = time.monotonic() + FETCH_SECONDS
     proc = subprocess.Popen(
         ["git", *command],
@@ -322,7 +370,10 @@ def _git(command: list[str], root: Path, env: dict[str, str]) -> None:
             time.sleep(0.1)
         _within_limits(root)
         if proc.returncode:
-            raise RemoteError("Git checkout failed; check repository access, credentials and trusted SSH host keys")
+            raise RemoteError(
+                "Git checkout failed; check repository access, credentials and trusted SSH host keys"
+                + (f": {hint}" if hint else "")
+            )
     finally:
         _stop(proc)
 
@@ -359,6 +410,7 @@ def clone(remote: Remote, root: Path) -> None:
         ],
         root,
         env,
+        credential_hint(remote),
     )
     # No global filters, hooks or repository-supplied submodule commands run.
     clean = {k: v for k, v in env.items() if k not in SECRET_ENV}
@@ -403,7 +455,8 @@ def check_access(remote: Remote) -> None:
             raise RemoteError("Git preflight found no HEAD; select a repository with a default-branch commit")
         if code:
             raise RemoteError(
-                "Git preflight failed; check repository URL, read permission, credentials and trusted SSH host keys"
+                "Git preflight failed; check repository URL, read permission, credentials and trusted SSH host keys: "
+                + credential_hint(remote)
             )
 
 

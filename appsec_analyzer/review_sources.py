@@ -83,9 +83,15 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 
 
 def _get(host: str, path: str, kind: str) -> dict:
-    token = os.environ.get("APPSEC_GIT_TOKEN", "")
+    from runtime.remote_repositories import RemoteError, select_token
+
+    try:
+        selected = select_token(host)
+    except RemoteError as exc:
+        raise ReviewError(str(exc)) from None
+    name, token = selected or ("APPSEC_GIT_TOKEN", "")
     if any(ord(c) < 33 or ord(c) > 126 for c in token):
-        raise ReviewError("APPSEC_GIT_TOKEN must be a single printable token.")
+        raise ReviewError(f"{name} must be a single printable token.")
     headers = {"Accept": "application/json", "User-Agent": "appsec-analyzer"}
     if token:
         headers["Authorization" if kind == "pr" else "PRIVATE-TOKEN"] = f"Bearer {token}" if kind == "pr" else token

@@ -359,3 +359,13 @@ Use finite Analyzer call and elapsed-time limits, including retries and correcti
 ## REQ-035: Protect local results
 
 Store assessment results outside analyzed checkouts and make managed state readable only by the current user. Prevent concurrent runs or untrusted paths from overwriting another run or unrelated files.
+
+## REQ-045: Authenticate Git access
+
+Read the HTTPS token for Git retrieval and for the merge or pull request API from one environment variable. Use the first variable that applies: the variable named by `--git-token-env` or `APPSEC_GIT_TOKEN_ENV`, then `APPSEC_GIT_TOKEN`, `GIT_TOKEN` and `GITLAB_TOKEN`. Ignore an empty `GIT_TOKEN` or `GITLAB_TOKEN`. Send `GITLAB_TOKEN` only to `gitlab.com` and the host named by `GITLAB_HOST`. A named variable must be set, applies to every URL of the run and is not subject to that host rule. The option takes a variable name, never a token, and an invalid name is rejected before any network access.
+
+Hand the selected token to Git only through the private credential helper, keep it out of arguments, URLs, configuration values, diagnostics and results, and remove every candidate variable from the Git process environment. Keep the SSH key and credential-helper behavior unchanged, and keep the Git username default of `git`.
+
+When Git access fails, name the variables that were tried, or the variable whose token was rejected, and for SSH the agent, key file and known-hosts requirement. Never include a token value.
+
+Intended and negative cases cover each position in the search order, an empty fallback variable, `GITLAB_TOKEN` for a GitLab host, the configured GitLab host and another host, a named variable that is unset or has an invalid name, the option on every command that accepts a URL, the merge and pull request API headers, and a failure message that carries no token value.

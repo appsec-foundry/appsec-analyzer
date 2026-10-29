@@ -554,3 +554,108 @@ def test_clone_progress_names_the_host_route_and_completion(tmp_path, monkeypatc
     with remote.checkout_arguments([*argv, "--quiet"]):
         pass
     assert capsys.readouterr().err == ""
+
+
+@pytest.fixture
+def no_token_env(monkeypatch):
+    for name in (*remote.TOKEN_ENV, remote.TOKEN_NAME_ENV, "GITLAB_HOST", "APPSEC_GIT_USERNAME", "CUSTOM_CI_PAT"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _https_env(tmp_path, monkeypatch, url="https://git.example/team/a.git"):
+    monkeypatch.setattr(remote, "_address", lambda _: "192.0.2.10")
+    monkeypatch.setattr(remote, "_credentials", lambda *_: [])
+    return remote._git_env(remote.parse_remote(url), tmp_path)
+
+
+def _filled(env, tmp_path, host):
+    proc = subprocess.run(
+        ["git", "credential", "fill"],
+        cwd=tmp_path,
+        env=env,
+        input=f"protocol=https\nhost={host}\n\n",
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    return proc.stdout
+
+
+def test_token_variables_are_tried_in_order(tmp_path, monkeypatch, no_token_env):
+    monkeypatch.setenv("GITLAB_TOKEN", "from-gitlab")
+    monkeypatch.setenv("GIT_TOKEN", "from-git")
+    assert "password=from-git" in _filled(_https_env(tmp_path, monkeypatch), tmp_path, "git.example")
+    monkeypatch.setenv("APPSEC_GIT_TOKEN", "from-appsec")
+    assert "password=from-appsec" in _filled(_https_env(tmp_path, monkeypatch), tmp_path, "git.example")
+    monkeypatch.setenv("CUSTOM_CI_PAT", "from-custom")
+    monkeypatch.setenv(remote.TOKEN_NAME_ENV, "CUSTOM_CI_PAT")
+    env = _https_env(tmp_path, monkeypatch)
+    assert "password=from-custom" in _filled(env, tmp_path, "git.example")
+    assert not {"GIT_TOKEN", "GITLAB_TOKEN", "CUSTOM_CI_PAT"} & set(env)
+
+
+def test_gitlab_token_reaches_only_gitlab_hosts(tmp_path, monkeypatch, no_token_env):
+    monkeypatch.setenv("GITLAB_TOKEN", "from-gitlab")
+    assert "password" not in _filled(_https_env(tmp_path, monkeypatch), tmp_path, "git.example")
+    com = _https_env(tmp_path, monkeypatch, "https://gitlab.com/team/a.git")
+    assert "password=from-gitlab" in _filled(com, tmp_path, "gitlab.com")
+    monkeypatch.setenv("GITLAB_HOST", "https://git.example/")
+    assert "password=from-gitlab" in _filled(_https_env(tmp_path, monkeypatch), tmp_path, "git.example")
+
+
+def test_named_variable_must_be_set_is_validated_and_ignores_the_host_rule(tmp_path, monkeypatch, no_token_env):
+    monkeypatch.setenv(remote.TOKEN_NAME_ENV, "CUSTOM_CI_PAT")
+    with pytest.raises(remote.RemoteError, match="CUSTOM_CI_PAT is not set"):
+        remote.select_token("git.example")
+    monkeypatch.setenv(remote.TOKEN_NAME_ENV, "GITLAB_TOKEN")
+    monkeypatch.setenv("GITLAB_TOKEN", "explicit")
+    assert remote.select_token("git.example") == ("GITLAB_TOKEN", "explicit")
+    monkeypatch.setenv(remote.TOKEN_NAME_ENV, "a b")
+    with pytest.raises(remote.RemoteError, match="name of one environment variable"):
+        remote.select_token("git.example")
+
+
+def test_failure_hint_names_tried_variables_or_the_one_that_failed(monkeypatch, no_token_env):
+    https = remote.parse_remote("https://git.example/team/a.git")
+    hint = remote.credential_hint(https)
+    assert all(n in hint for n in ("APPSEC_GIT_TOKEN", "GIT_TOKEN", "GITLAB_TOKEN", "--git-token-env"))
+    monkeypatch.setenv("GITLAB_TOKEN", "ambient-secret")
+    assert "was not accepted" not in remote.credential_hint(https)
+    monkeypatch.setenv("GIT_TOKEN", "ambient-secret")
+    failed = remote.credential_hint(https)
+    assert "token from GIT_TOKEN was not accepted" in failed and "ambient-secret" not in failed
+    assert "SSH agent" in remote.credential_hint(remote.parse_remote("git@git.example:team/a.git"))
+    with pytest.raises(remote.RemoteError) as raised:
+        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed)
+    assert "check repository access, credentials" in str(raised.value) and "GIT_TOKEN was not accepted" in str(
+        raised.value
+    )
+
+
+def test_cli_option_names_the_token_variable_for_every_url_command(monkeypatch, no_token_env):
+    from appsec_analyzer import cli
+
+    for argv in (
+        ["assess", "--repo", "https://git.example/a.git", "--git-token-env", "CUSTOM_CI_PAT"],
+        ["preflight", "--git-token-env", "CUSTOM_CI_PAT"],
+        ["scan-sources", "--repo", "https://git.example/a.git", "--git-token-env", "CUSTOM_CI_PAT"],
+        ["score", "https://git.example/a.git", "--git-token-env", "CUSTOM_CI_PAT"],
+        [
+            "audit-requirements",
+            "--repo",
+            "https://git.example/a.git",
+            "--output",
+            "out",
+            "--host",
+            "claude-cli",
+            "--demo",
+            "--git-token-env",
+            "CUSTOM_CI_PAT",
+        ],
+        ["analyze-threats", "--mr", "https://gitlab.com/g/p/-/merge_requests/1", "--git-token-env", "CUSTOM_CI_PAT"],
+    ):
+        ns = cli._parser().parse_args(argv)
+        assert ns.git_token_env == "CUSTOM_CI_PAT", argv
+    monkeypatch.setenv(remote.TOKEN_NAME_ENV, "placeholder")  # restored at teardown
+    cli._use_git_token_variable(ns)
+    assert os.environ[remote.TOKEN_NAME_ENV] == "CUSTOM_CI_PAT"
