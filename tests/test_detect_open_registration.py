@@ -259,9 +259,7 @@ def test_generic_registration_requires_exact_finding_identity(field, value):
     assert result["disputed"] is True
 
 
-@pytest.mark.parametrize(
-    "path", ["/connect/register", "/api/oauth2/register", "/OIDC/Registration/", "/clients/register"]
-)
+@pytest.mark.parametrize("path", ["/connect/register", "/api/oauth2/register", "/OIDC/Registration/", "/oidc/register"])
 def test_oauth_client_registration_is_not_user_registration(path):
     result = D.resolve_open_registration({}, [_route(path)], [])
     assert (result["open"], result["disputed"]) == (False, False)
@@ -269,7 +267,9 @@ def test_oauth_client_registration_is_not_user_registration(path):
     assert D.detect(surface, [], [])[0] is False
 
 
-@pytest.mark.parametrize("path", ["/register", "/auth/oauth/register", "/users/register", "/api/sign-up"])
+@pytest.mark.parametrize(
+    "path", ["/register", "/auth/oauth/register", "/users/register", "/api/sign-up", "/api/clients/register"]
+)
 def test_user_registration_beside_an_oauth_namespace_stays_open(path):
     assert D.resolve_open_registration({}, [_route(path)], [])["open"] is True
 

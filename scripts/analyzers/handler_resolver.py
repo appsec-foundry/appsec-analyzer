@@ -314,6 +314,19 @@ def _split_args(text: str) -> list[str]:
     return [a for a in [*args, text[start:].strip()] if a]
 
 
+#: Calls that receive the application object without adding middleware to it.
+_JS_SERVER_CALL_RE = re.compile(r"(?:createServer|createSecureServer|listen|serverless)$")
+
+
+def _hands_out(text: str, obj: str) -> bool:
+    """Whether `obj` is passed to a call that could install middleware unseen (`installSecurity(app)`)."""
+    for m in re.finditer(rf"([\w$.]+)\s*\((?=[^()]*\b{re.escape(obj)}\b)([^()]*)\)", text):
+        callee, args = m.group(1), m.group(2)
+        if re.search(rf"(?:^|,)\s*{re.escape(obj)}\s*(?:,|$)", args) and not _JS_SERVER_CALL_RE.search(callee):
+            return True
+    return False
+
+
 def _line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
@@ -743,7 +756,7 @@ class HandlerResolver:
         app = re.search(
             rf"\b(?:const|let|var)\s+{re.escape(root['obj'])}\b[^=\n]*(?:{_JS_APP_FACTORY_RE.pattern})", root_text
         )
-        return chain, handler, bool(app)
+        return chain, handler, bool(app) and not _hands_out(root_text, root["obj"])
 
     def _covering_uses(self, rel: str, text: str, obj: str, path: str, end: int) -> list:
         """Elements of the `obj.use(...)` calls before `end` that run for `path`: path-less ones and covering prefixes."""
@@ -765,7 +778,7 @@ class HandlerResolver:
         """Middleware expressions of earlier `use` calls that run before one router mount."""
         rel, line = mount.get("file") or "", mount.get("line")
         text = self._text(rel) or ""
-        record = next((m for m in self.js_router_mounts(rel) if m["line"] == line), None)
+        record = self._mount_at(rel, mount)
         if record is None:
             return []
         path = (mount.get("path") or "").rstrip("/") or "/"
@@ -785,13 +798,20 @@ class HandlerResolver:
         """Elements that run at one router mount: earlier covering uses, then the mount's own middlewares."""
         rel, line = mount.get("file") or "", mount.get("line")
         text = self._text(rel)
-        record = next((m for m in self.js_router_mounts(rel) if m["line"] == line), None) if text else None
+        record = self._mount_at(rel, mount) if text else None
         if record is None:
             return None
         path = (mount.get("path") or "").rstrip("/") or "/"
         chain = self._covering_uses(rel, text, record["obj"], path, record["offset"])
         chain.extend(self._js_element(rel, line, m) for m in record["middleware"])
         return chain
+
+    def _mount_at(self, rel: str, mount: dict) -> dict | None:
+        """The mount record a composed hop names, by offset when known (two mounts can share a line)."""
+        rows = self.js_router_mounts(rel)
+        if isinstance(mount.get("offset"), int):
+            return next((m for m in rows if m["offset"] == mount["offset"]), None)
+        return next((m for m in rows if m["line"] == mount.get("line")), None)
 
     def js_router_mounts(self, rel: str) -> list[dict]:
         """`obj.use([prefix,] ...middleware, router)` calls in one file that mount a router.
@@ -822,6 +842,9 @@ class HandlerResolver:
             if not args:
                 continue
             last = args[-1].strip()
+            # koa-router nests a router as `router.routes()` (or `.middleware()`).
+            nested = re.fullmatch(r"([A-Za-z_$][\w$]*)\s*\.\s*(?:routes|middleware)\s*\(\s*\)", last)
+            last = nested.group(1) if nested else last
             call = re.fullmatch(r"([A-Za-z_$][\w$]*)\s*\(.*\)", last, re.DOTALL)
             name = call.group(1) if call else last if re.fullmatch(r"[A-Za-z_$][\w$]*", last) else None
             if name is None:

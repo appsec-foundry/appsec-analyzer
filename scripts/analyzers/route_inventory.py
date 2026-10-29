@@ -1379,7 +1379,9 @@ def _compose_js_routers(
             # Innermost first: each hop's path is its own prefix joined to everything below it.
             for rel, mount in reversed(chain):
                 below = _join_paths(mount["prefix"] or "", below)
-                hops.append({"file": rel, "line": mount["line"], "obj": mount["obj"], "path": below})
+                hops.append(
+                    {"file": rel, "line": mount["line"], "offset": mount["offset"], "obj": mount["obj"], "path": below}
+                )
             composed.mounts = list(reversed(hops))
             composed.path = below
             composed.management_surface = _detect_management_surface(below)
@@ -1395,7 +1397,7 @@ def _compose_js_routers(
 
 
 def _mount_record(resolver: HandlerResolver, hop: dict) -> dict:
-    return next(m for m in resolver.js_router_mounts(hop["file"]) if m["line"] == hop["line"])
+    return next(m for m in resolver.js_router_mounts(hop["file"]) if m["offset"] == hop["offset"])
 
 
 def _dedupe_routes(all_routes: list[RouteCandidate]) -> list[RouteCandidate]:

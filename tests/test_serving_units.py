@@ -318,11 +318,11 @@ def _unit(kind="client-app", root="apps/web", entry=("apps/web/src/main.ts", "ap
     [
         (_unit(), {"id": "web", "tier": "client", "paths": ["apps/web/src/app/app.ts"]}),
         (
-            _unit(root="frontend", entry=("frontend/pages/_app.tsx",)),
-            {"id": "site", "tier": "application", "paths": ["frontend/pages/index.tsx"]},
+            _unit(root="frontend", entry=("frontend/src/index.tsx",)),
+            {"id": "spa", "tier": "client", "paths": ["frontend/src/App.tsx"]},
         ),
     ],
-    ids=["client", "server-rendered"],
+    ids=["angular", "react"],
 )
 def test_a_client_modelled_without_its_entry_file_is_carried_and_adopts_it(tmp_path, unit, component):
     components = [{"id": "api", "tier": "application", "paths": ["apps/api/src/app.ts"]}, component]
@@ -348,8 +348,9 @@ def test_a_client_modelled_without_its_entry_file_is_carried_and_adopts_it(tmp_p
         (_unit(root="", entry=("src/main.ts",)), [{"id": "web", "tier": "client", "paths": ["src/app.ts"]}]),
         (_unit(), [{"id": "web", "tier": "client", "paths": ["apps/web/src/app/app.spec.ts"]}]),
         (_unit(), [{"id": "store", "tier": "data", "paths": ["apps/web/src/db.ts"]}]),
+        (_unit(), [{"id": "bff", "tier": "application", "paths": ["apps/web/server/index.ts"]}]),
     ],
-    ids=["ambiguous", "http-api", "repository-root", "test-only", "data-tier"],
+    ids=["ambiguous", "http-api", "repository-root", "test-only", "data-tier", "server-beside-app"],
 )
 def test_no_near_carrier_without_one_unambiguous_client_owner(unit, components):
     assert serving_units.uncovered([unit], components) == [unit]

@@ -174,6 +174,13 @@ class TestCoverageAndIdempotency:
         assert not [r for r in rows if r["effectiveness"] == "Missing"]
         assert not [r for r in rows if r["control"] == "Password-Based Login"]
 
+    @pytest.mark.parametrize("callback", ["/saml/login/callback", "/auth/login/oidc", "/login/acs"])
+    def test_a_federated_post_callback_is_not_password_authentication(self, callback):
+        rows, _ = eac.build_auth_coverage(
+            {"security_controls": [], "threats": []}, _routes(("POST", callback), ("GET", "/auth/login")), None
+        )
+        assert not [r for r in rows if r["effectiveness"] == "Missing" or r["control"] == "Password-Based Login"]
+
     def test_an_unrelated_reset_control_does_not_cover_password_reset(self):
         data = {"security_controls": [_ctrl("Client logout and session state reset")], "threats": []}
         rows, _ = eac.build_auth_coverage(data, _routes(("POST", "/rest/user/login")), None)

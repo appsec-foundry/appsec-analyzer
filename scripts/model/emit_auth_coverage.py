@@ -71,6 +71,8 @@ _MECHANISMS: list[dict] = [
         "control": "Password-Based Login",
         "coverage_re": r"password.*(login|auth)|(login|auth).*password|credential",
         "route_re": r"/login\b|/signin\b|/sign-in\b|/session\b",
+        # A SAML assertion consumer or an OIDC/OAuth callback also receives a POST.
+        "route_exclude_re": r"callback|/acs\b|saml|oidc|oauth|openid|/sso\b",
         "repo_globs": (),
         "finding_re": r"password|login|credential|brute",
         "lifecycle_required": False,
@@ -130,14 +132,19 @@ def _existing_covers(controls: list, coverage_re: str) -> bool:
     return False
 
 
-def _route_evidence(routes: list, route_re: str, method: str | None = None) -> str | None:
+def _route_evidence(
+    routes: list, route_re: str, method: str | None = None, exclude_re: str | None = None
+) -> str | None:
     rx = re.compile(route_re, re.IGNORECASE)
+    excluded = re.compile(exclude_re, re.IGNORECASE) if exclude_re else None
     for r in routes:
         if not isinstance(r, dict):
             continue
         if method and r.get("method") != method:
             continue
         path = str(r.get("path") or "")
+        if excluded and excluded.search(path):
+            continue
         if rx.search(path):
             return f"{r.get('method', '?')} {path}"
     return None
@@ -198,7 +205,10 @@ def build_auth_coverage(yaml_data: dict, routes: list, repo_root: Path | None) -
     # Is password authentication present at all? (gates the lifecycle-Missing rows)
     pw = next((m for m in _MECHANISMS if m["key"] == "password_login"), None)
     password_present = (
-        bool(_existing_covers(controls, pw["coverage_re"]) or _route_evidence(routes, pw["route_re"], pw["method"]))
+        bool(
+            _existing_covers(controls, pw["coverage_re"])
+            or _route_evidence(routes, pw["route_re"], pw["method"], pw["route_exclude_re"])
+        )
         if pw
         else False
     )
@@ -208,7 +218,7 @@ def build_auth_coverage(yaml_data: dict, routes: list, repo_root: Path | None) -
         if _existing_covers(controls, m["coverage_re"]):
             continue  # analyst already cataloged an equivalent control
 
-        route_ev = _route_evidence(routes, m["route_re"], m.get("method"))
+        route_ev = _route_evidence(routes, m["route_re"], m.get("method"), m.get("route_exclude_re"))
         repo_ev = _repo_evidence(repo_root, m.get("repo_globs", ()))
         evidence = route_ev or repo_ev
         detected = evidence is not None

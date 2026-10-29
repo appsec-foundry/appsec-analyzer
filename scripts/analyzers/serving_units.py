@@ -243,11 +243,12 @@ def carriers(unit: dict, components: list[dict]) -> list[dict]:
     """Components of an eligible tier that list one of the unit's entry files.
 
     A client app with its own root whose entry files no component lists is
-    carried by the one eligible component that lists runtime files below that
-    root: the model modelled the app and left out only its entry file, which
-    `adopt` then gives it. Two such components, or an app at the repository
-    root, stay uncovered, and an http-api unit always needs its entry file,
-    because a data-access component below an API root serves no requests.
+    carried by the one client-tier component that lists runtime files below
+    that root: the model modelled the app and left out only its entry file,
+    which `adopt` then gives it. Two such components, an app at the repository
+    root, or only an application component there (a server beside the app)
+    stay uncovered, and an http-api unit always needs its entry file, because
+    a data-access component below an API root serves no requests.
     """
     tiers = _CARRIER_TIERS[unit["kind"]]
     eligible = [c for c in components if c.get("tier") in tiers]
@@ -258,7 +259,8 @@ def carriers(unit: dict, components: list[dict]) -> list[dict]:
     near = [
         c
         for c in eligible
-        if any(
+        if c.get("tier") == "client"
+        and any(
             isinstance(path, str) and path.startswith(root + "/") and is_runtime_path(path)
             for path in c.get("paths") or []
         )
