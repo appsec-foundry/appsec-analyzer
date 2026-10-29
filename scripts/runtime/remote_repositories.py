@@ -198,16 +198,20 @@ def credential_hint(remote: Remote) -> str:
         return "load the key into the SSH agent or set APPSEC_GIT_SSH_KEY_FILE, and trust the host key in known_hosts"
     selected = select_token(remote.host)
     if selected:
-        return f"the token from {selected[0]} was not accepted; check its scope and APPSEC_GIT_USERNAME"
-    if os.environ.get("GITLAB_TOKEN"):
-        return (
+        hint = f"the token from {selected[0]} was not accepted; check its scope and APPSEC_GIT_USERNAME"
+    elif os.environ.get("GITLAB_TOKEN"):
+        hint = (
             f"GITLAB_TOKEN is set but is sent only to gitlab.com and GITLAB_HOST; for {remote.host} "
             f"set GITLAB_HOST={remote.host} or pass --git-token-env GITLAB_TOKEN"
         )
-    return (
-        "set APPSEC_GIT_TOKEN, GIT_TOKEN or GITLAB_TOKEN (GitLab hosts only: gitlab.com or GITLAB_HOST), "
-        "name another variable with --git-token-env NAME, or configure a Git credential helper"
-    )
+    else:
+        hint = (
+            "set APPSEC_GIT_TOKEN, GIT_TOKEN or GITLAB_TOKEN (GitLab hosts only: gitlab.com or GITLAB_HOST), "
+            "name another variable with --git-token-env NAME, or configure a Git credential helper"
+        )
+    if not remote.url.endswith(".git"):
+        hint += "; the URL has no .git suffix and Analyzer does not follow redirects, so try adding .git"
+    return hint
 
 
 def _base_env() -> dict[str, str]:
