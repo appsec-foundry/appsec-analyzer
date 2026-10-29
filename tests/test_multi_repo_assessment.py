@@ -375,7 +375,7 @@ def _status_frames(err):
 RECON = "maps structure, technology and security-relevant code"
 TRUST = "checks where data crosses between components"
 CONTROLS = "assesses the security controls"
-THREATS = "scanners (no model), then survey of each component"
+THREATS = "Scanners and Survey"
 FINAL = "builds the report and runs the quality checks"
 
 
@@ -920,7 +920,9 @@ def test_a_phase_start_line_names_what_the_phase_does_and_its_agents():
     console.close()
     starts = [row[5] for row in _rows(rows) if row[1] == "start"]
     assert starts[0] == f"{RECON} (Haiku)"
-    assert starts[1] == f"2 components · {THREATS} (Sonnet 5.5)"
+    # The threat analysis names its methods; each method's start line names its models.
+    assert starts[1] == f"2 components · {THREATS}"
+    assert "Survey    start · 2 components (Sonnet 5.5)" in [row[5] for row in _rows(rows)]
 
 
 def test_a_phase_with_agents_on_different_models_names_them_by_role():
@@ -932,8 +934,31 @@ def test_a_phase_with_agents_on_different_models_names_them_by_role():
     console.step("Discovering every selected repository")
     console.step("Surveying component: API (1/2)")
     console.close()
-    start = next(row[5] for row in _rows(rows) if row[1] == "start" and row[0].endswith("Threat analysis"))
+    start = next(row[5] for row in _rows(rows) if row[5].startswith("Survey    start"))
     assert start.endswith("(survey: Sonnet 5.5, evidence review: Haiku)")
+
+
+def test_the_threat_analysis_start_line_names_the_methods_of_the_run_header():
+    """The run header decides the methods; a skipped verification is not named, and Verify names its model."""
+    for verify, methods in (
+        ("fixed verification catalog · AuthZ", "Scanners, Survey and Verify"),
+        ("skipped · quick depth runs the scanners and the survey only", "Scanners and Survey"),
+    ):
+        rows, clock = [], _Clock()
+        console = controller._AssessmentConsole(False, rows.append, clock=clock)
+        console.phase_models = controller._assessment_phase_models(
+            {"stride_model": "claude-sonnet-5-5", "evidence_verifier_model": "haiku"}
+        )
+        console.facts(None, [("Scanners", "checks"), ("Survey", "review"), ("Verify", verify)], sectioned=True)
+        console.plan_components(1)
+        console.step("Running deterministic source scanners")
+        console.step("Verify start · 1 component · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left · 1 job")
+        console.close()
+        details = [row[5] for row in _rows(rows) if row[0].endswith("Threat analysis")]
+        assert details[0] == methods
+        # Verification runs on the survey's model, so one model names both of its roles.
+        assert "Verify    start · 1 component (Sonnet 5.5) · ≈ USD 1.20, USD 3.00 of the budget left" in details
+        assert not any("Haiku" in detail for detail in details if detail.startswith("Verify"))
 
 
 def test_the_phase_models_leave_out_roles_without_a_model():
@@ -955,12 +980,12 @@ def test_the_models_of_a_phase_start_line_are_coloured():
 
     console.st = Style(True)
     console.phase_models = {
-        "Threat analysis": [("stride_analyzer", "Opus 5.5"), ("evidence_verifier", "Sonnet 5.5"), ("threat_merger", "Haiku")]
+        "Survey": [("stride_analyzer", "Opus 5.5"), ("evidence_verifier", "Sonnet 5.5"), ("threat_merger", "Haiku")]
     }
     console.step("Discovering every selected repository")
     console.step("Surveying component: API (1/2)")
     console.close()
-    start = next(row for row in rows if "start" in _ANSI.sub("", row) and "2 components" in _ANSI.sub("", row))
+    start = next(row for row in rows if "start · 2 components" in _ANSI.sub("", row))
     for name in ("Opus 5.5", "Sonnet 5.5", "Haiku"):
         assert console.st(name, "agent") in start
 

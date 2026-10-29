@@ -3116,13 +3116,14 @@ def _assessment_role_models(cfg: dict[str, Any]) -> dict[str, str]:
     return models
 
 
-# The console phase each role works in; the start line of a phase names the models of its roles.
+# The console phase, or threat analysis method, each role works in; its start line names the models of its roles.
 _PHASE_ROLES = {
     "Reconnaissance": ("recon_scanner",),
     "Architecture": ("architecture_analyst",),
     "Trust boundaries": ("trust_boundary_analyst",),
     "Controls": ("control_analyst",),
-    "Threat analysis": ("stride_analyzer", "evidence_verifier"),
+    "Survey": ("stride_analyzer", "evidence_verifier"),
+    "Verify": ("test_case_investigator", "open_reviewer"),
     "Consolidation": ("threat_merger", "triage_validator", "architect_reviewer", "actor_discoverer"),
     "Abuse cases": ("abuse_case_deriver", "abuse_case_verifier"),
     "Finalization": ("post_stride_synthesizer", "ms_renderer", "secarch_renderer"),
@@ -3130,11 +3131,18 @@ _PHASE_ROLES = {
 
 
 def _assessment_phase_models(cfg: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
-    """Per console phase, the (role, model) pairs of its roles in first-use order."""
+    """Per console phase and threat analysis method, the (role, model) pairs of its roles in first-use order.
+
+    A role that runs with another role's model settings shows that role's model.
+    """
     models = _assessment_role_models(cfg)
     phases = {}
     for phase, roles in _PHASE_ROLES.items():
-        pairs = [(role, _AssessmentConsole.short_model(models[role])) for role in roles if role in models]
+        pairs = [
+            (role, _AssessmentConsole.short_model(models[PROFILE_ROLE_ALIASES.get(role, role)]))
+            for role in roles
+            if PROFILE_ROLE_ALIASES.get(role, role) in models
+        ]
         if pairs:
             phases[phase] = pairs
     return phases

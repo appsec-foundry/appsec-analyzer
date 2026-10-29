@@ -50,7 +50,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Threat Analyst uses existing threat-model context unless `--isolated` is passed; reviews follow relevant imports and earlier finding references.
 - `scripts/run-headless.sh` uses the controller for single-repository assessments and rejects `--incremental`, `--rerender`, and `--pr-mode`. `--audit-requirements` uses the repository named by `--repo`.
 - Headless output shows component progress and delivered files, with detailed diagnostics under `--verbose` and wrapping controlled by `--width`.
-- The start line of each phase says what the phase does and names the models of its agents in parentheses, for example `(Sonnet 5.5)`, instead of only the model.
+- The start line of each phase says what the phase does and names the models of its agents in parentheses, for example `(Sonnet 5.5)`, instead of only the model. In the threat analysis, the start line names the methods from the run header, such as `Scanners, Survey and Verify`, and the start lines of Survey and Verify name their models.
 - The Opus roles of the `opus` and `opus-cheap` reasoning models run on `claude-opus-5-5` instead of the `opus` alias, so the console and the cost estimate name the version that ran. Haiku roles still use the `haiku` alias, which follows the host. `--no-opus` still applies.
 - Repository abuse cases move to `docs/security/abuse-cases/`; `.appsec/abuse-cases/` remains supported.
 - Trust-boundary review and abuse-case checks run up to `max_parallel` jobs at once instead of one after another. A run paused by provider rate limits names a smaller `--max-parallel` value for a new run that reuses the accepted jobs.

@@ -307,7 +307,9 @@ class _AssessmentConsole:
     and, with verification, Verify. The run header explains the three; Survey
     and Verify each have a start and a done line of their own. A phase's
     start line names its scope, what the phase does and the agents that work
-    in it with their models in parentheses (``(Sonnet 5.5)``).
+    in it with their models in parentheses (``(Sonnet 5.5)``). The threat
+    analysis's start line names the methods the run header lists instead; the
+    start lines of Survey and Verify name their agents' models.
 
     PROGRESS counts finished work. Once the component count is known
     (``plan_components``), Controls and STRIDE weigh per component. LEFT
@@ -451,13 +453,13 @@ class _AssessmentConsole:
         "Verifying abuse case": "abuse case",
         "Stage 2:": "report section",
     }
-    # What each phase does, for its start line; the agents' models follow it.
+    # What each phase does, for its start line; the agents' models follow it. The threat analysis names its
+    # methods instead (`_description`), and each method's start line names its models.
     PHASE_DESCRIPTIONS = {
         "Reconnaissance": "maps structure, technology and security-relevant code",
         "Architecture": "derives components and data flows",
         "Trust boundaries": "checks where data crosses between components",
         "Controls": "assesses the security controls",
-        "Threat analysis": "scanners (no model), then survey of each component",
         "Consolidation": "merges duplicate findings, then reviews and ranks them",
         "Abuse cases": "derives and verifies business abuse cases",
         "Finalization": "builds the report and runs the quality checks",
@@ -571,6 +573,8 @@ class _AssessmentConsole:
         # The threat analysis method of the current lines, and the components each method took from the earlier run.
         self.method = ""
         self.method_reused: Counter = Counter()
+        # The threat analysis methods the run header names, for the phase's start line.
+        self.methods = ["Scanners", "Survey"]
         # (phase, method) pairs that already said a job was taken over from the earlier run.
         self.announced: set = set()
         # Corrected answers per role in the current phase (MR-17).
@@ -625,8 +629,15 @@ class _AssessmentConsole:
         family, major, minor = match.groups()
         return " ".join(part for part in (family.capitalize(), f"{major}.{minor}" if minor else major) if part)
 
+    def _description(self, phase: str) -> str:
+        """What a phase does, for its start line; the threat analysis names its methods: ``Scanners and Survey``."""
+        if phase != "Threat analysis":
+            return self.PHASE_DESCRIPTIONS.get(phase, "")
+        *first, last = self.methods
+        return f"{', '.join(first)} and {last}" if first else last
+
     def phase_agents(self, phase: str) -> str:
-        """The models of a phase's agents as its start line names them: ``(Sonnet 5.5)``.
+        """The models of a phase's or a threat analysis method's agents as its start line names them: ``(Sonnet 5.5)``.
 
         Roles on different models are named by role: ``(survey: Sonnet 5.5, evidence review: Haiku)``.
         """
@@ -939,7 +950,8 @@ class _AssessmentConsole:
                         self.announced.add((self.phase, self.method))
                     self.current = f"0/{components} components done"
                     shown = self._VERIFY_SHOWN.match(text)
-                    self.record("·", f"start · {shown[1]}{shown[2]}" if shown else text, now)
+                    agents = f" {models}" if (models := self.phase_agents("Verify")) else ""
+                    self.record("·", f"start · {shown[1]}{agents}{shown[2]}" if shown else text, now)
                 self.shown = (self.current, round(100 * self.done))
                 return True
             if text.startswith(self._VERIFY_DONE):
@@ -1183,9 +1195,10 @@ class _AssessmentConsole:
         # edge; the status line is cut by `_status` instead.
         indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), detail, now, live)
         cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in pieces]
-        if event == "start":
-            # The models of the phase's roles carry the colour the header gives its models.
-            for name in dict.fromkeys(model for _, model in self.phase_models.get(self.phase or "", [])):
+        if event == "start" or (method and detail.startswith("start")):
+            # The models of the phase's or the method's roles carry the colour the header gives its models.
+            key = method or self.phase or ""
+            for name in dict.fromkeys(model for _, model in self.phase_models.get(key, [])):
                 cells = [piece.replace(name, st(name, "agent")) for piece in cells]
         return self._join(head, indent, cells)
 
@@ -1251,6 +1264,8 @@ class _AssessmentConsole:
     def facts(self, title: str | None, rows: list[tuple[str, str]], *, sectioned: bool = False) -> None:
         """Run facts as ``Key : value`` rows, the single-repository wrapper's header format."""
         st = self.st
+        if named := [key for key, value in rows if key in self.METHODS and not value.startswith("skipped")]:
+            self.methods = named
         if title:
             self.write("")
             if st.enabled:
@@ -1430,7 +1445,7 @@ class _AssessmentConsole:
                     " ".join(
                         part
                         for part in (
-                            " · ".join(part for part in (scope, self.PHASE_DESCRIPTIONS.get(phase, "")) if part),
+                            " · ".join(part for part in (scope, self._description(phase)) if part),
                             self.phase_agents(phase),
                         )
                         if part
@@ -1514,7 +1529,9 @@ class _AssessmentConsole:
                     self._mark_step("Survey")
                     self.method = "Survey"
                     count = f" · {_count_noun(int(position[2]), 'component')}" if position else ""
-                    self.record("·", "start" + count, now)
+                    self.record(
+                        "·", " ".join(part for part in ("start" + count, self.phase_agents("Survey")) if part), now
+                    )
                 if position:
                     self.count = (max(int(position[2]), self.count[0] if self.count else 0), "component")
                 self.units[name] = {"done": 0, "total": None, "stage": "STRIDE", "started": now}
