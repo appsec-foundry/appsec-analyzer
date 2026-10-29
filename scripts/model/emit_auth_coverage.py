@@ -65,6 +65,9 @@ _IAM_DOMAIN = "Identity and Authentication"
 _MECHANISMS: list[dict] = [
     {
         "key": "password_login",
+        # Credentials are submitted with POST; a GET login route only starts a
+        # federated (OIDC, SAML) redirect and proves no password authentication.
+        "method": "POST",
         "control": "Password-Based Login",
         "coverage_re": r"password.*(login|auth)|(login|auth).*password|credential",
         "route_re": r"/login\b|/signin\b|/sign-in\b|/session\b",
@@ -85,7 +88,8 @@ _MECHANISMS: list[dict] = [
     {
         "key": "password_reset",
         "control": "Password Reset",
-        "coverage_re": r"reset|forgot|recover|security.question",
+        # "reset" alone also names unrelated controls ("session state reset").
+        "coverage_re": r"password.?reset|reset.{0,20}password|forgot|recover|security.question",
         "route_re": r"reset.?password|forgot|recover|security-question",
         "repo_globs": ("**/*[rR]eset[pP]assword*",),
         "finding_re": r"reset|forgot|recover|security.question",
@@ -194,7 +198,9 @@ def build_auth_coverage(yaml_data: dict, routes: list, repo_root: Path | None) -
     # Is password authentication present at all? (gates the lifecycle-Missing rows)
     pw = next((m for m in _MECHANISMS if m["key"] == "password_login"), None)
     password_present = (
-        bool(_existing_covers(controls, pw["coverage_re"]) or _route_evidence(routes, pw["route_re"])) if pw else False
+        bool(_existing_covers(controls, pw["coverage_re"]) or _route_evidence(routes, pw["route_re"], pw["method"]))
+        if pw
+        else False
     )
 
     additions: list[dict] = []

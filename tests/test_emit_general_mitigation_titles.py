@@ -234,6 +234,33 @@ def test_title_map_covers_common_fallback_and_oauth_variants():
     }
 
 
+@pytest.mark.parametrize(
+    "cwe,source,expected",
+    [
+        (
+            "CWE-668",
+            "Drop the `ports:` entry and use the Compose network, or bind it to `127.0.0.1:`",
+            "Bind services only to the networks they need",
+        ),
+        ("CWE-668", "Make the storage bucket private", "Restrict exposure to the intended audience"),
+        (
+            "CWE-1357",
+            "Pin turbo to an exact version via the lockfile",
+            "Use only pinned, verified third-party components",
+        ),
+        (
+            "CWE-1357",
+            "Restrict GITHUB_TOKEN permissions in the workflow",
+            "Set least-privilege CI workflow permissions",
+        ),
+    ],
+)
+def test_broad_cwes_get_the_title_of_their_own_fix(cwe, source, expected):
+    d = _data({"id": "M-001", "title": source, "threat_ids": ["T-001"]}, threats=[{"id": "T-001", "cwe": cwe}])
+    egm.apply(d)
+    assert d["mitigations"][0]["title"] == expected
+
+
 def test_idempotent():
     d = _data(
         {"id": "M-007", "title": "Pin base image to @sha256:<digest>", "threat_ids": ["T-005"]},

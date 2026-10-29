@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -165,6 +166,19 @@ class TestLifecycleAndOptional:
 
 
 class TestCoverageAndIdempotency:
+    @pytest.mark.parametrize("login", ["/auth/login", "/sso/login"])
+    def test_federated_login_redirect_is_not_password_authentication(self, login):
+        # SSO: GET /auth/login only redirects to the identity provider.
+        data = {"security_controls": [_ctrl("OIDC authorization code flow with PKCE and state")], "threats": []}
+        rows, _ = eac.build_auth_coverage(data, _routes(("GET", login), ("POST", "/auth/logout")), None)
+        assert not [r for r in rows if r["effectiveness"] == "Missing"]
+        assert not [r for r in rows if r["control"] == "Password-Based Login"]
+
+    def test_an_unrelated_reset_control_does_not_cover_password_reset(self):
+        data = {"security_controls": [_ctrl("Client logout and session state reset")], "threats": []}
+        rows, _ = eac.build_auth_coverage(data, _routes(("POST", "/rest/user/login")), None)
+        assert [r["effectiveness"] for r in rows if r["control"] == "Password Reset"] == ["Missing"]
+
     def test_already_cataloged_not_duplicated(self):
         data = _yaml(
             controls=[
