@@ -404,7 +404,9 @@ clusters:
   - id: outdated_deps
     label: Outdated Dependency
     plural_label: Outdated Dependencies
-    cwes: [CWE-1104, CWE-1395, CWE-937, CWE-829, CWE-1357, CWE-506, CWE-693]
+    # CWE-693 (protection mechanism failure) names no dependency defect; it stays
+    # unmapped like the other broad categories listed under exceptions.
+    cwes: [CWE-1104, CWE-1395, CWE-937, CWE-829, CWE-1357, CWE-506]
     variants_by_cwe:
       CWE-1104: legacy
       CWE-1395: outdated

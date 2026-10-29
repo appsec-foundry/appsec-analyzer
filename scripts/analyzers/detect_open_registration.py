@@ -52,6 +52,14 @@ _REGISTRATION_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+# OAuth 2.0 / OIDC Dynamic Client Registration (RFC 7591) registers client
+# applications, not people: `/connect/register` (Spring Authorization Server,
+# IdentityServer), `/oauth2/register` (Hydra), `/clients/register`. An ambiguous
+# prefix such as `/oauth/register` can be sign-up through a social login and
+# stays a registration candidate.
+_CLIENT_REGISTRATION = re.compile(r"/(?:connect|oauth2|oidc|clients?)/regist(?:er|ration)(?:/|$)", re.IGNORECASE)
+
+
 def _is_registration_entry(entry_point: str) -> bool:
     if not entry_point:
         return False
@@ -61,6 +69,8 @@ def _is_registration_entry(entry_point: str) -> bool:
     # Only consider POST (or unspecified method).
     method = (parts[0] if len(parts) == 2 else "").upper()
     if method and method != "POST":
+        return False
+    if _CLIENT_REGISTRATION.search(url):
         return False
     return any(p.search(url) for p in _REGISTRATION_PATTERNS)
 

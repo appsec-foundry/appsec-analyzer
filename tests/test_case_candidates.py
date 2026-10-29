@@ -820,6 +820,22 @@ def test_a_later_verification_job_starts_only_after_its_entrys_first_job_ended()
 # --- code sites ---------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "const config = await discovery(new URL(env.OIDC_ISSUER), env.OIDC_CLIENT_ID)",
+        "const tokens = await oidc.authorizationCodeGrant(config, url, { pkceCodeVerifier: verifier, expectedState })",
+        "res.redirect(client.buildAuthorizationUrl(config, { redirect_uri, scope, code_challenge }).href)",
+        "const codeVerifier = client.randomPKCECodeVerifier()",
+    ],
+)
+def test_openid_client_6_sign_in_is_an_sso_site(line):
+    """The functional openid-client API starts the SSO verification like the Issuer API does."""
+    pattern = cc.site_kinds()[0]["sso_flow"]["pattern"]
+    assert pattern.search(line)
+    assert not pattern.search("const peers = await registry.discovery(serviceName)")
+
+
 def test_every_code_site_kind_marks_its_examples_and_only_those():
     kinds, model_file = cc.site_kinds()
     for kind, entry in kinds.items():

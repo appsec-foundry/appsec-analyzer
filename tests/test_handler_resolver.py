@@ -858,3 +858,22 @@ def test_a_route_without_middleware_names_no_definition(tmp_path):
         },
     )
     assert HandlerResolver(tmp_path).middleware_definitions(route(ri.build_inventory(tmp_path), "/feedback")) == []
+
+
+@pytest.mark.parametrize("session", ["req.session.user", "request.session?.userId"])
+def test_a_server_side_session_check_is_cookie_authentication(tmp_path, session):
+    root = "req" if session.startswith("req.") else "request"
+    write(
+        tmp_path,
+        {
+            "app.ts": "import express from 'express'\nconst app = express()\n"
+            f"app.get('/me', ({root}, res) => {{\n"
+            f"  if (!{session}) {{\n"
+            "    return res.status(401).end()\n"
+            "  }\n"
+            f"  res.json({session})\n"
+            "})\n",
+        },
+    )
+    row = route(ri.build_inventory(tmp_path), "/me")
+    assert row["authn_handler_signal"] == "verified" and row["authn_handler_scheme"] == "cookie"

@@ -1023,6 +1023,34 @@ def test_local_architecture_leaves_a_mixed_role_path_to_classification(tmp_path,
     call()
 
 
+@pytest.mark.parametrize("client_id", ["component-ui", "component-portal"])
+def test_a_client_without_any_legitimate_role_returns_to_the_analyst_unless_its_entry_proves_the_user(
+    tmp_path, client_id
+):
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    rid = evidence[0]["repository_id"]
+    local = [dict(components[0], id="component-api"), dict(components[0], id=client_id, tier="client")]
+    artifact = _role_architecture(evidence[0], identity, ["cookie"], via_client=True)
+    artifact["external_entities"] = []
+    artifact["data_flows"] = [
+        {**f, "from": client_id} if f["from"] == "component-ui" else f
+        for f in artifact["data_flows"]
+        if not f.get("interaction")
+    ]
+    arguments = (
+        scope,
+        rid,
+        dict(components=local + components[1:], source_scope_sha256=identity["source_scope_sha256"]),
+        dict(component_inventory_fingerprint=FP),
+        artifact,
+        ranges[:1],
+    )
+    with pytest.raises(Rejection) as raised:
+        stage.validate_local_architecture(*arguments)
+    assert f"no legitimate role uses the client component(s) {client_id}" in str(raised.value.errors)
+    stage.validate_local_architecture(*arguments, client_entries={client_id: evidence[0]})
+
+
 def test_controls_cannot_borrow_evidence_from_another_owner(tmp_path):
     scope, components, evidence, ranges, identity = sources(tmp_path)
     artifact = dict(

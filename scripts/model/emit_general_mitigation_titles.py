@@ -128,13 +128,13 @@ _GENERAL_TITLE_BY_CWE: dict[str, str] = {
     "CWE-400": "Rate-limit expensive requests and bound input size",
     "CWE-502": "Use safe YAML parsing with resource limits",
     "CWE-602": "Enforce authorization on the server",
-    "CWE-668": "Scope real-time events to authorized recipients",
+    "CWE-668": "Restrict exposure to the intended audience",
     "CWE-703": "Add a container healthcheck",
     "CWE-807": "Use trusted client IPs for rate limiting",
     "CWE-942": "Restrict CORS to trusted origins",
     "CWE-1004": "Set secure session-cookie attributes",
     "CWE-1021": "Add framing and clickjacking protections",
-    "CWE-1357": "Set least-privilege CI workflow permissions",
+    "CWE-1357": "Use only pinned, verified third-party components",
     "CWE-330": "Use cryptographically secure random values",
     "CWE-338": "Use cryptographically secure random values",
     "CWE-346": "Restrict CORS to trusted origins",
@@ -176,6 +176,20 @@ _DISAMBIGUATE: dict[str, list[tuple[str, str]]] = {
             r"event loop|worker|cpu|vm\b|runincontext|thread|timeout|synchronous",
             "Offload CPU-bound work and bound execution time",
         ),
+    ],
+    # CWE-668 spans real-time broadcasts and network or storage exposure.
+    "CWE-668": [
+        (
+            r"\bbroadcast|\bsocket|\bemit\b|real.?time|websocket|subscription",
+            "Scope real-time events to authorized recipients",
+        ),
+        (
+            r"\bports?\b|\binterfaces?\b|\bbind\b|0\.0\.0\.0|127\.0\.0\.1|ingress|public ip",
+            "Bind services only to the networks they need",
+        ),
+    ],
+    "CWE-1357": [
+        (r"permission|github_token|least.?privilege", "Set least-privilege CI workflow permissions"),
     ],
     "CWE-770": [
         (r"yaml|alias|anchor|xml|entity|bomb|zip|decompress", "Bound parser and decompression resource limits"),

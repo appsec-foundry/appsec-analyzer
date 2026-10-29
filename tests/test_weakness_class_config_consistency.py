@@ -254,3 +254,48 @@ def test_diagram_annotations_cover_declared_cwes_and_curated_mechanisms() -> Non
     )
     mapped_mechanisms = {m for entry in catalog["labels"].values() for m in entry.get("mechanisms", [])}
     assert mechanisms == mapped_mechanisms
+
+
+@pytest.mark.parametrize("cwe", ["CWE-693", "cwe-693"])
+def test_protection_mechanism_failure_is_not_a_dependency_weakness(cwe) -> None:
+    """A CSP or header gap (CWE-693) never reads as an outdated dependency."""
+    from analyzers.weakness_classifier import classify_cwe
+    from model.merge_threats import build_weakness_register
+
+    assert classify_cwe(cwe, warn=False) == "_unmapped"
+    assert classify_cwe("CWE-1104", warn=False) == "outdated_deps"
+    threat = {
+        "id": "T-001",
+        "cwe": cwe,
+        "title": "CSP allows inline script attributes",
+        "component": "api",
+        "source": "stride",
+        "evidence_tier": "insecure-practice",
+        "evidence": [{"file": "src/app.ts", "line": 129}],
+    }
+    classes = {w["weakness_class"] for w in build_weakness_register([threat])}
+    assert "outdated_deps" not in classes
+
+
+@pytest.mark.parametrize(
+    "title,mechanism",
+    [
+        ("OIDC callback accepts missing state and PKCE verifier", "unbound-authorization-requests"),
+        ("OAuth authorization request is sent without a state value", "unbound-authorization-requests"),
+        ("Profile update accepts the session cookie without a CSRF token", "unprotected-cookie-mutations"),
+    ],
+)
+def test_a_cwe_claimed_by_several_mechanisms_takes_the_one_the_finding_describes(title, mechanism) -> None:
+    from model.merge_threats import build_weakness_register
+
+    threat = {
+        "id": "T-001",
+        "cwe": "CWE-352",
+        "title": title,
+        "component": "api",
+        "source": "stride",
+        "evidence_tier": "insecure-practice",
+        "evidence": [{"file": "src/auth.ts", "line": 84}],
+    }
+    [weakness] = build_weakness_register([threat])
+    assert weakness["mechanism_id"] == mechanism

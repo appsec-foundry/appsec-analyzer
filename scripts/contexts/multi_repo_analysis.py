@@ -1403,11 +1403,28 @@ def add_client_use(artifact: dict, entries: dict) -> dict:
     exactly one regular (non-privileged) role the user is unambiguous, so the
     controller writes that interaction at the client's entry evidence. With
     several roles, which role uses which client stays with the model.
+
+    A browser entry point proves that a person uses the client, even when the
+    model names no role, for example because sign-in is delegated to an
+    identity provider. Without any legitimate role the controller adds one
+    unclassified user at that entry point; the role-access classification
+    later derives its access from the request path.
     """
+    entities = artifact["external_entities"]
+    if entries and not any(e.get("kind") == "legitimate-role" for e in entities):
+        taken = {e.get("id") for e in entities}
+        role_id = next(c for c in ("ext-user", *(f"ext-user-{n}" for n in range(2, len(taken) + 3))) if c not in taken)
+        entities.append(
+            {
+                "id": role_id,
+                "name": "User",
+                "kind": "legitimate-role",
+                "description": "Person using the client application, evidenced by its browser entry point.",
+                "evidence": [dict(entries[sorted(entries)[0]])],
+            }
+        )
     roles = [
-        e["id"]
-        for e in artifact["external_entities"]
-        if e.get("kind") == "legitimate-role" and e.get("access") != "internet-priv-user"
+        e["id"] for e in entities if e.get("kind") == "legitimate-role" and e.get("access") != "internet-priv-user"
     ]
     if len(roles) != 1:
         return artifact
@@ -1523,6 +1540,15 @@ def validate_local_architecture(
         {"data_flows": completed["data_flows"], "external_entities": completed["external_entities"]},
         {"components": local},
     )
+    # A client is used by people. Without any legitimate role the report would
+    # show attackers only; only this job can still name them, so the rule is
+    # not part of the combined gate.
+    clients = sorted(c["id"] for c in local if c.get("tier") == "client")
+    if clients and not any(e.get("kind") == "legitimate-role" for e in completed["external_entities"]):
+        errors.append(
+            f"no legitimate role uses the client component(s) {', '.join(clients)}: model the people who use "
+            "each client as legitimate roles and add their interaction flows"
+        )
     if errors:
         raise Rejection("Local architecture violates flow invariants", errors)
     validate_executable_evidence(scope, artifact, "Architecture evidence does not cite an executable implementation")

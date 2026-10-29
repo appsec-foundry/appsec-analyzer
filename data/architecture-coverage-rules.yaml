@@ -671,9 +671,10 @@ hypothesis_rules:
           - "(?i)readFile(Sync)?\\s*\\("
           - "(?i)\\bopen\\s*\\("
     positive_signals:
+      # `.trim()` is not a signal: whitespace trimming normalises a value and
+      # validates nothing.
       any_pattern:
         - "(?i)\\.replace\\s*\\(\\s*/.*/g?\\s*,"
-        - "(?i)\\.trim\\s*\\(\\s*\\)"
         - "(?i)\\bblacklist\\b"
         - "(?i)blocklist\\s*[:=]"
         - "(?i)\\bdeny[_ ]?list\\b"
