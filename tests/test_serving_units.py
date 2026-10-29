@@ -17,7 +17,7 @@ from model.finalize_component_inventory import finalize_assessment
 from model.reclassify_components import _primary_component_id
 from runtime import multi_repo_discovery as discovery
 from runtime.analyst_host import HostReply
-from runtime.assessment_host import MARKER, ModelAnswerFailure
+from runtime.assessment_host import MARKER
 from runtime.multi_repo_scope import admit
 
 # An Express API whose handlers live in their own modules, beside a browser
@@ -145,13 +145,24 @@ def discovered(scope, components):
     ]
 
 
-def test_finalization_stops_when_a_serving_unit_has_no_component(tmp_path):
+@pytest.mark.parametrize("left_out", ["ui", "api"])
+def test_finalization_models_a_serving_unit_discovery_left_out(tmp_path, left_out):
     scope = admitted(tmp_path, NODE)
-    only_api = [
-        {"id": "api", "name": "API", "description": "Request handling", "tier": "application", "paths": ["server.js"]}
-    ]
-    with pytest.raises(ValueError, match="client-app at web"):
-        finalize_assessment(scope, discovered(scope, only_api))
+    modelled = {
+        "api": {"id": "api", "name": "API", "description": "Requests", "tier": "application", "paths": ["server.js"]},
+        "ui": {"id": "ui", "name": "Web", "description": "Browser app", "tier": "client", "paths": ["web/src/main.ts"]},
+    }
+    kept = [component for key, component in modelled.items() if key != left_out]
+    result, receipt = finalize_assessment(scope, discovered(scope, kept))
+    [added] = [c for c in result["components"] if c["local_id"] not in modelled]
+    paths = {p["path"] for p in added["paths"]}
+    if left_out == "ui":
+        assert (added["tier"], added["local_id"]) == ("client", "web-client")
+        assert {"web/src/main.ts", "web/src/app/app.ts"} <= paths and "web/src/app/app.spec.ts" not in paths
+    else:
+        assert (added["tier"], added["local_id"]) == ("application", "repository-api")
+        assert {"server.js", "handlers/orders.js"} <= paths
+    assert added["id"] in receipt["injected_component_ids"]
 
 
 def test_finalization_gives_the_api_its_handler_modules(tmp_path):
@@ -215,10 +226,12 @@ def test_discovery_gets_one_correction_naming_the_missing_unit(tmp_path):
     assert len(host.reasons) == 1 and "client-app at web" in host.reasons[0]
 
 
-def test_discovery_that_never_carries_the_unit_fails(tmp_path):
+def test_discovery_corrects_a_missing_unit_once_and_leaves_the_rest_to_finalization(tmp_path):
     scope = admitted(tmp_path, NODE)
-    with pytest.raises(ModelAnswerFailure, match="client-app at web"):
-        run_discovery(scope, Host([[API], [API], [API]]))
+    host = Host([[API], [API], [API]])
+    result = run_discovery(scope, host)
+    assert [c["id"] for c in result.observations[0]["components"]] == ["api"]
+    assert len(host.reasons) == 1 and "client-app at web" in host.reasons[0]
 
 
 def local_artifact(roles):
@@ -401,3 +414,29 @@ def test_an_api_at_the_repository_root_receives_only_its_registration_files(tmp_
     serving_units.adopt(units, [api], tmp_path, routes)
     assert "src/routes/users.ts" in api["paths"] and "packages/shared/src/index.ts" not in api["paths"]
     assert "src/db/schema.ts" not in api["paths"]
+
+
+def test_an_api_adopts_the_workspace_packages_it_imports_transitively(tmp_path):
+    files = {
+        "package.json": '{"name": "root", "private": true}',
+        "apps/api/package.json": '{"name": "api", "dependencies": {"express": "^5"}}',
+        "apps/api/src/app.ts": "import express from 'express';\nimport { score } from '@acme/rules/score';\n"
+        "const app = express();\napp.get('/score', (req, res) => res.json(score()));\n",
+        "packages/rules/package.json": '{"name": "@acme/rules"}',
+        "packages/rules/src/score.ts": "import { weights } from '@acme/weights';\nexport const score = () => weights;\n",
+        "packages/weights/package.json": '{"name": "@acme/weights"}',
+        "packages/weights/src/index.ts": "export const weights = 1;\n",
+        "packages/theme/package.json": '{"name": "@acme/theme"}',
+        "packages/theme/src/index.ts": "export const theme = 1;\n",
+        "packages/weights/src/index.spec.ts": "test('w', () => {});\n",
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    routes = route_inventory(tmp_path)["routes"]
+    api = {"id": "api", "tier": "application", "paths": ["apps/api/src/app.ts"]}
+    serving_units.adopt(serving_units.scan(tmp_path, routes), [api], tmp_path, routes)
+    assert sorted(p for p in api["paths"] if p.startswith("packages/")) == [
+        "packages/rules/src/score.ts",
+        "packages/weights/src/index.ts",
+    ]

@@ -288,6 +288,43 @@ def describe(units: list[dict]) -> str:
     return "; ".join(rows)
 
 
+def component_for(unit: dict, repo_root: Path, taken: set[str]) -> dict | None:
+    """A component that carries `unit` when discovery modelled none, or None when it has no file.
+
+    A client app takes the client tier and its source files; an API takes the
+    application tier and its package's program files (its registration files
+    at the repository root). The name comes from the package manifest.
+    """
+    client = unit["kind"] == "client-app"
+    paths = [rel for rel in (unit["entry_files"] if client else unit.get("source_files") or unit["entry_files"])]
+    paths = [rel for rel in paths if is_runtime_path(rel)]
+    if not paths:
+        return None
+    root = unit.get("root") or ""
+    label = (root.rsplit("/", 1)[-1] if root else repo_root.name) or "app"
+    try:
+        manifest = json.loads((repo_root / root / "package.json").read_text(encoding="utf-8"))
+        label = str(manifest.get("name") or label) if isinstance(manifest, dict) else label
+    except (OSError, ValueError):
+        pass
+    base = re.sub(r"[^a-z0-9]+", "-", f"{root or 'repository'}-{'client' if client else 'api'}".lower()).strip("-")
+    cid = next(c for c in (base, *(f"{base}-{n}" for n in range(2, len(taken) + 3))) if c not in taken)
+    where = root or "the repository root"
+    return {
+        "id": cid,
+        "name": f"{label} {'client application' if client else 'API'}"[:80],
+        "description": f"{'Client application' if client else 'HTTP API'} at {where}, "
+        "added because discovery modelled no component for it.",
+        "paths": paths,
+        "tier": "client" if client else "application",
+        "framework": unit.get("framework"),
+        "complexity": "moderate",
+        "deployment_zones": [],
+        "handles_sensitive_data": False,
+        "origin": "reconciliation",
+    }
+
+
 def _closest(found: list[dict], rel: str) -> dict:
     """The carrier whose listed files share the longest folder prefix with `rel`; the first on a tie."""
 
@@ -347,4 +384,73 @@ def adopt(units: list[dict], components: list[dict], repo_root: Path, routes: li
             module = resolver.handler_module(route)
             if module:
                 give(owner, module)
+    _adopt_workspace_packages(units, components, repo_root, give)
     return added
+
+
+_JS_SPECIFIER_RE = re.compile(r"""(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*|^\s*import\s+)['"]([^'"\n]+)['"]""", re.M)
+
+
+def _workspace_packages(repo_root: Path, files: list[str]) -> dict[str, str]:
+    """Package name → folder of each named runtime manifest below the repository root."""
+    packages = {}
+    for rel in files:
+        if not rel.endswith("/package.json"):
+            continue
+        try:
+            name = json.loads((repo_root / rel).read_text(encoding="utf-8")).get("name")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(name, str) and name:
+            packages[name] = rel.rsplit("/", 1)[0]
+    return packages
+
+
+def _adopt_workspace_packages(units: list[dict], components: list[dict], repo_root: Path, give) -> None:
+    """Give a carrier the program files of the workspace packages its code imports, transitively.
+
+    A monorepo's shared packages (`@acme/shared`) run inside the app that
+    imports them but belong to no unit of their own, so no component lists
+    them. APIs adopt first: a package both an API and a client import runs on
+    the server too, where its weaknesses matter most.
+    """
+    files = [f for f in _files(repo_root) if is_runtime_path(f)]
+    packages = _workspace_packages(repo_root, files)
+    if not packages:
+        return
+    roots = sorted({m.rsplit("/", 1)[0] if "/" in m else "" for m in files if m.rsplit("/", 1)[-1] in _MANIFESTS})
+    sources = {root: _package_sources(files, roots, root) for root in packages.values()}
+
+    def imported(rel: str) -> set[str]:
+        try:
+            text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return set()
+        found = set()
+        for spec in _JS_SPECIFIER_RE.findall(text):
+            for name, root in packages.items():
+                if spec == name or spec.startswith(name + "/"):
+                    found.add(root)
+        return found
+
+    for kind in ("http-api", "client-app"):
+        for unit in (u for u in units if u["kind"] == kind):
+            found = carriers(unit, components)
+            if not found:
+                continue
+            carrier = found[0]
+            owned = lambda: {p for p in carrier.get("paths") or [] if isinstance(p, str)}  # noqa: E731
+            pending = sorted(rel for rel in owned() if (repo_root / rel).is_file())
+            scanned: set[str] = set()
+            reached = {unit["root"]}
+            while pending:
+                rel = pending.pop()
+                if rel in scanned:
+                    continue
+                scanned.add(rel)
+                for root in sorted(imported(rel) - reached):
+                    reached.add(root)
+                    for source in sources[root]:
+                        give(carrier, source)
+                    # Only files the carrier now owns lead further; another owner's imports stay its own.
+                    pending.extend(source for source in sources[root] if source in owned())
