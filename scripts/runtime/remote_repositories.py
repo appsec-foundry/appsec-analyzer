@@ -199,6 +199,11 @@ def credential_hint(remote: Remote) -> str:
     selected = select_token(remote.host)
     if selected:
         return f"the token from {selected[0]} was not accepted; check its scope and APPSEC_GIT_USERNAME"
+    if os.environ.get("GITLAB_TOKEN"):
+        return (
+            f"GITLAB_TOKEN is set but is sent only to gitlab.com and GITLAB_HOST; for {remote.host} "
+            f"set GITLAB_HOST={remote.host} or pass --git-token-env GITLAB_TOKEN"
+        )
     return (
         "set APPSEC_GIT_TOKEN, GIT_TOKEN or GITLAB_TOKEN (GitLab hosts only: gitlab.com or GITLAB_HOST), "
         "name another variable with --git-token-env NAME, or configure a Git credential helper"

@@ -620,7 +620,10 @@ def test_failure_hint_names_tried_variables_or_the_one_that_failed(monkeypatch, 
     hint = remote.credential_hint(https)
     assert all(n in hint for n in ("APPSEC_GIT_TOKEN", "GIT_TOKEN", "GITLAB_TOKEN", "--git-token-env"))
     monkeypatch.setenv("GITLAB_TOKEN", "ambient-secret")
-    assert "was not accepted" not in remote.credential_hint(https)
+    skipped = remote.credential_hint(https)
+    assert "was not accepted" not in skipped and "ambient-secret" not in skipped
+    assert "GITLAB_TOKEN is set but" in skipped and "GITLAB_HOST=git.example" in skipped
+    assert "GITLAB_TOKEN is set but" not in remote.credential_hint(remote.parse_remote("https://gitlab.com/t/a.git"))
     monkeypatch.setenv("GIT_TOKEN", "ambient-secret")
     failed = remote.credential_hint(https)
     assert "token from GIT_TOKEN was not accepted" in failed and "ambient-secret" not in failed
