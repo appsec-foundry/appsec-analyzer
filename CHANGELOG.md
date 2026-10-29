@@ -61,6 +61,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - OAuth and OIDC client registration endpoints such as `/connect/register` no longer count as open user self-registration, which had grouped authenticated users with anonymous attackers.
 - A `GET` login route that redirects to an SSO or identity provider no longer counts as password authentication, so reports no longer list User Registration and Password Reset as missing controls for such applications. An unrelated control whose name contains "reset" no longer hides a missing password reset.
 - Mitigations for exposed ports, storage or namespaces (CWE-668) and for untrusted build components (CWE-1357) get titles that describe their fix, instead of "Scope real-time events to authorized recipients" and "Set least-privilege CI workflow permissions".
+- SSO verification now starts on applications that sign in with the functional `openid-client` 6 API (`discovery`, `buildAuthorizationUrl`, `authorizationCodeGrant`); before, it ended as undecidable without a verification job.
+- Protection-mechanism findings (CWE-693), such as a weak CSP or an architecture finding without its own CWE, no longer appear as an outdated dependency in the weakness register.
+- A weakness whose CWE several mechanisms share takes the narrative of the one the finding describes, so an OIDC callback state gap no longer reads as a cookie CSRF weakness.
+- Input-validation design weaknesses no longer cite whitespace `.trim()` calls as deny-list validation.
 - A scanner rule finding at a location where verification evidenced a control now shows "Contradicted by verification", as a survey finding already did. The report card also shows this note for findings that several methods found; before, it was missing there.
 - An abuse case no longer takes a documentation file, such as a Markdown file outside `docs/`, as source evidence for a step.
 - The abuse case for exposed secret material binds its first step to a key that signs the application's tokens, when one is reported, instead of an unrelated secret with the same weakness type.

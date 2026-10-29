@@ -926,3 +926,17 @@ def test_decision_helpers_cover_unknown_statuses() -> None:
     assert acc._decision_for_hard(rule, {"applies": True, "status": "other"}) == "no_action"
     assert acc._decision_for_hypothesis(rule, {"applies": False, "status": "weak"}) == "no_action"
     assert acc._decision_for_hypothesis(rule, {"applies": True, "status": "present"}) == "emit_control_only"
+
+
+@pytest.mark.parametrize(
+    "source,status",
+    [
+        ("const body = JSON.parse(raw);\nconst name = body.name.trim();\n", "partial"),
+        ("const cfg = JSON.parse(text);\nconst ids = cfg.ids.map((id) => id.trim());\n", "partial"),
+        ("const body = JSON.parse(raw);\nconst safe = body.name.replace(/<script>/g, '');\n", "weak"),
+    ],
+    ids=["trim", "trim-in-map", "deny-list-replace"],
+)
+def test_whitespace_trimming_is_no_deny_list_validation(tmp_path: Path, source: str, status: str) -> None:
+    (tmp_path / "app.ts").write_text(source, encoding="utf-8")
+    assert _verdict(_run_engine(tmp_path), "ARCH-INPUT-001")["status"] == status

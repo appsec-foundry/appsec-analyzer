@@ -288,6 +288,8 @@ kinds:
   - '\.\s*(?:oauth2Login|saml2Login)\s*\(|@EnableOAuth2Sso\b|\bAdd(?:OpenIdConnect|OAuth|Google|MicrosoftAccount|Saml2)\s*\('
   - '\b(?:Issuer\s*\.\s*discover|oidc\s*\.\s*NewProvider|OneLogin_Saml2_Auth|OAuth2Session|WebApplicationClient)\s*\('
   - '\boauth2\s*\.\s*Config\s*\{|\boauth\s*\.\s*register\s*\('
+  # openid-client 6 exposes functions instead of the Issuer and Client classes.
+  - '\b(?:authorizationCodeGrant|buildAuthorizationUrl(?:WithPAR|WithJAR)?|randomPKCECodeVerifier|calculatePKCECodeChallenge)\s*\(|\bdiscovery\s*\(\s*new\s+URL\s*\('
   matches:
   - 'this.windowRefService.nativeWindow.location.replace(`${oauthProviderUrl}?client_id=${this.clientId}&response_type=token&scope=email&redirect_uri=${this.redirectUri}`)'
   - "if (path.includes('#access_token=')) {"
@@ -296,7 +298,11 @@ kinds:
   - 'token = oauth.google.authorize_access_token()'
   - 'http.oauth2Login(withDefaults());'
   - 'url := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)'
+  - 'const tokens = await client.authorizationCodeGrant(config, currentUrl, { pkceCodeVerifier, expectedState })'
+  - 'const url = client.buildAuthorizationUrl(config, parameters)'
+  - 'const config = await client.discovery(new URL(issuerUrl), clientId, clientSecret)'
   ignores:
+  - "const services = await registry.discovery('orders')"
   - "import { OAuthComponent } from './oauth/oauth.component'"
   - 'public oauthUnavailable = true'
   - 'const redirectUrl = req.query.next'

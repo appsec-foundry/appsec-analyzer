@@ -2970,6 +2970,26 @@ def _mechanism_from_text(text: str) -> str | None:
     return None
 
 
+_OAUTH_TERMS = ("oauth", "oidc", "openid")
+_SIGN_IN_BINDING_TERMS = ("state", "pkce", "callback", "authorization request", "authorization response")
+
+
+def _claimant_from_text(text: str) -> str | None:
+    """Choose among curated mechanisms that claim the same CWE from the finding's own words.
+
+    Only consulted when several mechanisms claim a CWE (for example CWE-352:
+    cookie-authenticated mutations versus OAuth sign-in requests not bound
+    to the browser session), so file order never decides which narrative a
+    finding borrows.
+    """
+    lower = (text or "").lower()
+    if any(term in lower for term in _OAUTH_TERMS) and any(
+        re.search(rf"\b{re.escape(term)}\b", lower) for term in _SIGN_IN_BINDING_TERMS
+    ):
+        return "unbound-authorization-requests"
+    return _mechanism_from_text(text)
+
+
 def build_weakness_register(
     threats: list[dict],
     design_signals: list[dict] | None = None,
@@ -3040,7 +3060,7 @@ def build_weakness_register(
         g = class_guidance.get(wcid) or {}
         return str(g.get("weakness_name") or weakness_labels.get(wcid) or wcid.replace("_", " ").title()).strip()
 
-    def _guidance(mechanism_id: str | None, *, wcid: str, cwe: str | None = None) -> tuple[str, dict]:
+    def _guidance(mechanism_id: str | None, *, wcid: str, cwe: str | None = None, text: str = "") -> tuple[str, dict]:
         """Return the stable mechanism id and its reader-facing guidance.
 
         A producer can pass an explicit mechanism id. Practice-only rows fall
@@ -3054,9 +3074,18 @@ def build_weakness_register(
         if key:
             return key, mechanism_guidance.get(key) or {}
         cwe_norm = (cwe or "").upper()
-        for candidate, candidate_guidance in mechanism_guidance.items():
-            if cwe_norm and cwe_norm in {str(v).upper() for v in (candidate_guidance.get("cwes") or [])}:
-                return str(candidate), candidate_guidance
+        claimants = [
+            (str(candidate), candidate_guidance)
+            for candidate, candidate_guidance in mechanism_guidance.items()
+            if cwe_norm and cwe_norm in {str(v).upper() for v in (candidate_guidance.get("cwes") or [])}
+        ]
+        if len(claimants) > 1:
+            hinted = _claimant_from_text(text)
+            for candidate, candidate_guidance in claimants:
+                if candidate == hinted:
+                    return candidate, candidate_guidance
+        if claimants:
+            return claimants[0]
         return key or _normalise_mechanism_key(f"{wcid}-{cwe_norm or 'observed-practice'}"), {}
 
     def _title_and_guidance(
@@ -3067,7 +3096,7 @@ def build_weakness_register(
         fallback_title: str,
         fallback_statement: str,
     ) -> tuple[str, str, str, dict]:
-        mechanism, guidance = _guidance(mechanism_id, wcid=wcid, cwe=cwe)
+        mechanism, guidance = _guidance(mechanism_id, wcid=wcid, cwe=cwe, text=f"{fallback_title} {fallback_statement}")
         title = str(guidance.get("weakness_name") or fallback_title or _wname(wcid)).strip()
         statement = str(fallback_statement or guidance.get("description") or title).strip()
         return mechanism, title, statement, guidance
