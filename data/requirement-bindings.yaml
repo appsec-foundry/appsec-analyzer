@@ -2088,6 +2088,46 @@ requirements:
       - tests/test_requirements_audit_cli.py::test_audit_is_distinct_from_assessment_and_gate_is_deterministic
       - tests/test_requirements_audit_cli.py::test_audit_rejects_unserved_evidence_without_publishing
 
+  REQ-046:
+    applies_to:
+      - scripts/requirements/catalog_formats.py
+      - scripts/requirements/fetch_requirements.py
+      - scripts/orchestrator/assessment_context.py
+      - scripts/contexts/build_analyst_context.py
+      - scripts/model/build_threat_model_yaml.py
+      - appsec_analyzer/catalogs.py
+      - appsec_analyzer/requirements_audit.py
+      - appsec_analyzer/authnz_review.py
+      - appsec_analyzer/cli.py
+      - appsec_analyzer/analyze_threats/cli.py
+      - schemas/requirements-audit.schema.json
+      - schemas/threat-model.output.schema.yaml
+      - schemas/analyst-context.schema.json
+      - schemas/analyst-result.schema.json
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - docs/security-requirements-audit-skill.md
+      - docs/security-assessment.md
+      - docs/threat-analyst.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_catalog_formats.py::test_an_oscal_catalog_becomes_an_analyzer_catalog
+      - tests/test_catalog_formats.py::test_anything_but_an_oscal_catalog_passes_through_unchanged
+      - tests/test_catalog_formats.py::test_unsupported_or_ambiguous_oscal_is_refused
+      - tests/test_catalog_formats.py::test_limits_stop_oversized_and_exploding_input
+      - tests/test_catalog_formats.py::test_a_yaml_alias_cannot_multiply_text_beyond_the_budget
+      - tests/test_catalog_formats.py::test_read_catalog_returns_the_converted_catalog_and_the_checksum_of_the_supplied_file
+      - tests/test_catalog_formats.py::test_the_fetch_gate_writes_a_converted_catalog_and_records_the_conversion
+      - tests/test_catalog_formats.py::test_a_remote_catalog_is_read_with_the_validated_opener_and_a_size_limit
+      - tests/test_catalog_formats.py::test_assess_refuses_a_catalog_with_too_many_context_rows_before_any_model_call
+      - tests/test_catalog_formats.py::test_analyze_threats_delivers_an_oscal_catalog_with_the_checksum_of_the_supplied_file
+      - tests/test_requirements_audit_cli.py::test_audit_reads_an_oscal_catalog_and_records_its_format_and_checksum
+      - tests/test_requirements_audit_cli.py::test_audit_refuses_an_oscal_profile_before_any_model_call
+      - tests/test_authnz_review_cli.py::test_an_oscal_profile_never_reaches_the_model
+      - tests/test_authnz_review_cli.py::test_a_catalog_too_large_for_one_packet_is_refused_with_its_size_and_limit
+
   REQ-031:
     applies_to:
       - appsec_analyzer/exports.py

@@ -75,14 +75,23 @@ def _read_local(path: str) -> bytes:
     """Read a local requirements file. Raises ``OSError`` on any failure.
 
     Relative paths resolve against the current working directory; ``~`` expands.
+    The read stops one byte past the size limit, so an oversized file is never held in memory.
     """
-    return Path(path).expanduser().read_bytes()
+    with Path(path).expanduser().open("rb") as handle:
+        return _bounded(handle.read(cformats.MAX_RAW_BYTES + 1))
+
+
+def _bounded(body: bytes) -> bytes:
+    if len(body) > cformats.MAX_RAW_BYTES:
+        raise ValueError(f"catalog is larger than {cformats.MAX_RAW_BYTES // 2**20} MiB")
+    return body
 
 
 # Reuse the single source of truth for source resolution + fail_mode.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import shared._url_guard as _url_guard  # noqa: E402
 
+import requirements.catalog_formats as cformats  # noqa: E402
 import requirements.requirements_state as rstate  # noqa: E402
 import requirements.resolve_requirements_source as rrs  # noqa: E402
 
@@ -101,15 +110,22 @@ def _http_get(url: str, timeout: int) -> bytes:
     verdict = _url_guard.validate_target_url(url, check_ip_safety=False)
     if not verdict.ok:
         raise urllib.error.URLError(f"blocked by SSRF guard: {verdict.reason}")
-    req = urllib.request.Request(url, headers={"Accept": "application/yaml"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        return resp.read()
+    req = urllib.request.Request(url, headers={"Accept": "application/yaml, application/json"})
+    # The opener checks every redirect target against the same URL policy, and the
+    # read stops one byte past the size limit.
+    with _url_guard.validated_opener(check_ip_safety=False).open(req, timeout=timeout) as resp:
+        return _bounded(resp.read(cformats.MAX_RAW_BYTES + 1))
 
 
 def _cache_path(explicit: str | None, plugin_root: Path) -> Path:
     if explicit:
         return Path(explicit)
     return plugin_root / ".cache" / "requirements.yaml"
+
+
+def _print_format(conversion: dict | None) -> None:
+    if line := cformats.describe(conversion or {}):
+        print(f"↳ Requirements: {line}")
 
 
 def _write(path: Path, data: bytes | str) -> None:
@@ -161,7 +177,14 @@ def _validate_or_abort(body: bytes, src: dict) -> int | None:
     return None
 
 
-def _cache_summary(src: dict, cache: Path, disposition: str, fresh: dict | None, body: bytes | None = None) -> dict:
+def _cache_summary(
+    src: dict,
+    cache: Path,
+    disposition: str,
+    fresh: dict | None,
+    body: bytes | None = None,
+    conversion: dict | None = None,
+) -> dict:
     """Build a resolution-summary dict from the active source + cache state.
 
     When ``body`` is given (a just-loaded catalog), its metadata wins — so a
@@ -197,6 +220,7 @@ def _cache_summary(src: dict, cache: Path, disposition: str, fresh: dict | None,
         "count": count,
         "freshness": fresh,
         "cache_path": str(cache),
+        "conversion": conversion,
     }
 
 
@@ -284,8 +308,10 @@ def run(args: argparse.Namespace) -> int:
             if rc is not None:
                 return rc
             _write(out_file, body)
-            _emit_summary(output_dir, _cache_summary(src, cache, "cache_only", fresh))
+            conversion = cformats.conversion_of(body)
+            _emit_summary(output_dir, _cache_summary(src, cache, "cache_only", fresh, conversion=conversion))
             print(f"↳ Requirements: loaded from plugin cache, offline ({cache})")
+            _print_format(conversion)
             return 0
         return _abort(
             [
@@ -303,9 +329,11 @@ def run(args: argparse.Namespace) -> int:
         if rc is not None:
             return rc
         _write(out_file, body)
-        _emit_summary(output_dir, _cache_summary(src, cache, "cache", fresh))
+        conversion = cformats.conversion_of(body)
+        _emit_summary(output_dir, _cache_summary(src, cache, "cache", fresh, conversion=conversion))
         age = fresh.get("age_days")
         print(f"↳ Requirements: using cached catalog (fresh, {age}d old) ({cache})")
+        _print_format(conversion)
         return 0
 
     # 1. Load the source: http(s) -> remote fetch, anything else -> local file.
@@ -317,6 +345,8 @@ def run(args: argparse.Namespace) -> int:
             body = _http_get(src_loc, args.timeout) if remote else _read_local(src_loc)
             if not body.strip():
                 raise ValueError("empty response")
+            body, info = cformats.normalize(body)  # CatalogFormatError is a ValueError
+            conversion = info if info["format"] == cformats.FORMAT_OSCAL else None
             # Validate before persisting so a 404 page / garbage never lands in
             # the cache or refreshes the remembered sidecar.
             rc = _validate_or_abort(body, src)
@@ -331,8 +361,9 @@ def run(args: argparse.Namespace) -> int:
                 )
             verb = "fetched from" if remote else "read from"
             disposition = "demo" if src.get("demo") else ("local" if src.get("source") == "local" else "fetched")
-            _emit_summary(output_dir, _cache_summary(src, cache, disposition, fresh, body=body))
+            _emit_summary(output_dir, _cache_summary(src, cache, disposition, fresh, body=body, conversion=conversion))
             print(f"↳ Requirements: {verb} {src_loc} ({src.get('source')})")
+            _print_format(conversion)
             return 0
         except (urllib.error.URLError, ValueError, OSError) as exc:
             if not cache_allowed:
@@ -358,11 +389,13 @@ def run(args: argparse.Namespace) -> int:
         if rc is not None:
             return rc
         _write(out_file, body)
-        _emit_summary(output_dir, _cache_summary(src, cache, "cache_after_fetch_fail", fresh))
+        conversion = cformats.conversion_of(body)
+        _emit_summary(output_dir, _cache_summary(src, cache, "cache_after_fetch_fail", fresh, conversion=conversion))
         when = ""
         if fresh and fresh.get("known"):
             when = f", fetched {fresh.get('age_days')}d ago"
         print(f"↳ Requirements: source unavailable — using cached catalog{when} ({cache})", file=sys.stderr)
+        _print_format(conversion)
         return 0
 
     # 2b. Bundled best-practices baseline fallback (opt-in via --fallback-baseline).

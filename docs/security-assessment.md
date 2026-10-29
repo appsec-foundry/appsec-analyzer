@@ -133,7 +133,7 @@ Report writing completes the required Security Architecture section first. It th
 
 Without `--output`, results go to the private user-data directory under `appsec-analyzer/assessments`. An explicit output directory must be outside the selected checkouts and private (mode 0700). A missing directory is created that way, unless its path leads through a link or into a source checkout. The main files are `security-assessment.md` and `security-assessment.yaml`. Optional exports run after model and report validation. Missing tools are reported.
 
-`--requirements` adds requirements checking to this assessment. It does not run the separate requirements audit. `assess` also accepts the export options `--pentest-tasks`, `--pentest-format strix`, `--pentest-target URL`, and `--slug NAME`. `--keep-runtime-files` keeps intermediate files for debugging.
+`--requirements` adds requirements checking to this assessment. It takes a file or an HTTPS URL with an Analyzer YAML catalog or an OSCAL catalog (see [catalog formats](security-requirements-audit-skill.md#catalog-formats)). A catalog that needs more than 32 context rows per component is refused before the first model call. It does not run the separate requirements audit. `assess` also accepts the export options `--pentest-tasks`, `--pentest-format strix`, `--pentest-target URL`, and `--slug NAME`. `--keep-runtime-files` keeps intermediate files for debugging.
 
 An interrupted run keeps its accepted steps:
 

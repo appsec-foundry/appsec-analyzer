@@ -322,6 +322,12 @@ Audit a validated local requirements catalog independently of a full assessment,
 
 Offer advisory requirements results and explicitly selected CI gates based on verdict and requirement priority. Distinguish a policy failure from incomplete execution; never interpret unverifiable requirements as passing.
 
+## REQ-046: Use requirements in standard formats
+
+Read an OSCAL catalog in JSON or YAML wherever a requirements catalog is accepted: `assess`, `audit-requirements`, `authnz-review`, and `analyze-threats`. Take the format from the content, never from the file name; a file that is neither an Analyzer catalog nor an OSCAL catalog is handled as before. Convert once where the catalog is loaded, so later steps read one shape. Keep control IDs and group titles, show a parameter's value or mark it as open, leave out withdrawn controls and count them, and assign priority MUST to every control, saying so. Record the format, the catalog's title and version, and the checksum of the file as supplied in the result.
+
+Refuse, with the reason and the limit and before any model call, OSCAL profiles and other OSCAL documents, ambiguous files, controls without an ID or with a repeated ID, and catalogs that exceed a conversion limit or the limit of the command. Never check against a partial catalog. Parse with data-only loaders and bound size, nesting, node count and produced text, so a crafted file cannot exhaust memory. Read a remote catalog only up to its size limit and check every redirect against the URL policy. Catalog text stays untrusted data.
+
 ## REQ-031: Treat repository content as data
 
 Repository content must not activate its own instructions or hooks, select executable tools, or redirect analysis outside admitted sources. Enforce source and path boundaries outside the model; reject escaping links and invalid scope.

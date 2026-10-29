@@ -33,6 +33,7 @@ import stat
 from pathlib import Path
 
 import yaml
+from requirements.catalog_formats import FORMAT_OSCAL, MAX_RAW_BYTES, CatalogFormatError, normalize
 from requirements.requirements_state import validate_catalog
 from validators.secret_scan import scan_text
 from validators.validate_analyst import schema_errors
@@ -108,7 +109,8 @@ def _load(kind: str, path: Path, origin: str, required: bool) -> tuple[dict, byt
     """Read one source; return (source record, bytes or None when withheld)."""
     record = {"kind": kind, "origin": origin, "label": path.name, "required": required}
     try:
-        body = _read(path, MAX_SOURCE_BYTES[kind])
+        # A catalog in another format is larger than its converted form, so it is read up to its own limit.
+        body = _read(path, MAX_RAW_BYTES if kind == "requirements" else MAX_SOURCE_BYTES[kind])
     except FileNotFoundError:
         status = "absent"
     except OverflowError:
@@ -117,10 +119,26 @@ def _load(kind: str, path: Path, origin: str, required: bool) -> tuple[dict, byt
         status = "invalid"
     else:
         record["sha256"] = hashlib.sha256(body).hexdigest()
-        if scan_text(body.decode("utf-8", "replace")):
-            status = "sensitive"
-        else:
-            return dict(record, status="delivered"), body
+        status = None
+        if kind == "requirements":
+            try:
+                body, source = normalize(body)
+            except CatalogFormatError:
+                status = "invalid"
+            else:
+                if source["format"] == FORMAT_OSCAL:
+                    record.update(
+                        catalog_format=source["format"],
+                        catalog_title=source["title"],
+                        catalog_version=source["version"],
+                    )
+                if len(body) > MAX_SOURCE_BYTES[kind]:
+                    status = "too_large"
+        if status is None:
+            if scan_text(body.decode("utf-8", "replace")):
+                status = "sensitive"
+            else:
+                return dict(record, status="delivered"), body
     if required:
         raise ContextError(f"required {kind} source {path.name} is {status}", required=True)
     return dict(record, status=status), None
@@ -149,7 +167,11 @@ def _requirements(path: Path | None, required: bool) -> tuple[dict, list[dict]]:
     ]
     if len(entries) > MAX_REQUIREMENTS:
         if record["required"]:
-            raise ContextError("required requirements catalog exceeds the delivery limit", required=True)
+            raise ContextError(
+                f"required requirements catalog has {len(entries)} requirements; "
+                f"the analysis delivers at most {MAX_REQUIREMENTS}",
+                required=True,
+            )
         return dict(record, status="truncated"), entries[:MAX_REQUIREMENTS]
     return record, entries
 

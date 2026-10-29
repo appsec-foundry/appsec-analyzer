@@ -464,7 +464,9 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     audit.add_argument("--output", required=True, metavar="DIR")
     audit.add_argument("--host", choices=("claude-cli",), required=True)
     source = audit.add_mutually_exclusive_group(required=True)
-    source.add_argument("--requirements", metavar="FILE")
+    source.add_argument(
+        "--requirements", metavar="FILE", help="Catalog file: Analyzer YAML or OSCAL catalog (JSON or YAML)"
+    )
     source.add_argument("--demo", action="store_true")
     audit.add_argument(
         "--budget",
@@ -501,7 +503,9 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         metavar="USD",
         help="Maximum model cost in USD (default: %(default)g); with a Claude subscription, usage at API prices",
     )
-    authnz.add_argument("--requirements", metavar="FILE", help="Optional local requirements catalog")
+    authnz.add_argument(
+        "--requirements", metavar="FILE", help="Optional local catalog: Analyzer YAML or OSCAL catalog (JSON or YAML)"
+    )
     authnz.add_argument("--output", metavar="DIR", help="Existing empty private directory outside the checkout")
     authnz.add_argument("--save", action="store_true", help="Save reports to a fresh private application directory")
     authnz.add_argument(
@@ -738,7 +742,13 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     cost_group.add_argument("--max-duration", type=int, metavar="SECONDS")
     output_group.add_argument("--fail-on", choices=("critical", "high", "medium"))
     cost_group.add_argument("--evidence-verifier-cap", type=int, metavar="N")
-    scope_group.add_argument("--requirements", nargs="?", const="", metavar="SOURCE")
+    scope_group.add_argument(
+        "--requirements",
+        nargs="?",
+        const="",
+        metavar="SOURCE",
+        help="Check against a catalog: file or HTTPS URL, Analyzer YAML or OSCAL catalog (JSON or YAML)",
+    )
     scope_group.add_argument("--context", metavar="SOURCE")
     scope_group.add_argument(
         "--abuse-case-file",

@@ -23,6 +23,9 @@ from appsec_analyzer.artifacts import publish_exclusive as _publish_exclusive
 from appsec_analyzer.catalogs import read_catalog as _bounded_catalog
 
 REPORT_OUTPUTS = ("markdown", "json", "yaml", "pentest-tasks")
+# The whole catalog goes to the model in one packet of at most 262 144 bytes (MAX_CONTEXT_BYTES in
+# runtime/assessment_host); half of it is left for the scanner output.
+MAX_CATALOG_CONTEXT_BYTES = 128_000
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\Z")
 _SIDECARS = (".route-inventory.json", ".source-auth-findings.json", ".authz-confirm-findings.json")
 _SCHEMAS = ("route-inventory.schema.json", "source-auth-findings.schema.yaml", "source-auth-findings.schema.yaml")
@@ -312,12 +315,16 @@ def review_repository(
             raise ReviewError("AuthNZ temporary storage must be outside the selected repository")
         with _output_directory(output, save or pentest_tasks, scope) as destination:
             documents = _scan(scope, work, progress)
-            catalog_digest, catalog = None, None
+            catalog_digest, catalog, catalog_format = None, None, None
             if requirements_path is not None:
-                import hashlib
-
-                body, catalog = _bounded_catalog(requirements_path)
-                catalog_digest = hashlib.sha256(body).hexdigest()
+                body, catalog, source = _bounded_catalog(requirements_path)
+                if len(body) > MAX_CATALOG_CONTEXT_BYTES:
+                    raise ReviewError(
+                        f"requirements catalog is {len(body)} bytes; the AuthNZ review supports at most "
+                        f"{MAX_CATALOG_CONTEXT_BYTES}. Use a smaller catalog, such as a baseline."
+                    )
+                catalog_digest = source["source_sha256"]
+                catalog_format = {k: v for k, v in source.items() if k != "source_sha256"}
                 # Catalogs are evidence too; never forward their credential literals.
                 catalog = yaml.safe_load(mask_text(body.decode("utf-8"))[0])
             schema = _schema("authnz-report.schema.json")
@@ -388,7 +395,11 @@ def review_repository(
                 "host": "claude-cli",
                 "model_id": model,
                 "spent_usd": budget.spent_usd,
-                "provenance": {"scope": scope.inventory(), "catalog_sha256": catalog_digest},
+                "provenance": {
+                    "scope": scope.inventory(),
+                    "catalog_sha256": catalog_digest,
+                    "catalog_format": catalog_format,
+                },
                 "gate": "block" if blocked else "pass" if gate else "advisory",
                 "limitations": [
                     "Static source review; no dynamic requests or penetration tests were executed.",

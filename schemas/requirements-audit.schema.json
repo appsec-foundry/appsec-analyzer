@@ -16,7 +16,19 @@
       "type": "object", "additionalProperties": false,
       "required": ["catalog_sha256", "scope"],
       "properties": {
-        "catalog_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "catalog_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Checksum of the catalog file as supplied." },
+        "catalog_format": {
+          "type": "object", "additionalProperties": false,
+          "required": ["format"],
+          "properties": {
+            "format": { "enum": ["analyzer", "oscal-catalog"] },
+            "title": { "type": "string", "maxLength": 120 },
+            "version": { "type": "string", "maxLength": 40 },
+            "oscal_version": { "type": "string", "maxLength": 40 },
+            "requirements": { "type": "integer", "minimum": 0 },
+            "withdrawn_left_out": { "type": "integer", "minimum": 0 }
+          }
+        },
         "scope": {
           "type": "object", "additionalProperties": false,
           "required": ["schema_version", "scope_sha256", "repositories"],

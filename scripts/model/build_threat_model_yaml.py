@@ -275,7 +275,7 @@ def build_requirements_provenance(output_dir: Path, compliance: dict[str, Any]) 
         return text[:limit] if text else None
 
     label = resolution.get("label") or resolution.get("description")
-    return {
+    provenance = {
         "source_kind": _bounded(resolution.get("source_kind"), 64),
         "source_label": _bounded(label, 256),
         "disposition": _bounded(resolution.get("disposition"), 64),
@@ -289,6 +289,16 @@ def build_requirements_provenance(output_dir: Path, compliance: dict[str, Any]) 
         },
         "count": int(compliance["total"]),
     }
+    # A catalog in another format was converted; the checksum above is of the converted catalog.
+    conversion = resolution.get("conversion")
+    if isinstance(conversion, dict) and re.fullmatch(r"[a-f0-9]{64}", str(conversion.get("source_sha256") or "")):
+        provenance["converted_from"] = {
+            "format": _bounded(conversion.get("format"), 32),
+            "title": _bounded(conversion.get("title"), 120),
+            "version": _bounded(conversion.get("version"), 40),
+            "sha256": conversion["source_sha256"],
+        }
+    return provenance
 
 
 def _read_recon_project(recon_path: Path) -> str | None:

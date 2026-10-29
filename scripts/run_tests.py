@@ -391,6 +391,7 @@ GROUPS = {
     """),
     "requirements": _tests("""
         build_verify_diff
+        catalog_formats
         fetch_requirements
         harvest_requirements
         render_requirements_banner
@@ -4462,7 +4463,13 @@ SOURCE_TESTS = {
         run_path_guard
         stride_outputs
     """),
+    "scripts/requirements/catalog_formats.py": _tests("""
+        catalog_formats
+        fetch_requirements
+        requirements_verification
+    """),
     "scripts/requirements/fetch_requirements.py": _tests("""
+        catalog_formats
         check_target_specificity
         fetch_requirements
         gate_preconditions

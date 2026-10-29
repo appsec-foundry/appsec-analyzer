@@ -898,6 +898,16 @@ properties:
           stale: {type: boolean}
           age_days: {type: [integer, "null"], minimum: 0}
       count: {type: integer, minimum: 1}
+      converted_from:
+        description: Present when the catalog was supplied in another format and converted. sha256 is the checksum of the supplied file.
+        type: object
+        additionalProperties: false
+        required: [format, title, version, sha256]
+        properties:
+          format: {type: string, maxLength: 32}
+          title: {type: [string, "null"], maxLength: 120}
+          version: {type: [string, "null"], maxLength: 40}
+          sha256: {type: string, pattern: "^[a-f0-9]{64}$"}
 
   abuse_case_analysis:
     description: Canonical deterministic result of abuse-case matching and step verification. Rendering fields and icons are excluded.

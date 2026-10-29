@@ -317,7 +317,7 @@ appsec-analyzer authnz-review --repo /path/to/project --save --gate
 
 ### `audit-requirements`: requirements audit
 
-`audit-requirements` checks whether a repository implements each requirement of a local YAML catalog. The output directory must already exist. See [Requirements audit](docs/security-requirements-audit-skill.md).
+`audit-requirements` checks whether a repository implements each requirement of a local catalog in Analyzer YAML or OSCAL format. The output directory must already exist. See [Requirements audit](docs/security-requirements-audit-skill.md).
 
 ```sh
 # Try the audit with the bundled sample catalog

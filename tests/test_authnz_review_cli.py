@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shlex
@@ -344,6 +345,49 @@ def test_catalog_is_explicit_validated_and_masked_before_model_use(source, tmp_p
     assert marker not in json.dumps(host.context)
     assert marker not in json.dumps(document)
     assert host.context["requirements"]["categories"][0]["requirements"][0]["id"] == "AC-1"
+
+
+def _oscal_catalog(tmp_path, root="catalog", controls=1):
+    path = tmp_path / "oscal.json"
+    path.write_text(
+        json.dumps(
+            {
+                root: {
+                    "metadata": {"title": "Web baseline", "version": "1.2", "oscal-version": "1.1.2"},
+                    "controls": [
+                        {"id": f"ac-{n}", "parts": [{"name": "statement", "prose": "Check object ownership."}]}
+                        for n in range(1, controls + 1)
+                    ],
+                }
+            }
+        )
+    )
+    return path
+
+
+def test_an_oscal_catalog_is_converted_before_model_use_and_its_checksum_is_the_file_s(source, tmp_path):
+    catalog = _oscal_catalog(tmp_path)
+    host = SignalHost()
+    code, document = _run(source, host, requirements_path=catalog)
+    assert code == 0
+    assert document["provenance"]["catalog_sha256"] == hashlib.sha256(catalog.read_bytes()).hexdigest()
+    assert document["provenance"]["catalog_format"]["format"] == "oscal-catalog"
+    assert host.context["requirements"]["categories"][0]["requirements"][0]["id"] == "ac-1"
+
+
+def test_an_oscal_profile_never_reaches_the_model(source, tmp_path):
+    host = SignalHost()
+    with pytest.raises(ValueError, match="OSCAL profile is not supported"):
+        _run(source, host, requirements_path=_oscal_catalog(tmp_path, root="profile"))
+    assert host.calls == 0 and not list(source[1].iterdir())
+
+
+def test_a_catalog_too_large_for_one_packet_is_refused_with_its_size_and_limit(source, tmp_path, monkeypatch):
+    monkeypatch.setattr("appsec_analyzer.authnz_review.MAX_CATALOG_CONTEXT_BYTES", 200)
+    host = SignalHost()
+    with pytest.raises(ValueError, match=r"requirements catalog is \d+ bytes; the AuthNZ review supports at most 200"):
+        _run(source, host, requirements_path=_oscal_catalog(tmp_path, controls=5))
+    assert host.calls == 0 and not list(source[1].iterdir())
 
 
 @pytest.mark.parametrize("contents", ["!!python/object/apply:os.system ['unexpected']", "categories: not-an-array"])

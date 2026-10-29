@@ -60,6 +60,10 @@ MAX_CATALOG_BYTES = 1_048_576
 # Mirrors MAX_CLASS_VALUES, the per-component cap the single-repository
 # requirements projection applies.
 MAX_REQUIREMENT_ROWS = 32
+# Stage 2 assesses every requirement in one reply and cuts each text to 120 characters at worst.
+# Its context limit is 240 000 bytes (MAX_SECARCH_CONTEXT_BYTES in assessment_stage2); the catalog
+# may use half of that, the rest is for the findings and controls.
+MAX_STAGE2_REQUIREMENT_BYTES = 120_000
 SCRIPT_TIMEOUT = 120
 RUN_WIDE = "run-wide context"
 TEXT_FIELDS = ("business_purpose", "impact_if_compromised")
@@ -395,6 +399,30 @@ def _requirements(cfg: dict[str, Any], directory: Path) -> dict[str, Any]:
     )
     if not ids:
         raise ContextError("configured requirements catalog contains no requirements")
+    rows = build_rows(catalog)
+    if len(rows) > MAX_REQUIREMENT_ROWS:
+        raise ContextError(
+            f"requirements catalog needs {len(rows)} context rows per component, but assess supports "
+            f"{MAX_REQUIREMENT_ROWS}; use a smaller catalog, such as a baseline, or audit it in parts with "
+            "audit-requirements --category"
+        )
+    compact = [
+        {
+            "id": str(r["id"]),
+            "priority": str(r.get("priority") or ""),
+            "category": str(c.get("title") or c.get("id") or ""),
+            "text": str(r.get("text") or "")[:120],
+        }
+        for c in catalog.get("categories") or []
+        if isinstance(c, dict)
+        for r in (c.get("requirements") or [])
+        if isinstance(r, dict) and r.get("id")
+    ]
+    if len(json.dumps(compact, ensure_ascii=False).encode()) > MAX_STAGE2_REQUIREMENT_BYTES:
+        raise ContextError(
+            f"requirements catalog is too large for the requirements assessment ({len(ids)} requirements); "
+            "use a smaller catalog"
+        )
     resolution = json.loads((directory / ".requirements-resolution.json").read_text(encoding="utf-8"))
     if not isinstance(resolution, dict):
         raise ContextError("requirements resolution is not an object")
@@ -403,7 +431,7 @@ def _requirements(cfg: dict[str, Any], directory: Path) -> dict[str, Any]:
         "catalog_text": body.decode("utf-8"),
         "resolution": resolution,
         "ids": ids,
-        "rows": build_rows(catalog),
+        "rows": rows,
     }
 
 

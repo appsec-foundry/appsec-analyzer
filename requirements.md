@@ -96,6 +96,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-030:** **Decide whether an audit should block CI.** Requirements results are advisory unless the user explicitly chooses a blocking CI gate based on verdicts and requirement priorities. An unfinished audit is reported separately from a failed policy check. Unverifiable requirements never count as passing.
 
+- **REQ-046:** **Use requirements in standard formats.** Commands that accept a requirements catalog also read OSCAL catalogs without prior conversion. Analyzer reports the format it read and what it left out. It refuses a catalog that does not fit the command before any model call.
+
 ## Protect sources and results
 
 - **REQ-031:** **Treat repository content as data.** Files in a repository cannot activate their own instructions, hooks, or tools, or send the analysis outside the selected sources. Analyzer rejects paths and links that escape the permitted source boundary.

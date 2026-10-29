@@ -137,6 +137,17 @@
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
               },
+              "catalog_format": {
+                "enum": ["oscal-catalog"]
+              },
+              "catalog_title": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "catalog_version": {
+                "type": "string",
+                "maxLength": 40
+              },
               "required": {
                 "type": "boolean"
               },

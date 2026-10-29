@@ -59,7 +59,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--threat-model", metavar="FILE", help="Explicit structured YAML model or repository Markdown document"
     )
     parser.add_argument(
-        "--requirements", metavar="FILE", help="Explicit YAML catalog or repository Markdown requirements"
+        "--requirements",
+        metavar="FILE",
+        help="Explicit Analyzer YAML or OSCAL catalog, or repository Markdown requirements",
     )
     parser.add_argument(
         "--isolated", action="store_true", help="Exclude existing threat models; keep selected requirements/specs"

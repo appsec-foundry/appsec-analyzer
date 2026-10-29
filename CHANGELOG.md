@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- `--requirements` of `assess`, `audit-requirements`, `authnz-review`, and `analyze-threats` also reads OSCAL catalogs in JSON or YAML. Analyzer detects the format from the content, assigns the priority MUST to every control, leaves out withdrawn controls, and records the format and the checksum of the supplied file. Profiles, XML, and catalogs above a command's limit are refused before any model call; see [catalog formats](docs/security-requirements-audit-skill.md#catalog-formats).
 - Figure 1 shows OAuth 2.0 and OpenID Connect sign-ins step by step for any provider product, including a provider that runs inside the system: the sign-in, the token request with its grant, and requests that carry the provider's access token to the application. Common client libraries and token checks are recognized, and fetching public discovery documents or signing keys no longer appears as missing authentication.
 - Private HTTPS Git URLs and merge or pull request URLs can use a token from `GIT_TOKEN` or `GITLAB_TOKEN` (GitLab hosts only), or from any variable named with `--git-token-env`; a failed access now names the variables it looked for.
 - Standard and thorough assessments verify authentication, authorization, input validation, and language model use alongside STRIDE analysis; thorough also checks data protection. Verification adds model cost, shown in advance, and produces item-level results with linked findings and explicit contradictions. Profiles can also record scanner-linked verification items without model calls; see [verification configuration](docs/security-assessment.md#configure-verification).
@@ -26,6 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- `assess` refuses a requirements catalog that needs more than 32 context rows per component before the first model call, instead of silently leaving the later requirements out of the analysis. A remote catalog is read only up to 16 MiB and its redirects are checked against the URL policy.
 - Pipeline helpers that validate the threat model and read run costs now start with the interpreter of the running Analyzer instead of the first `python3` on `PATH`, so an environment-managed install no longer fails on a different Python's older libraries.
 - The start check of `assess` and `preflight` stops with the `pip install` command when `jsonschema` is older than 4.20, instead of failing in the middle of a run.
 - The scanner line of the `assess` console lists the hits of each deterministic scanner (source auth, authz confirm, mass assignment, config/IaC, architecture), including scanners with none.

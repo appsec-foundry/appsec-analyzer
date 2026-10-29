@@ -22,7 +22,7 @@ appsec-analyzer authnz-review --repo /path/to/project --budget 5 --yaml
 
 Replace `/path/to/project` with the local checkout. Progress and the budget and data-use notice go to stderr. Stdout contains Markdown text by default. `--json` and `--yaml` (not together) print the same versioned result without terminal styling. A console-only review leaves no result files. This command does not support Git URLs, several repositories, imported threat models, organization output defaults, or resuming.
 
-`--requirements /path/to/catalog.yaml` adds references from a local requirements catalog to the findings. The catalog uses the same `categories[].requirements[]` format as the [requirements audit](security-requirements-audit-skill.md). No catalog is picked up automatically. The annotation is not a requirements audit or a compliance check.
+`--requirements /path/to/catalog.yaml` adds references from a local requirements catalog to the findings. The catalog is an Analyzer YAML catalog or an OSCAL catalog, as described under [catalog formats](security-requirements-audit-skill.md#catalog-formats), and may be up to 128 000 bytes after conversion. No catalog is picked up automatically. The annotation is not a requirements audit or a compliance check.
 
 `--save` keeps the results in a new `authnz-reviews/review-*` subdirectory of the application's private assessment directory. `--output DIR` selects an existing, empty directory outside the checkout. It must be owned by you and have mode 0700. Links and occupied destinations are rejected before any model call. Saved files are private and never overwrite another file.
 

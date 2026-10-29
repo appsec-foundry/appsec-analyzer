@@ -83,6 +83,96 @@ class FakeHost:
         )
 
 
+def _oscal(tmp_path: Path, root: str = "catalog") -> Path:
+    path = tmp_path / "oscal.json"
+    path.write_text(
+        json.dumps(
+            {
+                root: {
+                    "metadata": {"title": "Web baseline", "version": "1.2", "oscal-version": "1.1.2"},
+                    "controls": [
+                        {
+                            "id": "ac-1",
+                            "title": "Access",
+                            "parts": [{"name": "statement", "prose": "Protect account reads."}],
+                        }
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_audit_reads_an_oscal_catalog_and_records_its_format_and_checksum(tmp_path: Path) -> None:
+    repo, output, _ = _fixture(tmp_path)
+    catalog = _oscal(tmp_path)
+    host = FakeHost()
+    code, public = audit_repository(
+        repo=str(repo),
+        output=str(output),
+        catalog_path=catalog,
+        model="offline-fake",
+        hard_budget=1,
+        write_md=True,
+        host_factory=lambda ceiling: host,
+    )
+    assert code == 0 and public["summary"]["fail"] == 1
+    verdict = json.loads((output / ".requirements-audit.json").read_text())
+    assert verdict["provenance"]["catalog_sha256"] == hashlib.sha256(catalog.read_bytes()).hexdigest()
+    assert verdict["provenance"]["catalog_format"] == {
+        "format": "oscal-catalog",
+        "title": "Web baseline",
+        "version": "1.2",
+        "oscal_version": "1.1.2",
+        "requirements": 1,
+        "withdrawn_left_out": 0,
+    }
+    assert verdict["results"][0]["id"] == "ac-1" and verdict["results"][0]["priority"] == "MUST"
+    markdown = (output / "appsec-requirements-report.md").read_text()
+    assert 'Catalog format: OSCAL catalog "Web baseline" 1.2' in markdown
+
+
+def test_audit_refuses_an_oscal_profile_before_any_model_call(tmp_path: Path) -> None:
+    repo, output, _ = _fixture(tmp_path)
+    host = FakeHost()
+    with pytest.raises(ValueError, match="OSCAL profile is not supported"):
+        audit_repository(
+            repo=str(repo),
+            output=str(output),
+            catalog_path=_oscal(tmp_path, root="profile"),
+            model="offline-fake",
+            hard_budget=1,
+            host_factory=lambda ceiling: host,
+        )
+    assert host.calls == 0 and not list(output.iterdir())
+
+
+def test_audit_names_the_limit_and_the_category_filter_when_a_catalog_is_too_large(tmp_path: Path) -> None:
+    repo, output, _ = _fixture(tmp_path)
+    controls = [{"id": f"c-{n}", "parts": [{"name": "statement", "prose": "Do it."}]} for n in range(161)]
+    path = tmp_path / "big.json"
+    path.write_text(
+        json.dumps(
+            {"catalog": {"metadata": {"title": "t", "version": "1", "oscal-version": "1.1.2"}, "controls": controls}}
+        )
+    )
+    host = FakeHost()
+    with pytest.raises(
+        ValueError, match=r"1 to 160 valid entries, found 161; select part of the catalog with --category"
+    ):
+        audit_repository(
+            repo=str(repo),
+            output=str(output),
+            catalog_path=path,
+            model="offline-fake",
+            hard_budget=1,
+            host_factory=lambda ceiling: host,
+        )
+    assert host.calls == 0
+
+
 def test_audit_is_distinct_from_assessment_and_gate_is_deterministic(tmp_path: Path) -> None:
     repo, output, catalog = _fixture(tmp_path)
     host = FakeHost()

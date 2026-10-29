@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -52,7 +51,10 @@ def _items(catalog: dict, category_filter: str | None) -> list[dict]:
                 }
             )
     if not chosen or len(chosen) > MAX_REQUIREMENTS:
-        raise ValueError("requirements selection must contain 1 to 160 valid entries")
+        raise ValueError(
+            f"requirements selection must contain 1 to {MAX_REQUIREMENTS} valid entries, found {len(chosen)}"
+            + ("; select part of the catalog with --category" if chosen else "")
+        )
     return chosen
 
 
@@ -104,6 +106,8 @@ def _review(artifact: dict, slices: tuple[dict, ...]) -> None:
 
 
 def _markdown(document: dict) -> str:
+    from requirements.catalog_formats import describe
+
     summary = document["summary"]
     provenance = document["provenance"]
     source = provenance["scope"]["repositories"][0]
@@ -114,6 +118,7 @@ def _markdown(document: dict) -> str:
         "",
         f"Catalog: {document['requirements_source']}",
         f"Catalog SHA-256: {provenance['catalog_sha256']}",
+        *([f"Catalog format: {line}"] if (line := describe(provenance.get("catalog_format") or {})) else []),
         f"Source HEAD: {source['head']}",
         f"Source state SHA-256: {source['state_sha256']}",
         f"Admitted scope SHA-256: {provenance['scope']['scope_sha256']}",
@@ -186,7 +191,7 @@ def audit_repository(
     if scope.output_in_checkout():
         raise ValueError("audit output must be outside the selected checkout")
     view = scope.repositories[0]
-    catalog_body, catalog = _bounded_catalog(catalog_path)
+    catalog_body, catalog, catalog_source = _bounded_catalog(catalog_path)
     selected = _items(catalog, category_filter)
     filenames = sorted(view.files)
     if len(filenames) > 4000 or len(json.dumps(filenames).encode()) > MAX_INVENTORY_BYTES:
@@ -247,7 +252,11 @@ def audit_repository(
         "repository": view.root.name,
         "requirements_source": "demo" if demo else "local",
         "filter": category_filter,
-        "provenance": {"catalog_sha256": hashlib.sha256(catalog_body).hexdigest(), "scope": scope.inventory()},
+        "provenance": {
+            "catalog_sha256": catalog_source["source_sha256"],
+            "catalog_format": {k: v for k, v in catalog_source.items() if k != "source_sha256"},
+            "scope": scope.inventory(),
+        },
         "demo": demo,
         "priority_floor": priority_floor,
         "summary": {},
