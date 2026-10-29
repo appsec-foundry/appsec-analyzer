@@ -240,9 +240,30 @@ def _owns(component: dict, rel: str) -> bool:
 
 
 def carriers(unit: dict, components: list[dict]) -> list[dict]:
-    """Components of an eligible tier that list one of the unit's entry files."""
+    """Components of an eligible tier that list one of the unit's entry files.
+
+    A client app with its own root whose entry files no component lists is
+    carried by the one eligible component that lists runtime files below that
+    root: the model modelled the app and left out only its entry file, which
+    `adopt` then gives it. Two such components, or an app at the repository
+    root, stay uncovered, and an http-api unit always needs its entry file,
+    because a data-access component below an API root serves no requests.
+    """
     tiers = _CARRIER_TIERS[unit["kind"]]
-    return [c for c in components if c.get("tier") in tiers and any(_owns(c, rel) for rel in unit["entry_files"])]
+    eligible = [c for c in components if c.get("tier") in tiers]
+    exact = [c for c in eligible if any(_owns(c, rel) for rel in unit["entry_files"])]
+    root = (unit.get("root") or "").strip("/")
+    if exact or unit["kind"] != "client-app" or not root:
+        return exact
+    near = [
+        c
+        for c in eligible
+        if any(
+            isinstance(path, str) and path.startswith(root + "/") and is_runtime_path(path)
+            for path in c.get("paths") or []
+        )
+    ]
+    return near if len(near) == 1 else []
 
 
 def uncovered(units: list[dict], components: list[dict]) -> list[dict]:
