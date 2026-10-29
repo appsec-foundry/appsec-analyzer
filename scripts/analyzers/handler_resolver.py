@@ -17,7 +17,9 @@ its definition and classifies the resolved code:
 - ``unresolved``  anything else: an element that cannot be followed (unknown
                   package, dynamic dispatch, a conditional guard, a missing
                   definition), a credential read without a check, or a router
-                  whose mounting context lies in another file.
+                  whose mounting context lies in another file and was not
+                  composed (``js_router_mounts``; route_inventory passes the
+                  composed mounts, whose middlewares then run first).
 
 A JavaScript middleware that reads or decodes a credential but can never stop
 the request is a pass-through loader (an identity cache, a challenge or audit
@@ -133,6 +135,9 @@ _JS_APP_FACTORY_RE = re.compile(
     r"=\s*(?:express|fastify|restify\.createServer)\s*\(|=\s*new\s+Koa\s*\(|Hapi\.server\s*\("
 )
 _PY_APP_FACTORY_RE = re.compile(r"=\s*(?:FastAPI|Flask)\s*\(")
+_JS_USE_CALL_RE = re.compile(r"\b(?P<obj>[\w$]+)\s*\.\s*use\s*\(")
+#: A router a module exports or a factory returns names itself as one.
+_JS_ROUTER_NAME_RE = re.compile(r"(?i)router|routes")
 _PY_GLOBAL_HOOK_RE = re.compile(r"\bbefore_request\b|\badd_middleware\s*\(|\bmiddleware\s*\(\s*['\"]http")
 
 _TEST_PATH_RE = re.compile(r"(?:^|/)(?:tests?|__tests__|spec)(?:/|$)|(?:^|/)test_[^/]*\.py$|\.(?:spec|test)\.[jt]sx?$")
@@ -397,7 +402,8 @@ def direct_imports(path: str, text: str, exists) -> list[str]:
 
 
 def _scheme(text: str) -> str:
-    if re.search(r"(?i)cookies", text):
+    # A server-side session (express-session and alike) is keyed by its cookie.
+    if re.search(r"(?i)cookies|\breq(?:uest)?\s*\??\.\s*session\b", text):
         return "cookie"
     if re.search(r"(?i)authorization|bearer|jwt|token|verify", text):
         return "bearer"
@@ -411,6 +417,7 @@ class HandlerResolver:
         self.root = Path(repo_root).resolve()
         self._texts: dict[str, str | None] = {}
         self._imports: dict[str, dict[str, tuple[str, str]]] = {}
+        self._mounts: dict[str, list[dict]] = {}
 
     def _text(self, rel: str) -> str | None:
         if rel not in self._texts:
@@ -721,8 +728,29 @@ class HandlerResolver:
             return None
         rel, line, text, call, args = found
         obj, path = call.group("obj"), (route.get("path") or "").rstrip("/") or "/"
+        # A router mounted from another file (route_inventory composes `mounts`,
+        # outermost first) runs the middlewares of each mount before its own.
         chain = []
-        for use in re.finditer(rf"\b{re.escape(obj)}\s*\.\s*use\s*\(", text[: call.start()]):
+        for mount in route.get("mounts") or []:
+            outer = self._mount_chain(mount)
+            if outer is None:
+                return [(False, [])], [self._js_element(rel, line, arg) for arg in args[1:]], False
+            chain.extend(outer)
+        chain.extend(self._covering_uses(rel, text, obj, path, call.start()))
+        handler = [self._js_element(rel, line, arg) for arg in args[1:]]
+        root = (route.get("mounts") or [{"file": rel, "obj": obj}])[0]
+        root_text = text if root["file"] == rel else self._text(root["file"]) or ""
+        app = re.search(
+            rf"\b(?:const|let|var)\s+{re.escape(root['obj'])}\b[^=\n]*(?:{_JS_APP_FACTORY_RE.pattern})", root_text
+        )
+        return chain, handler, bool(app)
+
+    def _covering_uses(self, rel: str, text: str, obj: str, path: str, end: int) -> list:
+        """Elements of the `obj.use(...)` calls before `end` that run for `path`: path-less ones and covering prefixes."""
+        chain = []
+        for use in _JS_USE_CALL_RE.finditer(text, 0, end):
+            if use.group("obj") != obj:
+                continue
             mounted = _split_args(text[use.end() : _matching(text, use.end() - 1) - 1])
             prefixes = (
                 re.findall(r"['\"`](/[^'\"`]*)['\"`]", mounted[0]) if mounted and mounted[0][:1] in "'\"`[" else []
@@ -731,9 +759,98 @@ class HandlerResolver:
                 covered = any(path == p.rstrip("/*") or path.startswith(p.rstrip("/*") + "/") for p in prefixes)
                 mounted = mounted[1:] if covered else []
             chain.extend(self._js_element(rel, _line_of(text, use.start()), m) for m in mounted)
-        handler = [self._js_element(rel, line, arg) for arg in args[1:]]
-        app = re.search(rf"\b(?:const|let|var)\s+{re.escape(obj)}\b[^=\n]*(?:{_JS_APP_FACTORY_RE.pattern})", text)
-        return chain, handler, bool(app)
+        return chain
+
+    def covering_use_middleware(self, mount: dict) -> list[str]:
+        """Middleware expressions of earlier `use` calls that run before one router mount."""
+        rel, line = mount.get("file") or "", mount.get("line")
+        text = self._text(rel) or ""
+        record = next((m for m in self.js_router_mounts(rel) if m["line"] == line), None)
+        if record is None:
+            return []
+        path = (mount.get("path") or "").rstrip("/") or "/"
+        found = []
+        for use in _JS_USE_CALL_RE.finditer(text, 0, record["offset"]):
+            if use.group("obj") != record["obj"]:
+                continue
+            mounted = _split_args(text[use.end() : _matching(text, use.end() - 1) - 1])
+            if mounted and mounted[0][:1] in "'\"`[":
+                prefixes = re.findall(r"['\"`](/[^'\"`]*)['\"`]", mounted[0])
+                covered = any(path == p.rstrip("/*") or path.startswith(p.rstrip("/*") + "/") for p in prefixes)
+                mounted = mounted[1:] if covered else []
+            found.extend(mounted)
+        return found
+
+    def _mount_chain(self, mount: dict) -> list | None:
+        """Elements that run at one router mount: earlier covering uses, then the mount's own middlewares."""
+        rel, line = mount.get("file") or "", mount.get("line")
+        text = self._text(rel)
+        record = next((m for m in self.js_router_mounts(rel) if m["line"] == line), None) if text else None
+        if record is None:
+            return None
+        path = (mount.get("path") or "").rstrip("/") or "/"
+        chain = self._covering_uses(rel, text, record["obj"], path, record["offset"])
+        chain.extend(self._js_element(rel, line, m) for m in record["middleware"])
+        return chain
+
+    def js_router_mounts(self, rel: str) -> list[dict]:
+        """`obj.use([prefix,] ...middleware, router)` calls in one file that mount a router.
+
+        The router is the last argument: a default or `require` import of a
+        repository module, an imported name or factory call naming a router
+        (`ordersRouter`, `createRoutes(deps)`), or an object the file creates
+        with `Router()`. Each record carries `line`, `offset`, `obj`, `prefix`
+        (None when path-less), `middleware` (the expressions between prefix and
+        router), `target_file` and `target_obj` (None for a whole module).
+        Package middleware and other calls mount no router.
+        """
+        if rel in self._mounts:
+            return self._mounts[rel]
+        text = self._text(rel)
+        if not text or not rel.endswith(_JS_EXTS):
+            return []
+        imports = self._js_imports(rel)
+        mounts = self._mounts[rel] = []
+        for use in _JS_USE_CALL_RE.finditer(text):
+            args = _split_args(text[use.end() : _matching(text, use.end() - 1) - 1])
+            prefix = None
+            if args and args[0][:1] in "'\"`":
+                literal = _JS_STRING_RE.fullmatch(args[0])
+                if not literal or not args[0][1:-1].startswith("/"):
+                    continue
+                prefix, args = args[0][1:-1], args[1:]
+            if not args:
+                continue
+            last = args[-1].strip()
+            call = re.fullmatch(r"([A-Za-z_$][\w$]*)\s*\(.*\)", last, re.DOTALL)
+            name = call.group(1) if call else last if re.fullmatch(r"[A-Za-z_$][\w$]*", last) else None
+            if name is None:
+                continue
+            target_file = target_obj = None
+            if name in imports:
+                source, exported = imports[name]
+                module = self._module(rel, source) if source.startswith(".") else None
+                named_router = _JS_ROUTER_NAME_RE.search(name) or _JS_ROUTER_NAME_RE.search(exported)
+                if module and (named_router or (exported == "*" and not call)):
+                    target_file = module
+            elif not call and re.search(
+                rf"\b(?:const|let|var)\s+{re.escape(name)}\b[^=\n]*=\s*(?:new\s+)?(?:[\w$]+\s*\.\s*)?Router\s*\(", text
+            ):
+                target_file, target_obj = rel, name
+            if target_file is None:
+                continue
+            mounts.append(
+                {
+                    "line": _line_of(text, use.start()),
+                    "offset": use.start(),
+                    "obj": use.group("obj"),
+                    "prefix": prefix,
+                    "middleware": args[:-1],
+                    "target_file": target_file,
+                    "target_obj": target_obj,
+                }
+            )
+        return mounts
 
     # -- Python and NestJS decorated handlers -------------------------------
     def _py_modules(self, rel: str, local: str) -> list[str]:

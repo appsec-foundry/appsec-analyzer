@@ -15,8 +15,12 @@ Route extractors:
   * GraphQL SDL operations: type Query / Mutation / Subscription fields
 Go, Ruby and PHP files have no route extractor.
 
+Express and Koa routers mounted with `use` (in the same file or imported from
+another one, over several levels) take the joined mount prefix as their path,
+and a guard at any mount lifts their authn/authz signal (`_compose_js_routers`).
+
 Out of scope:
-  * Cross-file router composition (a mount prefix is not joined to the route path)
+  * Router composition of other stacks and through package or path-alias imports
   * Dynamic path construction
   * Object-level authorization, tenant scope
   * Full control-flow analysis
@@ -47,6 +51,7 @@ if not __package__:
 
 import argparse
 import ast
+import copy
 import json
 import os
 import re
@@ -608,6 +613,11 @@ class RouteCandidate:
     handler_module: str | None = None
     operation_permission_present: bool = False
     guard_lines: list[int] = field(default_factory=list)
+    # Not serialized: the registering object, the path as written there, and
+    # the router mounts (outermost first) that `_compose_js_routers` joined.
+    router_obj: str | None = None
+    local_path: str | None = None
+    mounts: list[dict] = field(default_factory=list)
 
 
 def _detect_management_surface(path: str) -> bool:
@@ -788,6 +798,7 @@ def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
                 authz_signal=authz,
                 management_surface=_detect_management_surface(route),
                 guard_lines=guard_lines[:MAX_GUARD_LINES],
+                router_obj=m.group("obj"),
             )
         )
 
@@ -1208,7 +1219,8 @@ def _lift_auth_signals(
         "framework": r.framework,
         "handler_file": r.handler_file,
         "handler_line": r.handler_line,
-        "path": r.path,
+        "path": r.local_path or r.path,
+        "mounts": r.mounts,
     }
     handler = resolver.route_signal(route_ref)
     r.handler_module = resolver.handler_module(route_ref)
@@ -1304,6 +1316,88 @@ def _flag_route(r: RouteCandidate, llm_sdk_declared: bool) -> None:
     r.relevance_tags = tags
 
 
+_COMPOSED_FRAMEWORKS = {"express", "koa"}
+#: Mount levels followed from a router to the application; deeper chains stay as written.
+MAX_MOUNT_DEPTH = 8
+#: Mount paths kept per route, so a router mounted at many levels cannot multiply without bound.
+MAX_MOUNT_CONTEXTS = 16
+
+
+def _join_paths(prefix: str, path: str) -> str:
+    joined = "/".join(part.strip("/") for part in (prefix, path) if part.strip("/"))
+    return "/" + joined
+
+
+def _compose_js_routers(
+    repo_root: Path, routes: list[RouteCandidate], resolver: HandlerResolver
+) -> list[RouteCandidate]:
+    """Give routes of mounted Express/Koa routers their full path and their mounts' guards.
+
+    `resolver.js_router_mounts` lists every `use` call that mounts a router.
+    A route's router is reached through mounts of its own object in the same
+    file, else through mounts of its module from importing files; each path
+    from the application object to the route yields one route with the joined
+    prefix. A guard name in a mount's middlewares, or in an earlier covering
+    `use` of the mounting object, lifts the signal as a same-file guard does.
+    A router mounted nowhere keeps its path; a cycle or a chain deeper than
+    `MAX_MOUNT_DEPTH` stops at the last mount followed.
+    """
+    incoming: dict[tuple[str, str | None], list[tuple[tuple[str, str], dict]]] = {}
+    for src in _walk_sources(repo_root):
+        if src.suffix.lower() not in _JS_EXTS:
+            continue
+        rel = src.relative_to(repo_root).as_posix()
+        for mount in resolver.js_router_mounts(rel):
+            target = (mount["target_file"], mount["target_obj"])
+            incoming.setdefault(target, []).append(((rel, mount["obj"]), mount))
+
+    def contexts(node: tuple[str, str], seen: frozenset) -> list[list[tuple[str, dict]]]:
+        edges = incoming.get(node) or incoming.get((node[0], None)) or []
+        if not edges or len(seen) >= MAX_MOUNT_DEPTH:
+            return [[]]
+        found = []
+        for parent, mount in edges:
+            if parent in seen:
+                continue
+            found.extend([*chain, (parent[0], mount)] for chain in contexts(parent, seen | {node}))
+        return found or [[]]
+
+    out: list[RouteCandidate] = []
+    for route in routes:
+        if route.framework not in _COMPOSED_FRAMEWORKS or not route.router_obj:
+            out.append(route)
+            continue
+        chains = [c for c in contexts((route.handler_file, route.router_obj), frozenset()) if c][:MAX_MOUNT_CONTEXTS]
+        if not chains:
+            out.append(route)
+            continue
+        for chain in chains:
+            composed = copy.deepcopy(route)
+            composed.local_path = route.path
+            below = route.path
+            hops = []
+            # Innermost first: each hop's path is its own prefix joined to everything below it.
+            for rel, mount in reversed(chain):
+                below = _join_paths(mount["prefix"] or "", below)
+                hops.append({"file": rel, "line": mount["line"], "obj": mount["obj"], "path": below})
+            composed.mounts = list(reversed(hops))
+            composed.path = below
+            composed.management_surface = _detect_management_surface(below)
+            for hop in composed.mounts:
+                middleware = [*resolver.covering_use_middleware(hop), *_mount_record(resolver, hop)["middleware"]]
+                authn, authz = _scan_auth_text(" , ".join(middleware))
+                if composed.authn_signal == "unknown" and authn != "unknown":
+                    composed.authn_signal = authn
+                if composed.authz_signal == "unknown" and authz != "unknown":
+                    composed.authz_signal = authz
+            out.append(composed)
+    return out
+
+
+def _mount_record(resolver: HandlerResolver, hop: dict) -> dict:
+    return next(m for m in resolver.js_router_mounts(hop["file"]) if m["line"] == hop["line"])
+
+
 def _dedupe_routes(all_routes: list[RouteCandidate]) -> list[RouteCandidate]:
     """Drop repeated (method, path, handler_file, handler_line) routes, keeping the first."""
     seen_keys: set[tuple] = set()
@@ -1390,6 +1484,7 @@ def build_inventory(repo_root: Path) -> dict:
 
     # Apply prefix guards + compute the missing-auth advisory flag.
     resolver = HandlerResolver(repo_root)
+    all_routes = _compose_js_routers(repo_root, all_routes, resolver)
     for r in all_routes:
         _lift_auth_signals(r, resolver)
         _flag_route(r, llm_sdk_declared)

@@ -861,3 +861,92 @@ def test_terminal_use_mount_is_a_route_with_its_handler_module(tmp_path: Path, s
     assert bool(mounts) == listed
     if listed:
         assert mounts[0]["handler_module"] == "routes/files.ts"
+
+
+# ---------------------------------------------------------------------------
+# Router composition across `use` mounts
+# ---------------------------------------------------------------------------
+
+_REQUIRE_AUTH = (
+    "export function requireAuth() {\n"
+    "  return (req, res, next) => {\n"
+    "    if (!req.session.user) {\n"
+    "      return res.status(401).end();\n"
+    "    }\n"
+    "    next();\n"
+    "  };\n"
+    "}\n"
+)
+
+
+def _write(root: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "files,expected",
+    [
+        (
+            {
+                "src/app.ts": "import express from 'express';\nimport routes from './routes';\n"
+                "const app = express();\napp.use('/', routes);\n",
+                "src/routes.ts": "import { Router } from 'express';\nimport usersRouter from './api/users';\n"
+                "import { requireAuth } from './auth';\nconst router = Router();\n"
+                "router.use('/api/v2/user', requireAuth(), usersRouter);\nexport default router;\n",
+                "src/auth.ts": _REQUIRE_AUTH,
+                "src/api/users.ts": "import { Router } from 'express';\nconst router = Router();\n"
+                "router.get('/me', (req, res) => res.json(req.session.user));\nexport default router;\n",
+            },
+            ("GET", "/api/v2/user/me", "src/api/users.ts"),
+        ),
+        (
+            {
+                "server.js": "const express = require('express');\nconst { requireAuth } = require('./lib/auth');\n"
+                "const { createOrdersRouter } = require('./orders/router');\nconst app = express();\n"
+                "app.use('/shop/orders', requireAuth(), createOrdersRouter(db));\n",
+                "lib/auth.js": _REQUIRE_AUTH.replace("export function", "function")
+                + "module.exports = { requireAuth };\n",
+                "orders/router.js": "const { Router } = require('express');\nfunction createOrdersRouter(db) {\n"
+                "  const r = Router();\n  r.delete('/:orderId', (req, res) => res.sendStatus(204));\n  return r;\n}\n"
+                "module.exports = { createOrdersRouter };\n",
+            },
+            ("DELETE", "/shop/orders/:orderId", "orders/router.js"),
+        ),
+    ],
+    ids=["imported-router", "required-factory"],
+)
+def test_mounted_routers_take_the_full_path_and_the_mount_guard(tmp_path: Path, files, expected) -> None:
+    _write(tmp_path, files)
+    method, path, handler_file = expected
+    route = _route(_run(tmp_path), method, path)
+    assert route["handler_file"] == handler_file
+    assert route["authn_signal"] == "middleware_present"
+    assert route["authn_handler_signal"] == "verified"
+
+
+def test_a_same_file_router_and_an_unguarded_mount_keep_their_own_signals(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "app.ts": "import express from 'express';\nconst app = express();\nconst api = express.Router();\n"
+            "api.get('/status', (req, res) => res.send('ok'));\napp.use('/api', api);\n",
+        },
+    )
+    route = _route(_run(tmp_path), "GET", "/api/status")
+    assert route["authn_signal"] == "absent"
+
+
+def test_middleware_and_unmounted_routers_are_no_router_mounts(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "app.ts": "import express from 'express';\nimport { audit } from './audit';\nconst app = express();\n"
+            "app.use('/admin', audit);\n",
+            "audit.ts": "import { Router } from 'express';\nexport const audit = (req, res, next) => next();\n"
+            "const router = Router();\nrouter.get('/report', (req, res) => res.send('r'));\nexport default router;\n",
+        },
+    )
+    paths = {(r["method"], r["path"]) for r in _run(tmp_path)["routes"]}
+    assert ("GET", "/report") in paths and ("GET", "/admin/report") not in paths
