@@ -167,8 +167,74 @@ def test_rate_limit_transports_only_validated_reset_not_body(fake_host, monkeypa
         api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
     assert caught.value.reason == "rate_limit" and caught.value.retry_after_s == 120
     assert caught.value.http_status == 429
-    assert caught.value.usd is None
+    assert caught.value.usd == 0.0
     assert "private-provider-diagnostic" not in str(caught.value)
+
+
+def _bound(profile, prompt="source"):
+    body = api_hosts._request_body(profile, "s", prompt, {})
+    return (
+        (len(body) + 4096) * profile.input_usd_per_million + profile.output_token_bound * profile.output_usd_per_million
+    ) / 1_000_000
+
+
+def test_a_call_refused_before_sending_costs_nothing(fake_host, monkeypatch):
+    with pytest.raises(api_hosts.TransportError) as caught:
+        api_hosts.ResponsesTransport(_profile(), 0.000001).invoke("s", "source", {}, 5, lambda: False)
+    assert (caught.value.reason, caught.value.usd) == ("budget_exhausted", 0.0)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    with pytest.raises(api_hosts.TransportError) as caught:
+        api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
+    assert (caught.value.reason, caught.value.usd) == ("authentication_failed", 0.0)
+    assert not fake_host.instances
+
+
+@pytest.mark.parametrize(
+    "status, refused", [(401, True), (402, True), (403, True), (429, True), (400, False), (500, False)]
+)
+def test_a_refused_request_costs_nothing_and_another_failure_at_most_its_bound(fake_host, monkeypatch, status, refused):
+    class Failed(_Connection):
+        def getresponse(self):
+            return _Reply(b"{}", status)
+
+    monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Failed)
+    with pytest.raises(api_hosts.TransportError) as caught:
+        api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
+    assert caught.value.usd == (0.0 if refused else pytest.approx(_bound(_profile())))
+
+
+@pytest.mark.parametrize(
+    "data, reason, usd",
+    [
+        # A reply with usage is charged what it used, not its reservation.
+        (_response({}, output=[]), "invalid_response", (100 * 1.0 + 20 * 2.0) / 1_000_000),
+        (
+            json.dumps(
+                {
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "usage": {"input_tokens": 100, "output_tokens": 1024},
+                }
+            ).encode(),
+            "output_token_limit",
+            (100 * 1.0 + 1024 * 2.0) / 1_000_000,
+        ),
+        # Without usage it cost at most its bound; usage beyond the bounds leaves the reservation.
+        (json.dumps({"status": "failed"}).encode(), "invalid_response", "bound"),
+        (_response({}, usage={"input_tokens": 10**9, "output_tokens": 20}), "invalid_response", None),
+    ],
+)
+def test_a_rejected_reply_is_charged_by_its_own_usage(fake_host, monkeypatch, data, reason, usd):
+    class Rejected(_Connection):
+        def getresponse(self):
+            return _Reply(data)
+
+    monkeypatch.setattr(api_hosts, "_PinnedHTTPS", Rejected)
+    with pytest.raises(api_hosts.TransportError) as caught:
+        api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "source", {}, 5, lambda: False)
+    assert caught.value.reason == reason
+    expected = _bound(_profile()) if usd == "bound" else usd
+    assert caught.value.usd == (None if expected is None else pytest.approx(expected))
 
 
 @pytest.mark.parametrize(

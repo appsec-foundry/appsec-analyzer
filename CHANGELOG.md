@@ -60,6 +60,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- With API profiles (OpenAI, Bedrock, LiteLLM), a failed model call no longer uses up its whole call allowance. A request the provider refuses, including a rate limit, costs nothing and is repeated as intended; a rejected answer counts the tokens it used; any other failure counts at most the request's worst case. When too little budget is left for a call, Analyzer sends nothing and asks for a higher limit or keeps the finished work in an incomplete result, and the report keeps a reserve for one worst-case call.
+- The warning about repeated model calls names what the failed attempts cost, and the verification aspects' costs add up to the step's cost. A Claude CLI result that reports no cost for used tokens counts as unknown cost instead of free.
 - Reports of applications whose sign-in runs through an SSO or identity provider now show the people who use the browser client as a legitimate role, instead of showing attackers only.
 - OAuth and OIDC client registration endpoints such as `/connect/register` no longer count as open user self-registration, which had grouped authenticated users with anonymous attackers.
 - A `GET` login route that redirects to an SSO or identity provider, and the `POST` callback of a SAML or OIDC sign-in, no longer count as password authentication, so reports no longer list User Registration and Password Reset as missing controls for such applications. An unrelated control whose name contains "reset" no longer hides a missing password reset.

@@ -62,8 +62,17 @@ def _json(data):
 
 
 class ApiTransportError(TransportError):
-    def __init__(self, reason: str, *, retry_after_s: float | None = None, http_status: int | None = None):
-        super().__init__(reason, reason=reason, usd=None, retry_after_s=retry_after_s, http_status=http_status)
+    """A failed API call; ``usd`` is its cost when known, and None leaves the budget to charge its reservation."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        retry_after_s: float | None = None,
+        http_status: int | None = None,
+        usd: float | None = None,
+    ):
+        super().__init__(reason, reason=reason, usd=usd, retry_after_s=retry_after_s, http_status=http_status)
 
 
 def _retry_after(value: object) -> float | None:
@@ -196,7 +205,7 @@ def _public_addresses(host: str) -> tuple[str, ...]:
     try:
         rows = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
     except OSError:
-        raise ApiTransportError("dns_unavailable") from None
+        raise ApiTransportError("dns_unavailable", usd=0.0) from None
     addresses = tuple(sorted({row[4][0] for row in rows}))
     if not addresses or any(
         not ipaddress.ip_address(ip).is_global
@@ -204,7 +213,7 @@ def _public_addresses(host: str) -> tuple[str, ...]:
         or getattr(ipaddress.ip_address(ip), "is_site_local", False)
         for ip in addresses
     ):
-        raise ApiTransportError("destination_denied")
+        raise ApiTransportError("destination_denied", usd=0.0)
     return addresses
 
 
@@ -224,7 +233,7 @@ def credential(profile: ApiProfile) -> str:
     """Validate external credentials without exposing them in diagnostics."""
     value = os.environ.get(profile.key_env)
     if not value or len(value) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in value):
-        raise ApiTransportError("authentication_failed")
+        raise ApiTransportError("authentication_failed", usd=0.0)
     return value
 
 
@@ -388,14 +397,15 @@ class ResponsesTransport:
         # Import at invocation to keep deterministic scanning independent of hosts.
         if should_stop():
             raise HostCancelled("API call cancelled before transmission")
+        # A call refused before anything was sent costs nothing.
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
-            raise ApiTransportError("invalid_timeout")
+            raise ApiTransportError("invalid_timeout", usd=0.0)
         token = credential(self.profile)
         if type(schema) is not dict or type(system) is not str or type(prompt) is not str:
-            raise ApiTransportError("invalid_request")
+            raise ApiTransportError("invalid_request", usd=0.0)
         body = _request_body(self.profile, system, prompt, schema)
         if len(body) > self.profile.max_request_bytes:
-            raise ApiTransportError("request_too_large")
+            raise ApiTransportError("request_too_large", usd=0.0)
         # UTF-8 byte length bounds text token count, with room for API framing.
         # Output is bounded by an explicit request limit or the catalog model maximum.
         input_bound = len(body) + 4096
@@ -404,7 +414,10 @@ class ResponsesTransport:
             + self.profile.output_token_bound * self.profile.output_usd_per_million
         ) / 1_000_000
         if bound > self.ceiling:
-            raise ApiTransportError("budget_exhausted")
+            raise ApiTransportError("budget_exhausted", usd=0.0)
+        # A sent call without a usable reply costs at most its bound. A gateway's
+        # charge is known only from its own header, so there the reservation stays.
+        unknown = None if self.profile.kind == "lite" else bound
         url = urlsplit(self.profile.endpoint)
         path = (
             "/model/" + quote(self.profile.model, safe="") + "/converse" if self.profile.kind == "bedrock" else url.path
@@ -450,28 +463,29 @@ class ResponsesTransport:
                 raise HostCancelled("API call cancelled; reserved cost is unsettled")
             if time.monotonic() >= deadline:
                 connection.close()
-                raise ApiTransportError("timeout")
+                raise ApiTransportError("timeout", usd=unknown)
             worker.join(timeout=min(0.1, max(0.01, deadline - time.monotonic())))
         if not result:
-            raise ApiTransportError("transport")
+            raise ApiTransportError("transport", usd=unknown)
         if isinstance(result[0], ssl.SSLError):
-            raise ApiTransportError("tls_failed")
+            raise ApiTransportError("tls_failed", usd=unknown)
         if isinstance(result[0], Exception):
             # A reset, refused or closed connection; a repeated call may succeed.
-            raise ApiTransportError("connection_failed")
+            raise ApiTransportError("connection_failed", usd=unknown)
         status, data, retry_after, metadata = result[0]
         if len(data) > MAX_REPLY_BYTES:
-            raise ApiTransportError("response_too_large")
+            raise ApiTransportError("response_too_large", usd=unknown)
+        # The provider refuses these requests before the model runs, so they cost nothing.
         if status in (401, 403):
-            raise ApiTransportError("authentication_failed", http_status=status)
+            raise ApiTransportError("authentication_failed", http_status=status, usd=0.0)
         if status == 402:
-            raise ApiTransportError("billing_error", http_status=status)
+            raise ApiTransportError("billing_error", http_status=status, usd=0.0)
         if status == 429:
-            raise ApiTransportError("rate_limit", retry_after_s=retry_after, http_status=status)
+            raise ApiTransportError("rate_limit", retry_after_s=retry_after, http_status=status, usd=0.0)
         if status >= 500:
-            raise ApiTransportError("server_error", http_status=status)
+            raise ApiTransportError("server_error", http_status=status, usd=unknown)
         if status != 200:
-            raise ApiTransportError("invalid_request", http_status=status)
+            raise ApiTransportError("invalid_request", http_status=status, usd=unknown)
         # Keep token exhaustion distinct from malformed structured output.
         try:
             truncated = _json(data)
@@ -481,16 +495,21 @@ class ResponsesTransport:
                 and isinstance(truncated.get("incomplete_details"), dict)
                 and truncated["incomplete_details"].get("reason") == "max_output_tokens"
             ):
-                raise ApiTransportError("output_token_limit")
+                raise ApiTransportError(
+                    "output_token_limit", usd=self._reply_cost(truncated, input_bound, metadata, unknown)
+                )
         except (ValueError, UnicodeError, RecursionError):
             pass
+        raw = None
         try:
-            response = _json(data)
+            raw = response = _json(data)
             if type(response) is not dict:
                 raise ValueError("response is not an object")
             if self.profile.kind == "bedrock":
                 if response.get("stopReason") == "max_tokens":
-                    raise ApiTransportError("output_token_limit")
+                    raise ApiTransportError(
+                        "output_token_limit", usd=self._reply_cost(response, input_bound, metadata, unknown)
+                    )
                 message = response["output"]["message"]
                 if response.get("stopReason") != "end_turn" or message.get("role") != "assistant":
                     raise ValueError("incomplete Bedrock response")
@@ -516,15 +535,7 @@ class ResponsesTransport:
                 raise ValueError("incomplete response")
             usage = response["usage"]
             input_tokens, output_tokens = usage["input_tokens"], usage["output_tokens"]
-            if (
-                type(input_tokens) is not int
-                or type(output_tokens) is not int
-                or input_tokens < 0
-                or output_tokens < 0
-                or input_tokens > input_bound
-                or output_tokens > self.profile.output_token_bound
-            ):
-                raise ValueError("invalid token usage")
+            measured = self._charge(input_tokens, output_tokens, input_bound, metadata)
             if type(response["output"]) is not list:
                 raise ValueError("output is not a list")
             content = [
@@ -540,31 +551,66 @@ class ResponsesTransport:
             if type(wire) is not dict or set(wire) != {"payload_json"} or type(wire["payload_json"]) is not str:
                 raise ValueError("wire schema mismatch")
             payload = _json(wire["payload_json"])
-            measured = (
-                input_tokens * self.profile.input_usd_per_million + output_tokens * self.profile.output_usd_per_million
-            ) / 1_000_000
-            if self.profile.kind == "lite":
-                if metadata.get("deployment") != self.profile.deployment_id:
-                    raise ValueError("gateway deployment changed")
-                cost = metadata.get("cost")
-                if (
-                    type(cost) is not str
-                    or len(cost) > 64
-                    or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", cost)
-                ):
-                    raise ValueError("gateway cost unavailable")
-                charged = float(cost)
-                if not math.isfinite(charged) or charged < 0:
-                    raise ValueError("gateway cost invalid")
-                # A gateway without prices may report zero; configured rates remain the floor.
-                measured = max(measured, charged)
             if measured > self.ceiling:
                 raise ValueError("cost ceiling exceeded")
         except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
-            raise ApiTransportError("invalid_response") from None
+            raise ApiTransportError(
+                "invalid_response", usd=self._reply_cost(raw, input_bound, metadata, unknown)
+            ) from None
         # This host reports no cache split, so only the counters it measured are named.
         return HostReply(
             payload=payload,
             usd=measured,
             usage={self.profile.model: {"input": input_tokens, "output": output_tokens, "usd": measured}},
         )
+
+    def _charge(self, input_tokens, output_tokens, input_bound: int, metadata: dict) -> float:
+        """The cost of a reply's token counts at the profile's rates, or the gateway's higher charge."""
+        if (
+            type(input_tokens) is not int
+            or type(output_tokens) is not int
+            or input_tokens < 0
+            or output_tokens < 0
+            or input_tokens > input_bound
+            or output_tokens > self.profile.output_token_bound
+        ):
+            raise ValueError("invalid token usage")
+        measured = (
+            input_tokens * self.profile.input_usd_per_million + output_tokens * self.profile.output_usd_per_million
+        ) / 1_000_000
+        if self.profile.kind == "lite":
+            if metadata.get("deployment") != self.profile.deployment_id:
+                raise ValueError("gateway deployment changed")
+            cost = metadata.get("cost")
+            if (
+                type(cost) is not str
+                or len(cost) > 64
+                or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?", cost)
+            ):
+                raise ValueError("gateway cost unavailable")
+            charged = float(cost)
+            if not math.isfinite(charged) or charged < 0:
+                raise ValueError("gateway cost invalid")
+            # A gateway without prices may report zero; configured rates remain the floor.
+            measured = max(measured, charged)
+        return measured
+
+    def _reply_cost(self, reply: object, input_bound: int, metadata: dict, unknown: float | None) -> float | None:
+        """What a rejected reply cost by its own usage; ``unknown`` without usage.
+
+        Usage that breaks the request's bounds, or a charge the gateway does not
+        report, leaves the cost to the reservation (None).
+        """
+        usage = reply.get("usage") if isinstance(reply, dict) else None
+        if not isinstance(usage, dict):
+            return unknown
+        if self.profile.kind == "bedrock":
+            if any(usage.get(key, 0) for key in ("cacheReadInputTokens", "cacheWriteInputTokens")):
+                return None
+            tokens = usage.get("inputTokens"), usage.get("outputTokens")
+        else:
+            tokens = usage.get("input_tokens"), usage.get("output_tokens")
+        try:
+            return self._charge(*tokens, input_bound, metadata)
+        except ValueError:
+            return None

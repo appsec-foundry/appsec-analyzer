@@ -519,6 +519,37 @@ def test_a_failure_without_a_cost_report_is_charged_its_reservation_and_stays_re
     assert jobs.budget.spent_usd == pytest.approx(jobs.budget.call_usd)
 
 
+def test_a_repeated_call_records_the_reservation_its_failure_was_charged(tmp_path, no_retry_wait):
+    host = Refused(1, "server_error", usd=None)
+    jobs, kwargs = _hanging(tmp_path, host)
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    # The retry warning sums these rows, so they carry what the budget charged.
+    assert jobs.budget.retries == [{"reason": "server_error", "usd": pytest.approx(0.05), "paid": True}]
+    assert jobs.budget.spent_usd == pytest.approx(0.05 + 0.01)
+    # The job's group is charged for both calls, the failed one included.
+    assert jobs.budget.charged_of(kwargs["selector"]) == pytest.approx(0.06)
+    assert jobs.budget.charged_of("another-job") == 0.0
+
+
+def test_an_api_call_above_a_reduced_ceiling_ends_the_budget_without_a_charge(tmp_path):
+    """An API host sends nothing whose worst case exceeds what is left; that is a budget end, not a failure."""
+    from runtime.analyst_host import TransportError
+    from runtime.multi_repo_discovery import BudgetExhausted
+
+    host = Refused(2, "budget_exhausted")
+    jobs, kwargs = _hanging(tmp_path, host)
+    jobs.budget.call_usd = 0.5
+    jobs.budget.spent_usd = 0.8
+    with pytest.raises(BudgetExhausted, match="less than its worst-case cost"):
+        jobs.execute(**kwargs)
+    assert host.calls == 1 and jobs.budget.spent_usd == pytest.approx(0.8) and not jobs.budget.failed
+    # At the full ceiling the request itself exceeds a call; more budget would not help.
+    jobs.budget.spent_usd = 0.0
+    with pytest.raises(TransportError, match="budget_exhausted") as caught:
+        jobs.execute(**kwargs)
+    assert not isinstance(caught.value, BudgetExhausted) and jobs.budget.spent_usd == 0.0
+
+
 def test_a_paid_failure_is_repeated_once_and_reported(tmp_path, no_retry_wait):
     from runtime.analyst_host import TransportError
 
@@ -603,6 +634,25 @@ def test_optional_work_preserves_the_report_budget(tmp_path, selector, component
     assert host.calls == 1 and jobs.budget.spent_usd == pytest.approx(0.95)
     assert REPORT_JOB not in jobs.budget.required
     assert len(reported) == 1  # the accepted report is not a coverage gap
+
+
+@pytest.mark.parametrize("floor, reviewed", [(0.0, True), (0.05, False)])
+def test_the_report_reserve_keeps_an_api_hosts_worst_case_call(tmp_path, floor, reviewed):
+    """An API host sends no call below its worst case, so optional work also leaves that much for the report."""
+    from runtime.assessment_jobs import REPORT_JOB
+
+    jobs, _, kwargs, _ = setup(
+        tmp_path, replies=[{"action": "complete", "reads": [], "artifact": {"result": "accepted"}}] * 2
+    )
+    jobs.budget.deadline += 3600
+    jobs.budget.plan_completion()
+    jobs.budget.call_floor_usd = floor
+    jobs.budget.spent_usd = 0.88
+    result = jobs.execute(
+        **{**kwargs, "selector": "review:orders"}, on_failure=lambda reason: {"result": "not reviewed"}
+    )
+    assert result == ({"result": "accepted"} if reviewed else {"result": "not reviewed"})
+    assert jobs.execute(**{**kwargs, "role": "secarch_renderer", "selector": REPORT_JOB}) == {"result": "accepted"}
 
 
 def test_optional_work_still_runs_with_sufficient_completion_budget(tmp_path):

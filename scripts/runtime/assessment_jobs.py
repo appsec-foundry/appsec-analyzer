@@ -63,6 +63,8 @@ class AssessmentBudget(DiscoveryBudget):
     subscription_label: str = field(default="ChatGPT subscription", kw_only=True)
     # Whether the USD amounts value Claude subscription usage at API prices; display wording only.
     api_prices: bool = field(default=False, kw_only=True)
+    # The worst case of one call on an API host, which sends no call whose ceiling is below it; 0 for CLI hosts.
+    call_floor_usd: float = field(default=0.0, kw_only=True)
 
     def max_inflight(self) -> int:
         return self.workers
@@ -262,6 +264,9 @@ class AssessmentBudget(DiscoveryBudget):
                 parallel = max(parallel, seconds)
             else:
                 serial += count * seconds
+        if dollars:
+            # An API host admits the last reserved call only with its worst case left.
+            dollars += self.call_floor_usd
         # The last, partially filled worker group still needs a full job slot.
         parallel_seconds = math.ceil(parallel_count / self.workers) * parallel
         return dollars, math.ceil(serial + parallel_seconds) + FINALIZATION_SECONDS

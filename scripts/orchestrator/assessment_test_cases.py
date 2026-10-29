@@ -258,7 +258,7 @@ def run_pilot(
             )
         # The view holds this one job, so the console can mark a component whose every job was reused.
         progress(f"Finished verifying {job}" + (" · reused" if view.reused and not view.ran else ""))
-        return {"reply": artifact, "usd": exchanged.usd}
+        return {"reply": artifact}
 
     answered = {}
     dispatched = concurrently(jobs, work, _after_first_jobs(work, investigate)) if work else []
@@ -308,7 +308,9 @@ def run_pilot(
                         cases[case_id], component["id"], answer["cause"], unexamined=len(entry["precheck"][case_id])
                     )
         results += [entry["fixed"].get(case["id"]) or derived[case["id"]] for case in entry["cases"]]
-        usd[entry["aspect"]] = usd.get(entry["aspect"], 0.0) + sum(answer.get("usd") or 0.0 for _, answer in parts)
+        # Every call of the entry's jobs, failed and replaced ones included, so the aspects add up to the step.
+        selectors = (_selector(entry, number) for number in range(1, len(entry["jobs"]) + 1))
+        usd[entry["aspect"]] = usd.get(entry["aspect"], 0.0) + jobs.budget.charged_of(*selectors)
         if entry["precheck"]:
             rid = component["repository_ids"][0]
             candidates.setdefault(component["id"], []).extend(
@@ -325,8 +327,8 @@ def run_pilot(
             for _, answer in answered.get(id(entry), [])
         )
     ]
-    # What each aspect found and cost, so a reader can weigh one against the other, and what its items showed;
-    # a replaced job's cost is in the run's total only. The console adds the step's duration and cost.
+    # What each aspect found and cost in this session, so a reader can weigh one against the other, and what its
+    # items showed; the aspects' costs add up to the step's. The console adds the step's duration and cost.
     progress(
         "Verify done"
         + (f" · {', '.join(planned['worked'])}" if planned["worked"] else " · no aspect verified")

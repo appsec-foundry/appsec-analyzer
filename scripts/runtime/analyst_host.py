@@ -158,7 +158,9 @@ def _failure_reason(outcome: object, api_error: str | None) -> str:
 
 def _reported_usd(outcome: object) -> float | None:
     usd = outcome.get("total_cost_usd") if isinstance(outcome, dict) else None
-    return float(usd) if type(usd) in (int, float) and math.isfinite(usd) and usd >= 0 else None
+    usd = float(usd) if type(usd) in (int, float) and math.isfinite(usd) and usd >= 0 else None
+    # A crashed host may report zero after it used tokens; that zero is no cost report.
+    return None if usd == 0 and _reported_tokens(outcome) else usd
 
 
 # A model id the host reports; anything else never reaches the run's accounting.
@@ -170,6 +172,21 @@ _USAGE_COUNTERS = (
     ("cacheReadInputTokens", "cache_read"),
     ("cacheCreationInputTokens", "cache_write"),
 )
+
+
+def _reported_tokens(outcome: object) -> int:
+    """Tokens the host's per-model usage counts for a call; 0 when it reports none."""
+    raw = outcome.get("modelUsage") if isinstance(outcome, dict) else None
+    if not isinstance(raw, dict):
+        return 0
+    tokens = 0
+    for entry in raw.values():
+        if isinstance(entry, dict):
+            for field, _key in _USAGE_COUNTERS:
+                value = entry.get(field)
+                if type(value) is int and value > 0:
+                    tokens += value
+    return tokens
 
 
 def _reported_usage(outcome: object) -> dict[str, dict[str, float]] | None:
@@ -524,9 +541,10 @@ class ClaudeCliTransport:
                 usage_window=usage_window,
             )
         usd = outcome.get("total_cost_usd")
-        return HostReply(
-            outcome["structured_output"], usd if isinstance(usd, (int, float)) else None, _reported_usage(outcome)
-        )
+        if not isinstance(usd, (int, float)) or (usd == 0 and _reported_tokens(outcome)):
+            # A zero cost for a call that used tokens is no cost report.
+            usd = None
+        return HostReply(outcome["structured_output"], usd, _reported_usage(outcome))
 
 
 def _feed(pipe, data: bytes) -> None:

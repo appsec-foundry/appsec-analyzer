@@ -4232,6 +4232,7 @@ def assess_repositories(
         from appsec_analyzer.profiles import call_reservation
 
         budget.call_usd = min(budget.max_usd, max(budget.call_usd, call_reservation(run_profile)))
+        budget.call_floor_usd = min(budget.call_usd, call_reservation(run_profile))
     from appsec_analyzer.assessment.console import usd_at_api_prices
 
     budget.api_prices = not budget.subscription and usd_at_api_prices(adapter or getattr(api_profile, "kind", None))

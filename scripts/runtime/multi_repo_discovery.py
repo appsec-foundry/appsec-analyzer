@@ -276,6 +276,8 @@ class DiscoveryBudget:
         # What hosts reported per finished call, summed by (job group, role, model id). A call without a
         # report (failed, stopped, or a host that reports none) is only in `calls` and `spent_usd`.
         self.ledger: dict[tuple[str | None, str | None, str], dict[str, float]] = {}
+        # What this session's settled calls were charged per job group, failed and stopped calls included.
+        self.charged: dict[str | None, float] = {}
         self._local = threading.local()
         # All roles share admission, including profiles using several hosts.
         self._rate_until = 0.0
@@ -371,7 +373,8 @@ class DiscoveryBudget:
                 self._local.rate_failures += 1
                 if delay >= self.remaining_seconds():
                     raise
-                self.retries.append({"reason": exc.reason, "usd": exc.usd or 0.0, "paid": paid})
+                charged = self._local.reserved if exc.usd is None else exc.usd
+                self.retries.append({"reason": exc.reason, "usd": charged or 0.0, "paid": paid})
                 if self.on_retry is not None:
                     self.on_retry(
                         f"model call failed ({exc.reason}); repeating it in {delay} s (attempt {failures + 1})"
@@ -481,7 +484,8 @@ class DiscoveryBudget:
                         if delay > 180 or self._rate_until >= min(self.deadline, admission_deadline):
                             self._rate_stopped = True
                         if not self._rate_stopped:
-                            self.retries.append({"reason": "rate_limit", "usd": exc.usd or 0.0, "paid": paid})
+                            charged = (ceiling if exc.usd is None else exc.usd) or 0.0
+                            self.retries.append({"reason": "rate_limit", "usd": charged, "paid": paid})
                 self._settle(ceiling, ceiling if exc.usd is None else exc.usd)
             if (
                 not self.subscription
@@ -489,6 +493,13 @@ class DiscoveryBudget:
                 and (ceiling < self.call_usd or self.max_usd - self.spent_usd < MIN_CALL_USD)
             ):
                 raise CostBudgetExhausted("Model call exhausted the remaining assessment budget allowance") from exc
+            # An API host sends nothing when a reduced ceiling is below the call's
+            # worst case; a higher limit or the completion reserve decides what follows.
+            if not self.subscription and exc.reason == "budget_exhausted" and ceiling < self.call_usd:
+                raise CostBudgetExhausted(
+                    f"Assessment cost budget exhausted: USD {ceiling:.2f} is available to this model call, "
+                    "less than its worst-case cost"
+                ) from exc
             if exc.reason in ("request_too_large", "invalid_request"):
                 correction = (
                     "the request must be reduced before retrying"
@@ -587,6 +598,11 @@ class DiscoveryBudget:
                         total[key] = total.get(key, 0) + value
         return total
 
+    def charged_of(self, *groups: str) -> float:
+        """What this session charged for the calls of exactly these job groups, failed and stopped calls included."""
+        with self._lock:
+            return sum(self.charged.get(group, 0.0) for group in groups)
+
     def request_more_budget(self, should_stop) -> bool:
         """Discovery and unattended callers never authorize extra spending."""
         return False
@@ -613,6 +629,10 @@ class DiscoveryBudget:
                 self._unsettled = True
             else:
                 self.spent_usd += cost - ceiling
+            if not self.subscription:
+                # An unknown cost keeps its reservation in `spent_usd`.
+                group = getattr(self._local, "job", (None,))[0]
+                self.charged[group] = self.charged.get(group, 0.0) + (ceiling if cost is None else cost)
             self._lock.notify_all()
 
 

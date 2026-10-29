@@ -275,6 +275,23 @@ def test_lite_unknown_route_or_cost_never_becomes_an_accepted_answer(connections
         invoke("lite", wire)
 
 
+def test_lite_failed_call_is_charged_by_the_gateway_header_or_its_reservation(connections, wire):
+    # The gateway's charge is above the configured rates, so it counts.
+    wire[0].response = _response({"accepted": True}, output=[])
+    with pytest.raises(api_hosts.ApiTransportError) as caught:
+        invoke("lite", wire)
+    assert caught.value.reason == "invalid_response" and caught.value.usd == pytest.approx(0.001)
+    # Without the gateway's own charge, a failed call keeps its whole reservation.
+    wire[1].headers = {**wire[1].headers, "x-litellm-response-cost": None}
+    with pytest.raises(api_hosts.ApiTransportError) as caught:
+        invoke("lite", wire)
+    assert caught.value.usd is None
+    wire[0].status = 500
+    with pytest.raises(api_hosts.ApiTransportError) as caught:
+        invoke("lite", wire)
+    assert caught.value.reason == "server_error" and caught.value.usd is None
+
+
 def bedrock_response(**updates):
     return {
         "stopReason": "end_turn",

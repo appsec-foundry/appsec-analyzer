@@ -428,6 +428,17 @@ def test_a_rejected_usage_window_reports_its_reset_as_the_cooldown(tmp_path):
     [
         ({"is_error": True, "subtype": "success", "api_error_status": 401}, "authentication_failed", None),
         ({"is_error": True, "subtype": "success", "api_error_status": 529, "total_cost_usd": 0}, "server_error", 0.0),
+        # A crashed host can report zero after it used tokens; that zero is no cost report.
+        (
+            {
+                "is_error": True,
+                "subtype": "error_during_execution",
+                "total_cost_usd": 0,
+                "modelUsage": {"claude-x": {"inputTokens": 900, "outputTokens": 50}},
+            },
+            "error_during_execution",
+            None,
+        ),
         ({"is_error": True, "subtype": "success", "terminal_reason": "api_error"}, "api_error", None),
         ({"is_error": True, "subtype": "error_max_budget_usd", "total_cost_usd": 0.4}, "error_max_budget_usd", 0.4),
         ({"is_error": False, "subtype": "success", "result": "model prose"}, "no_structured_output", None),
@@ -439,6 +450,14 @@ def test_an_unrecorded_failure_is_classified_from_the_result_alone(tmp_path, out
         transport(tmp_path, f"print(json.dumps({outcome!r}))\n").invoke("s", "p", {}, 30, lambda: False)
     assert caught.value.reason == reason and caught.value.usd == usd
     assert "model prose" not in str(caught.value)
+
+
+@pytest.mark.parametrize("tokens, usd", [(54_000, None), (0, 0.0)])
+def test_a_zero_cost_counts_only_for_a_call_that_used_no_tokens(tmp_path, tokens, usd):
+    usage = {"inputTokens": tokens, "outputTokens": 0, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0}
+    outcome = {**REPLY, "total_cost_usd": 0, "modelUsage": {"claude-x": {**usage, "costUSD": 0}}}
+    reply = transport(tmp_path, f"print(json.dumps({outcome!r}))\n").invoke("s", "p", {}, 30, lambda: False)
+    assert reply.payload == {"ok": True} and reply.usd == usd
 
 
 @pytest.mark.parametrize("recorded", [False, True])
