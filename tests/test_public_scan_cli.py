@@ -417,3 +417,17 @@ def test_public_budget_help_documents_default_and_alias(command, default):
             in help_text
         )
     assert "with a Claude subscription, usage at API prices" in help_text
+
+
+def test_an_internal_defect_in_a_command_ends_with_a_message_not_a_traceback(tmp_path, monkeypatch, capsys):
+    from appsec_analyzer import cli
+
+    def fail(ns):
+        raise KeyError("jobs")
+
+    monkeypatch.setattr(cli, "_scan", fail)
+    monkeypatch.delenv("APPSEC_PLUGIN_DEV", raising=False)
+    assert cli.main(["scan-sources", "--repo", str(tmp_path)]) == 1
+    error = capsys.readouterr().err
+    assert error.startswith("appsec-analyzer: internal error: KeyError: 'jobs' in main (appsec_analyzer/cli.py:")
+    assert error.rstrip().endswith("; this is a defect in appsec-analyzer") and "Traceback" not in error

@@ -992,9 +992,12 @@ def _assessment_session(
                 else:
                     diagnostics.emit("attempt_failed", **failure_fields(exc))
             if not stopped:
-                _write_run_issues(
-                    scope.output, cfg, [("run_incomplete", "error", f"Assessment stopped: {_cap_reason(str(exc))}")]
-                )
+                from appsec_analyzer.terminal import code_location
+
+                # The type and the line make a bare message, such as a missing key's name, a lead to the cause.
+                where = code_location(exc)
+                text = _cap_reason(f"{type(exc).__name__}: {exc}" + (f" in {where}" if where else ""))
+                _write_run_issues(scope.output, cfg, [("run_incomplete", "error", f"Assessment stopped: {text}")])
             raise
         except KeyboardInterrupt:
             if diagnostics:
@@ -5344,6 +5347,21 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         if draft:
             rows.append(("Draft", f"unpublished, kept for diagnosis in {draft}; it did not pass publication"))
         _stop("✗ Assessment stopped", *rows)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a defect ends the run with a message, not a traceback
+        # The failures a run expects stop above; any other exception is a defect in Analyzer itself.
+        import traceback
+
+        from appsec_analyzer.terminal import error_summary
+
+        _stop(
+            "✗ Assessment stopped by an internal error",
+            ("Reason", error_summary(exc)),
+            KEPT,
+            ("Continue", "this is a defect in appsec-analyzer; once an update fixes it, " + RESUME),
+        )
+        if os.environ.get("APPSEC_PLUGIN_DEV") == "1":
+            traceback.print_exception(exc)
         return 1
     seconds = time.monotonic() - started
     elapsed = _elapsed(seconds)

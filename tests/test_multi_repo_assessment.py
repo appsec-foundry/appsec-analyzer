@@ -1656,6 +1656,46 @@ def test_a_contract_check_failure_ends_with_a_message_not_a_traceback(monkeypatc
     assert "Assessment stopped" in (error := capsys.readouterr().err) and "[] should be non-empty" in error
 
 
+@pytest.mark.parametrize("developer", [False, True])
+def test_an_internal_defect_ends_with_a_message_not_a_traceback(monkeypatch, capsys, developer):
+    def fail(*args, **kwargs):
+        # The message can carry text from the analyzed repository or a model answer.
+        raise TypeError("jobs\x1b[2J")
+
+    monkeypatch.setattr(controller, "assess_repositories", fail)
+    if developer:
+        monkeypatch.setenv("APPSEC_PLUGIN_DEV", "1")
+    else:
+        monkeypatch.delenv("APPSEC_PLUGIN_DEV", raising=False)
+    assert controller.assess_main(["--repo", "a", "--repo", "b"]) == 1
+    head, _, rest = capsys.readouterr().err.partition("Traceback (most recent call last)")
+    assert "✗ Assessment stopped by an internal error" in head and "finished steps are kept" in head
+    # The reason names the exception and the line of Analyzer's code, relative to the installation.
+    assert re.search(
+        r"TypeError: jobs \[2J in _assess_main \((appsec_analyzer/)?scripts/orchestrator/[\w/]+\.py:\d+\)", head
+    )
+    assert "\x1b" not in head and str(Path.home()) not in head and "--resume" in head
+    # Only developer mode adds the traceback.
+    assert bool(rest) is developer
+
+
+def test_a_failed_run_records_the_exception_type_and_its_line(tmp_path, monkeypatch):
+    from model import assessment_scanner_findings
+
+    def fail(*args, **kwargs):
+        raise KeyError("jobs")
+
+    monkeypatch.setattr(assessment_scanner_findings, "scan", fail)
+    with pytest.raises(KeyError):
+        _assess(tmp_path, monkeypatch, ("edge", "service"))
+    # A bare "'jobs'" gave report-error and diagnose-run nothing to start from.
+    issues = json.loads((tmp_path / "out" / ".run-issues.json").read_text())
+    (title,) = [row["title"] for row in issues["issues"]]
+    assert re.fullmatch(
+        r"Assessment stopped: KeyError: 'jobs' in \w+ \((appsec_analyzer/)?scripts/[\w/]+\.py:\d+\)", title
+    )
+
+
 def test_a_stopped_run_names_its_kept_draft_as_unpublished(tmp_path, monkeypatch, capsys):
     draft = tmp_path / "out" / ".assessment-work" / "render"
 

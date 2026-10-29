@@ -10,6 +10,7 @@ class _Budget:
     def __init__(self, per_job, available, subscription=False):
         self.per_job, self.available, self.subscription = per_job, available, subscription
         self.roles = []
+        self.charged = []
 
     def job_usd(self, role, fallback_role):
         self.roles.append((role, fallback_role))
@@ -17,6 +18,10 @@ class _Budget:
 
     def available_usd(self):
         return self.available
+
+    def charged_of(self, *groups):
+        self.charged.append(groups)
+        return self.per_job * len(groups)
 
 
 class _Jobs:
@@ -52,3 +57,41 @@ def test_a_subscription_run_names_its_limits_instead_of_dollars(count):
     text = assessment_test_cases._budget_statement(jobs, count, ["AI"], 1)
     assert text.endswith(f" · the run's call and time limits apply · {count} job{'s' if count > 1 else ''}")
     assert "USD" not in text and not jobs.notes
+
+
+def test_an_aspect_without_a_job_costs_nothing_and_keeps_its_item_results(monkeypatch):
+    # A component where no item applies plans no verification job; the step still ends with its results.
+    component = {
+        "id": "C-1",
+        "name": "web",
+        "repository_ids": ["r1"],
+        "paths": [{"repository_id": "r1", "path": "index.php"}],
+    }
+    architecture = {"components": {"components": [component]}}
+    monkeypatch.setattr(assessment_test_cases, "_repository_findings", lambda scope, scanned: {"r1": []})
+    monkeypatch.setattr(assessment_test_cases, "_repository_facts", lambda *args: {"r1": {}})
+    monkeypatch.setattr(
+        assessment_test_cases.case_candidates, "applies", lambda case, facts, cid: (False, "no route in scope")
+    )
+    said = []
+    planned = assessment_test_cases.plan_pilot(
+        None, architecture, {}, {"aspects": ["AuthZ"], "disable": []}, progress=said.append
+    )
+    assert not planned["work"]
+    jobs = _Jobs(_Budget(0.4, 10.0))
+    pilot = assessment_test_cases.run_pilot(
+        None,
+        jobs,
+        architecture,
+        planned,
+        {},
+        requirement_ids=frozenset(),
+        instructions=None,
+        concurrently=None,
+        label=lambda row: row["name"],
+        progress=said.append,
+    )
+    assert pilot["results"] and {row["outcome"] for row in pilot["results"]} == {"not_applicable"}
+    assert jobs.budget.charged == [()]
+    assert said[-2] == "Verify done · no aspect verified"
+    assert said[-1].startswith("AuthZ · 0 findings · ≈ USD 0.00 · ")

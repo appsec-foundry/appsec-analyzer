@@ -1816,6 +1816,18 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"appsec-analyzer: error: {exc}", file=sys.stderr)
         return 2
+    except Exception as exc:  # noqa: BLE001 - a defect ends the command with a message, not a traceback
+        import traceback
+
+        from appsec_analyzer.terminal import error_summary
+
+        print(
+            f"appsec-analyzer: internal error: {error_summary(exc)}; this is a defect in appsec-analyzer",
+            file=sys.stderr,
+        )
+        if os.environ.get("APPSEC_PLUGIN_DEV") == "1":
+            traceback.print_exception(exc)
+        return 1
 
 
 if __name__ == "__main__":

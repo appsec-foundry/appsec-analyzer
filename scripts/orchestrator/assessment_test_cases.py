@@ -84,7 +84,8 @@ def plan_pilot(scope, architecture, scanned, test_cases, *, progress) -> dict:
     for component in components:
         rid = component["repository_ids"][0] if len(component["repository_ids"]) == 1 else None
         for aspect in aspects:
-            entry = {"component": component, "aspect": aspect, "fixed": {}, "precheck": {}}
+            # An entry without candidates keeps an empty job list, so every step that counts an entry's jobs can.
+            entry = {"component": component, "aspect": aspect, "fixed": {}, "precheck": {}, "jobs": []}
             entry["cases"] = [
                 case for case in catalog["test_cases"] if case["aspect"] == aspect and case["mode"] != "rules"
             ]
