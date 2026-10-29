@@ -629,10 +629,10 @@ def test_failure_hint_names_tried_variables_or_the_one_that_failed(monkeypatch, 
     assert "token from GIT_TOKEN was not accepted" in failed and "ambient-secret" not in failed
     assert "SSH agent" in remote.credential_hint(remote.parse_remote("git@git.example:team/a.git"))
     with pytest.raises(remote.RemoteError) as raised:
-        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed)
-    assert "check repository access, credentials" in str(raised.value) and "GIT_TOKEN was not accepted" in str(
-        raised.value
-    )
+        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed, "https")
+    assert "GIT_TOKEN was not accepted" in str(raised.value) and "SSH host keys" not in str(raised.value)
+    with pytest.raises(remote.RemoteError, match="trusted SSH host keys"):
+        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ))
 
 
 def test_cli_option_names_the_token_variable_for_every_url_command(monkeypatch, no_token_env):

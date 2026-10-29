@@ -165,7 +165,14 @@ def resolve(review: Review) -> dict:
 @contextmanager
 def checkout(review: Review, metadata: dict):
     """Stable URL-derived identity permits resuming a job; checkout lifetime is one invocation."""
-    from runtime.remote_repositories import SECRET_ENV, _git, _git_env, _private_directory, parse_remote
+    from runtime.remote_repositories import (
+        SECRET_ENV,
+        _git,
+        _git_env,
+        _private_directory,
+        credential_hint,
+        parse_remote,
+    )
 
     parent = Path(tempfile.gettempdir()).resolve() / f"appsec-threat-reviews-{os.getuid()}"
     _private_directory(parent)
@@ -183,11 +190,13 @@ def checkout(review: Review, metadata: dict):
             raise ReviewError(
                 "A stale review checkout remains after an unclean stop; inspect and remove it before retrying."
             )
-        env = _git_env(parse_remote(review.repository), workspace)
+        remote = parse_remote(review.repository)
+        env = _git_env(remote, workspace)
+        hint = credential_hint(remote)
         if "APPSEC_GIT_TOKEN" in env and "APPSEC_GIT_USERNAME" not in env:
             env["APPSEC_GIT_USERNAME"] = "x-access-token" if review.kind == "pr" else "oauth2"
         created = True
-        _git(["init", "--quiet", "--template=", str(root)], root, env)
+        _git(["init", "--quiet", "--template=", str(root)], root, env, hint, remote.scheme)
         _git(
             [
                 "-C",
@@ -203,6 +212,8 @@ def checkout(review: Review, metadata: dict):
             ],
             root,
             env,
+            hint,
+            remote.scheme,
         )
         clean = {k: v for k, v in env.items() if k not in SECRET_ENV}
         _git(["-C", str(root), "checkout", "--quiet", "--detach", metadata["head"]], root, clean)

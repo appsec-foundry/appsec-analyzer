@@ -356,7 +356,7 @@ def _stop(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
-def _git(command: list[str], root: Path, env: dict[str, str], hint: str = "") -> None:
+def _git(command: list[str], root: Path, env: dict[str, str], hint: str = "", scheme: str = "ssh") -> None:
     deadline = time.monotonic() + FETCH_SECONDS
     proc = subprocess.Popen(
         ["git", *command],
@@ -375,10 +375,8 @@ def _git(command: list[str], root: Path, env: dict[str, str], hint: str = "") ->
             time.sleep(0.1)
         _within_limits(root)
         if proc.returncode:
-            raise RemoteError(
-                "Git checkout failed; check repository access, credentials and trusted SSH host keys"
-                + (f": {hint}" if hint else "")
-            )
+            checks = "credentials and trusted SSH host keys" if scheme == "ssh" else "and credentials"
+            raise RemoteError(f"Git checkout failed; check repository access, {checks}" + (f": {hint}" if hint else ""))
     finally:
         _stop(proc)
 
@@ -416,6 +414,7 @@ def clone(remote: Remote, root: Path) -> None:
         root,
         env,
         credential_hint(remote),
+        remote.scheme,
     )
     # No global filters, hooks or repository-supplied submodule commands run.
     clean = {k: v for k, v in env.items() if k not in SECRET_ENV}
@@ -459,9 +458,9 @@ def check_access(remote: Remote) -> None:
         if code == 2:
             raise RemoteError("Git preflight found no HEAD; select a repository with a default-branch commit")
         if code:
+            checks = "credentials and trusted SSH host keys" if remote.scheme == "ssh" else "and credentials"
             raise RemoteError(
-                "Git preflight failed; check repository URL, read permission, credentials and trusted SSH host keys: "
-                + credential_hint(remote)
+                f"Git preflight failed; check repository URL, read permission, {checks}: " + credential_hint(remote)
             )
 
 
