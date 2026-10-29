@@ -107,3 +107,5 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 - **REQ-034:** **Do only what was authorized.** Analysis stays within the agreed task, resources, and permissions. Asking for an analysis does not authorize code changes, commits, publication, or acceptance of a risk. Sharing diagnostics requires approval of the actual content to be shared.
 
 - **REQ-035:** **Protect local results.** Assessment results are kept outside the analyzed repositories. Results and working data are readable only by the current user. Concurrent runs and untrusted paths cannot overwrite another run's work or unrelated files.
+
+- **REQ-045:** **Authenticate Git access.** Users can give Analyzer an HTTPS token for private Git URLs and merge or pull request URLs through an environment variable, either one they name or a documented default. The token is never placed in a URL or command argument, and a token meant for one host is not sent to unrelated hosts. When access fails, the message names the variables Analyzer looked for.

@@ -291,6 +291,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         description="Check local/remote repositories and provider setup. No generation unless --test-model is selected.",
     )
     preflight.add_argument("--repo", action="append", metavar="PATH_OR_URL")
+    _add_git_token_argument(preflight)
     preflight.add_argument("--profile", metavar="NAME_OR_FILE")
     preflight.add_argument("--host", choices=("claude-cli", "codex-cli", "copilot-cli", "openai", "lite", "bedrock"))
     preflight.add_argument("--model", metavar="MODEL")
@@ -315,6 +316,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     preflight.add_argument("--json", action="store_true")
     sources = commands.add_parser("scan-sources", help="Run deterministic source scanners without a model")
     sources.add_argument("--repo", action="append", required=True, metavar="PATH")
+    _add_git_token_argument(sources)
     sources.add_argument("--output", metavar="DIR", help="Existing directory outside every selected checkout")
     sources.add_argument("--assessment-depth", choices=("quick", "standard", "thorough"), default="standard")
     sources.add_argument("--trust-mode", choices=("untrusted", "trusted"), default="untrusted")
@@ -343,6 +345,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         ),
     )
     score.add_argument("repo", metavar="REPO", help="Top-level local Git checkout or HTTPS/SSH Git URL")
+    _add_git_token_argument(score)
     formats = score.add_mutually_exclusive_group()
     formats.add_argument("--json", action="store_true", help="Print the complete machine-readable JSON result")
     formats.add_argument("--yaml", action="store_true", help="Print the same result as YAML")
@@ -454,8 +457,10 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         description="Analyze a question, design or selected change with existing project context. Uses Claude CLI; USD 1 per model call by default.",
     )
     threat_arguments(focused)
+    _add_git_token_argument(focused)
     audit = commands.add_parser("audit-requirements", help="Run a separate, bounded requirements audit")
     audit.add_argument("--repo", required=True, metavar="PATH")
+    _add_git_token_argument(audit)
     audit.add_argument("--output", required=True, metavar="DIR")
     audit.add_argument("--host", choices=("claude-cli",), required=True)
     source = audit.add_mutually_exclusive_group(required=True)
@@ -542,6 +547,26 @@ def _slug(value: str) -> str:
     return value
 
 
+def _add_git_token_argument(parser) -> None:
+    parser.add_argument(
+        "--git-token-env",
+        metavar="NAME",
+        help=(
+            "Environment variable holding the HTTPS Git token for private URLs (the name, never the token); "
+            "default: APPSEC_GIT_TOKEN, then GIT_TOKEN, then GITLAB_TOKEN for GitLab hosts"
+        ),
+    )
+
+
+def _use_git_token_variable(ns: argparse.Namespace) -> None:
+    name = getattr(ns, "git_token_env", None)
+    if name:
+        _engine_imports()
+        from runtime.remote_repositories import TOKEN_NAME_ENV
+
+        os.environ[TOKEN_NAME_ENV] = name
+
+
 def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: bool, organization=None) -> None:
     scope_group = parser.add_argument_group("Scope")
     output_group = parser.add_argument_group("Output and exports")
@@ -555,6 +580,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="PATH",
         help="Repository to assess: a local path (. for the current directory) or a Git URL; required for assess",
     )
+    _add_git_token_argument(scope_group)
     scope_group.add_argument(
         "--platform-token-env",
         metavar="NAME",
@@ -1581,6 +1607,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
         supplied = {key: value for key, value in vars(ns).items() if value is not None}
         ns = _parser(organization=organization).parse_args(["assess"])
         vars(ns).update(supplied)
+    _use_git_token_variable(ns)
     try:
         if ns.command is None:
             command = organization.command if organization else "appsec-analyzer"

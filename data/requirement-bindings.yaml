@@ -2388,3 +2388,24 @@ requirements:
       - tests/test_authnz_review_cli.py::test_review_runs_real_scanners_retains_signals_and_exports_both_formats
       - tests/test_authnz_review_cli.py::test_console_only_review_leaves_no_saved_artifacts
       - tests/test_authnz_review_cli.py::test_gate_fails_on_retained_high_findings_and_partial_is_never_clean
+
+  REQ-045:
+    applies_to:
+      - scripts/runtime/remote_repositories.py
+      - appsec_analyzer/review_sources.py
+      - appsec_analyzer/cli.py
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - docs/configuration.md
+      - docs/threat-analyst.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_remote_repositories.py::test_token_variables_are_tried_in_order
+      - tests/test_remote_repositories.py::test_gitlab_token_reaches_only_gitlab_hosts
+      - tests/test_remote_repositories.py::test_named_variable_must_be_set_is_validated_and_ignores_the_host_rule
+      - tests/test_remote_repositories.py::test_failure_hint_names_tried_variables_or_the_one_that_failed
+      - tests/test_remote_repositories.py::test_cli_option_names_the_token_variable_for_every_url_command
+      - tests/test_review_sources.py::test_review_api_uses_the_fallback_token_variables
+      - tests/test_review_sources.py::test_review_api_does_not_send_the_gitlab_token_to_other_hosts

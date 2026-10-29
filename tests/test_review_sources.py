@@ -197,3 +197,52 @@ def test_checkout_uses_exact_objects_without_mutating_caller_repository(project,
     assert subprocess.check_output(["git", "-C", str(project), "status", "--porcelain"]) == before
     assert next(c for c in seen if "fetch" in c)[-1] == sha
     assert "--no-recurse-submodules" in next(c for c in seen if "fetch" in c)
+
+
+def _record_headers(monkeypatch):
+    calls = []
+
+    class Connection:
+        sock = None
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def request(self, method, path, headers):
+            calls.append(headers)
+
+        def getresponse(self):
+            raise OSError
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(reviews, "_PinnedHTTPS", Connection)
+    return calls
+
+
+@pytest.mark.parametrize(
+    ("host", "kind", "variable", "header", "value"),
+    [
+        ("gitlab.com", "mr", "GITLAB_TOKEN", "PRIVATE-TOKEN", "fallback-token"),
+        ("github.example", "pr", "GIT_TOKEN", "Authorization", "Bearer fallback-token"),
+    ],
+)
+def test_review_api_uses_the_fallback_token_variables(monkeypatch, host, kind, variable, header, value):
+    for name in ("APPSEC_GIT_TOKEN", "APPSEC_GIT_TOKEN_ENV", "GIT_TOKEN", "GITLAB_TOKEN", "GITLAB_HOST"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(variable, "fallback-token")
+    calls = _record_headers(monkeypatch)
+    with pytest.raises(reviews.ReviewError):
+        reviews._get(host, "/api", kind)
+    assert calls[0][header] == value
+
+
+def test_review_api_does_not_send_the_gitlab_token_to_other_hosts(monkeypatch):
+    for name in ("APPSEC_GIT_TOKEN", "APPSEC_GIT_TOKEN_ENV", "GIT_TOKEN", "GITLAB_HOST"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GITLAB_TOKEN", "gitlab-only")
+    calls = _record_headers(monkeypatch)
+    with pytest.raises(reviews.ReviewError):
+        reviews._get("github.example", "/api", "pr")
+    assert "Authorization" not in calls[0] and "PRIVATE-TOKEN" not in calls[0]
