@@ -307,3 +307,50 @@ def test_client_entry_evidence_cites_the_ui_mount_in_the_carrier(tmp_path):
     evidence = analysis.client_entry_evidence(scope, rid, local, units_of(root))
     assert set(evidence) == {"ui"}
     assert (evidence["ui"]["file"], evidence["ui"]["line"]) == ("web/src/main.ts", 2)
+
+
+def _unit(kind="client-app", root="apps/web", entry=("apps/web/src/main.ts", "apps/web/src/index.html")):
+    return {"id": "unit-1", "kind": kind, "root": root, "framework": "angular", "entry_files": list(entry)}
+
+
+@pytest.mark.parametrize(
+    "unit,component",
+    [
+        (_unit(), {"id": "web", "tier": "client", "paths": ["apps/web/src/app/app.ts"]}),
+        (
+            _unit(root="frontend", entry=("frontend/src/index.tsx",)),
+            {"id": "spa", "tier": "client", "paths": ["frontend/src/App.tsx"]},
+        ),
+    ],
+    ids=["angular", "react"],
+)
+def test_a_client_modelled_without_its_entry_file_is_carried_and_adopts_it(tmp_path, unit, component):
+    components = [{"id": "api", "tier": "application", "paths": ["apps/api/src/app.ts"]}, component]
+    assert serving_units.uncovered([unit], components) == []
+    assert serving_units.adopt([unit], components, tmp_path, []) == len(unit["entry_files"])
+    assert set(unit["entry_files"]) <= set(component["paths"])
+
+
+@pytest.mark.parametrize(
+    "unit,components",
+    [
+        (
+            _unit(),
+            [
+                {"id": "web", "tier": "client", "paths": ["apps/web/src/app/app.ts"]},
+                {"id": "admin", "tier": "client", "paths": ["apps/web/src/admin/admin.ts"]},
+            ],
+        ),
+        (
+            _unit(kind="http-api", root="apps/api", entry=("apps/api/src/server.ts",)),
+            [{"id": "orm", "tier": "application", "paths": ["apps/api/src/db/schema.ts"]}],
+        ),
+        (_unit(root="", entry=("src/main.ts",)), [{"id": "web", "tier": "client", "paths": ["src/app.ts"]}]),
+        (_unit(), [{"id": "web", "tier": "client", "paths": ["apps/web/src/app/app.spec.ts"]}]),
+        (_unit(), [{"id": "store", "tier": "data", "paths": ["apps/web/src/db.ts"]}]),
+        (_unit(), [{"id": "bff", "tier": "application", "paths": ["apps/web/server/index.ts"]}]),
+    ],
+    ids=["ambiguous", "http-api", "repository-root", "test-only", "data-tier", "server-beside-app"],
+)
+def test_no_near_carrier_without_one_unambiguous_client_owner(unit, components):
+    assert serving_units.uncovered([unit], components) == [unit]

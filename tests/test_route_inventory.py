@@ -950,3 +950,63 @@ def test_middleware_and_unmounted_routers_are_no_router_mounts(tmp_path: Path) -
     )
     paths = {(r["method"], r["path"]) for r in _run(tmp_path)["routes"]}
     assert ("GET", "/report") in paths and ("GET", "/admin/report") not in paths
+
+
+_USERS_ROUTER = (
+    "import { Router } from 'express';\nconst router = Router();\n"
+    "router.get('/me', (req, res) => res.json({}));\nexport default router;\n"
+)
+
+
+@pytest.mark.parametrize(
+    "setup,expected",
+    [
+        ("installSecurity(app);\n", "unknown"),
+        ("configure(app, options);\n", "unknown"),
+        ("http.createServer(app).listen(8080);\n", "absent"),
+    ],
+    ids=["helper", "helper-with-options", "server-only"],
+)
+def test_an_application_handed_to_a_helper_may_be_guarded_unseen(tmp_path: Path, setup: str, expected: str) -> None:
+    _write(
+        tmp_path,
+        {
+            "src/app.ts": "import express from 'express';\nimport http from 'http';\nimport usersRouter from './users';\n"
+            "import { installSecurity, configure } from './security';\nconst app = express();\n"
+            + setup
+            + "app.use('/api/users', usersRouter);\n",
+            "src/security.ts": "export function installSecurity(app) {}\nexport function configure(app, o) {}\n",
+            "src/users.ts": _USERS_ROUTER,
+        },
+    )
+    assert _route(_run(tmp_path), "GET", "/api/users/me")["authn_signal"] == expected
+
+
+def test_two_mounts_on_one_line_keep_their_own_guards(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "app.ts": "import express from 'express';\nimport aRouter from './a';\nimport bRouter from './b';\n"
+            "import { requireAuth } from './auth';\nconst app = express();\n"
+            "app.use('/a', aRouter); app.use('/b', requireAuth(), bRouter);\n",
+            "auth.ts": _REQUIRE_AUTH,
+            "a.ts": _USERS_ROUTER,
+            "b.ts": _USERS_ROUTER,
+        },
+    )
+    inventory = _run(tmp_path)
+    assert _route(inventory, "GET", "/b/me")["authn_signal"] == "middleware_present"
+    assert _route(inventory, "GET", "/a/me")["authn_signal"] == "absent"
+
+
+def test_koa_router_nesting_through_routes_is_composed(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "app.js": "const Koa = require('koa');\nconst Router = require('@koa/router');\nconst app = new Koa();\n"
+            "const api = new Router();\nconst router = new Router();\n"
+            "router.get('/me', (ctx) => { ctx.body = {}; });\napi.use('/users', router.routes());\n"
+            "app.use(api.routes());\n",
+        },
+    )
+    assert _route(_run(tmp_path), "GET", "/users/me")["framework"] == "koa"
