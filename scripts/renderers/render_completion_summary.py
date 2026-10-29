@@ -877,7 +877,7 @@ def extract_costs(output_dir: Path, plugin_root: Path) -> Optional[dict]:
         return {"error": "No token usage was logged for this run", "error_kind": "no_usage_data"}
     try:
         r = subprocess.run(
-            ["python3", str(script), str(output_dir), "--json"],
+            [sys.executable, str(script), str(output_dir), "--json"],
             capture_output=True,
             text=True,
             timeout=30,

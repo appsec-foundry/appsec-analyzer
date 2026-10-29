@@ -920,6 +920,24 @@ def test_validate_and_publish_replaces_canonical_only_after_success(tmp_path, mo
     assert out_path.read_text(encoding="utf-8") == "replacement: true\n"
 
 
+def test_validator_runs_with_the_interpreter_of_the_builder_not_a_python3_on_path(tmp_path, monkeypatch):
+    """A different ``python3`` on PATH can lack the libraries the builder's environment has."""
+    out_path = tmp_path / "threat-model.yaml"
+    validator = tmp_path / "validate_intermediate.py"
+    validator.write_text("# test stub\n", encoding="utf-8")
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "valid\n", "")
+
+    monkeypatch.setattr(b.subprocess, "run", run)
+
+    b._validate_and_publish_yaml(out_path, "replacement: true\n", validator)
+
+    assert seen[0][0] == sys.executable
+
+
 def test_cli_persists_validated_data_flow_sidecar_into_yaml(tmp_path: Path):
     repo = tmp_path / "repo"
     out = tmp_path / "out"

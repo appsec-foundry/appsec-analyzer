@@ -135,7 +135,7 @@ def _validate_and_publish_yaml(
     pending_path = out_path.with_name(".threat-model.yaml.pending")
     atomic_write_text(pending_path, rendered)
     result = subprocess.run(
-        ["python3", str(validator), "threat_model_output", str(pending_path)],
+        [sys.executable, str(validator), "threat_model_output", str(pending_path)],
         capture_output=True,
         text=True,
     )
