@@ -552,8 +552,6 @@ def test_a_finished_docs_security_assessment_is_imported_on_request_and_its_hist
     run("--output", str(legacy))
     first = yaml.safe_load((legacy / "security-assessment.yaml").read_text())["changelog"]
     before = sorted(path.name for path in legacy.iterdir() if not path.name.startswith("."))
-    with pytest.raises(controller.CallError, match="--migrate-legacy"):
-        controller.assess_repositories(argv, host_factory=host.factory, progress=lambda t: None)
     outcome = run("--migrate-legacy")
     destination = application_directory(root)
     assert Path(outcome["output"]) == destination

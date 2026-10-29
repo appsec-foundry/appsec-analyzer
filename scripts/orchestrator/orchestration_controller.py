@@ -2691,7 +2691,9 @@ def _assessment_argument_parser() -> argparse.ArgumentParser:
     # A finished assessment in the checkout's docs/security, from before decision AS-1.
     legacy = parser.add_mutually_exclusive_group()
     legacy.add_argument("--migrate-legacy", action="store_true", help="Import it into the destination first.")
-    legacy.add_argument("--ignore-legacy", action="store_true", help="Start without it; its files stay.")
+    legacy.add_argument(
+        "--ignore-legacy", action="store_true", help="Accepted for compatibility; a run starts without it by default."
+    )
     parser.add_argument(
         "--soft-budget",
         "--max-cost",
@@ -4746,12 +4748,12 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None, show_co
 
 
 def _assessment_legacy(ns, output: Path) -> str | None:
-    """Import or refuse a finished assessment the checkout's docs/security still holds.
+    """Import or leave out a finished assessment the checkout's docs/security still holds.
 
     Only a sole repository whose destination holds no assessment yet is
     affected; --resume and --rebuild continue or replace the destination's own
-    run. Without --migrate-legacy or --ignore-legacy the run stops with the
-    instruction, so a headless run never migrates or starts over silently.
+    run. Only --migrate-legacy imports it; otherwise the run starts without it
+    and, unless --ignore-legacy chose that, the closing block names it.
     Returns the note the closing block shows, or None.
     """
     from runtime.legacy_import import LegacyImportError, import_legacy, offer
@@ -4766,11 +4768,7 @@ def _assessment_legacy(ns, output: Path) -> str | None:
     if ns.ignore_legacy:
         return None
     if not ns.migrate_legacy:
-        raise CallError(
-            f"{legacy.directory} holds an earlier assessment. Add --migrate-legacy to import it into {output} "
-            "first (results and history carry over, the files in the checkout stay), or --ignore-legacy to start "
-            "without it"
-        )
+        return f"the earlier assessment in {legacy.directory} was not imported; its files there stay"
     try:
         output.mkdir(parents=True, exist_ok=True)
         delivered = import_legacy(legacy, output)

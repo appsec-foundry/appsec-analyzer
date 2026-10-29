@@ -120,13 +120,13 @@ def _ns(repo, **flags):
     return SimpleNamespace(repo=[str(repo)], **{**defaults, **flags})
 
 
-def test_without_a_choice_the_run_stops_with_the_instruction(tmp_path):
+def test_without_a_choice_the_run_starts_without_it_and_names_it(tmp_path):
     repo = tmp_path / "repo"
     _legacy(repo)
     destination = tmp_path / "dest"
     destination.mkdir()
-    with pytest.raises(controller.CallError, match="--migrate-legacy .* or --ignore-legacy"):
-        controller._assessment_legacy(_ns(repo), destination)
+    note = controller._assessment_legacy(_ns(repo), destination)
+    assert note.endswith("was not imported; its files there stay") and not any(destination.iterdir())
     assert controller._assessment_legacy(_ns(repo, ignore_legacy=True), destination) is None
     assert not any(destination.iterdir())
     note = controller._assessment_legacy(_ns(repo, migrate_legacy=True), destination)
