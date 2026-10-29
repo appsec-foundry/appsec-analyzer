@@ -80,6 +80,7 @@ from shared.artifact_names import MODEL
 
 from renderers._severity_rollup import (
     display_id,
+    has_root_cause_section,
     priority_severity,
     register_floor,
     register_severity,
@@ -5567,10 +5568,10 @@ def gen_critical_attack_tree(yaml_data: dict):
         m = re.search(r"(\d+)", _ref(item))
         return (int(m.group(1)) if m else 1_000_000, _ref(item))
 
+    if not has_root_cause_section(yaml_data):
+        return None
     threats = [t for t in yaml_data.get("threats") or [] if isinstance(t, dict) and _ref(t)]
     crits = [t for t in threats if str(t.get("risk") or t.get("severity") or "").strip().lower() == "critical"]
-    if len(crits) < 2:
-        return None
 
     crits = sorted(crits, key=_id_key)
     crit_ids = [_ref(t) for t in crits]

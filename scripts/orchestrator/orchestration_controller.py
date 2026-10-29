@@ -477,6 +477,36 @@ _REQUIRED_RENDER_FRAGMENTS = ("ms-verdict.json", "security-architecture.md")
 _FINAL_STRUCTURE_STEP = "validators/qa_checks.py final_structure"
 
 
+def _check_issues(detail: str) -> list[str]:
+    """Each issue of a failed quality check as "check: issue", from the check's JSON report; [] for other output."""
+    try:
+        checks = json.loads(detail.partition("\n")[2])
+    except ValueError:
+        return []
+    if not isinstance(checks, dict):
+        return []
+    return [
+        f"{name}: {issue}"
+        for name, check in checks.items()
+        if isinstance(check, dict)
+        for issue in check.get("issues") or []
+    ]
+
+
+def _compose_blocker(output_dir: Path) -> str:
+    """Why the compose tail stopped, on one line: its step, then the failed checks' issues or the step's last line."""
+    from appsec_analyzer.terminal import field
+
+    try:
+        blocked = json.loads((output_dir / ".compose-blocked.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "in an unknown step"
+    lines = [line for line in str(blocked.get("detail") or "").splitlines() if line.strip()]
+    reasons = [field(text) for text in (blocked.get("issues") or lines[-1:])]
+    shown = "; ".join(reasons[:3]) + (f"; and {len(reasons) - 3} more" if len(reasons) > 3 else "")
+    return f"in {field(blocked.get('step') or 'an unknown step')}" + (f": {shown}" if shown else "")
+
+
 def _compose_if_ready(output_dir: Path, repo_root: str) -> bool:
     """Deterministically compose or refresh ``threat-model.md`` from fragments.
 
@@ -506,20 +536,18 @@ def _compose_if_ready(output_dir: Path, repo_root: str) -> bool:
         and re-dispatch the full renderer for ~9 minutes to redo work already
         on disk. Recording the real step and its stderr makes that
         misdiagnosis impossible."""
+        record = {
+            "schema_version": 1,
+            "blocked_at": datetime.now(timezone.utc).isoformat(),
+            "step": step,
+            "detail": detail[-2000:],
+        }
+        # Read before the cut: the head of a long check report would be lost.
+        issues = _check_issues(detail)
+        if issues:
+            record["issues"] = issues
         try:
-            blocked_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "blocked_at": datetime.now(timezone.utc).isoformat(),
-                        "step": step,
-                        "detail": detail[-2000:],
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            blocked_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         except OSError:
             pass
         return False
@@ -4001,9 +4029,7 @@ def _assessment_render(
     receipts += render_stage2(jobs, workspace, progress=progress)
     _write_assessment_stage_stats(workspace, jobs.timing)
     if not _compose_if_ready(workspace, str(root)):
-        blocked = workspace / ".compose-blocked.json"
-        detail = blocked.read_text(encoding="utf-8")[-1500:] if blocked.is_file() else "unknown step"
-        raise ControllerError("combined report composition failed: " + detail)
+        raise ControllerError("combined report composition failed " + _compose_blocker(workspace))
     progress("Running the quality gates")
     _run_script("validators/redact_known_secrets.py", ["--repo-root", str(root), "--output-dir", str(workspace)])
     _run_script("validators/qa_checks.py", ["unmasked_secrets", str(workspace / "threat-model.md"), str(workspace)])

@@ -32,6 +32,7 @@ import shutil
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -141,26 +142,37 @@ def _anchors_referenced(md: str) -> set[str]:
     return refs
 
 
-def test_every_link_target_resolves(tmp_path: Path) -> None:
+def _with_criticals(out: Path, count: int) -> None:
+    """Keep the first ``count`` Critical findings, make the others High, and
+    rebuild the model-free fragments a run rebuilds before every compose."""
+    from renderers import pregenerate_fragments
+
+    path = out / "threat-model.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    kept = 0
+    for threat in data["threats"]:
+        if (threat.get("risk") or threat.get("severity") or "").lower() == "critical":
+            kept += 1
+            if kept > count:
+                threat.update({key: "High" for key in ("risk", "severity") if key in threat})
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    assert pregenerate_fragments.main([str(out), "--force", "--only", "attack-walkthroughs.md"]) == 0
+    assert pregenerate_fragments.main([str(out), "--only", "ms-critical-attack-tree.json"]) == 0
+
+
+# The root-cause section needs two Critical findings; its links must follow it either way.
+@pytest.mark.parametrize("criticals", [0, 1, 3])
+def test_every_link_target_resolves(tmp_path: Path, criticals: int) -> None:
     out = _prepare(tmp_path)
+    _with_criticals(out, criticals)
     rendered, _ = compose.render(CONTRACT, out)
     declared = _anchors_declared(rendered)
     referenced = _anchors_referenced(rendered)
+    assert ("critical-findings-by-root-cause" in declared) is (criticals >= 2)
     # Allow a small set of structural anchors that are rendered inline in
     # the TOC but correspond to reference-like placeholders (8c/8d when
     # fragments absent — correctness gap, not a test defect).
-    missing = sorted(
-        referenced
-        - declared
-        - {
-            "8c-compound-attack-chains",
-            "8d-architectural-findings",
-            # Conditional section (>=2 Critical): soft-skipped when its
-            # ms-critical-attack-tree.json fragment is absent, so the TOC /
-            # walkthrough refs to it dangle — same tolerated correctness gap.
-            "critical-findings-by-root-cause",
-        }
-    )
+    missing = sorted(referenced - declared - {"8c-compound-attack-chains", "8d-architectural-findings"})
     assert not missing, "Dangling Markdown link targets (no matching <a id> or heading slug):\n  " + "\n  ".join(
         missing
     )

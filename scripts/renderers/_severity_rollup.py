@@ -129,6 +129,16 @@ def register_severity(threat: dict | None) -> str:
     return label if label in SEVERITY_ORDER else raw
 
 
+def has_root_cause_section(yaml_data: dict) -> bool:
+    """Whether the report has the Critical Findings by Root Cause section: two or more Critical findings.
+
+    One finding has nothing to group. The section and every link to it use this one gate, so no
+    text names the section in a report that leaves it out.
+    """
+    threats = [t for t in yaml_data.get("threats") or [] if isinstance(t, dict)]
+    return sum(1 for t in threats if register_severity(t) == "Critical") >= 2
+
+
 def is_refuted(threat: dict | None) -> bool:
     """True when evidence verification refuted the finding.
 

@@ -43,6 +43,38 @@ def test_compose_if_ready_blocks_when_requirements_export_fails(tmp_path, monkey
     assert controller._compose_if_ready(output, "") is False
     blocked = json.loads((output / ".compose-blocked.json").read_text(encoding="utf-8"))
     assert blocked["step"] == "model/emit_requirement_trace_to_model.py"
+    # The stop names the step and its last output line.
+    assert controller._compose_blocker(output) == (
+        "in model/emit_requirement_trace_to_model.py: incomplete requirements assessment"
+    )
+
+
+def test_a_failed_report_check_names_its_issues_not_its_raw_report(tmp_path, monkeypatch):
+    output = tmp_path / "out"
+    fragments = output / ".fragments"
+    fragments.mkdir(parents=True)
+    (fragments / "ms-verdict.json").write_text("{}", encoding="utf-8")
+    (fragments / "security-architecture.md").write_text("## 6. Security Architecture\n", encoding="utf-8")
+    # A failed check before a long passing one: the stored detail keeps only the report's tail.
+    report = {
+        "toc_closure": {"check": "toc_closure", "issue_count": 1, "issues": ["unresolved TOC/link anchor: #gone"]},
+        "contract": {"check": "contract", "issue_count": 0, "issues": [], "warnings": ["w" * 80] * 40},
+    }
+
+    def fake_run(cmd, **_kwargs):
+        if any("renderers/compose_threat_model.py" in str(part) for part in cmd):
+            (output / "threat-model.md").write_text("# Threat Model\n", encoding="utf-8")
+        if "final_structure" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, json.dumps(report, indent=2), "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(controller.subprocess, "run", fake_run)
+    assert controller._compose_if_ready(output, "") is False
+    blocked = json.loads((output / ".compose-blocked.json").read_text(encoding="utf-8"))
+    assert "toc_closure" not in blocked["detail"]
+    assert controller._compose_blocker(output) == (
+        "in validators/qa_checks.py final_structure: toc_closure: unresolved TOC/link anchor: #gone"
+    )
 
 
 def _valid_recon_signals() -> dict:

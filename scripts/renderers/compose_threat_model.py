@@ -10605,11 +10605,15 @@ _ATTACK_WALKTHROUGHS_DEFAULT_INTRO = (
     "This section reconstructs how each Critical finding would actually play "
     "out as an attack — one short walkthrough per finding, with attack steps "
     "and a sequence diagram contrasting current behaviour with the "
-    "post-mitigation state. The cross-finding view (which root cause each "
-    "Critical traces back to, and which structural fix closes it) is in "
-    "[Critical Findings by Root Cause](#critical-findings-by-root-cause) above §1. Medium- "
+    "post-mitigation state. {root_causes}Medium- "
     "and Low-severity findings are not walked through here — they are "
     "documented in [§8 Findings Register](#8-findings-register)."
+)
+# Only in a report that has the section (`_severity_rollup.has_root_cause_section`).
+_ATTACK_WALKTHROUGHS_ROOT_CAUSES = (
+    "The cross-finding view (which root cause each "
+    "Critical traces back to, and which structural fix closes it) is in "
+    "[Critical Findings by Root Cause](#critical-findings-by-root-cause) above §1. "
 )
 
 
@@ -10649,7 +10653,12 @@ def _inject_attack_walkthroughs_intros(ctx: RenderContext, md: str) -> str:
     # §3 chapter intro
     chap = re.search(r"^## 3\.[ \t]+Attack Walkthroughs\s*$", md, re.MULTILINE)
     if chap and not _has_prose_before(chap, md):
-        md = md[: chap.end()] + "\n\n" + _ATTACK_WALKTHROUGHS_DEFAULT_INTRO + "\n" + md[chap.end() :]
+        intro = _ATTACK_WALKTHROUGHS_DEFAULT_INTRO.format(
+            root_causes=_ATTACK_WALKTHROUGHS_ROOT_CAUSES
+            if _severity_rollup.has_root_cause_section(ctx.yaml_data)
+            else ""
+        )
+        md = md[: chap.end()] + "\n\n" + intro + "\n" + md[chap.end() :]
 
     return md
 
@@ -18879,8 +18888,8 @@ def render(
             # grammar (`scripts/shared/_safe_cond.py`) does not support
             # numeric comparisons (`critical_count >= 2`) — precompute
             # the gate here so the contract can reference it as a bare
-            # boolean.
-            "has_multi_critical": severity_counts["critical"] >= 2,
+            # boolean. Every link to the section uses the same gate.
+            "has_multi_critical": _severity_rollup.has_root_cause_section(yaml_data),
             # category-level counts (active TH categories grouped by
             # their effective-severity). Used by §8.B sub-section
             # conditionals (e.g. `low_category_count > 0`).

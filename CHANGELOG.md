@@ -62,6 +62,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Fixed
 
 - An assessment no longer stops with `KeyError: 'jobs'` after verification when a component had no verification item to check.
+- A report with exactly one Critical finding is published again. Its attack walkthroughs linked to Critical Findings by Root Cause, a section that appears only with two or more Critical findings, and the quality check stopped the report.
+- When report composition stops at a quality check, the message names the failed checks and their issues instead of the check's raw JSON output.
 - An unexpected internal error now ends a command with a short message instead of a Python traceback. The message names the error and the line in Analyzer's code where it happened; `assess` keeps its finished steps, and once an update fixes the error, `--resume` continues the run. `.run-issues.json` records the same details. With `APPSEC_PLUGIN_DEV=1`, the traceback follows the message.
 - With API profiles (OpenAI, Bedrock, LiteLLM), a failed model call no longer uses up its whole call allowance. A request the provider refuses, including a rate limit, costs nothing and is repeated as intended; a rejected answer counts the tokens it used; any other failure counts at most the request's worst case. When too little budget is left for a call, Analyzer sends nothing and asks for a higher limit or keeps the finished work in an incomplete result, and the report keeps a reserve for one worst-case call.
 - The warning about repeated model calls names what the failed attempts cost, and the verification aspects' costs add up to the step's cost. A Claude CLI result that reports no cost for used tokens counts as unknown cost instead of free.

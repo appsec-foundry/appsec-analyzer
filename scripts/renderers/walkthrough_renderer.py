@@ -43,7 +43,7 @@ import yaml
 from repairs.apply_prose_fixes import format_inline_code
 from shared._finding_locator import title_without_locator
 
-from renderers._severity_rollup import register_severity
+from renderers._severity_rollup import has_root_cause_section, register_severity
 
 # ---------------------------------------------------------------------------
 # Constants — bound the output and pin contract-required strings.
@@ -1640,6 +1640,17 @@ def render_attack_walkthroughs_md(
         out.append("<!-- generated:walkthrough_renderer -->")
         return "\n".join(out).rstrip() + "\n"
 
+    # Only a report that has the root-cause section points to it; one Critical has nothing to group.
+    root_causes = (
+        "Which root cause each Critical traces back to is in "
+        "[Critical Findings by Root Cause](#critical-findings-by-root-cause); "
+        if has_root_cause_section(yaml_data)
+        else ""
+    )
+
+    def _register_sentence(text: str) -> str:
+        return root_causes + text if root_causes else text[:1].upper() + text[1:]
+
     if _capped:
         out.append(
             f"This section walks through how the **{_n_walked} highest-priority "
@@ -1647,21 +1658,21 @@ def render_attack_walkthroughs_md(
             f"by severity, chain relevance, and threat-category diversity, with "
             f"Access Control and LLM Abuse represented when present. Each walkthrough "
             f"has attack steps, a focused sequence diagram, and the primary "
-            f"mitigation. Which root cause each Critical traces back to is in "
-            f"[Critical Findings by Root Cause](#critical-findings-by-root-cause); every other "
-            f"Critical, plus full per-finding context (severity rationale, "
-            f"assets, detection signals), is in the "
-            f"[§8 Findings Register](#8-findings-register)."
+            f"mitigation. "
+            + _register_sentence(
+                "every other Critical, plus full per-finding context (severity rationale, "
+                "assets, detection signals), is in the [§8 Findings Register](#8-findings-register)."
+            )
         )
     else:
         out.append(
             "This section walks through how the highest-risk findings are "
             "exploited — one short walkthrough per Critical, each with attack "
-            "steps, a focused sequence diagram, and the primary mitigation. Which "
-            "root cause each Critical traces back to is in "
-            "[Critical Findings by Root Cause](#critical-findings-by-root-cause); full per-finding "
-            "context (severity rationale, assets, detection signals) is in the "
-            "[§8 Findings Register](#8-findings-register)."
+            "steps, a focused sequence diagram, and the primary mitigation. "
+            + _register_sentence(
+                "full per-finding context (severity rationale, assets, detection signals) is in the "
+                "[§8 Findings Register](#8-findings-register)."
+            )
         )
     out.append("")
 

@@ -369,3 +369,16 @@ def test_verdict_practice_concern_does_not_claim_confirmation():
     }
     assert sr.verdict_basis(model) == {"F-081": "High"}
     assert sr.weakness_basis_breakdown(model)[1] == 0
+
+
+@pytest.mark.parametrize(
+    ("threats", "expected"),
+    [
+        ([{"risk": "Critical"}], False),
+        ([{"risk": "Critical"}, {"risk": "High", "severity": "Critical"}], False),
+        ([{"risk": "critical"}, {"severity": "Critical"}], True),
+        ([{"risk": "Critical"}, "Critical"], False),
+    ],
+)
+def test_the_root_cause_section_needs_two_critical_findings_on_the_register_basis(threats, expected):
+    assert sr.has_root_cause_section({"threats": threats}) is expected
