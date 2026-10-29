@@ -1606,6 +1606,11 @@ def _assessment_architecture(scope, jobs, *, progress, depth="standard"):
     flows = _assessment_flow_route_auth(
         scope, flows, {rid: row["routes"].get("routes") or [] for rid, row in inventories.items()}
     )
+    # A bearer check of a resource server names the provider whose access token it accepts; the
+    # linking evidence is already qualified, because both flows passed the handoffs above.
+    from analyzers.discover_identity_providers import reconcile_token_issuers
+
+    reconcile_token_issuers(flows["data_flows"], flows.get("external_entities") or [], components["components"])
     from analyzers.client_api_flows import settle_access_groups
 
     settle_access_groups(flows["data_flows"])

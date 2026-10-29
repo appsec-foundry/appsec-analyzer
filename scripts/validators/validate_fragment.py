@@ -417,6 +417,12 @@ def _nameable_role_access() -> frozenset[str]:
     return frozenset(slug for slug, entry in actors.items() if (entry or {}).get("legitimate_role_noun"))
 
 
+def _token_issuer(flow: dict) -> str | None:
+    """The identity provider whose access token a flow's bearer check accepts, if the flow names one."""
+    auth = flow.get("authentication")
+    return auth.get("issuer") if isinstance(auth, dict) else None
+
+
 def interaction_shape_holds(flow: dict, entity_kinds: dict) -> bool:
     """An interaction flow is a human legitimate role using a client, with no server authentication claim."""
     return (
@@ -463,11 +469,18 @@ def architecture_reference_errors(data: dict) -> list[str]:
             ref = flow.get(f"{side}_entity")
             if ref is not None and (ref not in entity_ids or flow.get(side) != "external"):
                 errors.append(f"{flow.get('id')}: {side}_entity must resolve and its endpoint must be external")
+        issuer = _token_issuer(flow)
+        if issuer in entity_kinds and entity_kinds[issuer] != "identity-provider":
+            errors.append(f"{flow.get('id')}: authentication.issuer must name an identity provider")
     if "components" in data:
         components = [c for c in rows(data.get("components")) if isinstance(c.get("id"), str)]
         component_ids = {c["id"] for c in components}
         if component_ids.intersection(entity_ids):
             errors.append("external entity IDs must not collide with component IDs")
+        for flow in rows(data.get("data_flows")):
+            issuer = _token_issuer(flow)
+            if issuer is not None and issuer not in entity_kinds and issuer not in component_ids:
+                errors.append(f"{flow.get('id')}: authentication.issuer must resolve to an entity or component")
         tiers = {c["id"]: c.get("tier") for c in components}
         for flow in rows(data.get("data_flows")):
             if flow.get("interaction") and not interaction_targets_client(flow, tiers):

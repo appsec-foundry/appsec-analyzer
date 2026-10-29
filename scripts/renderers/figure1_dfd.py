@@ -76,6 +76,7 @@ from renderers.figure1_security import (
     authentication_profile,
     bundle_access_groups,
     flow_bundle_key,
+    issuer_names,
     profile_catalog,
     select_references,
 )
@@ -3955,7 +3956,7 @@ def _build(
         authentication_catalog
         if authentication_catalog is not None
         else (
-            profile_catalog(d.get("data_flows") or [])
+            profile_catalog(d.get("data_flows") or [], issuer_names(d))
             if not detail or any(f.get("authentication") for f in d.get("data_flows") or [])
             else {}
         )

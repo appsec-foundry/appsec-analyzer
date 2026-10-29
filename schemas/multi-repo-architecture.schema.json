@@ -357,8 +357,19 @@
                 "authorization-code",
                 "authorization-code-pkce",
                 "client-credentials",
-                "device-code"
+                "device-code",
+                "password"
               ]
+            },
+            "public": {
+              "const": true,
+              "description": "The receiver serves public metadata, such as provider discovery or signing keys, to any caller by design."
+            },
+            "issuer": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]+$",
+              "maxLength": 128,
+              "description": "Identity provider (external entity or component ID) whose access token the receiver checks."
             },
             "factors": {
               "type": "array",
@@ -431,8 +442,40 @@
                   "scheme": {
                     "enum": [
                       "oauth2",
-                      "oidc"
+                      "oidc",
+                      "client-secret",
+                      "private-key",
+                      "mtls",
+                      "password"
                     ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "public"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "scheme": {
+                    "const": "none"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "issuer"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "scheme": {
+                    "const": "bearer"
                   }
                 }
               }

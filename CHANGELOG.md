@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Figure 1 shows OAuth 2.0 and OpenID Connect sign-ins step by step for any provider product, including a provider that runs inside the system: the sign-in, the token request with its grant, and requests that carry the provider's access token to the application. Common client libraries and token checks are recognized, and fetching public discovery documents or signing keys no longer appears as missing authentication.
 - Private HTTPS Git URLs and merge or pull request URLs can use a token from `GIT_TOKEN` or `GITLAB_TOKEN` (GitLab hosts only), or from any variable named with `--git-token-env`; a failed access now names the variables it looked for.
 - Standard and thorough assessments verify authentication, authorization, input validation, and language model use alongside STRIDE analysis; thorough also checks data protection. Verification adds model cost, shown in advance, and produces item-level results with linked findings and explicit contradictions. Profiles can also record scanner-linked verification items without model calls; see [verification configuration](docs/security-assessment.md#configure-verification).
 - Assessment depths and business abuse cases are configurable through organization and scan profiles. Standard and thorough runs check business abuse cases; thorough adds application-specific cases. `appsec-analyzer abuse-cases` lists definitions and saved results without model calls.

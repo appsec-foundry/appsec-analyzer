@@ -159,7 +159,7 @@ def build_views(model, scenarios, actors, actor_groups):
     # Resolve roles once over the complete model, so panel membership cannot
     # change whether a generic victim is ambiguous or regular roles can fold.
     projected, victim, _ = F._project_legitimate_roles(model)
-    catalog = F.profile_catalog(projected.get("data_flows", []))
+    catalog = F.profile_catalog(projected.get("data_flows", []), F.issuer_names(projected))
     outgoing = collections.defaultdict(list)
     for flow in projected.get("data_flows", []):
         outgoing[F._flow_endpoints(flow)[0]].append(flow)

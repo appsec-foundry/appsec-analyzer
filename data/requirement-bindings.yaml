@@ -616,12 +616,34 @@ requirements:
       - data/cwe-boundary-legs.yaml
       - schemas/trust-boundaries-repo.schema.yaml
       - docs/internal/contracts/requirement-acceptance.md
+      - scripts/analyzers/discover_identity_providers.py
+      - scripts/analyzers/handler_resolver.py
+      - scripts/renderers/figure1_security.py
+      - scripts/validators/validate_fragment.py
+      - schemas/fragments/data-flows.schema.json
+      - schemas/fragments/data-flows-v2.schema.json
+      - schemas/multi-repo-architecture.schema.json
+      - schemas/trust-boundary-assessment-input.schema.json
     decisions: []
     documents:
       - docs/security-assessment.md
       - docs/internal/contracts/requirement-acceptance.md
+      - docs/internal/contracts/schema-invariants.md
     coverage: partial
     guards:
+      - tests/test_discover_identity_providers.py::test_oauth_client_setups_draw_the_steps_their_code_evidences
+      - tests/test_discover_identity_providers.py::test_a_resource_server_discovers_its_provider_without_signing_anyone_in
+      - tests/test_discover_identity_providers.py::test_a_remote_key_set_is_public_metadata_not_missing_authentication
+      - tests/test_discover_identity_providers.py::test_names_and_local_issuer_checks_add_no_protocol_step
+      - tests/test_discover_identity_providers.py::test_the_sign_in_is_drawn_alike_for_every_provider_product
+      - tests/test_discover_identity_providers.py::test_a_provider_deployed_with_the_system_is_reached_as_its_component
+      - tests/test_discover_identity_providers.py::test_a_bearer_check_names_the_provider_whose_access_token_it_accepts
+      - tests/test_discover_identity_providers.py::test_a_bearer_check_without_a_code_link_stays_a_plain_bearer_token
+      - tests/test_discover_identity_providers.py::test_an_issuer_must_name_an_identity_provider_or_component
+      - tests/test_handler_resolver.py::test_oauth_and_oidc_library_guards_verify_their_routes
+      - tests/test_handler_resolver.py::test_an_oauth_library_call_that_may_let_the_request_through_is_not_verified
+      - tests/test_figure1_security.py::test_public_provider_metadata_is_a_neutral_zero_not_missing_authentication
+      - tests/test_figure1_security.py::test_an_access_token_names_its_issuer_and_keeps_a_number_per_provider
       - tests/test_multi_repo_controller.py::test_boundary_batches_cover_seventeen_crossings_in_two_calls_and_resume
       - tests/test_multi_repo_controller.py::test_browser_and_external_signals_can_share_one_boundary_candidate
       - tests/test_multi_repo_controller.py::test_boundary_batch_rejects_incomplete_or_foreign_dispositions

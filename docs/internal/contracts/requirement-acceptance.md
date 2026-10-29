@@ -116,6 +116,8 @@ A verification finding that no evidence review covers and no post-check confirms
 
 Describe valuable assets, actors, components, interfaces, data flows, and trust boundaries.
 
+Model sign-in and service access through an OAuth 2.0 or OpenID Connect provider from the protocol that code and configuration show, for any provider product and whether the provider is an external service or a component of the system. Figure 1 names the grant evidenced at each step: authorization code with or without PKCE, OpenID Connect sign-in, client credentials, and the legacy implicit and password grants. A request that carries an access token to the application shows that token and its issuing provider when the code connects them; otherwise it remains a plain bearer token. A route protected by a supported token or session check of an OAuth or OpenID Connect library never appears as unauthenticated or unknown. Every step cites the code or configuration that establishes it; a dependency name alone adds no step. Retrieving public provider metadata or signing keys does not appear as missing authentication.
+
 ## REQ-006: Understand security controls
 
 Distinguish evidenced, broken, missing, uncertain, and inapplicable controls. Declarations or an absence of findings must never establish that a control works.

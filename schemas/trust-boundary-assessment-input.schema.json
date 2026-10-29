@@ -370,11 +370,13 @@
             "scheme": {"type":"string","enum":["unknown","none","password","basic","bearer","cookie","api-key","oauth2","oidc","saml","mtls","private-key","client-secret","mfa","other"]},
             "scope": {"type":"string","minLength":1,"maxLength":240,"pattern":"^[^\\r\\n\\t]+$"},
             "transport": {"type":"string","enum":["protected","cleartext","unknown"]},
-            "flow": {"type":"string","enum":["implicit","authorization-code","authorization-code-pkce","client-credentials","device-code"]},
+            "flow": {"type":"string","enum":["implicit","authorization-code","authorization-code-pkce","client-credentials","device-code","password"]},
+            "public": {"const":true,"description":"The receiver serves public metadata, such as provider discovery or signing keys, to any caller by design."},
+            "issuer": {"type":"string","pattern":"^[a-z][a-z0-9-]+$","maxLength":128,"description":"Identity provider (external entity or component ID) whose access token the receiver checks."},
             "factors": {"type":"array","minItems":2,"maxItems":4,"uniqueItems":true,"items":{"type":"string","enum":["password","totp","webauthn","hardware-key","push","sms","email","biometric"]}},
             "evidence": {"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["file","line"],"properties":{"file":{"type":"string","minLength":1,"maxLength":512,"not":{"pattern":"^(?:/|[A-Za-z]:[\\\\/]|[A-Za-z][A-Za-z0-9+.-]*://)|(?:^|/)\\.\\.(?:/|$)|\\\\"}},"line":{"type":"integer","minimum":1}}}}
           },
-          "allOf": [{"if":{"properties":{"scheme":{"const":"mfa"}}},"then":{"required":["factors"],"properties":{"factors":{"contains":{"enum":["password","biometric"]}}}},"else":{"not":{"required":["factors"]}}},{"if":{"required":["flow"]},"then":{"properties":{"scheme":{"enum":["oauth2","oidc"]}}}}]
+          "allOf": [{"if":{"properties":{"scheme":{"const":"mfa"}}},"then":{"required":["factors"],"properties":{"factors":{"contains":{"enum":["password","biometric"]}}}},"else":{"not":{"required":["factors"]}}},{"if":{"required":["flow"]},"then":{"properties":{"scheme":{"enum":["oauth2","oidc","client-secret","private-key","mtls","password"]}}}},{"if":{"required":["public"]},"then":{"properties":{"scheme":{"const":"none"}}}},{"if":{"required":["issuer"]},"then":{"properties":{"scheme":{"const":"bearer"}}}}]
         },
         "access_group": {
           "type": "object", "additionalProperties": false,

@@ -57,12 +57,12 @@ def _flows():
         (
             "config/application.yaml",
             "spring:\n  security:\n    oauth2:\n      client:\n        provider:\n          staff:\n            issuer-uri: https://sso.example/realms/staff\n",
-            "OIDC discovery",
+            ("OIDC discovery", "OIDC sign-in"),
         ),
         (
             "config/application.properties",
             "spring.security.oauth2.client.provider.staff.issuer-uri=https://sso.example/realms/staff",
-            "OIDC discovery",
+            ("OIDC discovery", "OIDC sign-in"),
         ),
         (
             "config/application.properties",
@@ -77,14 +77,15 @@ def _flows():
     ],
 )
 def test_client_integrations_are_generic_and_evidenced(tmp_path, rel, source, role):
+    # A client registration that discovers its provider also signs users in there.
+    roles = [role] if isinstance(role, str) else list(role)
     _write(tmp_path, rel, source)
     candidates = discovery.discover(tmp_path)
-    assert len(candidates) == 1
-    assert candidates[0].role == role
+    assert [c.role for c in candidates] == roles
     result = discovery.reconcile(tmp_path, _components(), _flows())
-    assert len(result["external_entities"]) == len(result["data_flows"]) == 1
-    assert result["data_flows"][0]["from"] == "client"
-    assert result["data_flows"][0]["to"] == "external"
+    assert len(result["external_entities"]) == 1 and len(result["data_flows"]) == len(roles)
+    assert {f["from"] for f in result["data_flows"]} == {"client"}
+    assert {f["to"] for f in result["data_flows"]} == {"external"}
     assert repository_path_errors("data-flows", result, tmp_path) == []
     schema = json.loads((Path(__file__).parents[1] / "schemas/fragments/data-flows.schema.json").read_text())
     jsonschema.validate(result, schema)
@@ -566,7 +567,7 @@ def test_query_credentials_are_not_copied_to_model(tmp_path):
         (  # public metadata
             "src/client.ts",
             'Issuer.discover("https://identity.example")',
-            {"scheme": "none", "transport": "protected"},
+            {"scheme": "none", "public": True, "transport": "protected"},
         ),
     ],
 )
@@ -869,3 +870,367 @@ def test_no_token_request_is_invented_without_a_provider_or_secret(tmp_path, var
         assert token and all(f["to_entity"] != "ext-accounts" for f in token)
     else:
         assert token == []
+
+
+# ---------------------------------------------------------------- OAuth / OpenID Connect flows (REQ-005)
+def _spa_and_api():
+    return [
+        {"id": "web", "name": "Web client", "tier": "client", "paths": ["web/**"]},
+        {"id": "api", "name": "API", "tier": "server", "paths": ["api/**"]},
+    ]
+
+
+def _steps(tmp_path, files, components=None):
+    for rel, text in files.items():
+        _write(tmp_path, rel, text)
+    result = discovery.reconcile(tmp_path, components or _spa_and_api(), _flows())
+    schema = json.loads((Path(__file__).parents[1] / "schemas/fragments/data-flows.schema.json").read_text())
+    jsonschema.validate(result, schema)
+    steps = set()
+    for flow in result["data_flows"]:
+        auth = flow.get("authentication") or {}
+        steps.add((flow["from"], flow["label"].removeprefix("Configured "), auth.get("scheme"), auth.get("flow")))
+    return result, steps
+
+
+SPRING_CLIENT = (
+    "spring:\n  security:\n    oauth2:\n      client:\n        registration:\n          corp:\n"
+    "            client-id: app\n            client-secret: ${{SECRET}}\n{grant}"
+    "        provider:\n          corp:\n            issuer-uri: https://sso.example/realms/corp\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        (  # openid-client 6: the library performs the sign-in and the token request
+            {
+                "api/auth.js": "const config = await client.discovery(new URL('https://sso.example/realms/corp'), "
+                "process.env.CLIENT_ID, client.ClientSecretPost(process.env.CLIENT_SECRET))\n"
+            },
+            {
+                ("api", "OIDC discovery", "none", None),
+                ("api", "OIDC sign-in", "oidc", None),
+                ("api", "OAuth token exchange", "client-secret", None),
+            },
+        ),
+        (  # openid-client 5
+            {
+                "api/auth.js": "const issuer = await Issuer.discover('https://sso.example')\n"
+                "const oidc = new issuer.Client({ client_id: id, client_secret: s, redirect_uris: [cb] })\n"
+            },
+            {
+                ("api", "OIDC discovery", "none", None),
+                ("api", "OIDC sign-in", "oidc", None),
+                ("api", "OAuth token exchange", "client-secret", None),
+            },
+        ),
+        (  # Spring Security oauth2Login
+            {"api/src/main/resources/application.yml": SPRING_CLIENT.format(grant="")},
+            {
+                ("api", "OIDC discovery", "none", None),
+                ("api", "OIDC sign-in", "oidc", None),
+                ("api", "OAuth token exchange", "client-secret", None),
+            },
+        ),
+        (  # Spring client credentials: a service client signs nobody in
+            {
+                "api/src/main/resources/application.yml": SPRING_CLIENT.format(
+                    grant="            authorization-grant-type: client_credentials\n"
+                )
+            },
+            {
+                ("api", "OIDC discovery", "none", None),
+                ("api", "OAuth token exchange", "client-secret", "client-credentials"),
+            },
+        ),
+        (  # ASP.NET Core OpenID Connect handler
+            {
+                "api/Program.cs": "services.AddAuthentication().AddOpenIdConnect(o => {\n"
+                '  o.Authority = "https://login.example/tenant";\n  o.ClientId = id;\n  o.ClientSecret = s;\n'
+                '  o.ResponseType = "code";\n  o.UsePkce = true;\n});\n'
+            },
+            {
+                ("api", "OIDC discovery", "none", None),
+                ("api", "OIDC sign-in", "oidc", "authorization-code-pkce"),
+                ("api", "OAuth token exchange", "client-secret", "authorization-code-pkce"),
+            },
+        ),
+        (  # passport-oauth2 with explicit endpoints
+            {
+                "api/auth.js": "passport.use(new OAuth2Strategy({\n"
+                "  authorizationURL: 'https://sso.example/oauth2/authorize',\n"
+                "  tokenURL: 'https://sso.example/oauth2/token',\n"
+                "  clientID: id, clientSecret: s, callbackURL: '/cb'\n}, verify))\n"
+            },
+            {("api", "OAuth authorization", "oauth2", None), ("api", "OAuth token exchange", "client-secret", None)},
+        ),
+        (  # Go golang.org/x/oauth2
+            {
+                "api/auth.go": "var conf = &oauth2.Config{\n\tClientID: id,\n\tClientSecret: s,\n"
+                '\tEndpoint: oauth2.Endpoint{\n\t\tAuthURL: "https://sso.example/oauth2/auth",\n'
+                '\t\tTokenURL: "https://sso.example/oauth2/token",\n\t},\n}\n'
+            },
+            {("api", "OAuth authorization", "oauth2", None), ("api", "OAuth token exchange", "client-secret", None)},
+        ),
+        (  # browser client: keycloak-js
+            {
+                "web/auth.ts": "const kc = new Keycloak({ url: 'https://sso.example', realm: 'corp', clientId: 'spa' })\n"
+            },
+            {("web", "OIDC discovery", "none", None), ("web", "OIDC sign-in", "oidc", None)},
+        ),
+        (  # browser client: oidc-client-ts
+            {
+                "web/auth.ts": "new UserManager({ authority: 'https://sso.example/realms/corp', client_id: 'spa', "
+                "redirect_uri: cb, response_type: 'code' })\n"
+            },
+            {("web", "OIDC discovery", "none", None), ("web", "OIDC sign-in", "oidc", "authorization-code")},
+        ),
+        (  # browser client: a settings object passed by name (angular-oauth2-oidc)
+            {
+                "web/auth.config.ts": "export const authConfig: AuthConfig = { issuer: 'https://sso.example/realms/corp', "
+                "clientId: 'spa', responseType: 'code', redirectUri: window.location.origin }\n"
+            },
+            {("web", "OIDC discovery", "none", None), ("web", "OIDC sign-in", "oidc", "authorization-code")},
+        ),
+        (  # browser client: nested settings (MSAL)
+            {
+                "web/msal.ts": "export const msalConfig = { auth: { clientId: 'spa', "
+                "authority: 'https://login.example/tenant-id', redirectUri: '/' } }\n"
+            },
+            {("web", "OIDC discovery", "none", None), ("web", "OIDC sign-in", "oidc", None)},
+        ),
+        (  # Keycloak adapter file of a client
+            {"api/keycloak.json": '{"realm": "corp", "auth-server-url": "https://sso.example/", "resource": "app"}'},
+            {("api", "OIDC discovery", "none", None), ("api", "OIDC sign-in", "oidc", None)},
+        ),
+        (  # client credentials request written by hand
+            {
+                "api/svc.js": "await fetch('https://sso.example/oauth2/token', { method: 'POST', body: "
+                "new URLSearchParams({ grant_type: 'client_credentials', client_id: id, client_secret: s }) })\n"
+            },
+            {("api", "OAuth token exchange", "client-secret", "client-credentials")},
+        ),
+        (  # legacy password grant
+            {
+                "api/login.js": "await fetch('https://sso.example/oauth2/token', { method: 'POST', body: "
+                "new URLSearchParams({ grant_type: 'password', username: u, password: p }) })\n"
+            },
+            {("api", "OAuth token exchange", "password", "password")},
+        ),
+    ],
+    ids=[
+        "openid-client-6",
+        "openid-client-5",
+        "spring-login",
+        "spring-client-credentials",
+        "aspnet-oidc",
+        "passport-oauth2",
+        "go-oauth2",
+        "keycloak-js",
+        "oidc-client-ts",
+        "settings-object",
+        "msal-nested",
+        "keycloak-adapter-file",
+        "client-credentials",
+        "password-grant",
+    ],
+)
+def test_oauth_client_setups_draw_the_steps_their_code_evidences(tmp_path, files, expected):
+    result, steps = _steps(tmp_path, files)
+    assert steps == expected
+    assert {e["kind"] for e in result["external_entities"]} == {"identity-provider"}
+    assert discovery.reconcile(tmp_path, _spa_and_api(), result) == result
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {
+            "api/application.yml": "spring:\n  security:\n    oauth2:\n      resourceserver:\n        jwt:\n"
+            "          issuer-uri: https://sso.example/realms/corp\n"
+        },
+        {
+            "api/Program.cs": 'services.AddAuthentication().AddJwtBearer(o => {\n  o.Authority = "https://login.example/t";\n'
+            '  o.Audience = "api";\n});\n'
+        },
+        {"api/api.js": "const checkJwt = auth({ audience: 'api', issuerBaseURL: 'https://sso.example/' })\n"},
+        {
+            "api/keycloak.json": '{"realm": "corp", "auth-server-url": "https://sso.example/", "resource": "api", '
+            '"bearer-only": true}'
+        },
+    ],
+    ids=["spring-resource-server", "aspnet-jwt-bearer", "express-oauth2-jwt-bearer", "keycloak-bearer-only"],
+)
+def test_a_resource_server_discovers_its_provider_without_signing_anyone_in(tmp_path, files):
+    _result, steps = _steps(tmp_path, files)
+    assert steps == {("api", "OIDC discovery", "none", None)}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "app.use(expressjwt({ secret: jwksRsa.expressJwtSecret({ jwksUri: 'https://sso.example/.well-known/jwks.json' }) }))\n",
+        "const keys = createRemoteJWKSet(new URL('https://sso.example/oauth2/v1/keys'))\n",
+        "const client = jwksClient({ jwksUri: 'https://sso.example/protocol/openid-connect/certs' })\n",
+    ],
+    ids=["jwks-rsa", "jose", "jwks-client"],
+)
+def test_a_remote_key_set_is_public_metadata_not_missing_authentication(tmp_path, source):
+    result, steps = _steps(tmp_path, {"api/keys.js": source})
+    assert steps == {("api", "OIDC signing keys", "none", None)}
+    assert result["data_flows"][0]["authentication"]["public"] is True
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"api/verify.js": "jwt.verify(token, publicKey, { issuer: 'https://sso.example/', audience: 'api' })\n"},
+        {"api/sign.js": "jwt.sign(claims, key, { issuer: 'https://app.example/' })\n"},
+        {"api/package.json": '{"dependencies": {"openid-client": "^6.0.0", "keycloak-connect": "^26.0.0"}}'},
+        {"api/oidc.yml": "oidc:\n  enabled: false\n  issuer: https://sso.example/\n  client-id: app\n"},
+    ],
+    ids=["local-issuer-check", "own-token-issuer", "dependency-names", "disabled-config"],
+)
+def test_names_and_local_issuer_checks_add_no_protocol_step(tmp_path, files):
+    result, steps = _steps(tmp_path, files)
+    assert steps == set() and result.get("external_entities", []) == []
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "https://sso.example.com/realms/corp",
+        "https://login.microsoftonline.com/0f1e2d3c/v2.0",
+        "https://corp.okta.com/oauth2/default",
+        "https://corp.eu.auth0.com/",
+        "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_Ab12",
+        "https://accounts.google.com",
+        "https://auth.example.com/application/o/app/",
+    ],
+)
+def test_the_sign_in_is_drawn_alike_for_every_provider_product(tmp_path, issuer):
+    _result, steps = _steps(
+        tmp_path, {"web/auth.ts": f"new UserManager({{ authority: '{issuer}', client_id: 'spa', redirect_uri: cb }})\n"}
+    )
+    assert steps == {("web", "OIDC discovery", "none", None), ("web", "OIDC sign-in", "oidc", None)}
+
+
+def test_a_provider_deployed_with_the_system_is_reached_as_its_component(tmp_path):
+    components = [
+        *_spa_and_api(),
+        {"id": "sso", "name": "Identity server", "tier": "server", "paths": ["sso/**"], "workloads": ["keycloak"]},
+    ]
+    result, steps = _steps(
+        tmp_path,
+        {
+            "web/auth.ts": "new UserManager({ authority: 'http://keycloak:8080/realms/corp', client_id: 'spa', redirect_uri: cb })\n"
+        },
+        components,
+    )
+    assert result.get("external_entities", []) == []
+    assert {(f["from"], f["to"], f["label"]) for f in result["data_flows"]} == {
+        ("web", "sso", "OIDC discovery"),
+        ("web", "sso", "OIDC sign-in"),
+    }
+    assert ("web", "OIDC sign-in", "oidc", None) in steps
+    assert discovery.reconcile(tmp_path, components, result) == result
+
+
+def test_a_modelled_sign_in_makes_the_derived_one_unnecessary(tmp_path):
+    _write(
+        tmp_path,
+        "web/auth.ts",
+        "new UserManager({ authority: 'https://sso.example/realms/corp', client_id: 'spa', redirect_uri: cb })\n",
+    )
+    _write(
+        tmp_path,
+        "web/login.ts",
+        "window.location.assign('https://sso.example/realms/corp/protocol/openid-connect/auth?scope=openid')\n",
+    )
+    result = discovery.reconcile(tmp_path, _spa_and_api(), _flows())
+    assert sorted(f["label"] for f in result["data_flows"]) == ["OAuth authorization", "OIDC discovery"]
+
+
+def _bearer(flow_id, check_file, receiver="api"):
+    return {
+        "id": flow_id,
+        "from": "web",
+        "to": receiver,
+        "label": "API requests",
+        "protocol": "HTTPS",
+        "direction": "request-response",
+        "data_classification": "Internal",
+        "provenance": "route-extraction",
+        "evidence": [{"file": "web/api.ts", "line": 1}],
+        "authentication": {
+            "scheme": "bearer",
+            "scope": "the handler checks a bearer credential and rejects the request without it",
+            "evidence": [{"file": check_file, "line": 3}],
+        },
+    }
+
+
+def _resource_server(tmp_path, files):
+    for rel, text in files.items():
+        _write(tmp_path, rel, text)
+    return discovery.reconcile(tmp_path, _spa_and_api(), _flows())
+
+
+@pytest.mark.parametrize(
+    ("files", "check_file"),
+    [
+        (
+            {"api/auth.js": "const checkJwt = auth({ audience: 'api', issuerBaseURL: 'https://sso.example/' })\n"},
+            "api/auth.js",
+        ),
+        (
+            {
+                "api/keycloak.json": '{"realm": "corp", "auth-server-url": "https://sso.example/", "resource": "api", "bearer-only": true}'
+            },
+            "api/routes.js",
+        ),
+    ],
+    ids=["same-file", "component-configuration"],
+)
+def test_a_bearer_check_names_the_provider_whose_access_token_it_accepts(tmp_path, files, check_file):
+    result = _resource_server(tmp_path, files)
+    provider = result["external_entities"][0]
+    flows = [*result["data_flows"], _bearer("df-090", check_file)]
+    assert discovery.reconcile_token_issuers(flows, result["external_entities"], _spa_and_api()) == ["df-090"]
+    auth = flows[-1]["authentication"]
+    assert auth["issuer"] == provider["id"] and provider["name"] in auth["scope"]
+    assert {"file": check_file, "line": 3} in auth["evidence"] and len(auth["evidence"]) == 2
+    document = {**_flows(), "data_flows": flows, "external_entities": result["external_entities"]}
+    schema = json.loads((Path(__file__).parents[1] / "schemas/fragments/data-flows.schema.json").read_text())
+    jsonschema.validate(document, schema)
+
+
+def test_a_bearer_check_without_a_code_link_stays_a_plain_bearer_token(tmp_path):
+    single = _resource_server(
+        tmp_path, {"api/auth.js": "const checkJwt = auth({ issuerBaseURL: 'https://sso.example/' })\n"}
+    )
+    elsewhere = [*copy.deepcopy(single["data_flows"]), _bearer("df-090", "api/routes.js")]
+    assert discovery.reconcile_token_issuers(elsewhere, single["external_entities"], _spa_and_api()) == []
+    _write(tmp_path, "api/other.js", "const second = auth({ issuerBaseURL: 'https://other.example/' })\n")
+    both = discovery.reconcile(tmp_path, _spa_and_api(), _flows())
+    flows = [*both["data_flows"], _bearer("df-090", "api/auth.js")]
+    assert discovery.reconcile_token_issuers(flows, both["external_entities"], _spa_and_api()) == []  # two providers
+    cookie = _bearer("df-091", "api/auth.js")
+    cookie["authentication"]["scheme"] = "cookie"
+    assert (
+        discovery.reconcile_token_issuers([*single["data_flows"], cookie], single["external_entities"], _spa_and_api())
+        == []
+    )
+    assert "issuer" not in flows[-1]["authentication"]
+
+
+def test_an_issuer_must_name_an_identity_provider_or_component():
+    from validators.validate_fragment import fragment_invariant_errors
+
+    flow = _bearer("df-001", "api/auth.js")
+    entity = {"id": "ext-mail", "name": "Mail", "kind": "external-service"}
+    for issuer, expected in (("ext-mail", "must name an identity provider"), ("ghost", "must resolve")):
+        flow["authentication"]["issuer"] = issuer
+        document = {"data_flows": [flow], "external_entities": [entity], "components": _spa_and_api()}
+        assert any(expected in error for error in fragment_invariant_errors("data-flows", document))

@@ -910,3 +910,143 @@ def test_esm_typescript_mounts_compose_and_verify_their_guard(tmp_path):
     )
     row = route(ri.build_inventory(tmp_path), "/api/v2/user/me")
     assert row["authn_signal"] == "middleware_present" and row["authn_handler_signal"] == "verified"
+
+
+OAUTH_APP_HEAD = (
+    "const express = require('express')\n"
+    "const passport = require('passport')\n"
+    "const Keycloak = require('keycloak-connect')\n"
+    "const { auth, requiresAuth } = require('express-openid-connect')\n"
+    "const { jwtVerify } = require('jose')\n"
+    "const app = express()\n"
+    "const keycloak = new Keycloak({ store })\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("setup", "guard", "scheme"),
+    [
+        ("", "keycloak.protect()", "bearer"),
+        ("", "keycloak.protect('realm:admin')", "bearer"),
+        ("", "keycloak.enforcer('orders:read')", "bearer"),
+        ("", "requiresAuth()", "cookie"),
+        ("", "auth({ issuerBaseURL: ISSUER })", "cookie"),
+        (
+            "const JwtStrategy = require('passport-jwt').Strategy\npassport.use(new JwtStrategy(options, verify))\n",
+            "passport.authenticate('jwt', { session: false })",
+            "bearer",
+        ),
+        (
+            "const { BearerStrategy } = require('passport-azure-ad')\npassport.use(new BearerStrategy(options, verify))\n",
+            "passport.authenticate('oauth-bearer', { session: false })",
+            "bearer",
+        ),
+        (
+            "const { Strategy } = require('passport-openidconnect')\npassport.use('sso', new Strategy(options, verify))\n",
+            "passport.authenticate('sso')",
+            "oidc",
+        ),
+        (
+            "const GoogleStrategy = require('passport-google-oauth20').Strategy\n"
+            "passport.use(new GoogleStrategy(options, verify))\n",
+            "passport.authenticate('google', { scope: ['email'] })",
+            "oauth2",
+        ),
+        (
+            "const LocalStrategy = require('passport-local')\npassport.use(new LocalStrategy(verify))\n",
+            "passport.authenticate('local')",
+            "password",
+        ),
+        (
+            "async function requireToken (req, res, next) {\n"
+            "  try {\n"
+            "    await jwtVerify(req.headers.authorization.slice(7), keys, { issuer: ISSUER })\n"
+            "    next()\n"
+            "  } catch (e) {\n"
+            "    return res.status(401).end()\n"
+            "  }\n"
+            "}\n",
+            "requireToken",
+            "bearer",
+        ),
+    ],
+    ids=[
+        "keycloak-protect",
+        "keycloak-protect-role",
+        "keycloak-enforcer",
+        "oidc-requires-auth",
+        "oidc-auth-required-by-default",
+        "passport-jwt",
+        "passport-azure-bearer",
+        "passport-named-oidc",
+        "passport-provider-oauth",
+        "passport-local",
+        "jose-verify",
+    ],
+)
+def test_oauth_and_oidc_library_guards_verify_their_routes(tmp_path, setup, guard, scheme):
+    write(
+        tmp_path, {"server.js": OAUTH_APP_HEAD + setup + f"app.get('/orders', {guard}, (req, res) => res.json([]))\n"}
+    )
+    row = route(ri.build_inventory(tmp_path), "/orders")
+    assert (row["authn_handler_signal"], row["authn_handler_scheme"]) == ("verified", scheme)
+    assert row["authn_signal"] in {"present", "middleware_present"}
+
+
+@pytest.mark.parametrize(
+    ("setup", "guard"),
+    [
+        ("", "auth({ authRequired: false })"),
+        ("", "auth(config)"),
+        ("", "keycloak.middleware()"),
+        ("", "passport.authenticate('jwt')"),
+        (
+            "const JwtStrategy = require('passport-jwt').Strategy\npassport.use(new JwtStrategy(options, verify))\n",
+            "passport.authenticate(['jwt', 'anonymous'])",
+        ),
+        (
+            "const JwtStrategy = require('passport-jwt').Strategy\npassport.use(new JwtStrategy(options, verify))\n",
+            "passport.authenticate('jwt', (err, user) => next())",
+        ),
+        (
+            "const JwtStrategy = require('passport-jwt').Strategy\nconst LocalStrategy = require('passport-local')\n"
+            "passport.use('token', new JwtStrategy(options, verify))\npassport.use('token', new LocalStrategy(verify))\n",
+            "passport.authenticate('token')",
+        ),
+        (
+            "const Custom = require('passport-custom')\npassport.use('custom', new Custom(verify))\n",
+            "passport.authenticate('custom')",
+        ),
+    ],
+    ids=[
+        "oidc-auth-optional",
+        "oidc-options-by-name",
+        "keycloak-session-loader",
+        "unregistered-strategy",
+        "anonymous-fallback",
+        "custom-callback",
+        "ambiguous-name",
+        "unknown-strategy-package",
+    ],
+)
+def test_an_oauth_library_call_that_may_let_the_request_through_is_not_verified(tmp_path, setup, guard):
+    write(
+        tmp_path, {"server.js": OAUTH_APP_HEAD + setup + f"app.get('/orders', {guard}, (req, res) => res.json([]))\n"}
+    )
+    assert route(ri.build_inventory(tmp_path), "/orders")["authn_handler_signal"] != "verified"
+
+
+def test_a_passport_sign_in_route_states_the_provider_flow_not_a_credential_check(tmp_path):
+    from analyzers.flow_route_auth import route_outcome
+
+    setup = (
+        "const { Strategy } = require('openid-client/passport')\npassport.use('corp', new Strategy(options, verify))\n"
+    )
+    write(
+        tmp_path,
+        {"server.js": OAUTH_APP_HEAD + setup + "app.get('/login/callback', passport.authenticate('corp'), done)\n"},
+    )
+    scheme, scope, _evidence = route_outcome(route(ri.build_inventory(tmp_path), "/login/callback"))
+    assert (
+        scheme == "oidc" and scope == "the route signs the user in through the identity provider's OpenID Connect flow"
+    )

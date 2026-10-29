@@ -257,6 +257,16 @@ With verification on:
 
 The aspect `AuthN` (authentication) checks how users and services sign in: token checks, passwords, account recovery, SSO and OAuth integration, and insecure methods such as credentials in URLs. The aspect `AuthNRoutes` checks that every sensitive route, operation, and channel requires authentication. On Juice Shop `AuthN` needs four verification jobs and `AuthNRoutes` six. The aspect `SessionMgmt` is accepted but not investigated yet. The [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs) describes how the places to check are chosen and how outcomes are decided.
 
+## Sign-in through an identity provider
+
+When users sign in through an OAuth 2.0 or OpenID Connect provider, Figure 1 shows each step the code evidences: the sign-in at the provider, the token request, and the requests that carry the provider's access token to your application. Each numbered hexagon names the method and, where the code states it, the grant: authorization code with or without PKCE, client credentials, or the legacy implicit and password grants. A bearer check reads "access token from" followed by the provider when the check and the provider's configuration sit in the same source file or in the component's configuration file.
+
+Recognition works the same for every provider product, such as Keycloak, Microsoft Entra ID, Okta, Auth0, Google or Amazon Cognito. It reads endpoint paths, configuration keys, settings objects and client-library calls, never dependency names. A provider that runs inside your system, for example a Keycloak container, appears as that component when its service name is the provider's host name. Fetching the provider's discovery document or signing keys appears as a grey `0`, because these are public.
+
+Recognized client setups include Spring Security, ASP.NET Core, passport strategies, openid-client, Authlib, Go `oauth2.Config`, oidc-client-ts, MSAL, angular-oauth2-oidc and keycloak-js. Recognized token and session checks include express-jwt, express-oauth2-jwt-bearer, express-openid-connect, keycloak-connect, `passport.authenticate` with a registered strategy, and a `jwtVerify` that rejects invalid tokens.
+
+Limits: an issuer that only an environment variable supplies is not recognized, so the architecture analysis has to model it. Token checks in Java and C# routes stay unknown, because their handlers are not resolved. A hexagon describes the method, not whether its implementation is correct, for example whether audience and issuer are checked.
+
 ## Known threats
 
 Place prior findings in `docs/known-threats.yaml`, using the [example](../examples/known-threats.yaml) and [schema](../schemas/known-threats.schema.yaml). The engine validates this declaration and records its repository provenance. A prior finding or accepted-risk statement is input to analysis; it does not establish that an attack works or that a control is effective. `--skip-context` skips business context but keeps known threats available.

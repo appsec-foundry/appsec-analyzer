@@ -34,8 +34,10 @@ definitions, ES imports and ``require`` of repository modules, factory calls,
 objects created by a package call, one level of same-file helpers) and
 decorated Python handlers including FastAPI ``Depends(...)``/``Security(...)``
 targets. A call of a known authentication middleware package
-(``_AUTHENTICATING_PACKAGES``) counts as ``verified`` when its inline options
-keep rejection on; NestJS handlers report ``verified``/``decode_only`` only, because
+(``_AUTHENTICATING_PACKAGES``), or of a guard method of an object its class
+creates, counts as ``verified`` when its inline options keep rejection on;
+``passport.authenticate(name)`` does so through the one strategy registered
+under that name (``_PASSPORT_STRATEGIES``). NestJS handlers report ``verified``/``decode_only`` only, because
 class and global guards stay invisible. Other stacks return no signal. Comments
 never count, only a function's own body counts, and test files are never used
 as definitions. ``analyzers/route_inventory.py`` records the signal and
@@ -120,16 +122,80 @@ class _PackageGuard:
 
 # Middleware packages whose call rejects a request without a valid credential
 # by default: (scheme, exported members that do so or None for any, option that
-# turns rejection off). Session loaders such as express-session and strategy
-# frameworks such as passport are absent: they do not reject on their own.
+# turns rejection off). Members of an object the package's class creates
+# (`new Keycloak(...).protect()`) count like exported members. Session loaders
+# such as express-session are absent: they do not reject on their own. Passport
+# rejects through the strategy a route names (`_PASSPORT_STRATEGIES`).
 _AUTHENTICATING_PACKAGES = {
-    "express-jwt": _PackageGuard("bearer", None, re.compile(r"\bcredentialsRequired\s*:\s*false\b")),
-    "koa-jwt": _PackageGuard("bearer", None, re.compile(r"\bpassthrough\s*:\s*true\b")),
-    "express-oauth2-jwt-bearer": _PackageGuard(
-        "bearer", frozenset({"auth"}), re.compile(r"\bauthRequired\s*:\s*false\b")
+    "express-jwt": (_PackageGuard("bearer", None, re.compile(r"\bcredentialsRequired\s*:\s*false\b")),),
+    "koa-jwt": (_PackageGuard("bearer", None, re.compile(r"\bpassthrough\s*:\s*true\b")),),
+    "express-oauth2-jwt-bearer": (
+        _PackageGuard("bearer", frozenset({"auth"}), re.compile(r"\bauthRequired\s*:\s*false\b")),
     ),
-    "express-basic-auth": _PackageGuard("other", None, None),
+    "express-basic-auth": (_PackageGuard("other", None, None),),
+    # An OpenID Connect relying party keeps the signed-in user in its session cookie.
+    "express-openid-connect": (
+        _PackageGuard("cookie", frozenset({"auth"}), re.compile(r"\bauthRequired\s*:\s*false\b")),
+        _PackageGuard("cookie", frozenset({"requiresAuth"}), None),
+    ),
+    # The adapter accepts the provider's access token from its session or the Authorization header.
+    "keycloak-connect": (_PackageGuard("bearer", frozenset({"protect", "enforcer"}), None),),
 }
+
+# Passport strategy classes: package -> {exported class, or None for the module itself: (default name, scheme)}.
+# `passport.authenticate(name)` rejects a request its strategy does not authenticate. A sign-in strategy
+# (OAuth 2.0, OpenID Connect, SAML) answers by running the provider's sign-in instead.
+_PASSPORT_STRATEGIES = {
+    "passport-jwt": {"Strategy": ("jwt", "bearer")},
+    "passport-http-bearer": {None: ("bearer", "bearer"), "Strategy": ("bearer", "bearer")},
+    "passport-azure-ad": {
+        "BearerStrategy": ("oauth-bearer", "bearer"),
+        "OIDCStrategy": ("azuread-openidconnect", "oidc"),
+    },
+    "passport-headerapikey": {None: ("headerapikey", "api-key"), "HeaderAPIKeyStrategy": ("headerapikey", "api-key")},
+    "passport-http": {"BasicStrategy": ("basic", "basic"), "DigestStrategy": ("digest", "other")},
+    "passport-local": {None: ("local", "password"), "Strategy": ("local", "password")},
+    "passport-openidconnect": {None: ("openidconnect", "oidc"), "Strategy": ("openidconnect", "oidc")},
+    "openid-client": {"Strategy": ("oidc", "oidc")},
+    "openid-client/passport": {"Strategy": (None, "oidc")},
+    "passport-oauth2": {None: ("oauth2", "oauth2"), "Strategy": ("oauth2", "oauth2")},
+    "passport-saml": {"Strategy": ("saml", "saml"), "MultiSamlStrategy": ("saml", "saml")},
+    "@node-saml/passport-saml": {"Strategy": ("saml", "saml"), "MultiSamlStrategy": ("saml", "saml")},
+}
+# Provider-specific OAuth 2.0 strategies (`passport-google-oauth20`) default to the provider's name.
+_PASSPORT_OAUTH_PACKAGE_RE = re.compile(r"passport-([a-z0-9]+)-oauth\d*")
+_PASSPORT_USE_RE = re.compile(
+    r"(?<![\w$.])(?P<obj>[\w$]+)\s*\.\s*use\s*\(\s*(?:(?P<q>['\"`])(?P<name>[\w.-]+)(?P=q)\s*,\s*)?"
+    r"new\s+(?P<ctor>[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)?)\s*\("
+)
+_MAX_STRATEGY_FILES = 5000
+# What a sign-in or password check proves, in place of the generic credential wording.
+_SCHEME_SCOPES = {
+    "oidc": "the route signs the user in through the identity provider's OpenID Connect flow",
+    "oauth2": "the route signs the user in through the identity provider's OAuth 2.0 flow",
+    "saml": "the route signs the user in through the identity provider's SAML flow",
+    "password": "the handler checks the supplied password and rejects the request without a valid one",
+}
+_JS_NEW_RE = re.compile(r"=\s*new\s+([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*\(")
+
+
+def _package_name(source: str) -> str:
+    """The package an import specifier names (`@scope/name/sub` -> `@scope/name`)."""
+    return "/".join(source.split("/")[:2]) if source.startswith("@") else source.split("/")[0]
+
+
+def _package_guard(package: str, member: str, *, instance: bool = False) -> _PackageGuard | None:
+    """The guard a package member's call is; an instance method needs an explicitly listed member."""
+    return next(
+        (
+            g
+            for g in _AUTHENTICATING_PACKAGES.get(package, ())
+            if (g.members is None and not instance) or (g.members is not None and member in g.members)
+        ),
+        None,
+    )
+
+
 _JS_INLINE_OPTIONS_RE = re.compile(r"[\s(]*\{.*\}[\s)]*(?:as\s+[\w$.<>]+\s*)?", re.DOTALL)
 _JS_APP_FACTORY_RE = re.compile(
     r"=\s*(?:express|fastify|restify\.createServer)\s*\(|=\s*new\s+Koa\s*\(|Hapi\.server\s*\("
@@ -158,7 +224,8 @@ _JS_CREDENTIAL_RE = re.compile(
     r"|\{[^{}]*\b(?![\w$]*(?i:csrf|xsrf|captcha))[\w$]*[tT]oken\b[^{}]*\}\s*=\s*req(?:uest)?\s*\??\.\s*(?:body|query)\b"
 )
 _JS_VERIFY_RE = re.compile(
-    r"(?:\.|\b)verify(?:Token|Jwt|JWT|IdToken|Signature|Session|Credentials)?\s*\("
+    r"(?:\.|\b)verify(?:Token|Jwt|JWT|IdToken|AccessToken|Signature|Session|Credentials)?\s*\("
+    r"|\bjwtVerify\s*\("
     r"|\.get\(\s*req(?:uest)?\s*\??\.\s*(?:signed)?(?:[cC]ookies|headers)\b"
     r"|\bisAuthenticated\s*\(\s*\)"
     r"|\bgetServerSession\s*\("
@@ -233,7 +300,9 @@ class HandlerSignal:
 
     def scope(self) -> str:
         if self.signal == "verified":
-            return f"the handler checks a {self.scheme} credential and rejects the request without it"
+            return _SCHEME_SCOPES.get(
+                self.scheme, f"the handler checks a {self.scheme} credential and rejects the request without it"
+            )
         if self.signal == "decode_only":
             return DECODE_ONLY_SCOPE
         return "no credential check in the resolved handler chain"
@@ -374,13 +443,16 @@ def _rejecting_call(code: str, callee: str, guard: _PackageGuard) -> bool:
     """`code` calls `callee` with inline options that keep the package's rejection on.
 
     Options passed by name could hold the disabling option unseen, so only an
-    inline object literal counts.
+    inline object literal counts. A guard without such an option rejects
+    whatever its arguments are.
     """
     m = re.search(rf"(?<![\w$]){re.escape(callee)}\s*\(", code)
     if not m:
         return False
+    if guard.disabled is None:
+        return True
     args = code[m.end() : _matching(code, m.end() - 1) - 1]
-    return bool(_JS_INLINE_OPTIONS_RE.fullmatch(args)) and not (guard.disabled and guard.disabled.search(args))
+    return bool(_JS_INLINE_OPTIONS_RE.fullmatch(args)) and not guard.disabled.search(args)
 
 
 def direct_imports(path: str, text: str, exists) -> list[str]:
@@ -446,6 +518,7 @@ class HandlerResolver:
         self._texts: dict[str, str | None] = {}
         self._imports: dict[str, dict[str, tuple[str, str]]] = {}
         self._mounts: dict[str, list[dict]] = {}
+        self._strategies: dict[str, set[tuple[str, tuple[str, int]]]] | None = None
 
     def _text(self, rel: str) -> str | None:
         if rel not in self._texts:
@@ -584,11 +657,10 @@ class HandlerResolver:
             src, exported = imported
             member = exported if exported != "*" else (parts[1] if len(parts) > 1 else "default")
             if not src.startswith("."):
-                package = "/".join(src.split("/")[:2]) if src.startswith("@") else src.split("/")[0]
+                package = _package_name(src)
                 if package in _NON_CREDENTIAL_PACKAGES:
                     return "external"
-                guard = _AUTHENTICATING_PACKAGES.get(package)
-                return guard if guard and (guard.members is None or member in guard.members) else None
+                return _package_guard(package, member)
             module = self._module(rel, src)
             if module is None:
                 return None
@@ -597,6 +669,11 @@ class HandlerResolver:
         if definition is None:
             return None
         line, code, initializer = definition
+        if len(parts) > 1 and (created := _JS_NEW_RE.search(code.split("\n", 1)[0])):
+            # A method of an object an authentication package's class creates (`keycloak.protect()`).
+            ctor = self._js_imports(rel).get(re.sub(r"\s+", "", created.group(1)).split(".")[0])
+            if ctor and not ctor[0].startswith(".") and _package_name(ctor[0]) in _AUTHENTICATING_PACKAGES:
+                return _package_guard(_package_name(ctor[0]), parts[-1], instance=True)
         if not initializer:
             initializer = _returned_package_call(code, self._js_imports(rel))
         if not initializer:
@@ -628,6 +705,9 @@ class HandlerResolver:
         callee = re.sub(r"\s+", "", outer.group(1)) if outer else (expr if _JS_PATH_RE.match(expr) else None)
         if callee is None:
             return False, []
+        if outer and (strategy := self._passport_scheme(rel, callee, expr[outer.end() :])):
+            # The strategy's registration configures the check (its token keys or provider).
+            return True, _PackageGuard(strategy[0], None, None, evidence=strategy[1])
         resolved = self._resolve_js(rel, callee)
         if resolved is None:
             return False, []
@@ -655,6 +735,66 @@ class HandlerResolver:
                         return False, []
                     code.extend(inner)
         return True, code
+
+    def _passport_scheme(self, rel: str, callee: str, args: str) -> tuple[str, tuple[str, int]] | None:
+        """(scheme, registration) of `passport.authenticate('name', ...)` when exactly one strategy has that name.
+
+        A list of strategies, a computed name or a custom callback stays unresolved:
+        `anonymous` or the callback may let the request through.
+        """
+        parts = callee.split(".")
+        imported = self._js_imports(rel).get(parts[0])
+        if len(parts) != 2 or parts[1] != "authenticate" or not imported or imported[0] != "passport":
+            return None
+        m = re.match(r"\s*(['\"`])([\w.-]+)\1\s*(?:,\s*(?P<rest>.*))?\)", args, re.DOTALL)
+        if not m or (m.group("rest") and _JS_CALLBACK_RE.search(_JS_STRING_RE.sub("''", m.group("rest")))):
+            return None
+        registrations = self._passport_registry().get(m.group(2), set())
+        if len({scheme for scheme, _where in registrations}) != 1:
+            return None
+        return min(registrations)
+
+    def _passport_registry(self) -> dict[str, set[tuple[str, tuple[str, int]]]]:
+        """Strategy name -> (scheme, registration file and line) of the `passport.use(...)` calls in the repository."""
+        if self._strategies is not None:
+            return self._strategies
+        from analyzers.recon_patterns import _walk_repo
+
+        self._strategies = {}
+        for count, path in enumerate(_walk_repo(self.root)):
+            if count >= _MAX_STRATEGY_FILES:
+                break
+            rel = path.relative_to(self.root).as_posix()
+            if path.suffix.lower() not in _JS_EXTS or _TEST_PATH_RE.search(rel):
+                continue
+            text = self._text(rel) or ""
+            for use in _PASSPORT_USE_RE.finditer(text):
+                if self._js_imports(rel).get(use.group("obj"), ("",))[0] != "passport":
+                    continue
+                strategy = self._strategy(rel, text, re.sub(r"\s+", "", use.group("ctor")))
+                name = use.group("name") or (strategy[0] if strategy else None)
+                if strategy and name:
+                    self._strategies.setdefault(name, set()).add((strategy[1], (rel, _line_of(text, use.start()))))
+        return self._strategies
+
+    def _strategy(self, rel: str, text: str, ctor: str) -> tuple[str | None, str] | None:
+        """(default name, scheme) of a strategy class, from the package the constructor comes from."""
+        root, _, member = ctor.partition(".")
+        imported = self._js_imports(rel).get(root)
+        if not imported or imported[0].startswith("."):
+            return None
+        source, exported = imported
+        if member:
+            exported = member
+        elif exported == "*":
+            # `const JwtStrategy = require('passport-jwt').Strategy`
+            m = re.search(rf"\b{re.escape(root)}\s*=\s*require\(\s*['\"][^'\"]+['\"]\s*\)\s*\.\s*([\w$]+)", text)
+            exported = m.group(1) if m else None
+        table = _PASSPORT_STRATEGIES.get(source) or _PASSPORT_STRATEGIES.get(_package_name(source))
+        if table is not None:
+            return table.get(exported)
+        oauth = _PASSPORT_OAUTH_PACKAGE_RE.fullmatch(_package_name(source))
+        return (oauth.group(1), "oauth2") if oauth and exported in {None, "Strategy"} else None
 
     def _js_helpers(self, rel: str, body: str) -> list[Body]:
         """Repository functions a body calls, one level deep: same-file functions, and

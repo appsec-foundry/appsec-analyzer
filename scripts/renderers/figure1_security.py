@@ -62,13 +62,26 @@ def authentication_sort_key(key):
     return (_AUTHENTICATION_SCHEME_RANK[key[0]], key[1:])
 
 
-def authentication_profile(flow):
-    """Return a display profile; absence or incomplete evidence stays unknown."""
+def authentication_profile(flow, names=None):
+    """Return a display profile; absence or incomplete evidence stays unknown.
+
+    `names` maps an access token's issuer (`authentication.issuer`) to the
+    provider's display name; without it the title names the issuer's ID.
+    """
     auth = flow.get("authentication") or {}
     scheme = auth.get("scheme", "unknown")
     evidence = auth.get("evidence") or []
     if scheme not in SCHEMES or not auth.get("scope") or not evidence:
         scheme, auth = "unknown", {}
+    if scheme == "none" and auth.get("public"):
+        # Provider discovery and signing keys are public by design; no authentication is missing there.
+        return {
+            "key": ("none", "public"),
+            "scheme": "none",
+            "title": "No authentication · public metadata",
+            "description": "The provider serves public metadata or signing keys to any caller.",
+            "color": "grey",
+        }
     factors = tuple(sorted(auth.get("factors") or []))
     if scheme == "mfa" and (len(factors) < 2 or not {"password", "biometric"}.intersection(factors)):
         return authentication_profile({})
@@ -97,6 +110,11 @@ def authentication_profile(flow):
     if scheme not in {"unknown", "none"} and (transport == "cleartext" or color == "green"):
         title += " · " + ("cleartext" if transport == "cleartext" else "protected transport")
     key = (scheme, grant, factors, color) if scheme not in {"unknown", "none"} else (scheme,)
+    if scheme == "bearer" and auth.get("issuer"):
+        # The access token one identity provider issued; tokens of different providers keep their own numbers.
+        title += " · access token from " + (names or {}).get(auth["issuer"], auth["issuer"])
+        description = "The recipient checks an OAuth access token this identity provider issued."
+        key += (auth["issuer"],)
     if scheme == "other":
         # Equivalence of custom methods cannot be inferred from one generic name,
         # so each keeps its own number and its evidenced scope explains it.
@@ -105,9 +123,18 @@ def authentication_profile(flow):
     return {"key": key, "scheme": scheme, "title": title, "description": description, "color": color}
 
 
-def profile_catalog(flows):
+def issuer_names(model):
+    """Display names of the participants an access token's issuer can name."""
+    return {
+        row["id"]: row.get("name") or row["id"]
+        for row in [*(model.get("external_entities") or []), *(model.get("components") or [])]
+        if isinstance(row, dict) and row.get("id")
+    }
+
+
+def profile_catalog(flows, names=None):
     """Reuse numbers for equal methods; 0 and ? never depend on encounter order."""
-    profiles = {p["key"]: p for f in flows if not f.get("interaction") for p in [authentication_profile(f)]}
+    profiles = {p["key"]: p for f in flows if not f.get("interaction") for p in [authentication_profile(f, names)]}
     number = 0
     for key in sorted(profiles, key=authentication_sort_key):
         profile = profiles[key]

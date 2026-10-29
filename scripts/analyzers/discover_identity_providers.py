@@ -14,6 +14,15 @@ configuration proves. Only an unknown scheme is filled (FE-14); an authored
 `none` on a sign-in or profile step is a self-check error instead. A client
 configured with its ID and secret whose library hides the token endpoint gains
 the token request to its sign-in provider (``reconcile_confidential_clients``).
+
+Recognition follows the protocol, never a provider product: endpoint paths,
+configuration keys, client-library calls and settings objects. A client that
+knows its provider only by discovery signs users in there (``_derived_sign_ins``)
+unless it is a resource server or uses machine grants only. Discovery and signing
+keys are public metadata (``authentication.public``). A provider whose host names
+a component's deployment workload is that component, not an external entity. A
+resource server's bearer check names the provider whose access token it accepts
+(``reconcile_token_issuers``) when the code connects the two.
 """
 
 from __future__ import annotations
@@ -29,7 +38,7 @@ if not __package__:
 import copy
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -63,12 +72,20 @@ _LEX = re.compile(
 # Calls that can send a request to, or navigate to, an identity provider: HTTP clients, browser navigation, and
 # the constructors and discovery helpers of common OAuth/OIDC/SAML client libraries.
 _CALL = re.compile(
-    r"\b(?:[\w.]+\.)?(?:fetch|get|post|request|replace|assign|open|urlopen|discover|fromIssuerLocation|UserManager|PublicClientApplication|ConfidentialClientApplication|OAuth2Session|OAuth2|OpenIDConnect|Saml2Client|SAMLStrategy|Strategy|register)\s*\("
+    r"\b(?:[\w.]+\.)?(?:fetch|get|post|request|replace|assign|open|urlopen|discover|discovery|fromIssuerLocation|NewProvider|createRemoteJWKSet|expressJwtSecret|jwksClient|UserManager|PublicClientApplication|ConfidentialClientApplication|OAuth2Session|OAuth2|OpenIDConnect|Saml2Client|SAMLStrategy|(?:OAuth2?|OpenIDConnect|OIDC|Saml|MultiSaml)?Strategy|AddOpenIdConnect|AddJwtBearer|register)\s*\("
 )
 _NAVIGATION = re.compile(r"(?<![\w$.])(?:(?:window|document)\.location(?:\.href)?|location\.href)\s*=(?!=)")
 # The client-library constructors among those calls; their keyword names (issuer, tokenURL, ...) state the role.
 _CLIENT = re.compile(
-    r"(?:UserManager|ClientApplication|OAuth2?(?:Session)?|OpenIDConnect|Saml2Client|SAMLStrategy|Strategy|register)\s*\("
+    r"(?:UserManager|ClientApplication|OAuth2?(?:Session)?|OpenIDConnect|Saml2Client|SAMLStrategy|Strategy|AddOpenIdConnect|AddJwtBearer|expressJwtSecret|jwksClient|discovery|register|(?<=\.)Client)\s*\("
+)
+# Calls whose purpose fixes the step whatever the URL looks like: discovery helpers and remote key sets.
+_DISCOVERY_CALL = re.compile(r"(?:Issuer\.discover|JwtDecoders\.fromIssuerLocation|\bNewProvider)\s*\(")
+_CLIENT_DISCOVERY_CALL = re.compile(r"\bdiscovery\s*\(")  # openid-client 6; a client ID among its arguments
+_KEY_SET_CALL = re.compile(r"\bcreateRemoteJWKSet\s*\(")
+# Resource-server setups that validate the provider's tokens; they sign nobody in.
+_RESOURCE_SERVER_CALL = re.compile(
+    r"(?:JwtDecoders\.fromIssuerLocation|AddJwtBearer|createRemoteJWKSet|expressJwtSecret|jwksClient)\s*\("
 )
 _CONFIG_CONTEXT = re.compile(r"oauth|oidc|openid|saml|sso|singlesignon|relyingparty", re.I)
 # Function headers across the supported source languages: `def`/`function`/`func`/`fun`
@@ -94,6 +111,8 @@ class Integration:
     browser: bool = False
     # The call expression or configuration block; protocol markers are read here only.
     window: str = field(default="", compare=False)
+    # A client registration (client ID) accompanies the step, so the application signs users in here.
+    client: bool = field(default=False, compare=False)
 
 
 # ================================================================ provider addresses
@@ -131,9 +150,15 @@ def _address(value: str, *, issuer: bool = False) -> tuple[str, str, str] | None
 # Each integration performs one protocol step (its role). The step decides the flow's authentication, data
 # classification and direction. A new role needs an entry in _ROLES, a way to be recognised (_FIELD_ROLES or
 # _url_role) and a case in integration_authentication and _service_role.
+#
+# "OIDC sign-in" is never recognised from a URL: a client that discovers its provider (`issuer` beside a client ID)
+# lets its library send the user to the provider's authorization endpoint, so the sign-in is derived from that
+# discovery (`_derived_sign_ins`) and cites the same lines.
 _ROLES = frozenset(
     {
         "OIDC discovery",
+        "OIDC signing keys",
+        "OIDC sign-in",
         "OAuth authorization",
         "OAuth token exchange",
         "OAuth profile request",
@@ -141,11 +166,13 @@ _ROLES = frozenset(
         "SAML metadata",
     }
 )
-_PUBLIC_METADATA_ROLES = frozenset({"OIDC discovery", "SAML metadata"})
+_PUBLIC_METADATA_ROLES = frozenset({"OIDC discovery", "OIDC signing keys", "SAML metadata"})
 # Sign-in steps are a one-way browser redirect to the provider.
-_REDIRECT_ROLES = frozenset({"OAuth authorization", "SAML sign-in"})
+_REDIRECT_ROLES = frozenset({"OAuth authorization", "OIDC sign-in", "SAML sign-in"})
+_SIGN_IN_ROLES = _REDIRECT_ROLES
 _TRANSPORT = {"HTTPS": "protected", "HTTP": "cleartext"}
-# Steps whose receiver always authenticates its caller; `none` there is a modelling error.
+# Steps whose receiver always authenticates its caller; `none` there is a modelling error. A derived sign-in
+# cites its discovery's lines, where `none` is right, so it is not listed.
 _CALLER_CHECKED = frozenset({"OAuth authorization", "SAML sign-in", "OAuth profile request"})
 
 
@@ -155,9 +182,16 @@ def _grant(window: str) -> str | None:
         return "authorization-code-pkce"
     if re.search(r"response[-_]?type\W{0,6}(?:id_token\W+)?token\b", window, re.I):
         return "implicit"
-    if re.search(r"response[-_]?type\W{0,6}code\b", window, re.I):
-        return "authorization-code"
+    if re.search(r"response[-_]?type\W{0,6}code\b|pkce[-_]?method", window, re.I):
+        pkce = re.search(r"pkce[-_]?method|use[-_]?pkce\W{0,6}true", window, re.I)
+        return "authorization-code-pkce" if pkce else "authorization-code"
     return None
+
+
+def _token_grant(window: str) -> str | None:
+    """The grant a token request states (`grant_type`), or None."""
+    m = re.search(r"grant[-_]?type\W{0,8}(client[-_]credentials|password|authorization[-_]code)\b", window, re.I)
+    return re.sub(r"_", "-", m.group(1).lower()) if m else None
 
 
 def _client_authentication(window: str) -> dict | None:
@@ -180,9 +214,9 @@ def _client_authentication(window: str) -> dict | None:
 def integration_authentication(integration: Integration, evidence: list[dict]) -> dict | None:
     """The authentication the provider applies to this protocol step, or None when unproven."""
     window, role = integration.window, integration.role
-    if role == "OAuth authorization":
+    if role in {"OAuth authorization", "OIDC sign-in"}:
         auth = {
-            "scheme": "oidc" if re.search(r"\bopenid\b", window) else "oauth2",
+            "scheme": "oidc" if role == "OIDC sign-in" or re.search(r"\bopenid\b", window) else "oauth2",
             "scope": "The identity provider authenticates the user at its sign-in endpoint",
         }
         if grant := _grant(window):
@@ -193,8 +227,19 @@ def integration_authentication(integration: Integration, evidence: list[dict]) -
         auth = {"scheme": "bearer", "scope": "The provider checks the OAuth access token sent with the request"}
     elif role == "OAuth token exchange":
         auth = _client_authentication(window)
+        grant = _token_grant(window)
+        if grant == "password":
+            # The legacy password grant hands the user's password to the client and on to the provider.
+            auth = {
+                "scheme": "password",
+                "scope": "The provider checks the user's password the client sends with the token request",
+            }
+        if auth is not None and grant and "flow" not in auth:
+            auth["flow"] = grant
+    elif role == "OIDC signing keys":
+        auth = {"scheme": "none", "public": True, "scope": "Public signing keys; the provider checks no caller"}
     else:  # OIDC discovery, SAML metadata
-        auth = {"scheme": "none", "scope": "Public provider metadata; the provider checks no caller"}
+        auth = {"scheme": "none", "public": True, "scope": "Public provider metadata; the provider checks no caller"}
     if auth is None:
         return None
     if transport := _TRANSPORT.get(integration.protocol):
@@ -209,7 +254,7 @@ def _service_role(integration: Integration) -> str:
         return "oauth-resource-server"
     if integration.role.startswith("SAML"):
         return "saml-identity-provider"
-    if integration.role == "OIDC discovery" or re.search(r"\bopenid\b", integration.window):
+    if integration.role.startswith("OIDC") or re.search(r"\bopenid\b", integration.window):
         return "oidc-provider"
     return "oauth-authorization-server"
 
@@ -265,11 +310,16 @@ _FIELD_ROLES = {
             "metadatauri",
             "servermetadataurl",
             "wellknown",
+            "issuerbaseurl",
+            "discoveryurl",
+            "discoveryendpoint",
         ),
         "OIDC discovery",
     ),
+    **dict.fromkeys(("jwksuri", "jwksurl", "jwkuri", "jwkseturi", "jwkseturl", "jwksendpoint"), "OIDC signing keys"),
     **dict.fromkeys(
-        ("authorizationurl", "authorizationuri", "authorizationendpoint", "authorizeurl"), "OAuth authorization"
+        ("authorizationurl", "authorizationuri", "authorizationendpoint", "authorizeurl", "authurl"),
+        "OAuth authorization",
     ),
     **dict.fromkeys(("tokenurl", "tokenuri", "tokenendpoint", "accesstokenurl"), "OAuth token exchange"),
     **dict.fromkeys(("userinfo", "userinfourl", "userinfouri", "userinfoendpoint"), "OAuth profile request"),
@@ -286,13 +336,18 @@ def _url_role(value: str) -> str | None:
     path = urlsplit(value).path.lower()
     if "/.well-known/openid-configuration" in path:
         return "OIDC discovery"
+    if re.search(
+        r"/\.well-known/jwks(?:\.json)?$|/(?:oauth2?|oidc|openid(?:-connect)?|discovery)(?:/[^/]+)*/(?:certs|keys|jwks)/?$",
+        path,
+    ):
+        return "OIDC signing keys"
     if re.search(r"/(?:saml2?|sso)/(?:login|sso|signin)(?:/|$)", path):
         return "SAML sign-in"
-    if re.search(r"/(?:oauth2?|oidc|openid)(?:/[^/]+)*/(?:auth|authorize|authorization)(?:/|$)", path):
+    if re.search(r"/(?:oauth2?|oidc|openid(?:-connect)?)(?:/[^/]+)*/(?:auth|authorize|authorization)(?:/|$)", path):
         return "OAuth authorization"
-    if re.search(r"/(?:oauth2?|oidc|openid)(?:/[^/]+)*/token(?:/|$)", path):
+    if re.search(r"/(?:oauth2?|oidc|openid(?:-connect)?)(?:/[^/]+)*/token(?:/|$)", path):
         return "OAuth token exchange"
-    if re.search(r"/(?:oauth2?|oidc|openid)(?:/[^/]+)*/userinfo(?:/|$)", path):
+    if re.search(r"/(?:oauth2?|oidc|openid(?:-connect)?)(?:/[^/]+)*/userinfo(?:/|$)", path):
         return "OAuth profile request"
     return None
 
@@ -355,7 +410,7 @@ def _call_uses_literal(masked: str, strings: list, call: re.Match, call_end: int
     return call.end() <= start < call_end
 
 
-def _call_role(call_text: str, value: str, name: str) -> str | None:
+def _call_role(call_text: str, value: str, name: str, window: str = "") -> str | None:
     """The step a call performs with a URL: the URL's path, overridden by the keyword a client library takes it
     under, and by a discovery helper's name."""
     role = _url_role(value)
@@ -363,9 +418,31 @@ def _call_role(call_text: str, value: str, name: str) -> str | None:
         role = _field_role(name) or role
         if role == "OIDC discovery" and re.search(r"SAML|Saml", call_text):
             role = "SAML metadata"
-    if re.search(r"(?:Issuer\.discover|JwtDecoders\.fromIssuerLocation)\s*\(", call_text):
+    if _DISCOVERY_CALL.search(call_text) or (_CLIENT_DISCOVERY_CALL.search(call_text) and _CLIENT_ID.search(window)):
         role = "OIDC discovery"
+    if _KEY_SET_CALL.search(call_text):
+        role = "OIDC signing keys"
     return role
+
+
+def _registers_client(masked: str) -> bool:
+    """Whether code registers an OAuth client: a client ID together with its redirect or callback URI."""
+    return bool(_CLIENT_ID.search(masked) and re.search(r"redirect[-_]?ur[il]|callback[-_]?ur[il]", masked, re.I))
+
+
+_MACHINE_GRANT = re.compile(
+    r"grant[-_]?type['\"]?\W{0,8}(?:client[-_]credentials|password)\b|clientCredentialsGrant\s*\(", re.I
+)
+_USER_GRANT = re.compile(
+    r"grant[-_]?type['\"]?\W{0,8}authorization[-_]code\b|redirect[-_]?ur[il]|callback[-_]?ur[il]"
+    r"|buildAuthorizationUrl|authorizationCodeGrant",
+    re.I,
+)
+
+
+def _machine_only(text: str) -> bool:
+    """Whether a file's OAuth clients use only grants without a user sign-in (client credentials, password)."""
+    return bool(_MACHINE_GRANT.search(text)) and not _USER_GRANT.search(text)
 
 
 def _source_integrations(text: str, rel: str) -> list[Integration]:
@@ -392,6 +469,8 @@ def _source_integrations(text: str, rel: str) -> list[Integration]:
             calls.append((navigation, end))
     calls.sort(key=lambda entry: entry[0].start())
     result = []
+    taken = set()
+    registers_client = _registers_client(masked)
     for literal in strings:
         start, _end, value = literal
         if not _address(value):
@@ -402,7 +481,8 @@ def _source_integrations(text: str, rel: str) -> list[Integration]:
         for call, call_end in calls:
             if not _call_uses_literal(masked, strings, call, call_end, literal, name):
                 continue
-            role = _call_role(call.group(), value, name)
+            call_text = text[call.start() : call_end]
+            role = _call_role(call.group(), value, name, call_text)
             if _NAVIGATION.fullmatch(call.group()) and role not in _REDIRECT_ROLES:
                 continue
             if not role:
@@ -421,10 +501,82 @@ def _source_integrations(text: str, rel: str) -> list[Integration]:
                         _NAVIGATION.fullmatch(call.group())
                         or re.search(r"\blocation\.(?:assign|replace)|(?:window|Window)\.open", call.group())
                     ),
-                    window=value + "\n" + text[call.start() : call_end],
+                    window=value + "\n" + call_text,
+                    client=not _RESOURCE_SERVER_CALL.search(call.group())
+                    and bool(_CLIENT_ID.search(call_text) or registers_client),
                 )
             )
+            taken.add(start)
             break
+    return result + _object_integrations(text, rel, masked, strings, taken)
+
+
+# ================================================================ settings objects in source code
+# Client libraries often take their settings as an object literal (`{ issuer, clientId }`, `{ auth: { authority,
+# clientId } }`, Go's `oauth2.Endpoint{AuthURL: ...}`) that the call receives by name. Such an object counts like
+# a configuration block: as a client when it or its enclosing object names a client ID, otherwise only for keys
+# that make a resource server fetch provider metadata or keys (`issuerBaseURL`, `jwksUri`). Without either, an
+# `issuer` is the expected token issuer of a local check, which contacts nobody.
+_MAX_OBJECT_CHARS = 4000
+_RESOURCE_SERVER_KEYS = frozenset(
+    {"issuerbaseurl", "jwksuri", "jwksurl", "jwkuri", "jwkseturi", "jwkseturl", "jwksendpoint"}
+)
+# Keycloak adapters configure the server and the realm separately; the issuer is `<server>/realms/<realm>`.
+_REALM_SERVER_KEYS = frozenset({"url", "serverurl", "authserverurl"})
+_REALM_CLIENT_KEY = re.compile(r"client[-_]?id|\bresource\b", re.I)
+# A bearer-only adapter checks the provider's tokens and never signs a user in.
+_BEARER_ONLY = re.compile(r"""bearer[-_]?only['"]?\s*[:=]\s*true""", re.I)
+
+
+def _enclosing_object(masked: str, index: int) -> tuple[int, int] | None:
+    """(start, end) of the innermost brace block around `index`, within _MAX_OBJECT_CHARS."""
+    depth = 0
+    for i in range(index - 1, max(-1, index - _MAX_OBJECT_CHARS), -1):
+        if masked[i] == "}":
+            depth += 1
+        elif masked[i] == "{":
+            if depth == 0:
+                end = _balanced(masked[i : i + _MAX_OBJECT_CHARS], 0)
+                return (i, i + end) if end > 0 and i + end > index else None
+            depth -= 1
+    return None
+
+
+def _realm_issuer(server: str, block: str) -> str | None:
+    """`<server>/realms/<realm>` when the settings block names the realm as a literal."""
+    m = re.search(r"""\brealm['"]?\s*[:=]\s*['"]([A-Za-z0-9._-]+)['"]""", block)
+    return server.rstrip("/") + "/realms/" + m.group(1) if m else None
+
+
+def _object_integrations(text: str, rel: str, masked: str, strings: list, taken: set) -> list[Integration]:
+    result = []
+    for start, _end, value in strings:
+        if start in taken or not _address(value):
+            continue
+        binding = re.search(r"([A-Za-z_$][\w$]*)\s*[:=]\s*$", masked[max(0, start - 120) : start])
+        block = _enclosing_object(masked, start) if binding else None
+        if block is None:
+            continue
+        key = re.sub(r"[^a-z]", "", binding.group(1).lower())
+        parent = _enclosing_object(masked, block[0])
+        settings = text[block[0] : block[1]]
+        client = bool(_CLIENT_ID.search(masked[slice(*(parent or block))]))
+        if client and not _CLIENT_ID.search(masked[block[0] : block[1]]):
+            settings = text[slice(*parent)]  # `Endpoint{TokenURL}` inside `Config{ClientID, ClientSecret}`
+        role, authority = _FIELD_ROLES.get(key), value
+        if role is None and key in _REALM_SERVER_KEYS and _REALM_CLIENT_KEY.search(masked[block[0] : block[1]]):
+            authority = _realm_issuer(value, settings)
+            role = "OIDC discovery" if authority else None
+            client = client and not _BEARER_ONLY.search(settings)
+        if role is None or not (client or key in _RESOURCE_SERVER_KEYS):
+            continue
+        if role == "OIDC discovery" and re.search(r"saml", settings, re.I):
+            role = "SAML metadata"
+        address = _address(authority, issuer=role == "OIDC discovery")
+        if not address:
+            continue
+        line = text.count("\n", 0, start) + 1
+        result.append(Integration(rel, line, line, *address, role, True, window=settings, client=client))
     return result
 
 
@@ -458,6 +610,20 @@ def _config_key_role(key: str, path: tuple[str, ...], context: str) -> str | Non
     return role
 
 
+def _realm_server(key: str, values: dict) -> str | None:
+    """The issuer a Keycloak adapter mapping (`auth-server-url`, `realm`, `resource`) configures, or None."""
+    server, realm = values.get(key), values.get("realm")
+    if (
+        re.sub(r"[^a-z]", "", key.lower()) in _REALM_SERVER_KEYS
+        and isinstance(server, yaml.ScalarNode)
+        and isinstance(realm, yaml.ScalarNode)
+        and re.fullmatch(r"[A-Za-z0-9._-]+", realm.value)
+        and any(_REALM_CLIENT_KEY.search(k) for k in values)
+    ):
+        return server.value.rstrip("/") + "/realms/" + realm.value
+    return None
+
+
 def _config_integrations(text: str, rel: str) -> list[Integration]:
     if rel.endswith(".properties"):
         # Resource servers also consume an external issuer's discovery metadata.
@@ -473,7 +639,8 @@ def _config_integrations(text: str, rel: str) -> list[Integration]:
                 and (role := _field_role(match[1].split(".")[-1]))
                 and (address := _address(match[2], issuer=role == "OIDC discovery"))
             ):
-                result.append(Integration(rel, number, number, *address, role, True, window=line))
+                client = ".oauth2.client." in match[1]
+                result.append(Integration(rel, number, number, *address, role, True, window=line, client=client))
         return result
     root = _yaml_tree(text)
     if root is None:
@@ -492,22 +659,33 @@ def _config_integrations(text: str, rel: str) -> list[Integration]:
                 for k in ("enabled", "active")
             ):
                 return
+            block = text[node.start_mark.index : node.end_mark.index]
+            registration = any(_CLIENT_ID.search(k) for k in values)
             for key, value in values.items():
                 context = ".".join((*path, key))
                 role = _config_key_role(key, path, context)
+                url = value.value if isinstance(value, yaml.ScalarNode) else None
+                realm = None if role else _realm_server(key, values)
+                if realm:
+                    role, url = "OIDC discovery", realm
                 # Keys under `server` / `authorizationserver` configure a server this application runs,
                 # not a provider it calls.
                 if (
                     role
-                    and _CONFIG_CONTEXT.search(context)
-                    and not re.search(r"(?:^|[._-])(?:authorizationserver|server)(?:[._-]|$)", context, re.I)
+                    and url
+                    and (realm or registration or _CONFIG_CONTEXT.search(context))
+                    and not re.search(
+                        r"(?:^|[._-])(?:authorizationserver|server)(?:[._-]|$)",
+                        ".".join(path) if realm else context,
+                        re.I,
+                    )
+                    and (address := _address(url, issuer=role == "OIDC discovery"))
                 ):
-                    if isinstance(value, yaml.ScalarNode) and (
-                        address := _address(value.value, issuer=role == "OIDC discovery")
-                    ):
-                        line = value.start_mark.line + 1
-                        block = text[node.start_mark.index : node.end_mark.index]
-                        result.append(Integration(rel, line, line, *address, role, True, window=block))
+                    line = value.start_mark.line + 1
+                    client = bool(
+                        realm or registration or re.search(r"(?:^|[._-])client(?:[._-]|$)", context, re.I)
+                    ) and not (re.search(r"resource[-_]?server", context, re.I) or _BEARER_ONLY.search(block))
+                    result.append(Integration(rel, line, line, *address, role, True, window=block, client=client))
                 walk(value, (*path, key), depth + 1)
         elif isinstance(node, yaml.SequenceNode):
             for value in node.value:
@@ -543,8 +721,28 @@ def discover(repo_root: Path) -> list[Integration]:
     for rel, suffix, text in _runtime_files(repo_root):
         if "http" not in text:
             continue
-        result.extend(_config_integrations(text, rel) if suffix in _CONFIG_EXT else _source_integrations(text, rel))
+        found = _config_integrations(text, rel) if suffix in _CONFIG_EXT else _source_integrations(text, rel)
+        if _machine_only(text):
+            found = [replace(i, client=False) for i in found]
+        result.extend(found)
+    result.extend(_derived_sign_ins(result))
     return sorted(set(result), key=lambda c: (c.file, c.line, c.authority, c.role))
+
+
+def _derived_sign_ins(integrations: list[Integration]) -> list[Integration]:
+    """The sign-in a client performs at a provider it knows only by discovery.
+
+    A client registration beside the discovery (`client`) means its library
+    sends the user to the provider's authorization endpoint; a resource server
+    that discovers the provider only to check tokens signs nobody in. A sign-in
+    the code states for that provider makes the derived one unnecessary.
+    """
+    stated = {i.authority for i in integrations if i.role in _SIGN_IN_ROLES}
+    return [
+        replace(i, role="OIDC sign-in")
+        for i in integrations
+        if i.role == "OIDC discovery" and i.client and i.authority not in stated
+    ]
 
 
 # ================================================================ confidential clients
@@ -565,7 +763,7 @@ class ConfidentialClient:
 _CLIENT_ID = re.compile(r"client[-_]?id", re.I)
 _CLIENT_SECRET = re.compile(r"client[-_]?secret", re.I)
 # Constructors whose name alone does not say OAuth (`Strategy`, `register`) need protocol context.
-_OAUTH_CONSTRUCTOR = re.compile(r"OAuth|OpenIDConnect|ClientApplication|Saml", re.I)
+_OAUTH_CONSTRUCTOR = re.compile(r"OAuth|OpenIDConnect|ClientApplication|Saml|\bdiscovery", re.I)
 _OAUTH_CALL_CONTEXT = re.compile(r"oauth|oidc|openid|callback[-_]?ur[il]|redirect[-_]?ur[il]|authoriz", re.I)
 
 
@@ -785,6 +983,12 @@ def _authored_callers(integration: Integration, owner: str, flows: list[dict], r
 
 
 # ================================================================ ownership
+def _internal_provider(host: str, components: list[dict]) -> str | None:
+    """The one component whose deployment workload the provider's host names, when the provider runs in the system."""
+    hits = {c["id"] for c in components if host in {str(w).lower() for w in c.get("workloads") or []}}
+    return hits.pop() if len(hits) == 1 else None
+
+
 def _owner(file: str, components: list[dict], *, browser: bool = False) -> str:
     """The component whose most specific path pattern covers the file; raises when none or several tie."""
     matches = []
@@ -813,14 +1017,34 @@ _SIGN_IN_SCHEMES = frozenset({"oauth2", "oidc", "saml"})
 _UNPROVEN_SCHEMES = frozenset({"none", "unknown"})
 
 
+def _target(flow: dict) -> str | None:
+    """The participant a flow reaches: its external entity, or a component a protocol step of this module names."""
+    if flow.get("to") == "external":
+        return flow.get("to_entity")
+    return flow.get("to") if _written_by_reconcile(flow) else None
+
+
+def _providers(flows: list[dict], entities: list[dict]) -> set[str]:
+    """Identity providers: external identity-provider entities and components that answer a protocol step."""
+    return {e["id"] for e in entities if e.get("kind") == "identity-provider"} | {
+        f["to"] for f in flows if f.get("to") != "external" and _written_by_reconcile(f)
+    }
+
+
+def _destination(provider: str, entities: list[dict]) -> dict:
+    """The `to` fields of a flow to a provider entity or provider component."""
+    if any(e["id"] == provider for e in entities):
+        return {"to": "external", "to_entity": provider}
+    return {"to": provider}
+
+
 def _sign_in_flows(flows: list[dict], entities: list[dict]) -> list[dict]:
     """Flows in which a component sends the user to an identity provider to sign in."""
-    providers = {e["id"] for e in entities if e.get("kind") == "identity-provider"}
+    providers = _providers(flows, entities)
     return [
         f
         for f in flows
-        if f.get("to") == "external"
-        and f.get("to_entity") in providers
+        if _target(f) in providers
         and not f.get("interaction")
         and (f.get("authentication") or {}).get("scheme") in _SIGN_IN_SCHEMES
     ]
@@ -835,13 +1059,26 @@ def _sign_in_provider(owner: str, flows: list[dict], entities: list[dict]) -> di
     """
     sign_ins = _sign_in_flows(flows, entities)
     for candidates in (
-        {f["to_entity"] for f in sign_ins if f.get("from") == owner},
-        {f["to_entity"] for f in sign_ins},
+        {_target(f) for f in sign_ins if f.get("from") == owner},
+        {_target(f) for f in sign_ins},
     ):
         if len(candidates) == 1:
             provider = candidates.pop()
-            return next(e for e in entities if e["id"] == provider)
+            return next((e for e in entities if e["id"] == provider), {"id": provider})
     return None
+
+
+def _discovered_provider(owner: str, flows: list[dict], entities: list[dict]) -> dict | None:
+    """The one identity provider whose metadata the component discovers, for a client that signs nobody in."""
+    providers = _providers(flows, entities)
+    found = {
+        _target(f)
+        for f in flows
+        if f.get("from") == owner
+        and _target(f) in providers
+        and str(f.get("label") or "").removeprefix("Configured ") == "OIDC discovery"
+    }
+    return next((e for e in entities if e["id"] in found), {"id": next(iter(found))}) if len(found) == 1 else None
 
 
 def reconcile_sign_in_results(flows: list[dict], entities: list[dict]) -> list[str]:
@@ -891,6 +1128,47 @@ def reconcile_sign_in_results(flows: list[dict], entities: list[dict]) -> list[s
     return changed
 
 
+# ================================================================ access tokens at the application
+# A receiver that fetches a provider's metadata or signing keys (a resource server) validates that provider's
+# access tokens. Its bearer check is linked to the provider only when the code connects the two: the check and the
+# provider step cite the same source file, or the provider step is the component's configuration. A receiver that
+# reaches several providers this way, or a check elsewhere, keeps a plain bearer token.
+_TOKEN_CHECK_ROLES = frozenset({"OIDC discovery", "OIDC signing keys"})
+_MAX_AUTH_EVIDENCE = 8
+
+
+def _source_key(row: dict) -> tuple:
+    return row.get("repository_id"), row.get("file")
+
+
+def reconcile_token_issuers(flows: list[dict], entities: list[dict], components: list[dict]) -> list[str]:
+    """Name the identity provider whose access token a bearer check accepts (`authentication.issuer`)."""
+    providers = _providers(flows, entities)
+    names = {row["id"]: row.get("name") or row["id"] for row in [*entities, *components] if row.get("id")}
+    checked: dict[str, dict[str, list[dict]]] = {}
+    for flow in flows:
+        target = _target(flow)
+        if target in providers and str(flow.get("label") or "").removeprefix("Configured ") in _TOKEN_CHECK_ROLES:
+            checked.setdefault(flow.get("from"), {}).setdefault(target, []).extend(flow.get("evidence") or [])
+    linked = []
+    for flow in flows:
+        auth = flow.get("authentication") or {}
+        candidates = checked.get(flow.get("to"), {})
+        if auth.get("scheme") != "bearer" or auth.get("issuer") or flow.get("interaction") or len(candidates) != 1:
+            continue
+        provider, rows = next(iter(candidates.items()))
+        check_files = {_source_key(row) for row in auth.get("evidence") or []}
+        configured = any(Path(row.get("file") or "").suffix in _CONFIG_EXT for row in rows)
+        if not configured and not check_files & {_source_key(row) for row in rows}:
+            continue
+        evidence = list(auth.get("evidence") or [])
+        evidence += [row for row in rows if row not in evidence][: max(0, _MAX_AUTH_EVIDENCE - len(evidence))]
+        scope = f"The receiver checks an OAuth access token from {names.get(provider, provider)} and rejects requests without one"
+        flow["authentication"] = {**auth, "issuer": provider, "scope": scope[:240], "evidence": evidence}
+        linked.append(flow["id"])
+    return linked
+
+
 def _next_flow_number(flows: list[dict]) -> int:
     """The number after the highest `df-NNN` id."""
     return max((int(f["id"][3:]) for f in flows), default=0) + 1
@@ -926,7 +1204,7 @@ def reconcile_confidential_clients(
             owner = _owner(client.file, components)
         except ValueError:
             continue
-        provider = _sign_in_provider(owner, flows, entities)
+        provider = _sign_in_provider(owner, flows, entities) or _discovered_provider(owner, flows, entities)
         auth = _client_authentication(client.window)
         if provider is None or auth is None:
             continue
@@ -934,7 +1212,12 @@ def reconcile_confidential_clients(
         # URL in the same call, represents the client.
         if _draws_token_request(owner, flows):
             continue
-        sign_ins = [f for f in _sign_in_flows(flows, entities) if f["to_entity"] == provider["id"]]
+        sign_ins = [f for f in _sign_in_flows(flows, entities) if _target(f) == provider["id"]]
+        # The token request redeems the authorization code of the sign-in it belongs to.
+        grants = {(f.get("authentication") or {}).get("flow") for f in sign_ins} - {None}
+        grant = _token_grant(client.window) or (grants.pop() if len(grants) == 1 else None)
+        if "flow" not in auth and grant in {"authorization-code", "authorization-code-pkce", "client-credentials"}:
+            auth["flow"] = grant
         protocol = next((f.get("protocol") for f in sign_ins if f.get("protocol")), "HTTPS")
         groups = {f.get("protocol_group") for f in sign_ins if f.get("protocol_group")}
         evidence = [{"file": client.file, "line": client.line}]
@@ -945,8 +1228,7 @@ def reconcile_confidential_clients(
             {
                 "id": flow_id,
                 "from": owner,
-                "to": "external",
-                "to_entity": provider["id"],
+                **_destination(provider["id"], entities),
                 "label": "OAuth token exchange",
                 "protocol": protocol,
                 "data_classification": "Confidential",
@@ -1009,7 +1291,7 @@ def _provider_entity(
         or (e.get("kind") == "identity-provider" and _represents(e, integration, evidence, unambiguous_line))
     ]
     provider = _sign_in_provider(owner, flows, entities) if profile and not matching else None
-    if provider is not None:
+    if provider is not None and provider.get("kind") == "identity-provider":
         roles = provider.setdefault("service_roles", [])
         if not any(r.get("role") == "oauth-resource-server" for r in roles):
             roles.append({"role": "oauth-resource-server", "evidence": evidence})
@@ -1057,13 +1339,12 @@ def _new_flow(
     groups = {
         f.get("protocol_group")
         for f in _sign_in_flows(flows, entities)
-        if f.get("to_entity") == entity_id and f.get("from") == owner and f.get("protocol_group")
+        if _target(f) == entity_id and f.get("from") == owner and f.get("protocol_group")
     }
     return {
         "id": flow_id,
         "from": owner,
-        "to": "external",
-        "to_entity": entity_id,
+        **_destination(entity_id, entities),
         "label": label,
         "protocol": integration.protocol,
         "data_classification": "Public" if integration.role in _PUBLIC_METADATA_ROLES else "Confidential",
@@ -1100,36 +1381,51 @@ def reconcile(repo_root: Path, components: list[dict], document: dict) -> dict:
             len({c.authority for c in integrations if c.file == integration.file and c.line == integration.line}) == 1
         )
         # Explicit internal topology is stronger than an absolute URL hint.
-        if any(f.get("from") == owner and f.get("to") != "external" and _cites(f, evidence) for f in flows):
+        if any(
+            f.get("from") == owner
+            and f.get("to") != "external"
+            and not _written_by_reconcile(f)
+            and _cites(f, evidence)
+            for f in flows
+        ):
             if not unambiguous_line:
                 raise ValueError(
                     f"ambiguous internal identity-server evidence at {integration.file}:{integration.line}"
                 )
             continue
-        covering = _authored_callers(integration, owner, flows, root, masked)
-        if len({f["to_entity"] for f in covering}) == 1:
-            # The author modelled this request where its wrapper is called; record the URL there.
-            covering[0]["evidence"] = (covering[0].get("evidence") or []) + [
-                e for e in evidence if e not in (covering[0].get("evidence") or [])
-            ]
-            _fill_authentication(covering[0], integration, evidence)
-            continue
-        entity_id = _provider_entity(integration, owner, evidence, unambiguous_line, flows, entities)
-        existing = [f for f in flows if f.get("from") == owner and f.get("to") == "external" and _cites(f, evidence)]
+        # A provider deployed with the system answers on its workload's name (`http://keycloak:8080/...`).
+        internal = _internal_provider(integration.host, components)
+        if internal == owner:
+            continue  # a component calling its own provider endpoints crosses nothing
+        if internal is None:
+            covering = _authored_callers(integration, owner, flows, root, masked)
+            if len({f["to_entity"] for f in covering}) == 1:
+                # The author modelled this request where its wrapper is called; record the URL there.
+                covering[0]["evidence"] = (covering[0].get("evidence") or []) + [
+                    e for e in evidence if e not in (covering[0].get("evidence") or [])
+                ]
+                _fill_authentication(covering[0], integration, evidence)
+                continue
+        entity_id = internal or _provider_entity(integration, owner, evidence, unambiguous_line, flows, entities)
+        if integration.role == "OIDC sign-in" and any(_target(f) == entity_id for f in _sign_in_flows(flows, entities)):
+            continue  # a modelled sign-in at this provider already shows the step
+        existing = [
+            f
+            for f in flows
+            if f.get("from") == owner and (f.get("to") == "external" or _target(f) == entity_id) and _cites(f, evidence)
+        ]
         label = ("Configured " if integration.configured else "") + integration.role
         # An authored flow with this evidence already represents the integration,
         # whatever provenance its author chose; a generated one covers only its role.
         represented = [
-            f
-            for f in existing
-            if f.get("to_entity") == entity_id and (not _written_by_reconcile(f) or f.get("label") == label)
+            f for f in existing if _target(f) == entity_id and (not _written_by_reconcile(f) or f.get("label") == label)
         ]
         if represented:
             for flow in represented:
                 _fill_authentication(flow, integration, evidence)
             continue
-        generic = [f for f in existing if not f.get("to_entity")]
-        if len(generic) == 1 and unambiguous_line:
+        generic = [f for f in existing if f.get("to") == "external" and not f.get("to_entity")]
+        if len(generic) == 1 and unambiguous_line and internal is None:
             generic[0]["to_entity"] = entity_id
             _fill_authentication(generic[0], integration, evidence)
             continue

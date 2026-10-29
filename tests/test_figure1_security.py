@@ -357,3 +357,33 @@ def test_reference_directions_preserve_exchange_without_spreading_receiving_auth
     assert provider["direction"] == ("↔" if bidirectional else "←")
     assert client["profiles"] == []
     assert provider["profiles"] == [key["key"]]
+
+
+def test_public_provider_metadata_is_a_neutral_zero_not_missing_authentication():
+    catalog = profile_catalog([{"authentication": auth("none", public=True)}, {"authentication": auth("none")}])
+    public, missing = catalog[("none", "public")], catalog[("none",)]
+    assert (public["number"], missing["number"]) == ("0", "0")
+    assert (public["color"], missing["color"]) == ("grey", "red")
+    assert public["title"] == "No authentication · public metadata"
+
+
+def test_an_access_token_names_its_issuer_and_keeps_a_number_per_provider():
+    names = {"ext-idp-a": "Identity provider · sso.example", "idp-component": "Identity server"}
+    flows = [
+        {"authentication": auth("bearer", issuer="ext-idp-a")},
+        {"authentication": auth("bearer", issuer="idp-component")},
+        {"authentication": auth("bearer")},
+    ]
+    catalog = profile_catalog(flows, names)
+    assert sorted(p["title"] for p in catalog.values()) == [
+        "Bearer token",
+        "Bearer token · access token from Identity provider · sso.example",
+        "Bearer token · access token from Identity server",
+    ]
+    assert sorted(p["number"] for p in catalog.values()) == ["1", "2", "3"]
+    assert authentication_profile(flows[0])["key"] != authentication_profile(flows[2])["key"]
+
+
+def test_a_grant_on_a_token_request_titles_the_client_authentication():
+    profile = authentication_profile({"authentication": auth("client-secret", flow="client-credentials")})
+    assert profile["title"] == "Client ID + secret · client credentials"
