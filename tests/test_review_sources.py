@@ -183,7 +183,7 @@ def test_checkout_uses_exact_objects_without_mutating_caller_repository(project,
     )
     seen = []
 
-    def git_command(command, root, env):
+    def git_command(command, root, env, *_hint):
         seen.append(command)
         # Only transport is substituted; real init, fetch, checkout and cleanup execute.
         command = [str(project) if arg == review.repository else arg for arg in command]

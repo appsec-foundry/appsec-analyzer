@@ -2409,3 +2409,6 @@ requirements:
       - tests/test_remote_repositories.py::test_cli_option_names_the_token_variable_for_every_url_command
       - tests/test_review_sources.py::test_review_api_uses_the_fallback_token_variables
       - tests/test_review_sources.py::test_review_api_does_not_send_the_gitlab_token_to_other_hosts
+      - tests/test_remote_repositories.py::test_redirect_to_the_git_suffix_is_reported_and_never_followed
+      - tests/test_remote_repositories.py::test_only_a_same_host_repository_redirect_is_reported
+      - tests/test_remote_repositories.py::test_no_probe_through_a_proxy_or_after_a_network_error

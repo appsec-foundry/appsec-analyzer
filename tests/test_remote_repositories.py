@@ -620,16 +620,23 @@ def test_failure_hint_names_tried_variables_or_the_one_that_failed(monkeypatch, 
     hint = remote.credential_hint(https)
     assert all(n in hint for n in ("APPSEC_GIT_TOKEN", "GIT_TOKEN", "GITLAB_TOKEN", "--git-token-env"))
     monkeypatch.setenv("GITLAB_TOKEN", "ambient-secret")
-    assert "was not accepted" not in remote.credential_hint(https)
+    skipped = remote.credential_hint(https)
+    assert "was not accepted" not in skipped and "ambient-secret" not in skipped
+    assert "GITLAB_TOKEN is set but" in skipped and "GITLAB_HOST=git.example" in skipped
+    assert "GITLAB_TOKEN is set but" not in remote.credential_hint(remote.parse_remote("https://gitlab.com/t/a.git"))
     monkeypatch.setenv("GIT_TOKEN", "ambient-secret")
     failed = remote.credential_hint(https)
     assert "token from GIT_TOKEN was not accepted" in failed and "ambient-secret" not in failed
     assert "SSH agent" in remote.credential_hint(remote.parse_remote("git@git.example:team/a.git"))
+    monkeypatch.setattr(remote, "_redirect_target", lambda _: None)
+    bare = remote.credential_hint(remote.parse_remote("https://git.example/team/a"))
+    assert "if the host redirects URLs without .git" in bare and "team/a" not in bare
+    assert "without .git" not in failed
     with pytest.raises(remote.RemoteError) as raised:
-        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed)
-    assert "check repository access, credentials" in str(raised.value) and "GIT_TOKEN was not accepted" in str(
-        raised.value
-    )
+        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed, "https")
+    assert "GIT_TOKEN was not accepted" in str(raised.value) and "SSH host keys" not in str(raised.value)
+    with pytest.raises(remote.RemoteError, match="trusted SSH host keys"):
+        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ))
 
 
 def test_cli_option_names_the_token_variable_for_every_url_command(monkeypatch, no_token_env):
@@ -659,3 +666,92 @@ def test_cli_option_names_the_token_variable_for_every_url_command(monkeypatch, 
     monkeypatch.setenv(remote.TOKEN_NAME_ENV, "placeholder")  # restored at teardown
     cli._use_git_token_variable(ns)
     assert os.environ[remote.TOKEN_NAME_ENV] == "CUSTOM_CI_PAT"
+
+
+class _FakeConnection:
+    """Records one request and answers with a fixed status and Location header."""
+
+    status = 301
+    location = "https://git.example/team/a.git/info/refs?service=git-upload-pack"
+    seen: list = []
+
+    def __init__(self, remote_, address):
+        type(self).seen = [address]
+
+    def request(self, method, path, headers):
+        type(self).seen += [method, path, headers]
+
+    def getresponse(self):
+        outer = type(self)
+
+        class Reply:
+            status = outer.status
+
+            @staticmethod
+            def getheader(name):
+                return outer.location
+
+        return Reply()
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def probe(monkeypatch, no_token_env):
+    monkeypatch.setattr(remote, "_address", lambda _: "192.0.2.10")
+    monkeypatch.setattr(remote, "_proxy", lambda _: None)
+    monkeypatch.setattr(remote, "_PinnedHTTPS", _FakeConnection)
+    _FakeConnection.seen = []
+    _FakeConnection.status = 301
+    _FakeConnection.location = "https://git.example/team/a.git/info/refs?service=git-upload-pack"
+    return _FakeConnection
+
+
+def test_redirect_to_the_git_suffix_is_reported_and_never_followed(probe, monkeypatch):
+    monkeypatch.setenv("GITLAB_HOST", "git.example")
+    monkeypatch.setenv("GITLAB_TOKEN", "probe-secret")
+    bare = remote.parse_remote("https://git.example/team/a")
+    assert remote._redirect_target(bare) == "https://git.example/team/a.git"
+    address, method, path, headers = probe.seen
+    assert (address, method, path) == ("192.0.2.10", "GET", "/team/a/info/refs?service=git-upload-pack")
+    assert headers["Authorization"].startswith("Basic ")
+    hint = remote.credential_hint(bare)
+    assert "redirects this URL to https://git.example/team/a.git" in hint and "probe-secret" not in hint
+    assert "was not accepted" not in hint
+
+
+@pytest.mark.parametrize(
+    ("status", "location"),
+    [
+        (301, "https://elsewhere.example/team/a.git/info/refs?service=git-upload-pack"),
+        (301, "http://git.example/team/a.git/info/refs?service=git-upload-pack"),
+        (301, "https://git.example/other/path"),
+        (301, "https://git.example:8443/team/a.git/info/refs"),
+        (301, "https://git.example/team/a/info/refs"),
+        (401, "https://git.example/team/a.git/info/refs"),
+        (200, None),
+    ],
+)
+def test_only_a_same_host_repository_redirect_is_reported(probe, status, location):
+    probe.status, probe.location = status, location
+    assert remote._redirect_target(remote.parse_remote("https://git.example/team/a")) is None
+
+
+def test_no_probe_through_a_proxy_or_after_a_network_error(probe, monkeypatch):
+    bare = remote.parse_remote("https://git.example/team/a")
+    monkeypatch.setattr(remote, "_proxy", lambda _: "http://proxy.example:3128")
+    assert remote._redirect_target(bare) is None
+    assert probe.seen == []
+    monkeypatch.setattr(remote, "_proxy", lambda _: None)
+
+    def refuse(*_):
+        raise ConnectionRefusedError
+
+    monkeypatch.setattr(remote, "_PinnedHTTPS", refuse)
+    assert remote._redirect_target(bare) is None
+
+
+def test_a_url_with_the_git_suffix_is_never_probed(probe):
+    assert "redirects this URL" not in remote.credential_hint(remote.parse_remote("https://git.example/team/a.git"))
+    assert probe.seen == []
