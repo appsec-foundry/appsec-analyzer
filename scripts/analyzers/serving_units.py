@@ -15,7 +15,8 @@ manifest, else the repository root):
 
 Test, fixture, example, documentation, mock, vendored and build-output paths
 never form or feed a unit. Languages without a route extractor (Go, Ruby,
-PHP) yield no ``http-api`` unit; their coverage stays with discovery alone.
+PHP) yield no ``http-api`` unit; ``adopt_remaining`` then gives their code,
+like every other file no component lists, to the closest component with code.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from pathlib import Path
 
 from shared._path_guard import is_safe_to_read
@@ -56,10 +58,6 @@ _NON_RUNTIME_SEGMENTS = frozenset(
         "fixture",
         "fixtures",
         "testdata",
-        "example",
-        "examples",
-        "sample",
-        "samples",
         "doc",
         "docs",
         "mock",
@@ -74,6 +72,9 @@ _NON_RUNTIME_SEGMENTS = frozenset(
         ".git",
     }
 )
+# Example trees count only at the repository root: `example` is also a common
+# package segment, such as Java's default `com.example`.
+_NON_RUNTIME_ROOTS = frozenset({"example", "examples", "sample", "samples"})
 _TEST_FILE_RE = re.compile(r"\.(?:spec|test|stories)\.[a-z]+$|(?:^|/)test_[^/]*\.py$|_test\.(?:py|go)$")
 _TOOLING_FILE_RE = re.compile(r"\.config\.[a-z]+$|(?:^|/)(?:test-setup|setup-?tests?)\.[a-z]+$")
 _CODE_EXTS = frozenset(
@@ -92,14 +93,21 @@ MAX_ENTRY_FILES = _SCHEMA["properties"]["limits"]["properties"]["max_entry_files
 
 def is_runtime_path(rel: str) -> bool:
     """False for test, fixture, example, documentation, vendored or built files."""
-    return not (set(rel.split("/")[:-1]) & _NON_RUNTIME_SEGMENTS or _TEST_FILE_RE.search(rel))
+    folders = rel.split("/")[:-1]
+    return not (
+        set(folders) & _NON_RUNTIME_SEGMENTS or set(folders[:1]) & _NON_RUNTIME_ROOTS or _TEST_FILE_RE.search(rel)
+    )
 
 
 def _files(repo_root: Path) -> list[str]:
     found = []
     for directory, subdirectories, names in os.walk(repo_root):
-        subdirectories[:] = sorted(d for d in subdirectories if d not in _NON_RUNTIME_SEGMENTS)
         base = Path(directory).relative_to(repo_root).as_posix()
+        subdirectories[:] = sorted(
+            d
+            for d in subdirectories
+            if d not in _NON_RUNTIME_SEGMENTS and not (base == "." and d in _NON_RUNTIME_ROOTS)
+        )
         found.extend(name if base == "." else f"{base}/{name}" for name in names)
     return sorted(found)
 
@@ -337,6 +345,57 @@ def _closest(found: list[dict], rel: str) -> dict:
         return common
 
     return max(found, key=lambda c: max((shared(p) for p in c.get("paths") or [] if isinstance(p, str)), default=0))
+
+
+def adopt_remaining(components: list[dict], repo_root: Path, limit: int) -> int:
+    """Give each program file and server-side template no component lists to the closest component with code.
+
+    Discovery lists only the files its model read, and `adopt` adds code only
+    where a route extractor knows the framework, so a file left out reaches no
+    survey job (REQ-004). A file joins the component whose program files share
+    the longest folder prefix with it; on a tie, the one with the most program
+    files at that depth, so a component that lists one file beside many of
+    another's does not take their neighbours. A component without program files,
+    such as a database or a build pipeline, receives none; tests, documentation,
+    top-level examples and vendored code stay out. At most `limit` files join,
+    so the inventory keeps its source-reference limit; the run names the rest.
+    Returns the files added.
+    """
+    from contexts.multi_repo_analysis import _TEST_SOURCE_RE, is_program_source  # noqa: PLC0415
+    from orchestrator.build_stride_dispatch_manifest import _path_owns  # noqa: PLC0415
+
+    listed = {p for c in components for p in c.get("paths") or [] if isinstance(p, str)}
+    patterns = [p for p in listed if not (repo_root / p).is_file()]
+    # Per component with program files, how many of them lie below each folder prefix, fixed before any file
+    # joins, so the result does not depend on the order in which files join.
+    owners = []
+    for component in components:
+        below: Counter = Counter()
+        for path in component.get("paths") or []:
+            if isinstance(path, str) and is_program_source(path):
+                folders = tuple(path.split("/")[:-1])
+                below.update(folders[:depth] for depth in range(len(folders) + 1))
+        if below:
+            owners.append((component, below))
+    added = 0
+    for rel in _files(repo_root):
+        if added >= limit or not owners:
+            break
+        if not (is_program_source(rel) and is_runtime_path(rel)) or _TEST_SOURCE_RE.search(rel):
+            continue
+        if rel in listed or _path_owns(patterns, rel):
+            continue
+        folders = tuple(rel.split("/")[:-1])
+
+        def closeness(owner: tuple, folders=folders) -> tuple[int, int]:
+            below = owner[1]
+            depth = max(depth for depth in range(len(folders) + 1) if below[folders[:depth]])
+            return depth, below[folders[:depth]]
+
+        component = max(owners, key=closeness)[0]
+        component["paths"] = [*component["paths"], rel]
+        added += 1
+    return added
 
 
 def adopt(units: list[dict], components: list[dict], repo_root: Path, routes: list[dict]) -> int:

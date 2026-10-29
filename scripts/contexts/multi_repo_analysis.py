@@ -690,21 +690,33 @@ _PROGRAM_SUFFIXES = frozenset(
     ".py .js .jsx .ts .tsx .mjs .cjs .java .kt .kts .scala .go .rb .php .cs .rs .swift .c .cc .cpp .h .hpp "
     ".m .mm .dart .ex .exs .erl .lua .pl .pm .vue .svelte".split()
 )
+# Further languages and server-side templates, which belong to a component like program code (REQ-004): templates
+# render request data with their own output encoding. Plain HTML counts as a template only below a templates or
+# views folder, where server frameworks keep theirs. The helpers a job reads keep `_PROGRAM_SUFFIXES`.
+_OWNED_SOURCE_SUFFIXES = frozenset(
+    ".vb .fs .groovy .cshtml .razor .aspx .ascx .master .jsp .jspx .erb .haml .slim .twig .ejs .hbs .handlebars "
+    ".mustache .pug .jinja .jinja2 .j2 .njk .liquid .ftl .vm .gohtml .tmpl".split()
+)
+_TEMPLATE_FOLDER_RE = re.compile(r"(?:^|/)(?:templates|views)/(?:[^/]+/)*[^/]+\.html?$", re.IGNORECASE)
 _TEST_SOURCE_RE = re.compile(
     r"(?:^|/)(?:tests?|__tests__|spec|e2e|cypress)(?:/|$)|\.(?:spec|test|cy)\.\w+$|(?:^|/)test_[^/]*$"
 )
 
 
+def is_program_source(path: str) -> bool:
+    """Whether a path holds program code or a server-side template that a component's jobs analyse."""
+    suffix = PurePosixPath(path).suffix.lower()
+    return suffix in _PROGRAM_SUFFIXES or suffix in _OWNED_SOURCE_SUFFIXES or bool(_TEMPLATE_FOLDER_RE.search(path))
+
+
 def unowned_sources(scope, components: list[dict]) -> list[tuple[str, str]]:
-    """Admitted program files outside every component and outside tests: no job analyses them."""
+    """Admitted program files and templates outside every component and outside tests: no job analyses them."""
     owned = source_selection(components)
     return sorted(
         (repo.repository_id, path)
         for repo in scope.repositories
         for path in repo.files
-        if (repo.repository_id, path) not in owned
-        and PurePosixPath(path).suffix.lower() in _PROGRAM_SUFFIXES
-        and not _TEST_SOURCE_RE.search(path)
+        if (repo.repository_id, path) not in owned and is_program_source(path) and not _TEST_SOURCE_RE.search(path)
     )
 
 

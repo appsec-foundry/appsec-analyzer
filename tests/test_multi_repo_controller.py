@@ -506,7 +506,7 @@ def test_toolless_architect_receives_the_shared_remediation_policy():
     assert "fix.effect: prevents-mechanism" in instructions
 
 
-def test_coverage_statements_reach_the_console_only_with_verbose():
+def test_coverage_statements_reach_the_console_with_verbose_and_unassigned_code_always():
     entries = [
         {
             "component": "Order store",
@@ -550,8 +550,10 @@ def test_coverage_statements_reach_the_console_only_with_verbose():
         *(row["text"] for row in undecided),
         *(entry["text"] for entry in entries),
     ]
-    # Without --verbose the closing block names none of them; the report keeps them (REQ-003).
-    assert controller._coverage_infos([listed, *undecided, *entries], verbose=False) == []
+    # Without --verbose the closing block names only the code outside every component, without its files (REQ-004);
+    # the report keeps every statement (REQ-003).
+    assert controller._coverage_infos([listed, *undecided, *entries], verbose=False) == [unowned["text"]]
+    assert controller._coverage_infos([*undecided, *entries], verbose=False) == []
 
 
 @pytest.mark.parametrize("role", ["stride_analyzer", "evidence_verifier"])

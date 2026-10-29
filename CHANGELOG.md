@@ -61,6 +61,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Every program file and server-side template now belongs to a component, so the survey also covers code that discovery did not read. Before, only files that discovery's model had read belonged to a component, unless Analyzer recognized the framework's routes. Most of the code of PHP, Go, Ruby, ASP.NET MVC, Razor Pages and Java servlet applications went unanalysed, as did the services and data access of recognized applications. A Spring application in the default `com.example` package was not recognized as an application at all. Assessments now send more code to the survey model, so they cost more and take longer. Code that still belongs to no component is counted in the final summary without `--verbose`.
 - An assessment no longer stops with `KeyError: 'jobs'` after verification when a component had no verification item to check.
 - A report with exactly one Critical finding is published again. Its attack walkthroughs linked to Critical Findings by Root Cause, a section that appears only with two or more Critical findings, and the quality check stopped the report.
 - When report composition stops at a quality check, the message names the failed checks and their issues instead of the check's raw JSON output.

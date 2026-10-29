@@ -375,6 +375,9 @@ requirements:
       - scripts/model/assessment_scanner_findings.py
       - scripts/model/assessment_posture.py
       - scripts/analyzers/arch_coverage_to_threats.py
+      - scripts/analyzers/serving_units.py
+      - scripts/model/finalize_component_inventory.py
+      - scripts/contexts/multi_repo_analysis.py
     decisions: []
     documents:
       - docs/security-assessment.md
@@ -397,6 +400,12 @@ requirements:
       - tests/test_aggregate_run_issues.py::test_injected_component_without_flows_is_surfaced_once_per_component
       - tests/test_finalize_component_inventory.py::test_embedded_store_owned_by_a_modelled_data_component_is_not_duplicated
       - tests/test_multi_repo_controller.py::test_discovery_and_architecture_receive_their_own_repository_inventories
+      - tests/test_serving_units.py::test_every_remaining_program_file_joins_the_closest_component_with_code
+      - tests/test_serving_units.py::test_remaining_files_stop_at_the_limit_and_need_a_component_with_code
+      - tests/test_serving_units.py::test_finalization_assigns_the_code_discovery_did_not_read
+      - tests/test_serving_units.py::test_example_folders_exclude_code_only_at_the_repository_root
+      - tests/test_multi_repo_analysis.py::test_server_side_templates_and_further_languages_count_as_program_code
+      - tests/test_multi_repo_controller.py::test_coverage_statements_reach_the_console_with_verbose_and_unassigned_code_always
       - tests/test_severity_rollup.py::test_verdict_concern_basis
       - tests/test_pregenerate_fragments.py::test_verdict_design_risk_has_its_own_evidence
       - tests/test_validate_fragment.py::test_verdict_rejects_inconsistent_colour_and_refs

@@ -2039,6 +2039,29 @@ def test_program_files_outside_every_component_are_listed_per_directory_and_capp
     assert [(row["directory"], row["files"]) for row in summary["by_directory"]] == [(d, n) for d, n, _ in listing]
 
 
+def test_server_side_templates_and_further_languages_count_as_program_code(tmp_path):
+    """REQ-004: a template renders request data, so code outside every component includes it."""
+    files = {
+        "src/api.ts": b"x\n",
+        "Views/Home/Index.cshtml": b"x\n",
+        "app/views/users/show.html.erb": b"x\n",
+        "templates/page.html": b"x\n",
+        "src/main/webapp/search.jsp": b"x\n",
+        "Module1.vb": b"x\n",
+        # Plain HTML outside a templates or views folder is a page, not a template.
+        "static/index.html": b"x\n",
+        "README.html": b"x\n",
+    }
+    scope, component = _owned_sources(tmp_path, files, ["src/api.ts"])
+    assert [path for _, path in stage.unowned_sources(scope, [component])] == [
+        "Module1.vb",
+        "Views/Home/Index.cshtml",
+        "app/views/users/show.html.erb",
+        "src/main/webapp/search.jsp",
+        "templates/page.html",
+    ]
+
+
 def test_program_files_outside_every_component_are_summarised_by_directory(tmp_path):
     files = {
         "src/api.ts": b"x\n",

@@ -105,7 +105,7 @@ If the budget cannot cover an optional model job, progress shows a `Coverage gap
 
 Progress shows the role, elapsed time, and activity of each model call. `No progress update` means that the call is still running but has sent no recent update. It does not show that the model is idle or that the API has a problem. Hosts without activity events say so. On an interactive terminal, such messages stay in the one refreshed status row. Plain logs print the notice once until the call changes state. Connection interruptions and timeouts are shown as separate warnings. Codex transport failures are described in [Codex CLI setup and recovery](profiles.md#use-your-chatgpt-plan-with-codex-cli).
 
-`--verbose` adds job, repository, and call IDs and the reasons for corrections. For program files outside all components, it also shows sample files from the ten largest directories. The report keeps directory counts.
+`--verbose` adds job, repository, and call IDs and the reasons for corrections. For program files outside all components, which the final summary counts in every run, it also shows sample files from the ten largest directories. The report keeps directory counts.
 
 Every assessment writes private diagnostics to `.assessment-work/diagnostics/attempt-*/events.jsonl` in the output directory. They record job outcomes, call timing, failure codes, and validation reasons. They contain no prompts, source excerpts, model answers, or raw stderr. The file stops at 8 MiB. `--resume` keeps earlier diagnostics in separate attempt directories, and `--rebuild` removes the working directory. Diagnostics explain failures of execution. They do not show that a finding is correct. Check them before you share them.
 
@@ -172,6 +172,8 @@ An assessment examines the code with two methods. The survey looks at each compo
 ### The survey
 
 A model reads one component at a time, such as the API server or the web frontend, and reports the weaknesses it finds. The six STRIDE categories are its checklist, and each finding carries one of them.
+
+Every program file and server-side template belongs to a component, in any language or framework. Files that discovery did not read go to the component whose code lies closest in the folder tree. Tests, documentation, top-level examples, and vendored code stay out. A component without its own program code, such as a database or a build pipeline, gets no files. If code still belongs to no component, for example because no component holds program code, the final summary says how many files. The report lists them by folder. Within a component, the survey picks the files with entry points, scanner hits, or security-relevant keywords. The report counts, per component, the files the survey did not examine individually.
 
 Because the survey is open, it also finds weaknesses that no list foresees. In the pilot runs on OWASP Juice Shop, it reported weaknesses that the verification catalog has no item for, such as an OAuth login without a `state` parameter and a password reset without throttling. The survey does not go through the code route by route, though. When many routes share one weakness, it often reports one finding with a few examples.
 

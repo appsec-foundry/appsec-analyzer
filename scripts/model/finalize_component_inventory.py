@@ -374,6 +374,14 @@ def finalize_assessment(
             missing = serving_units.uncovered(units, local["components"])
             if missing:
                 raise ValueError("No component carries these serving units: " + serving_units.describe(missing))
+            # Every other program file joins the closest component with code (REQ-004), within the
+            # source-reference limit below; the run names the files that stay unassigned.
+            taken = 0
+            for original in local["components"]:
+                literal = {p for p in original["paths"] if p in repo.files}
+                patterns = [p for p in original["paths"] if p not in repo.files]
+                taken += sum(1 for path in repo.files if path in literal or _path_owns(patterns, path))
+            serving_units.adopt_remaining(local["components"], root, MAX_SOURCE_REFERENCES - reference_count - taken)
         collapsed += receipt["collapsed_duplicate_count"]
         injected_ids.extend(_id("component", repo.repository_id, cid) for cid in receipt["injected_component_ids"])
         hashes = {p: hashlib.sha256(data).hexdigest() for p, data in repo.files.items()}

@@ -1,0 +1,19 @@
+---
+reason: >-
+  A component lists only the files its discovery model read, unless a route extractor finds the application and the controller adds its handler modules or package. No route extractor exists for PHP, Go, Ruby, Kotlin Ktor, Java servlets, ASP.NET MVC controllers or Razor Pages, and a recognized application at the repository root receives only its route and handler files. Any path segment named example, sample, doc or mock also hid every file below it from that step, which removes a Spring application in the default com.example package entirely. Code outside every component reaches no survey job, and server-side templates were not even counted as unanalysed. A standard assessment of DVWA analysed 24 of 235 files and found no SQL injection or cross-site scripting; the report named the 163 unanalysed program files in one sentence, the console only with --verbose.
+affected_ids: [REQ-004]
+compatibility: >-
+  Assessments send more of each repository's code to the survey model, so they cost more and take longer; the hard budget still applies. Component file lists change, so a new run reuses fewer accepted jobs of an earlier run, and the first run after the change costs more. Code that a run cannot assign is named on the console and in the completion summary in addition to the report. No command, option or saved-result format changes.
+verification: >-
+  Tests over every shape: a language without a route extractor, a recognized framework whose services and data access no route names, a package path that contains example, a server-side template, and a repository whose components hold no program code, whose files stay unassigned and are named on the console, in the completion summary and in the report. Negative cases: tests, documentation, top-level example trees and vendored code receive no component, and a database or build-pipeline component receives no file.
+---
+
+# Every program file belongs to a component
+
+A standard DVWA run showed the gap: the survey of the web application read 16 files, and 151 files under `vulnerabilities/` belonged to no component. A deterministic measurement without model calls on local repositories and small synthetic samples showed the same gap for other stacks. Under the weakest discovery, which reads one entry file per application, the controller assigned 0 % of a plain PHP, Laravel, Rails, Go, Rust, Kotlin Ktor, Java servlet, ASP.NET MVC or Razor Pages repository, 3 % of a Spring application at the repository root, 0 % of three Spring applications in `com.example`, and 62 % of Juice Shop. The Juice Shop standard run left 134 program files unassigned, 21 of them in `lib/`.
+
+The user approved the requirement sentence and the four acceptance points in the conversation before any change to requirements.md or the acceptance contract. The acceptance contract adds one precision to the approved wording: a component without program code of its own, such as a database or a build pipeline, receives no file, because the closest component in the directory tree can otherwise be one that runs no code.
+
+Decisions: the assignment works without a model and for every language, instead of a new route extractor per framework, because route extractors leave services, data access and unknown frameworks uncovered. The cheaper variant, assigning only files that match the security keyword catalog, was named and not chosen, because code without such keywords would stay unexamined.
+
+Risks raised: model cost and duration rise with the amount of code; for DVWA the survey would receive about 12,900 instead of 1,700 source lines. More of the analysed repository's code goes to the same model provider. Data files written in a programming language, such as the 97 challenge code snippets under `data/` in Juice Shop, are analysed too. A shared helper can join the wrong component and be judged in the wrong context. Fewer accepted jobs of earlier runs are reused.

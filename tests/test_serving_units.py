@@ -440,3 +440,106 @@ def test_an_api_adopts_the_workspace_packages_it_imports_transitively(tmp_path):
         "packages/rules/src/score.ts",
         "packages/weights/src/index.ts",
     ]
+
+
+def test_example_folders_exclude_code_only_at_the_repository_root(tmp_path):
+    """Java's default package `com.example` is application code; a top-level examples tree is not."""
+    assert serving_units.is_runtime_path("src/main/java/com/example/demo/UserController.java")
+    assert serving_units.is_runtime_path("app/samples/handler.py")
+    assert not serving_units.is_runtime_path("examples/server.js")
+    assert not serving_units.is_runtime_path("sample/app.py")
+    assert not serving_units.is_runtime_path("src/docs/build.py")
+    files = {
+        "pom.xml": "<project></project>\n",
+        "src/main/java/com/example/demo/UserController.java": "@RestController\nclass UserController {\n"
+        '  @GetMapping("/users/{id}")\n  User get(String id) { return dao.find(id); }\n}\n',
+        "src/main/java/com/example/demo/UserDao.java": "class UserDao { User find(String id) { return null; } }\n",
+    }
+    root = write(tmp_path / "spring", files)
+    [unit] = units_of(root)
+    assert unit["entry_files"] == ["src/main/java/com/example/demo/UserController.java"]
+
+
+# Code of stacks without a route extractor, next to files that stay out: tests,
+# documentation, a top-level example tree, vendored code and configuration.
+UNROUTED = {
+    "index.php": "<?php require 'dvwa/includes/page.php';\n",
+    "login.php": "<?php $user = $_POST['username'];\n",
+    "dvwa/includes/page.php": "<?php function page() {}\n",
+    "vulnerabilities/exec/source/low.php": "<?php shell_exec($_REQUEST['ip']);\n",
+    "vulnerabilities/exec/source/high.php": "<?php shell_exec($ip);\n",
+    "vulnerabilities/sqli/source/low.php": "<?php mysqli_query($db, \"SELECT * FROM users WHERE id = '$id'\");\n",
+    "vulnerabilities/api/index.php": "<?php $route = $_SERVER['REQUEST_URI'];\n",
+    "vulnerabilities/api/src/UserController.php": "<?php class UserController {}\n",
+    "views/page.html": "<p>{{ name | safe }}</p>\n",
+    "app/views/users/show.html.erb": "<%= raw @user.name %>\n",
+    "Views/Home/Index.cshtml": "@Html.Raw(Model.Name)\n",
+    "handlers/user.go": "package handlers\n",
+    "tests/login_test.php": "<?php assert(true);\n",
+    "docs/example.php": "<?php echo 1;\n",
+    "examples/demo.php": "<?php echo 1;\n",
+    "vendor/lib/parser.php": "<?php function parse() {}\n",
+    "compose.yml": "services: {}\n",
+    "Dockerfile": "FROM php:8\n",
+}
+
+
+def _unrouted(order):
+    web = {
+        "id": "web",
+        "tier": "application",
+        "paths": ["index.php", "vulnerabilities/exec/source/low.php", "vulnerabilities/exec/source/high.php"],
+    }
+    api = {"id": "api", "tier": "application", "paths": ["vulnerabilities/api/index.php"]}
+    db = {"id": "db", "tier": "data", "paths": ["compose.yml"]}
+    ci = {"id": "ci", "tier": "infrastructure", "paths": ["Dockerfile", "compose.yml"]}
+    named = {"web": web, "api": api, "db": db, "ci": ci}
+    return [named[key] for key in order]
+
+
+@pytest.mark.parametrize("order", [("web", "api", "db", "ci"), ("ci", "db", "api", "web")])
+def test_every_remaining_program_file_joins_the_closest_component_with_code(tmp_path, order):
+    """REQ-004: code no route extractor names joins a component, whatever the order of the components."""
+    root = write(tmp_path / "app", UNROUTED)
+    components = _unrouted(order)
+    assert serving_units.adopt_remaining(components, root, limit=100) == 8
+    paths = {c["id"]: set(c["paths"]) for c in components}
+    # The API's own folder is closer than the shared one; elsewhere the component with more code there wins.
+    assert paths["api"] == {"vulnerabilities/api/index.php", "vulnerabilities/api/src/UserController.php"}
+    assert {
+        "login.php",
+        "dvwa/includes/page.php",
+        "vulnerabilities/sqli/source/low.php",
+        "views/page.html",
+        "app/views/users/show.html.erb",
+        "Views/Home/Index.cshtml",
+        "handlers/user.go",
+    } <= paths["web"]
+    # A component without program code takes none, and tests, documentation, examples and vendored code stay out.
+    assert paths["db"] == {"compose.yml"} and paths["ci"] == {"Dockerfile", "compose.yml"}
+    left = {"tests/login_test.php", "docs/example.php", "examples/demo.php", "vendor/lib/parser.php"}
+    assert not left & set().union(*paths.values())
+
+
+def test_remaining_files_stop_at_the_limit_and_need_a_component_with_code(tmp_path):
+    root = write(tmp_path / "app", UNROUTED)
+    components = _unrouted(("web", "api", "db", "ci"))
+    assert serving_units.adopt_remaining(components, root, limit=2) == 2
+    assert sum(len(c["paths"]) for c in components) == 7 + 2
+    # Without a component that holds program code, every file stays unassigned and the run names it.
+    stores = _unrouted(("db", "ci"))
+    assert serving_units.adopt_remaining(stores, root, limit=100) == 0
+    assert stores[0]["paths"] == ["compose.yml"]
+
+
+def test_finalization_assigns_the_code_discovery_did_not_read(tmp_path):
+    scope = admitted(tmp_path, UNROUTED)
+    web = {"id": "web", "name": "Web", "description": "Pages", "tier": "application", "paths": ["index.php"]}
+    result, _receipt = finalize_assessment(scope, discovered(scope, [web]))
+    [component] = [c for c in result["components"] if c["local_id"] == "web"]
+    assert {"login.php", "vulnerabilities/sqli/source/low.php", "Views/Home/Index.cshtml"} <= {
+        p["path"] for p in component["paths"]
+    }
+    # Only code that stays out by design is left; the report still names it.
+    left = {path for _, path in analysis.unowned_sources(scope, result["components"])}
+    assert left <= {"docs/example.php", "examples/demo.php", "vendor/lib/parser.php"}

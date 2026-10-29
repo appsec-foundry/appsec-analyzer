@@ -1931,7 +1931,7 @@ def _assessment_stride(
     from orchestrator import assessment_context
     from orchestrator.assessment_workspace import Namespaces
 
-    # REQ-003: program files outside every component reach no job; the run says so.
+    # REQ-003, REQ-004: program files outside every component reach no job; the run says so.
     unowned = analysis.unowned_summary(scope, components["components"], Namespaces(scope).qualify)
     if unowned:
         directories = ", ".join(f"{row['directory']} {row['files']}" for row in unowned["by_directory"])
@@ -1941,7 +1941,7 @@ def _assessment_stride(
                 "files": unowned["files"],
                 "text": f"{_count_noun(unowned['files'], 'program file')} belong to no component and were not "
                 f"analysed ({directories})",
-                # Console only (--verbose); the report keeps the counts.
+                # The closing block's file list, only with --verbose; the report keeps the counts.
                 "listing": analysis.unowned_listing(scope, components["components"], Namespaces(scope).qualify),
             }
         )
@@ -2891,23 +2891,26 @@ def _assessment_host_root_outside(work_root: Path, scope) -> None:
 
 
 def _coverage_infos(entries: list[dict], verbose: bool) -> list[str]:
-    """The coverage statements of the closing block, only with --verbose; the report names them in every run.
+    """The coverage statements of the closing block; the report names them in every run.
 
-    The statement about files outside every component comes first, followed by
-    the first files of each directory.
+    The statement about files outside every component comes first and in every
+    run (REQ-004); --verbose follows it with the first files of each directory
+    and adds the other statements.
     """
     from appsec_analyzer.terminal import field
 
-    if not verbose:
-        return []
     unowned = []
     for entry in entries:
         if "unowned" not in entry:
             continue
         unowned.append(entry["text"])
+        if not verbose:
+            continue
         for directory, files, paths in entry.get("listing") or []:
             more = f", … {files - len(paths)} more" if files > len(paths) else ""
             unowned.append(f"  {field(directory)} {files}: {', '.join(field(path) for path in paths)}{more}")
+    if not verbose:
+        return unowned
     undecided = [entry["text"] for entry in entries if "undecided" in entry]
     return unowned + undecided + [entry["text"] for entry in entries if "component" in entry]
 
