@@ -192,7 +192,7 @@ def checkout(review: Review, metadata: dict):
             )
         remote = parse_remote(review.repository)
         env = _git_env(remote, workspace)
-        hint = credential_hint(remote)
+        hint = lambda: credential_hint(remote)  # noqa: E731 - evaluated only after a failure
         if "APPSEC_GIT_TOKEN" in env and "APPSEC_GIT_USERNAME" not in env:
             env["APPSEC_GIT_USERNAME"] = "x-access-token" if review.kind == "pr" else "oauth2"
         created = True

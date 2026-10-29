@@ -7,8 +7,10 @@ identities across retries. Checkouts are ephemeral; output stays caller-owned.
 
 from __future__ import annotations
 
+import base64
 import fcntl
 import hashlib
+import http.client
 import ipaddress
 import os
 import re
@@ -16,6 +18,7 @@ import shlex
 import shutil
 import signal
 import socket
+import ssl
 import stat
 import subprocess
 import sys
@@ -25,7 +28,7 @@ import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 MAX_REPOSITORIES = 16
 FETCH_SECONDS = 120
@@ -192,10 +195,66 @@ def select_token(host: str) -> tuple[str, str] | None:
     return None
 
 
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """One HTTPS request to the address Analyzer already checked, never to a redirect target."""
+
+    def __init__(self, remote: Remote, address: str):
+        super().__init__(remote.host, remote.port, timeout=10, context=ssl.create_default_context())
+        self._address = address
+
+    def connect(self):
+        raw = socket.create_connection((self._address, self.port), timeout=self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        except BaseException:
+            raw.close()
+            raise
+
+
+def _redirect_target(remote: Remote) -> str | None:
+    """Where the host sends a Git client that asks for this URL, or None when that is unknown.
+
+    Only a failed HTTPS access calls this, to explain a redirect that Analyzer refuses to follow.
+    It sends one request with the token Git would use, does not follow the answer, and reports
+    only a valid repository URL on the same host.
+    """
+    connection = None
+    try:
+        if _proxy(remote):
+            return None
+        headers = {"User-Agent": "appsec-analyzer", "Accept": "*/*"}
+        selected = select_token(remote.host)
+        if selected:
+            login = f"{os.environ.get('APPSEC_GIT_USERNAME', 'git')}:{selected[1]}"
+            headers["Authorization"] = "Basic " + base64.b64encode(login.encode()).decode()
+        connection = _PinnedHTTPS(remote, _address(remote))
+        base = urlsplit(remote.url)
+        connection.request("GET", f"{base.path}/info/refs?service=git-upload-pack", headers=headers)
+        response = connection.getresponse()
+        location = response.getheader("Location")
+        if response.status not in {301, 302, 303, 307, 308} or not location:
+            return None
+        target = urlsplit(urljoin(f"{remote.url}/info/refs", location))
+        if target.scheme != "https" or not target.path.endswith("/info/refs"):
+            return None
+        repository = parse_remote(urlunsplit(("https", base.netloc, target.path.removesuffix("/info/refs"), "", "")))
+        if repository is None or target.hostname != remote.host or (target.port or 443) != remote.port:
+            return None
+        return repository.url if repository.url != remote.url else None
+    except (OSError, http.client.HTTPException, ValueError):
+        return None
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def credential_hint(remote: Remote) -> str:
     """Name the variables a failed access needed, without exposing any value."""
     if remote.scheme == "ssh":
         return "load the key into the SSH agent or set APPSEC_GIT_SSH_KEY_FILE, and trust the host key in known_hosts"
+    redirected = None if remote.url.endswith(".git") else _redirect_target(remote)
+    if redirected:
+        return f"the host redirects this URL to {redirected}, which Analyzer does not follow; use that URL"
     selected = select_token(remote.host)
     if selected:
         hint = f"the token from {selected[0]} was not accepted; check its scope and APPSEC_GIT_USERNAME"
@@ -210,7 +269,7 @@ def credential_hint(remote: Remote) -> str:
             "name another variable with --git-token-env NAME, or configure a Git credential helper"
         )
     if not remote.url.endswith(".git"):
-        hint += "; the URL has no .git suffix and Analyzer does not follow redirects, so try adding .git"
+        hint += "; if the host redirects URLs without .git, Analyzer does not follow it, so try adding .git"
     return hint
 
 
@@ -360,7 +419,7 @@ def _stop(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
-def _git(command: list[str], root: Path, env: dict[str, str], hint: str = "", scheme: str = "ssh") -> None:
+def _git(command: list[str], root: Path, env: dict[str, str], hint="", scheme: str = "ssh") -> None:
     deadline = time.monotonic() + FETCH_SECONDS
     proc = subprocess.Popen(
         ["git", *command],
@@ -380,7 +439,10 @@ def _git(command: list[str], root: Path, env: dict[str, str], hint: str = "", sc
         _within_limits(root)
         if proc.returncode:
             checks = "credentials and trusted SSH host keys" if scheme == "ssh" else "and credentials"
-            raise RemoteError(f"Git checkout failed; check repository access, {checks}" + (f": {hint}" if hint else ""))
+            detail = hint() if callable(hint) else hint
+            raise RemoteError(
+                f"Git checkout failed; check repository access, {checks}" + (f": {detail}" if detail else "")
+            )
     finally:
         _stop(proc)
 
@@ -417,7 +479,7 @@ def clone(remote: Remote, root: Path) -> None:
         ],
         root,
         env,
-        credential_hint(remote),
+        lambda: credential_hint(remote),
         remote.scheme,
     )
     # No global filters, hooks or repository-supplied submodule commands run.
