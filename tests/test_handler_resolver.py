@@ -877,3 +877,36 @@ def test_a_server_side_session_check_is_cookie_authentication(tmp_path, session)
     )
     row = route(ri.build_inventory(tmp_path), "/me")
     assert row["authn_handler_signal"] == "verified" and row["authn_handler_scheme"] == "cookie"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("import { requireAuth } from './auth.js'\n", ["src/auth.ts"]),
+        ("import View from '../ui/view.jsx'\n", ["ui/view.tsx"]),
+        ("import { tool } from './tool.mjs'\n", ["src/tool.mts"]),
+        ("import { plain } from './plain.js'\n", ["src/plain.js"]),
+    ],
+)
+def test_a_js_specifier_resolves_to_the_typescript_source_it_compiles_from(text, expected):
+    files = {"src/auth.ts", "ui/view.tsx", "src/tool.mts", "src/plain.js"}
+    assert direct_imports("src/routes.ts", text, files.__contains__) == expected
+
+
+def test_esm_typescript_mounts_compose_and_verify_their_guard(tmp_path):
+    write(
+        tmp_path,
+        {
+            "src/app.ts": "import express from 'express'\nimport routes from './routes.js'\n"
+            "const app = express()\napp.use('/', routes)\n",
+            "src/routes.ts": "import { Router } from 'express'\nimport usersRouter from './routes/users.js'\n"
+            "import { requireAuth } from './auth.js'\nconst router = Router()\n"
+            "router.use('/api/v2/user', requireAuth(), usersRouter)\nexport default router\n",
+            "src/auth.ts": "export function requireAuth() {\n  return (req, res, next) => {\n"
+            "    if (!req.session.user) {\n      return res.status(401).end()\n    }\n    next()\n  }\n}\n",
+            "src/routes/users.ts": "import { Router } from 'express'\nconst router = Router()\n"
+            "router.get('/me', (req, res) => res.json({}))\nexport default router\n",
+        },
+    )
+    row = route(ri.build_inventory(tmp_path), "/api/v2/user/me")
+    assert row["authn_signal"] == "middleware_present" and row["authn_handler_signal"] == "verified"

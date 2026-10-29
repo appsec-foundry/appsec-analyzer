@@ -363,6 +363,13 @@ def finalize_assessment(
             # A caller that already scanned the routes passes them by repository.
             rows = routes[repo.repository_id] if routes is not None else route_inventory(root)["routes"]
             units = serving_units.scan(root, rows)
+            # A unit discovery did not model after its correction gets a component of its own.
+            for unit in serving_units.uncovered(units, local["components"]):
+                taken = {c.get("id") for c in local["components"]}
+                card = serving_units.component_for(unit, root, taken)
+                if card is not None:
+                    local["components"].append(card)
+                    receipt["injected_component_ids"] = [*receipt["injected_component_ids"], card["id"]]
             serving_units.adopt(units, local["components"], root, rows)
             missing = serving_units.uncovered(units, local["components"])
             if missing:

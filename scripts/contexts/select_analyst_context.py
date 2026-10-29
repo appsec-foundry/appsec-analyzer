@@ -31,6 +31,8 @@ import posixpath
 import re
 from pathlib import Path, PurePosixPath
 
+from analyzers.handler_resolver import js_module_candidates
+
 JS_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 _JS_SPECIFIER = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s*)['"](\.{1,2}/[^'"\n]+)['"]""", re.M
@@ -56,9 +58,7 @@ def relative_imports(path: str, text: str, available: set[str]) -> list[str]:
             target = _inside(str(base / spec))
             if target is None:
                 continue
-            candidates.append(
-                [target, *(target + ext for ext in JS_SUFFIXES), *(f"{target}/index{ext}" for ext in JS_SUFFIXES)]
-            )
+            candidates.append(js_module_candidates(target))
     elif suffix == ".py":
         for dots, module, names in _PY_FROM.findall(text):
             package = base

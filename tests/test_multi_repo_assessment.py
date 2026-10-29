@@ -4036,3 +4036,36 @@ def test_the_combination_job_sends_only_the_parts_and_returns_its_entries():
             validate({"findings": [entry(key) for key in keys]}, [])
     # A failed or unaffordable job leaves every finding of its batch with the fallback text.
     assert calls[0]["on_failure"]("budget") == {"findings": []}
+
+
+@pytest.mark.parametrize(
+    ("path", "text", "engine", "line"),
+    [
+        (
+            "src/app.ts",
+            "import MongoStore from 'connect-mongo'\n\nconst s = MongoStore.create({ mongoUrl })\n",
+            "mongodb",
+            3,
+        ),
+        ("server/db.js", "const { Pool } = require('pg')\nmodule.exports = new Pool()\n", "postgresql", 2),
+    ],
+)
+def test_an_application_gets_its_connection_to_a_database_it_opens(tmp_path, path, text, engine, line):
+    scope = _scope(tmp_path, ("api",), {path: text})
+    repo = scope.repositories[0]
+    rid, sha = repo.repository_id, hashlib.sha256(repo.files[path]).hexdigest()
+    row = {"repository_id": rid, "path": path, "sha256": sha}
+    components = {
+        "components": [
+            {"id": "component-api", "tier": "application", "repository_ids": [rid], "paths": [row]},
+            {"id": "component-db", "tier": "data", "framework": engine, "repository_ids": [rid], "paths": [row]},
+        ]
+    }
+    result = controller._assessment_database_flows(scope, components, {"data_flows": []})
+    [flow] = result["data_flows"]
+    assert (flow["from"], flow["to"], flow["evidence"][0]["line"]) == ("component-api", "component-db", line)
+    # A modelled access in either direction covers the pair; another store kind gets none.
+    modelled = {"data_flows": [{"from": "component-db", "to": "component-api"}]}
+    assert controller._assessment_database_flows(scope, components, modelled) == modelled
+    components["components"][1]["framework"] = "sqlite"
+    assert controller._assessment_database_flows(scope, components, {"data_flows": []}) == {"data_flows": []}

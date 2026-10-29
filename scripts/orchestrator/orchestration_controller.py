@@ -1285,6 +1285,64 @@ def _assessment_embedded_access(scope, components: dict, flows: dict) -> dict:
     return result
 
 
+def _assessment_database_flows(scope, components: dict, flows: dict) -> dict:
+    """Add each application component's connection to a networked database it opens (MongoDB, SQL, Redis).
+
+    Finalization adds a database whose connection application code opens even
+    when discovery left it out; the analyst may still model no access to it.
+    The component that owns the opening file then connects to it, cited at
+    the opening line. An existing flow between the pair in either direction
+    already covers it.
+    """
+    import copy
+
+    from validators.validate_assessment_architecture import validate_source
+
+    from orchestrator.build_stride_dispatch_manifest import _NETWORK_STORE_NAMES, network_store_line
+
+    result = copy.deepcopy(flows)
+    linked = {frozenset((f.get("from"), f.get("to"))) for f in result["data_flows"]}
+    for repo in scope.repositories:
+        rid = repo.repository_id
+        local = [c for c in components["components"] if c["repository_ids"] == [rid]]
+        owners = {row["path"]: c for c in local if c.get("tier") == "application" for row in c["paths"]}
+        for store in local:
+            engine = store.get("framework")
+            if store.get("tier") != "data" or engine not in _NETWORK_STORE_NAMES:
+                continue
+            for row in store["paths"]:
+                owner = owners.get(row["path"])
+                source = repo.files.get(row["path"])
+                if owner is None or source is None or frozenset((owner["id"], store["id"])) in linked:
+                    continue
+                line = network_store_line(source.decode("utf-8", errors="replace"), engine)
+                if line is None:
+                    continue
+                evidence = {
+                    "file": row["path"],
+                    "line": line,
+                    "repository_id": rid,
+                    "sha256": hashlib.sha256(source).hexdigest(),
+                }
+                validate_source(scope, evidence, path_key="file")
+                name = _NETWORK_STORE_NAMES[engine]
+                result["data_flows"].append(
+                    {
+                        "from": owner["id"],
+                        "to": store["id"],
+                        "label": f"{name} connection opened by the application",
+                        "diagram_label": f"{name} access",
+                        "protocol": name,
+                        "data_classification": "Confidential",
+                        "direction": "request-response",
+                        "evidence": [evidence],
+                        "provenance": "recon",
+                    }
+                )
+                linked.add(frozenset((owner["id"], store["id"])))
+    return result
+
+
 def _assessment_client_api_flows(scope, components: dict, flows: dict, inventories: dict) -> dict:
     """Add a client's requests to its own repository's API as route-extraction flows (F2).
 
@@ -1539,6 +1597,7 @@ def _assessment_architecture(scope, jobs, *, progress, depth="standard"):
             assets.append(_assessment_asset_fields(asset))
     flows = _assessment_identity_integrations(scope, components, flows)
     flows = _assessment_client_api_flows(scope, components, flows, inventories)
+    flows = _assessment_database_flows(scope, components, flows)
     # The existing canonical flow contract owns global size and reference
     # gates. Local IDs never enter it; numbering is controller-owned.
     for index, flow in enumerate(flows["data_flows"], 1):

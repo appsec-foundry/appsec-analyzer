@@ -684,8 +684,9 @@ def discover(
         if inventories and repo.repository_id in inventories:
             context["deterministic_inventory"] = inventories[repo.repository_id]
         allowed = frozenset((repo.repository_id, p) for p in repo.files)
+        unit_corrections = [0]
 
-        def accept(artifact, ranges):
+        def accept(artifact, ranges, unit_corrections=unit_corrections):
             validate_discovery(scope, repo.repository_id, artifact)
             paths = {r["path"] for r in ranges}
             # Name each unread path and serve its head, so the correction can
@@ -710,11 +711,14 @@ def discover(
                         for r in ranges
                     ):
                         raise ExchangeError("Discovery evidence cites a line not retrieved by its task")
-            # A missing serving unit is correctable: the reason names it, and
-            # the model reads an entry file and adds a carrying component.
+            # A missing serving unit gets one correction: the reason names it, and
+            # the model reads an entry file and adds a carrying component. A unit
+            # still missing afterwards is modelled by component finalization from
+            # the unit itself, so a model that cannot follow never stops the run.
             units = ((inventories or {}).get(repo.repository_id) or {}).get("serving_units", {}).get("units", [])
             missing = serving_units.uncovered(units, artifact["components"])
-            if missing:
+            if missing and not unit_corrections[0]:
+                unit_corrections[0] += 1
                 # Serve the first entry file of each unit with the correction: a model that is only
                 # told to read one tends to repeat its answer without the unit.
                 reads = [

@@ -233,7 +233,7 @@ contexts:
   - id: architecture.role_units
     name: Required role-bearing units
     category: architecture_and_data_flows
-    description: Deterministically detected authentication, CI/CD, realtime, web3, and embedded-store units that the finalized inventory must contain.
+    description: Deterministically detected authentication, CI/CD, realtime, web3, embedded-store, and database units that the finalized inventory must contain.
     scope: whole_run
   - id: architecture.egress
     name: Outbound client destinations
