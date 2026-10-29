@@ -327,6 +327,22 @@ def _hands_out(text: str, obj: str) -> bool:
     return False
 
 
+#: TypeScript resolves a `.js` specifier to the `.ts` source it compiles from (ESM/NodeNext).
+_TS_SOURCE_OF = {".js": (".ts", ".tsx"), ".jsx": (".tsx",), ".mjs": (".mts",), ".cjs": (".cts",)}
+
+
+def js_module_candidates(base: str) -> list[str]:
+    """Repository paths a relative specifier joined to its folder may name, most specific first."""
+    stem, dot, ext = base.rpartition(".")
+    sources = [f"{stem}{alt}" for alt in _TS_SOURCE_OF.get(f".{ext}", ())] if dot and "/" not in ext else []
+    return [
+        base,
+        *sources,
+        *(base + suffix for suffix in _JS_EXTS),
+        *(f"{base}/index{suffix}" for suffix in _JS_EXTS),
+    ]
+
+
 def _line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
@@ -387,8 +403,7 @@ def direct_imports(path: str, text: str, exists) -> list[str]:
             if not src.startswith("."):
                 continue
             base = posixpath.normpath(posixpath.join(folder, src))
-            candidates = [base, *(base + ext for ext in _JS_EXTS), *(f"{base}/index{ext}" for ext in _JS_EXTS)]
-            hit = next((c for c in candidates if exists(c)), None)
+            hit = next((c for c in js_module_candidates(base) if exists(c)), None)
             if hit and hit != path and hit not in found:
                 found.append(hit)
     elif path.endswith(".py"):
@@ -456,12 +471,8 @@ class HandlerResolver:
     # -- JavaScript / TypeScript --------------------------------------------
     def _module(self, from_rel: str, src: str) -> str | None:
         base = (self.root / from_rel).parent / src
-        for candidate in (
-            base,
-            *(base.with_name(base.name + ext) for ext in _JS_EXTS),
-            *(base / f"index{ext}" for ext in _JS_EXTS),
-        ):
-            found = self._repo_file(candidate)
+        for candidate in js_module_candidates(base.as_posix()):
+            found = self._repo_file(Path(candidate))
             if found:
                 return found
         return None

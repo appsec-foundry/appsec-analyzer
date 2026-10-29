@@ -126,6 +126,15 @@ def _client_framework(repo_root: Path, manifest: str) -> str | None:
     return next((name for name in _CLIENT_FRAMEWORKS if name in declared), None)
 
 
+def _package_sources(files: list[str], roots: list[str], root: str) -> list[str]:
+    """Program files whose nearest manifest is `root`'s; nested packages and build tooling stay out."""
+    return [
+        f
+        for f in files
+        if Path(f).suffix in _CODE_EXTS and _manifest_root(f, roots) == root and not _TOOLING_FILE_RE.search(f)
+    ]
+
+
 def scan(repo_root: Path, routes: list[dict]) -> list[dict]:
     """Every serving unit with its complete entry-file list, in a stable order.
 
@@ -155,6 +164,8 @@ def scan(repo_root: Path, routes: list[dict]) -> list[dict]:
                 "root": root,
                 "framework": ", ".join(sorted(frameworks.get(root, ()))) or None,
                 "entry_files": sorted(counts, key=lambda rel: (-counts[rel], rel)),
+                # Not projected: the package's own program files, for `adopt`.
+                "source_files": _package_sources(files, roots, root) if root else [],
             }
         )
     for manifest in manifests:
@@ -165,11 +176,7 @@ def scan(repo_root: Path, routes: list[dict]) -> list[dict]:
             continue
         root = manifest.rsplit("/", 1)[0] if "/" in manifest else ""
         # A nested manifest root is its own unit, never this app's source.
-        sources = [
-            f
-            for f in files
-            if Path(f).suffix in _CODE_EXTS and _manifest_root(f, roots) == root and not _TOOLING_FILE_RE.search(f)
-        ]
+        sources = _package_sources(files, roots, root)
         # Files beside the manifest are build tooling when the app has a source tree.
         depth = root.count("/") + 1 if root else 0
         if any(f.count("/") > depth for f in sources):
@@ -281,12 +288,32 @@ def describe(units: list[dict]) -> str:
     return "; ".join(rows)
 
 
+def _closest(found: list[dict], rel: str) -> dict:
+    """The carrier whose listed files share the longest folder prefix with `rel`; the first on a tie."""
+
+    def shared(path: str) -> int:
+        common = 0
+        for a, b in zip(path.split("/")[:-1], rel.split("/")[:-1], strict=False):
+            if a != b:
+                break
+            common += 1
+        return common
+
+    return max(found, key=lambda c: max((shared(p) for p in c.get("paths") or [] if isinstance(p, str)), default=0))
+
+
 def adopt(units: list[dict], components: list[dict], repo_root: Path, routes: list[dict]) -> int:
     """Give each unit's carrier the unit's code no eligible component lists; return additions.
 
-    An http-api carrier receives the resolved handler module of every route it
-    registers. A client-app carrier receives the app's runtime source files.
-    Files another eligible component lists stay with it.
+    A client-app carrier receives the app's runtime source files. An http-api
+    carrier receives its package's program files (route registrations,
+    services, configuration; an API at the repository root has no package of
+    its own and receives its registration files) and then the resolved
+    handler module of every route registered there. Discovery lists only the
+    files its model read, and a file no component lists is analysed by no
+    job, so the package, not the reading, decides what the API comprises.
+    With several carriers each file goes to the one listing files closest to
+    it. Files another eligible component lists stay with it.
     """
     from analyzers.handler_resolver import HandlerResolver  # noqa: PLC0415
 
@@ -309,6 +336,8 @@ def adopt(units: list[dict], components: list[dict], repo_root: Path, routes: li
             for rel in unit["entry_files"]:
                 give(found[0], rel)
             continue
+        for rel in unit.get("source_files") or unit["entry_files"]:
+            give(_closest(found, rel), rel)
         resolver = resolver or HandlerResolver(repo_root)
         for route in routes:
             registering = route.get("handler_file")

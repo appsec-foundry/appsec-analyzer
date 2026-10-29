@@ -354,3 +354,50 @@ def test_a_client_modelled_without_its_entry_file_is_carried_and_adopts_it(tmp_p
 )
 def test_no_near_carrier_without_one_unambiguous_client_owner(unit, components):
     assert serving_units.uncovered([unit], components) == [unit]
+
+
+def _api_repo(root, api_dir):
+    prefix = f"{api_dir}/" if api_dir else ""
+    files = {
+        "package.json": '{"name": "root"}',
+        f"{prefix}package.json" if api_dir else "package.json": '{"name": "api", "dependencies": {"express": "^5"}}',
+        f"{prefix}src/app.ts": "import express from 'express';\nimport usersRouter from './routes/users.js';\n"
+        "const app = express();\napp.get('/health', (req, res) => res.send('ok'));\napp.use('/api/users', usersRouter);\n",
+        f"{prefix}src/routes/users.ts": "import { Router } from 'express';\nimport { profile } from '../services/profile.js';\n"
+        "const router = Router();\nrouter.get('/me', (req, res) => res.json(profile(req)));\nexport default router;\n",
+        f"{prefix}src/services/profile.ts": "export function profile(req) { return req.session.user; }\n",
+        f"{prefix}src/db/schema.ts": "import mongoose from 'mongoose';\nexport const S = new mongoose.Schema({});\n",
+        f"{prefix}test/app.spec.ts": "test('x', () => {});\n",
+        "packages/shared/package.json": '{"name": "shared"}',
+        "packages/shared/src/index.ts": "export const x = 1;\n",
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    return prefix
+
+
+@pytest.mark.parametrize("api_dir", ["apps/api", "services/backend"])
+def test_an_api_carrier_receives_its_whole_package_except_other_owners(tmp_path, api_dir):
+    prefix = _api_repo(tmp_path, api_dir)
+    routes = route_inventory(tmp_path)["routes"]
+    units = serving_units.scan(tmp_path, routes)
+    api = {"id": "api", "tier": "application", "paths": [f"{prefix}src/app.ts"]}
+    orm = {"id": "orm", "tier": "application", "paths": [f"{prefix}src/db/schema.ts"]}
+    serving_units.adopt(units, [api, orm], tmp_path, routes)
+    assert sorted(api["paths"]) == [
+        f"{prefix}src/app.ts",
+        f"{prefix}src/routes/users.ts",
+        f"{prefix}src/services/profile.ts",
+    ]
+    assert orm["paths"] == [f"{prefix}src/db/schema.ts"]
+
+
+def test_an_api_at_the_repository_root_receives_only_its_registration_files(tmp_path):
+    _api_repo(tmp_path, "")
+    routes = route_inventory(tmp_path)["routes"]
+    units = serving_units.scan(tmp_path, routes)
+    api = {"id": "api", "tier": "application", "paths": ["src/app.ts"]}
+    serving_units.adopt(units, [api], tmp_path, routes)
+    assert "src/routes/users.ts" in api["paths"] and "packages/shared/src/index.ts" not in api["paths"]
+    assert "src/db/schema.ts" not in api["paths"]

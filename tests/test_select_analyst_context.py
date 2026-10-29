@@ -19,6 +19,7 @@ from contexts import select_analyst_context as sel  # noqa: E402
         ("src/a.ts", "import { x } from './lib/auth'\n", ["src/lib/auth.ts"]),
         ("src/a.js", "const g = require('../guard')\n", ["guard/index.js"]),
         ("src/a.tsx", "export * from './b'\nconst m = await import('./c.js')\n", ["src/b.tsx", "src/c.js"]),
+        ("src/a.ts", "import { check } from './lib/auth.js'\n", ["src/lib/auth.ts"]),
         ("pkg/views.py", "from .guard import check\nfrom . import util\n", ["pkg/guard.py", "pkg/util/__init__.py"]),
         ("pkg/sub/v.py", "from ..models import User\n", ["pkg/models.py"]),
     ],
