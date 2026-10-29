@@ -259,6 +259,21 @@ def test_generic_registration_requires_exact_finding_identity(field, value):
     assert result["disputed"] is True
 
 
+@pytest.mark.parametrize(
+    "path", ["/connect/register", "/api/oauth2/register", "/OIDC/Registration/", "/clients/register"]
+)
+def test_oauth_client_registration_is_not_user_registration(path):
+    result = D.resolve_open_registration({}, [_route(path)], [])
+    assert (result["open"], result["disputed"]) == (False, False)
+    surface = {"attack_surface": [{"entry_point": f"POST {path}", "auth_required": False}]}
+    assert D.detect(surface, [], [])[0] is False
+
+
+@pytest.mark.parametrize("path", ["/register", "/auth/oauth/register", "/users/register", "/api/sign-up"])
+def test_user_registration_beside_an_oauth_namespace_stays_open(path):
+    assert D.resolve_open_registration({}, [_route(path)], [])["open"] is True
+
+
 @pytest.mark.parametrize("gate", ["present", "middleware_present", "decorator_present"])
 def test_explicit_registration_does_not_override_a_role_gate(gate):
     assert D.resolve_open_registration({}, [_route("/register", authz=gate)], [])["open"] is False

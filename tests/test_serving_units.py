@@ -248,10 +248,51 @@ def test_a_privileged_role_does_not_make_the_user_ambiguous():
     assert [u["from_entity"] for u in uses] == ["ext-customer"]
 
 
-@pytest.mark.parametrize("roles", [[], ["ext-buyer", "ext-seller"]])
-def test_without_one_unambiguous_role_the_client_use_stays_with_the_model(roles):
-    artifact = local_artifact(roles)
+def test_several_regular_roles_leave_the_client_use_with_the_model():
+    artifact = local_artifact(["ext-buyer", "ext-seller"])
     assert not any(f.get("interaction") for f in analysis.add_client_use(artifact, {"ui": ENTRY})["data_flows"])
+
+
+def _sso_artifact(idp_id, client, api):
+    """Sign-in delegated to an identity provider: the model names the provider but no person."""
+    idp = {"id": idp_id, "name": "SSO", "kind": "identity-provider", "description": "SSO server", "evidence": []}
+    flows = [
+        {"id": "df-001", "from": client, "to": api, "authentication": {"scheme": "cookie"}},
+        {"id": "df-002", "from": client, "to": "external", "to_entity": idp_id},
+    ]
+    return {"external_entities": [idp], "data_flows": flows}
+
+
+@pytest.mark.parametrize(
+    "idp_id,client,api,entry",
+    [
+        ("ext-sso", "ui", "api", ENTRY),
+        ("ext-user", "portal-web", "orders-api", {**ENTRY, "file": "apps/portal/index.html", "line": 7}),
+    ],
+    ids=["sso", "renamed"],
+)
+def test_a_client_without_any_role_gets_an_authenticated_user(idp_id, client, api, entry):
+    from model.reconcile_role_access import classify
+
+    artifact = analysis.add_client_use(_sso_artifact(idp_id, client, api), {client: entry})
+    [role] = [e for e in artifact["external_entities"] if e["kind"] == "legitimate-role"]
+    assert role["id"] not in {idp_id} and role["evidence"] == [entry] and "access" not in role
+    [use] = [f for f in artifact["data_flows"] if f.get("interaction")]
+    assert (use["from_entity"], use["to"], use["evidence"]) == (role["id"], client, [entry])
+    assert analysis.add_client_use(artifact, {client: entry}) == artifact
+    components = [{"id": client, "tier": "client"}, {"id": api, "tier": "application"}]
+    classified, _changes = classify(artifact, components)
+    assert {e["id"]: e.get("access") for e in classified["external_entities"]}[role["id"]] == "internet-user"
+
+
+def test_no_user_is_added_without_client_entry_evidence_or_beside_a_modelled_role():
+    assert analysis.add_client_use(_sso_artifact("ext-sso", "ui", "api"), {}) == _sso_artifact("ext-sso", "ui", "api")
+    artifact = _sso_artifact("ext-sso", "ui", "api")
+    artifact["external_entities"].append(
+        {"id": "ext-admin", "name": "Admin", "kind": "legitimate-role", "access": "internet-priv-user"}
+    )
+    roles = [e["id"] for e in analysis.add_client_use(artifact, {"ui": ENTRY})["external_entities"]]
+    assert roles == ["ext-sso", "ext-admin"]
 
 
 def test_client_entry_evidence_cites_the_ui_mount_in_the_carrier(tmp_path):
