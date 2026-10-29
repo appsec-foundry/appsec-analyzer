@@ -1206,6 +1206,7 @@ def role_unit_candidates(repo_root: Path) -> list[dict]:
         if card:
             units.append({**card, "role": _ROLE_UNIT_NAMES[detect]})
     units.extend({**card, "role": "embedded-store"} for card in _detect_embedded_stores(repo_root))
+    units.extend({**card, "role": "database"} for card in _detect_network_stores(repo_root))
     return units
 
 
@@ -1374,6 +1375,143 @@ def _detect_embedded_stores(repo_root: Path) -> list[dict]:
     return stores
 
 
+# Networked databases an application connects to: (engine, display name,
+# client packages, connection opener in the importing file). The package must
+# be a dependency of the manifest whose source opens the connection, that
+# source must import it, and the same file must open a connection or pool. A
+# schema, model or dependency alone never establishes the database.
+_NETWORK_STORES = (
+    ("mongodb", "MongoDB", ("mongoose",), r"\.\s*connect\s*\(|\bcreateConnection\s*\("),
+    ("mongodb", "MongoDB", ("mongodb",), r"\bnew\s+MongoClient\s*\(|\bMongoClient\s*\.\s*connect\s*\("),
+    ("mongodb", "MongoDB", ("connect-mongo",), r"\bMongoStore\s*\.\s*create\s*\(|\bnew\s+MongoStore\s*\("),
+    ("postgresql", "PostgreSQL", ("pg",), r"\bnew\s+(?:[\w$]+\s*\.\s*)?(?:Pool|Client)\s*\("),
+    ("mysql", "MySQL", ("mysql", "mysql2", "mysql2/promise"), r"\bcreate(?:Connection|Pool)\s*\("),
+    ("redis", "Redis", ("redis",), r"\bcreateClient\s*\("),
+    ("redis", "Redis", ("ioredis",), r"\bnew\s+(?:Redis|IORedis)(?:\s*\.\s*Cluster)?\s*\("),
+)
+# ORM openers that select a networked engine through their options.
+_NETWORK_ORM_ENGINES = {"postgres": "postgresql", "postgresql": "postgresql", "mysql": "mysql", "mariadb": "mysql"}
+_NETWORK_ORM_SELECTORS = (
+    (r"\bnew\s+Sequelize\s*\(", r"\bdialect\s*:\s*['\"]({engines})['\"]", ("sequelize",)),
+    (r"\bnew\s+DataSource\s*\(|\bcreateConnection\s*\(", r"\btype\s*:\s*['\"]({engines})['\"]", ("typeorm",)),
+)
+_NETWORK_STORE_NAMES = {"mongodb": "MongoDB", "postgresql": "PostgreSQL", "mysql": "MySQL", "redis": "Redis"}
+_NETWORK_STORE_ALIASES = {
+    "mongodb": r"mongo",
+    "postgresql": r"postgres|\bpg\b",
+    "mysql": r"mysql|mariadb",
+    "redis": r"redis",
+}
+_MAX_STORE_PATHS = 8
+
+
+def _imports_package(source: str, package: str) -> bool:
+    return bool(re.search(r"(?:\bfrom\s*|\brequire\(\s*|\bimport\s*)['\"]" + re.escape(package) + r"['\"]", source))
+
+
+def _manifest_dependencies(repo_root: Path) -> list[tuple[str, dict]]:
+    """``(root, dependencies)`` of every runtime package manifest, deepest roots first."""
+    from analyzers.serving_units import _files, is_runtime_path  # noqa: PLC0415
+
+    found = []
+    for rel in _files(repo_root):
+        if rel.rsplit("/", 1)[-1] != "package.json" or not is_runtime_path(rel):
+            continue
+        try:
+            data = json.loads((repo_root / rel).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        deps: dict = {}
+        for key in ("dependencies", "optionalDependencies", "peerDependencies"):
+            if isinstance(data.get(key), dict):
+                deps.update(data[key])
+        found.append((rel.rsplit("/", 1)[0] if "/" in rel else "", deps))
+    return sorted(found, key=lambda row: -len(row[0]))
+
+
+def _detect_network_stores(repo_root: Path) -> list[dict]:
+    """Databases the application connects to, one card per engine, evidenced by the opening source.
+
+    Each package of a monorepo counts on its own: its manifest's runtime
+    dependencies and the source files below it that no nested manifest owns.
+    """
+    from analyzers.serving_units import _files, _manifest_root, is_runtime_path  # noqa: PLC0415
+
+    manifests = _manifest_dependencies(repo_root)
+    if not manifests:
+        return []
+    roots = [root for root, _deps in manifests]
+    deps_of = dict(manifests)
+    found: dict[str, list[str]] = {}
+    for rel in _files(repo_root):
+        if Path(rel).suffix not in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"} or not is_runtime_path(rel):
+            continue
+        if re.search(r"(?:^|/)(?:tests?|__tests__)/|\.(?:test|spec)\.", rel):
+            continue
+        deps = deps_of.get(_manifest_root(rel, roots), {})
+        try:
+            path = repo_root / rel
+            if path.stat().st_size > 512_000:
+                continue
+            source = re.sub(
+                r"/\*[\s\S]*?\*/|^[ \t]*//[^\n]*", "", path.read_text(encoding="utf-8", errors="replace"), flags=re.M
+            )
+        except OSError:
+            continue
+        for engine, _name, packages, opener in _NETWORK_STORES:
+            if any(pkg.split("/")[0] in deps and _imports_package(source, pkg) for pkg in packages) and re.search(
+                opener, source
+            ):
+                found.setdefault(engine, []).append(rel)
+        engines = "|".join(re.escape(name) for name in _NETWORK_ORM_ENGINES)
+        for opener, selector, packages in _NETWORK_ORM_SELECTORS:
+            if not any(pkg in deps and _imports_package(source, pkg) for pkg in packages) or not re.search(
+                opener, source
+            ):
+                continue
+            for match in re.finditer(selector.format(engines=engines), source):
+                found.setdefault(_NETWORK_ORM_ENGINES[match.group(1)], []).append(rel)
+    return [
+        {
+            "id": f"{engine}-database",
+            "name": f"{_NETWORK_STORE_NAMES[engine]} Database",
+            "description": f"{_NETWORK_STORE_NAMES[engine]} database the application connects to; "
+            "the connection is opened in application code.",
+            "paths": sorted(set(paths))[:_MAX_STORE_PATHS],
+            "tier": "data",
+            "framework": engine,
+            "complexity": "simple",
+            "deployment_zones": [],
+            "handles_sensitive_data": False,
+            "origin": "reconciliation",
+        }
+        for engine, paths in sorted(found.items())
+    ]
+
+
+def network_store_line(source: str, engine: str) -> int | None:
+    """One-based line where ``source`` opens a connection to ``engine``, or None."""
+    source = re.sub(r"/\*[\s\S]*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), source)
+    openers = [opener for name, _label, packages, opener in _NETWORK_STORES if name == engine]
+    engines = "|".join(re.escape(alias) for alias, value in _NETWORK_ORM_ENGINES.items() if value == engine)
+    if engines:
+        openers += [selector.format(engines=engines) for _opener, selector, _packages in _NETWORK_ORM_SELECTORS]
+    for number, line in enumerate(source.split("\n"), 1):
+        if not line.lstrip().startswith("//") and any(re.search(opener, line) for opener in openers):
+            return number
+    return None
+
+
+def _covers_network_store(component: dict, candidate: dict) -> bool:
+    """A data component already models this database: it names the engine or owns every opening file."""
+    if component.get("tier") != "data":
+        return False
+    text = " ".join(str(component.get(key) or "") for key in ("id", "name", "framework", "description")).lower()
+    if re.search(_NETWORK_STORE_ALIASES[candidate["framework"]], text):
+        return True
+    return all(_path_owns(component.get("paths") or [], path) for path in candidate["paths"])
+
+
 def _reconcile_orm_ownership(components: list, repo_root: Path, *, whole_repository: bool = False) -> list[dict]:
     """Give executable ORM source an application owner without turning it into a database engine.
 
@@ -1454,6 +1592,12 @@ def reconcile_inventory(components: list, repo_root: Path, *, whole_repository: 
             injected.append(cand)
     for candidate in _detect_embedded_stores(repo_root):
         if not any(_covers_embedded_store(c, candidate) for c in augmented):
+            if not any(c.get("id") == candidate["id"] for c in augmented):
+                augmented.append(candidate)
+                injected.append(candidate)
+    # A networked database is part of the system whether or not discovery modelled it.
+    for candidate in _detect_network_stores(repo_root):
+        if not any(_covers_network_store(c, candidate) for c in augmented):
             if not any(c.get("id") == candidate["id"] for c in augmented):
                 augmented.append(candidate)
                 injected.append(candidate)

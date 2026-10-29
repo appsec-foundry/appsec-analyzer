@@ -2192,3 +2192,82 @@ def test_zone_based_exposed_reason_still_includes_zone_label():
     comp = {"id": "api", "deployment_zones": ["dmz"]}
     reasons = bm._selection_reasons(comp, "standard")
     assert any("dmz" in r for r in reasons)
+
+
+# --- networked databases ------------------------------------------------------
+
+
+def _write_tree(root, files):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+
+
+_MONGO_MONOREPO = {
+    "package.json": '{"name": "root", "private": true}',
+    "apps/api/package.json": '{"dependencies": {"connect-mongo": "^5", "express-session": "^1"}}',
+    "apps/api/src/session.ts": "import session from 'express-session'\nimport MongoStore from 'connect-mongo'\n"
+    "export const s = session({ store: MongoStore.create({ mongoUrl: url }) })\n",
+}
+_PG_SINGLE = {
+    "package.json": '{"dependencies": {"pg": "^8", "sequelize": "^6"}}',
+    "src/db.js": "const { Pool } = require('pg')\nmodule.exports = new Pool({ connectionString: url })\n",
+    "src/orm.js": "const { Sequelize } = require('sequelize')\nconst s = new Sequelize(url, { dialect: 'postgres' })\n",
+}
+
+
+@pytest.mark.parametrize(
+    "files,engine,paths",
+    [
+        (_MONGO_MONOREPO, "mongodb", ["apps/api/src/session.ts"]),
+        (_PG_SINGLE, "postgresql", ["src/db.js", "src/orm.js"]),
+    ],
+    ids=["mongo-monorepo", "postgres-pool-and-orm"],
+)
+def test_a_database_the_application_connects_to_is_injected_once(tmp_path, files, engine, paths):
+    _write_tree(tmp_path, files)
+    app = {"id": "api", "name": "API", "tier": "application", "paths": [paths[0]]}
+    augmented, injected = bm.reconcile_inventory([app], tmp_path, whole_repository=True)
+    [store] = [c for c in injected if c["tier"] == "data"]
+    assert (store["id"], store["framework"], store["paths"]) == (f"{engine}-database", engine, paths)
+    modelled = {"id": "db", "name": "Primary datastore", "tier": "data", "framework": engine, "paths": [paths[0]]}
+    _augmented, injected = bm.reconcile_inventory([app, modelled], tmp_path, whole_repository=True)
+    assert not [c for c in injected if c["tier"] == "data"]
+    assert bm.network_store_line((tmp_path / paths[0]).read_text(), engine) is not None
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        # A dependency and an import without a connection.
+        {
+            "package.json": '{"dependencies": {"mongoose": "^8"}}',
+            "src/model.ts": "import mongoose from 'mongoose'\n"
+            "export const User = mongoose.model('User', new mongoose.Schema({}))\n",
+        },
+        # A connection whose package belongs to another manifest.
+        {
+            "package.json": '{"name": "root"}',
+            "tools/package.json": '{"dependencies": {"redis": "^4"}}',
+            "app/package.json": '{"dependencies": {}}',
+            "app/src/cache.ts": "import { createClient } from 'redis'\nexport const c = createClient()\n",
+        },
+        # A connection only in a test.
+        {
+            "package.json": '{"dependencies": {"pg": "^8"}}',
+            "src/db.test.ts": "import { Pool } from 'pg'\nconst p = new Pool()\n",
+        },
+    ],
+    ids=["model-only", "foreign-manifest", "test-only"],
+)
+def test_no_database_without_a_dependency_import_and_connection_in_runtime_code(tmp_path, files):
+    _write_tree(tmp_path, files)
+    assert bm._detect_network_stores(tmp_path) == []
+
+
+def test_a_detected_database_is_an_architecture_role_unit(tmp_path):
+    from contexts.build_architecture_analysis_context import project_role_units
+
+    _write_tree(tmp_path, _MONGO_MONOREPO)
+    units = project_role_units(tmp_path)["units"]
+    assert [(u["role"], u["id"]) for u in units if u["role"] == "database"] == [("database", "mongodb-database")]

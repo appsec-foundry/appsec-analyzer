@@ -28,7 +28,7 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]+$", "maxLength": 80},
           "name": {"type": "string", "minLength": 1, "maxLength": 80},
-          "role": {"enum": ["authentication", "ci-cd", "realtime", "web3", "embedded-store"]},
+          "role": {"enum": ["authentication", "ci-cd", "realtime", "web3", "embedded-store", "database"]},
           "tier": {"enum": ["client", "application", "data"]},
           "framework": {"type": ["string", "null"], "minLength": 1, "maxLength": 100},
           "paths": {
