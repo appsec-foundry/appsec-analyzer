@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- `appsec-analyzer update` shows the installed version before it asks and the newly installed version afterwards, as release version or commit and date, so you can see which version you run.
 - When the repository's `docs/security` still holds a finished assessment from an earlier release, `assess` starts without it instead of stopping, and names it at the end of the run. Only `--migrate-legacy` imports it, and only before the first run into the destination. `--ignore-legacy` is still accepted but no longer needed.
 - `assess` refuses a requirements catalog that needs more than 32 context rows per component before the first model call, instead of silently leaving the later requirements out of the analysis. A remote catalog is read only up to 16 MiB and its redirects are checked against the URL policy.
 - Pipeline helpers that validate the threat model and read run costs now start with the interpreter of the running Analyzer instead of the first `python3` on `PATH`, so an environment-managed install no longer fails on a different Python's older libraries.

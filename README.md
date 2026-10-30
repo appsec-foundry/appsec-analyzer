@@ -112,9 +112,10 @@ appsec-analyzer update
 ```
 
 - Reinstalls Analyzer from the source you installed it from, such as GitHub or a local checkout.
-- Shows that source and asks `[Y/n]`. Enter or `y` confirms, `n` stops.
+- Shows the installed version, the source, and asks `[Y/n]`. Enter or `y` confirms, `n` stops.
 - Runs `pipx upgrade --pip-args=--force-reinstall appsec-analyzer`, which you can also run yourself. The extra option reinstalls even if the version number is unchanged, as is usual for GitHub installations.
 - Hides the pipx output and shows it only if the update fails.
+- After the update, shows the newly installed version, in the format of `appsec-analyzer --version`: a release version, or the commit and its date. `(unchanged)` means the source had no newer version.
 - Needs an interactive terminal outside CI. No option skips the question.
 - For installations that do not use pipx, it tells you to update the way you installed Analyzer.
 - Organization commands do not have it.
