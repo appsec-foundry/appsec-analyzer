@@ -259,8 +259,8 @@ Handle statuses explicitly:
 | --- | --- | --- |
 | `0` | Assessment completed and the selected gate passed | Keep the reports |
 | `20` | Assessment completed; the explicit findings gate failed | Fail the gate and keep the reports |
-| `3` | Paused, incomplete, or refused before completion | Keep diagnostics; inspect the cause before a compatible resume |
-| `130` | Operator or signal interruption | Keep diagnostics and accepted work |
+| `3` | Paused, incomplete, or refused before completion, also after one Ctrl+C, `SIGTERM`, or `stop` | Keep diagnostics; inspect the cause before a compatible resume |
+| `130` | Second Ctrl+C, which interrupts at once | Keep diagnostics and accepted work |
 | `1` or `2` | Operational, configuration or invocation error | Fail the job and inspect its diagnostic |
 
 Without an explicit gate, findings remain advisory. The example's `--fail-on high` checks new findings at high severity or above according to the engine's existing gate. It does not convert an unfinished assessment into a passing result.

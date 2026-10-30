@@ -35,6 +35,10 @@
 #                                check to repositories it applies to. One gap is
 #                                one finding listing every file searched.
 #                                `file_pattern` is only its display path.
+#   requires_file              — `expect: file_exists` only: a glob for a file that
+#                                must exist in the repository for the missing file
+#                                to count (a lockfile needs its manifest). Without
+#                                it the check is not applicable.
 #   severity_if_violated       — severity if the expectation is not met
 #   cwe                        — primary CWE for the finding
 #   stride                     — the STRIDE category of the weakness this check
@@ -535,6 +539,7 @@ checks:
     file_pattern: "package-lock.json"
     pattern: ""
     expect: file_exists
+    requires_file: "package.json"
     severity_if_violated: Medium
     cwe: CWE-1104
     finding_type: FT-171

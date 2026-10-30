@@ -66,6 +66,13 @@ STRUCTURED_OUTPUT_ATTEMPTS = 3
 _DROPPED_ENV_PREFIXES = ("GIT_", "APPSEC_", "OUTPUT_DIR", "CLAUDE_CODE_SESSION", "CLAUDE_SESSION")
 
 
+def contains_marker(text: str, marker: str) -> bool:
+    """Whether ``text`` holds ``marker``; a number such as an HTTP status counts only as a whole number."""
+    if marker.isdigit():
+        return re.search(rf"(?<![\w.]){marker}(?![\w.])", text) is not None
+    return marker in text
+
+
 def _stderr_failure(data: bytes) -> tuple[str, str]:
     """Classify a bounded host diagnostic without returning any host-controlled text."""
     text = data.decode("utf-8", errors="replace").lower()
@@ -78,6 +85,8 @@ def _stderr_failure(data: bytes) -> tuple[str, str]:
         return "authentication_failed", "check the host login or externally configured credential"
     if any(value in text for value in ("invalid configuration", "failed to load config", "configuration error")):
         return "host_configuration", "check the operator-owned host configuration"
+    if "rate limit" in text or "rate_limit" in text or contains_marker(text, "429"):
+        return "rate_limit", "the host reported a rate limit without a structured result"
     return "no_result", "check the host installation and login; no structured result was returned"
 
 

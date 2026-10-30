@@ -315,3 +315,12 @@ def test_scan_sources_accepts_a_directory(source, output):
     assert "no .gitignore in shop" in run.stderr
     row = json.loads(run.stdout)["repositories"][0]
     assert row["label"] == "shop" and row["without_git"] is True and row["captured_files"] == 2
+
+
+def test_a_stale_checkout_error_names_the_directory_to_remove(source, output, private_area):
+    with remote.checkout_arguments(["--repo", str(source), "--output", str(output)]) as resolved:
+        root = Path(resolved[1])
+    root.mkdir(parents=True)
+    with pytest.raises(remote.RemoteError, match=str(root).replace("\\", "\\\\")):
+        with remote.checkout_arguments(["--repo", str(source), "--output", str(output)]):
+            pass

@@ -67,6 +67,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A new assessment that cannot write its state, for example on a full disk, leaves the earlier run intact, so `--resume` and a new run still work. A stop request or a half-written file left by a killed run no longer blocks the next run, and the message about a stale temporary checkout names the directory to remove.
+- Ctrl+C no longer turns a running analysis step into a failed run with a traceback. `nohup` keeps a detached run alive, `SIGTERM` stops `score` and `scan-sources` with their temporary files removed, and `status` reports a killed run as interrupted instead of running.
+- A subscription provider that rate-limits a call is retried like a free failure instead of counting as a paid one, which ended runs too early.
+- A failure message from Codex or Copilot no longer takes a number in an unrelated text, such as an HTTP status inside a longer number, for the cause. A failure without a result from Claude names a rate limit.
+- A file without read permission is named in the error that stops the source capture. The missing-lockfile check for npm applies only to repositories with a `package.json`. The documented exit codes match the behavior: one Ctrl+C, `SIGTERM`, and `stop` return 3, a second Ctrl+C returns 130.
 - `assess` with OpenAI API, LiteLLM, Amazon Bedrock, or GitHub Copilot CLI no longer rejects every assessment prompt before sending it, and an API call may wait for its reply as long as the call is allowed to run instead of failing after 10 seconds.
 - `--fail-on` and the changelog compare a reassessment with the captured source of the earlier run. Before, a run on a source without a readable commit counted as unchanged, so new findings were never reported and the gate passed.
 - A text file in another encoding, such as Latin-1 or UTF-16, is named as not analysed in the console and in the report, as an oversized file already was, instead of being dropped as binary without a word.

@@ -358,7 +358,7 @@ class DiscoveryBudget:
                 timeouts += 1
                 if timeouts > MAX_TIMEOUT_RETRIES or self._paid_retries() >= MAX_PAID_RETRIES:
                     raise
-                self.retries.append({"reason": "timeout", "usd": self._local.reserved, "paid": True})
+                self.retries.append({"reason": "timeout", "usd": self._local.reserved, "paid": not self.subscription})
                 if self.on_retry is not None:
                     self.on_retry("model call stopped at its time or thinking limit; repeating it once")
             except TransportError as exc:
@@ -377,7 +377,7 @@ class DiscoveryBudget:
                 if self.unsettled or not retryable or failures >= len(TRANSIENT_RETRY_DELAYS):
                     raise
                 # A failure without a cost report was charged its reservation.
-                paid = exc.usd is None or exc.usd > FREE_FAILURE_USD
+                paid = self._charged(exc.usd)
                 if paid and (failures or self._paid_retries() >= MAX_PAID_RETRIES):
                     raise
                 delay = TRANSIENT_RETRY_DELAYS[failures]
@@ -392,6 +392,10 @@ class DiscoveryBudget:
                         f"model call failed ({exc.reason}); repeating it in {delay} s (attempt {failures + 1})"
                     )
                 self._wait(delay, should_stop)
+
+    def _charged(self, usd: float | None) -> bool:
+        """Whether a failed call cost money: a subscription host reports no USD and charges none."""
+        return not self.subscription and (usd is None or usd > FREE_FAILURE_USD)
 
     def _paid_retries(self) -> int:
         return sum(row["paid"] for row in self.retries)
@@ -484,7 +488,7 @@ class DiscoveryBudget:
                     self._rate_usage_window = self._rate_usage_window or exc.usage_window
                     index = max(self._rate_failures, self._local.rate_failures)
                     self._rate_failures += 1
-                    paid = exc.usd is None or exc.usd > FREE_FAILURE_USD
+                    paid = self._charged(exc.usd)
                     paid_blocked = paid and (self._local.rate_failures or self._paid_retries() >= MAX_PAID_RETRIES)
                     self._local.rate_failures += 1
                     if index >= len(TRANSIENT_RETRY_DELAYS) or paid_blocked:

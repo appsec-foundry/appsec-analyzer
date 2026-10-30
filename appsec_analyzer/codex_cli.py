@@ -29,7 +29,7 @@ _scripts = str(resource_root() / "scripts")
 if _scripts not in sys.path:
     sys.path.insert(0, _scripts)
 
-from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, TransportError
+from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, TransportError, contains_marker
 
 from appsec_analyzer.codex_schema import CodexSchema
 
@@ -165,7 +165,9 @@ def _failure(failures, stderr, code):
         ("connection_failed", ("error sending request", "failed to connect", "connection reset", "dns error")),
         ("server_error", ("internal server error", "service unavailable", "bad gateway")),
     )
-    reason = next((reason for reason, markers in rules if any(marker in text for marker in markers)), None)
+    reason = next(
+        (reason for reason, markers in rules if any(contains_marker(text, marker) for marker in markers)), None
+    )
     if reason is None and re.search(r"\bmodel\b[^\n]{0,160}\b(?:not supported|does not exist|not available)\b", text):
         reason = "model_unavailable"
     if reason is None:

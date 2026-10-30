@@ -1348,3 +1348,34 @@ def test_subscription_state_resume_and_monetary_tampering(scope):
     (scope.output / ".assessment-state.json").write_text(json.dumps(document))
     with pytest.raises(ExchangeError, match="contract"), subscription_state(resume=True).hold():
         pass
+
+
+def test_a_new_run_that_cannot_write_its_state_leaves_the_earlier_run_usable(scope, monkeypatch):
+    from runtime import assessment_state
+
+    first, _, _ = _interrupted_with_two_jobs(scope)
+    real = assessment_state.atomic_write_json
+
+    def disk_full(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(assessment_state, "atomic_write_json", disk_full)
+    with pytest.raises(OSError):
+        with lifecycle(scope, configuration={"stride_model": "sonnet"}).hold():
+            pass
+    monkeypatch.setattr(assessment_state, "atomic_write_json", real)
+    assert stored(scope)["run_id"] == first.state["run_id"]
+    with lifecycle(scope, configuration={"stride_model": "sonnet"}).hold() as again:
+        assert again.state["run_id"] != first.state["run_id"]
+
+
+def test_a_killed_run_leaves_a_stop_request_and_temp_files_that_do_not_block_a_new_run(scope):
+    first, _, _ = _interrupted_with_two_jobs(scope)
+    (scope.output / STOP_NAME).write_text(first.state["run_id"] + "\n")
+    (scope.output / ".assessment-state.json.tmp-abc123").write_text("{")
+    with lifecycle(scope, configuration={"stride_model": "sonnet"}).hold() as taken:
+        assert taken.state["run_id"] != first.state["run_id"]
+    (scope.output / "notes.txt").write_text("mine")
+    with pytest.raises(ExchangeError, match="notes.txt"):
+        with lifecycle(scope, replace=True).hold():
+            pass

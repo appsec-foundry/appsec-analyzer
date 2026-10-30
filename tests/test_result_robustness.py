@@ -167,3 +167,32 @@ def test_a_controller_prompt_reaches_copilot(monkeypatch, tmp_path):
     }
     assert transport.invoke("trusted", prompt, schema, 5, lambda: False).payload == {"ok": True}
     assert str(prompt).encode() in seen[0]
+
+
+def test_failure_markers_do_not_match_inside_numbers_or_model_text():
+    from runtime.analyst_host import _stderr_failure, contains_marker
+
+    from appsec_analyzer import codex_cli
+
+    assert contains_marker("http 429 too many", "429") and not contains_marker("request id 14290x", "429")
+    assert codex_cli._failure([], b"processed 4290 files, 14031 rows", 1).reason != "authentication_failed"
+    assert copilot_cli._failure(b"the answer mentions quota and 429", b"boom", 1).reason == "host_failure"
+    assert copilot_cli._failure(b"usage limit", b"", 1).reason == "quota_exhausted"
+    assert _stderr_failure(b"Error: 429 Too Many Requests")[0] == "rate_limit"
+
+
+def _lockfile_result(tmp_path, with_manifest: bool):
+    repo = _repo(tmp_path, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: c\n")
+    if with_manifest:
+        (repo / "package.json").write_text('{"name": "app"}\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "package.json"], check=True)
+    result = scanner.scan(repo, scanner.DEFAULT_CHECKS, depth="standard", output=tmp_path / "r")
+    status = next(row["status"] for row in result["rules_evaluated"] if row["check_id"] == "IAC-050")
+    return status, [row for row in result["findings"] if row["check_id"] == "IAC-050"]
+
+
+def test_a_missing_lockfile_counts_only_where_the_repository_has_a_manifest(tmp_path):
+    status, findings = _lockfile_result(tmp_path / "without", with_manifest=False)
+    assert status == "not_applicable" and not findings
+    status, findings = _lockfile_result(tmp_path / "with", with_manifest=True)
+    assert status == "violated" and len(findings) == 1

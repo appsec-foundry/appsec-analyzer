@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from runtime.analyst_host import HostCancelled, HostReply, TransportError
+from runtime.assessment_jobs import AssessmentBudget
 from runtime.multi_repo_discovery import DiscoveryBudget
 
 
@@ -136,3 +137,13 @@ def test_paid_rate_limit_keeps_one_retry_limit(clock, monkeypatch):
     with pytest.raises(TransportError):
         invoke(budget, host)
     assert host.calls == 2 and budget.spent_usd == pytest.approx(0.04)
+
+
+def test_subscription_rate_limits_report_no_cost_and_use_the_free_retry_schedule(clock, monkeypatch):
+    budget = AssessmentBudget(None, None, 20, 600, spent_usd=None, subscription=True)
+    host = Limited(3, usd=None)
+    plain_invoke = host.invoke
+    host.invoke = lambda *args: HostReply({}, None) if host.calls >= host.failures else plain_invoke(*args)
+    monkeypatch.setattr(budget._lock, "wait", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    invoke(budget, host)
+    assert {row["paid"] for row in budget.retries} == {False}

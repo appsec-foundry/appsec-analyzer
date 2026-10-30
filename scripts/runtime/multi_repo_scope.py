@@ -324,6 +324,8 @@ def _read(root: Path, relative: str) -> bytes:
         ):
             raise ScopeError("Source changed during capture")
         return bytes(result)
+    except PermissionError:
+        raise ScopeError(f"Source file {relative} is not readable (permission denied); fix its permissions") from None
     except OSError:
         raise ScopeError("Source cannot be read without following links") from None
     finally:
