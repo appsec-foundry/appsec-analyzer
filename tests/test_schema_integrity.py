@@ -423,14 +423,44 @@ def test_stride_lens_contracts_share_bounded_plugin_owned_names():
         assert (REPO_ROOT / f"agents/stride-lenses/{lens}.md").is_file()
 
 
-def test_portable_output_schema_declares_every_nested_field_of_the_base_model():
-    """The v2 schema re-declares v1 objects; a field added to v1 alone fails publication."""
+def _undeclared_fields(base, mirror, path="") -> list[str]:
+    """Fields and rules of `base` that a re-declared closed object of `mirror` lacks, at any depth.
+
+    A mirror property that is a `$ref` into the base is the base definition
+    itself; only objects the mirror spells out again can drift. A missing
+    field fails validation only where the mirror admits no other properties.
+    """
+    if not isinstance(base, dict) or not isinstance(mirror, dict) or "$ref" in mirror:
+        return []
+    gaps = []
+    if "properties" in base and "properties" in mirror:
+        if mirror.get("additionalProperties") is False:
+            gaps += [f"{path}/{name}" for name in sorted(set(base["properties"]) - set(mirror["properties"]))]
+        for name in set(base["properties"]) & set(mirror["properties"]):
+            gaps += _undeclared_fields(base["properties"][name], mirror["properties"][name], f"{path}/{name}")
+    if len(mirror.get("allOf", base.get("allOf", []))) < len(base.get("allOf", [])):
+        gaps.append(f"{path}: allOf rules")
+    for key in ("items", "$defs"):
+        if key == "items":
+            gaps += _undeclared_fields(base.get(key), mirror.get(key), f"{path}[]")
+        else:
+            for name in set(base.get(key) or {}) & set(mirror.get(key) or {}):
+                gaps += _undeclared_fields(base[key][name], mirror[key][name], f"{path}/{name}")
+    return gaps
+
+
+@pytest.mark.parametrize(
+    "base, portable",
+    [
+        ("threat-model.output.schema.yaml", "threat-model.output-v2.schema.yaml"),
+        ("trust-boundary-assessment-input.schema.json", "trust-boundary-assessment-input-v2.schema.json"),
+    ],
+)
+def test_portable_schema_declares_every_nested_field_of_the_base_model(base, portable):
+    """The v2 schemas re-declare v1 objects; a field added to v1 alone fails the run that produces it."""
     import yaml
 
-    base = yaml.safe_load((REPO_ROOT / "schemas/threat-model.output.schema.yaml").read_text())["properties"]
-    portable = yaml.safe_load((REPO_ROOT / "schemas/threat-model.output-v2.schema.yaml").read_text())["properties"]
-    assert set(base) <= set(portable)
-    for name, definition in base.items():
-        mirrored = portable[name]
-        if isinstance(definition, dict) and "properties" in definition and "properties" in mirrored:
-            assert set(definition["properties"]) <= set(mirrored["properties"]), name
+    base_schema = yaml.safe_load((REPO_ROOT / "schemas" / base).read_text())
+    portable_schema = yaml.safe_load((REPO_ROOT / "schemas" / portable).read_text())
+    assert set(base_schema.get("properties") or {}) <= set(portable_schema.get("properties") or {})
+    assert _undeclared_fields(base_schema, portable_schema) == []

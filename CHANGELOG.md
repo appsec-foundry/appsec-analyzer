@@ -63,6 +63,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Fixed
 
 - When an architecture result cites a comment or blank line as evidence for a flow's authentication or an external service's role, Analyzer now asks the model to fix only those lines, as it already did for threat analysis. Before, the model had to regenerate the whole result, often repeated the citation, and the assessment stopped.
+- Flows to an identity provider's public discovery document or signing keys no longer stop an assessment at the trust-boundary step with `Additional properties are not allowed ('public' was unexpected)`. Two internal schemas had not been updated for the provider fields `public` and `issuer`; a schema test now compares nested fields of these schemas.
+- A stop that is not a model rejection now shows the Analyzer check that raised it. A schema violation names the field, the rule and the schema rule path instead of printing the whole schema.
 - When an analysis job stops after rejected results, the message names the Analyzer check that rejected each result and the correction that followed, so the cause can be traced from the message alone.
 - A Claude model call whose answers keep failing the output schema now stops after three attempts and runs once more, instead of using up its spending limit and stopping the assessment.
 - A stopped assessment now names the host's actual limit or error, such as a model call's spending limit, instead of `transport; check the selected host`.

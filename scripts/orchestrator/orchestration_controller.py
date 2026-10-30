@@ -153,6 +153,26 @@ _REASON_ELISION = " … [reason truncated] … "
 # ---------------------------------------------------------------------------
 
 
+def _failure_rows(exc: BaseException) -> list[tuple[str, str]]:
+    """Reason and the Analyzer check that raised it, so the stop can be traced without a traceback.
+
+    A schema violation names the failing location and rule, not the schema
+    and instance dump of ``str(ValidationError)``.
+    """
+    from jsonschema import ValidationError
+
+    from appsec_analyzer.terminal import code_location
+
+    reason = str(exc)
+    if isinstance(exc, ValidationError):
+        rule = "/".join(str(part) for part in exc.schema_path)
+        reason = f"a result violates its schema at {exc.json_path}: {exc.message} (schema rule {rule})"
+    rows = [("Reason", _cap_reason(reason))]
+    if where := code_location(exc):
+        rows.append(("Check", where))
+    return rows
+
+
 def _cap_reason(reason: str) -> str:
     """Keep a failure reason inside the action schema's ceiling.
 
@@ -5382,7 +5402,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
             return ASSESS_PAUSED_EXIT
         from appsec_analyzer.assessment.console import model_failure_rows
 
-        rows = model_failure_rows(exc) or [("Reason", _cap_reason(str(exc)))]
+        rows = model_failure_rows(exc) or _failure_rows(exc)
         draft = _unpublished_draft(argv, before)
         if draft:
             rows.append(("Draft", f"unpublished, kept for diagnosis in {draft}; it did not pass publication"))
