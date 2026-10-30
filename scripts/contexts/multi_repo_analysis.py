@@ -1183,14 +1183,16 @@ def component_evidence_review_contract() -> dict:
     return schema
 
 
-def combine_stride_parts(parts):
+def combine_stride_parts(parts, *, later_parts=False):
     """Fold bounded jobs into the existing one-document-per-component merge input.
 
     Per-surface decisions remain in each job's validated artifact and receipt.
     All finding IDs and category references are rewritten together; no finding
-    is discarded to fit the component contract.
+    is discarded to fit the component contract. ``later_parts`` says further
+    parts will join: a single part then already takes the IDs it keeps, so the
+    decisions made about its findings stay valid.
     """
-    if len(parts) == 1:
+    if len(parts) == 1 and not later_parts:
         return parts[0]
     result = copy.deepcopy(parts[0])
     result.pop("surface_coverage", None)

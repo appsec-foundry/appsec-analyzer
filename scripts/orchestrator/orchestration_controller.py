@@ -2058,6 +2058,10 @@ def _assessment_stride(
                     f"lead or security signal were not individually examined (for example {examples})",
                 }
             )
+        # REQ-004: coverage targets wait for the pass after verification, so the budget stops them first
+        # and the requests of the jobs before them do not depend on them.
+        coverage_targets = [target for target in targets if target.get("coverage")]
+        targets = [target for target in targets if not target.get("coverage")]
         lens_ids, lens_policy = analysis.analysis_lenses(scope, component)
         context["lens_ids"] = lens_ids
         # MR-13: a route target reads its registration window even where
@@ -2161,21 +2165,9 @@ def _assessment_stride(
         # no call only requests them; the read allowance stays for following a
         # lead to its control or sink. More source gets further bounded jobs,
         # never silent truncation or a larger per-job budget.
-        # REQ-004: thorough coverage targets run in optional jobs after the
-        # required ones, so a budget stop leaves only them unexamined.
-        lead_targets = [target for target in targets if not target.get("coverage")]
-        coverage_targets = [target for target in targets if target.get("coverage")]
-        batch_limits = dict(
-            room=room,
-            max_targets=64,
-            max_windows=MAX_PRELOAD_WINDOWS,
-            window_lines=MAX_SLICE_LINES,
-            max_unserved=MAX_READS // 2,
-        )
-        coverage_batches = analysis.target_batches(scope, coverage_targets, **batch_limits) if coverage_targets else []
         target_batches = analysis.target_batches(
             scope,
-            lead_targets,
+            targets,
             room=room,
             max_targets=64,
             max_windows=MAX_PRELOAD_WINDOWS,
@@ -2185,90 +2177,111 @@ def _assessment_stride(
             reserve_windows=len(context_preload),
         ) or [([], [])]
         jobs.budget.plan_required("stride:" + component["id"], "stride_analyzer", len(target_batches))
-        required_jobs = len(target_batches)
-        target_batches = [*target_batches, *coverage_batches]
-        parts = []
-        for index, (target_batch, preload) in enumerate(target_batches, 1):
-            selector = (
-                "stride:" + component["id"] + (f":{index}/{len(target_batches)}" if len(target_batches) > 1 else "")
-            )
-            optional = index > required_jobs
-            first = index == 1
-            job_context = {**context, "investigation_targets": target_batch}
-            if len(target_batches) > 1:
-                job_context["survey_jobs"] = {"job": index, "of": len(target_batches)}
-            parts.append(
-                jobs.execute(
-                    role="stride_analyzer",
-                    selector=selector,
-                    budget_group=("coverage:" if optional else "stride:") + component["id"],
-                    # A coverage job that the budget or the model cannot complete leaves its files unexamined.
-                    on_failure=(lambda reason: None) if optional else None,
-                    instructions=stride_instructions(),
+
+        def survey(view, selector, group, job_context, target_batch, preload, readable, on_failure=None):
+            return view.execute(
+                role="stride_analyzer",
+                selector=selector,
+                budget_group=group,
+                on_failure=on_failure,
+                instructions=stride_instructions(),
+                context=job_context,
+                schema=schema,
+                allowed_sources=readable,
+                normalize=analysis.stride_normalizer(target_batch, component, identity),
+                preload=analysis.supporting_preload(
+                    scope,
+                    target_batch,
+                    preload,
+                    readable,
                     context=job_context,
-                    schema=schema,
-                    allowed_sources=job_allowed,
-                    normalize=analysis.stride_normalizer(target_batch, component, identity),
-                    preload=analysis.supporting_preload(
-                        scope,
-                        target_batch,
-                        [*preload, *(key for key in context_preload if first and key not in preload)],
-                        job_allowed,
-                        context=job_context,
-                        component_sources=analysis.source_selection(components["components"]),
-                        max_context_bytes=context_limit,
-                    ),
-                    # The component's context is the same in every job; its targets and share follow it.
-                    shared_context_keys=len(context),
-                    validate=lambda artifact, ranges, targets=target_batch: analysis.validate_stride(
-                        scope,
-                        component,
-                        neighborhood,
-                        flows,
-                        artifact,
-                        ranges,
-                        boundaries=adjacent,
-                        allowed_requirement_ids=assessment_context.requirement_ids(captured)
-                        if captured
-                        else frozenset(),
-                        targets=targets,
-                        related=job_allowed - allowed,
-                    ),
-                )
+                    component_sources=analysis.source_selection(components["components"]),
+                    max_context_bytes=context_limit,
+                ),
+                # The component's context is the same in every job; its targets and share follow it.
+                shared_context_keys=len(context),
+                validate=lambda artifact, ranges, targets=target_batch: analysis.validate_stride(
+                    scope,
+                    component,
+                    neighborhood,
+                    flows,
+                    artifact,
+                    ranges,
+                    boundaries=adjacent,
+                    allowed_requirement_ids=assessment_context.requirement_ids(captured) if captured else frozenset(),
+                    targets=targets,
+                    related=readable - allowed,
+                ),
             )
-            # Per-component progress: components run concurrently (MR-16).
-            progress(f"Finished survey job: {label(component)} ({index}/{len(target_batches)})")
-        skipped = sorted(
-            {
-                (target["evidence"]["repository_id"], target["evidence"]["file"])
-                for part, (target_batch, _) in zip(parts, target_batches, strict=True)
-                if part is None
-                for target in target_batch
-            }
-        )
-        if skipped:
-            examples = ", ".join(path for _, path in skipped[:5])
-            # REQ-004: a thorough survey names the files its budget did not reach.
-            jobs.infos.append(
-                {
-                    "component": component["name"],
-                    "files": len(skipped),
-                    "text": f"{component['name']}: {_count_noun(len(skipped), 'source file')} were not examined "
-                    f"because the budget or the model ended the coverage jobs early (for example {examples})",
-                }
-            )
-        target_batches = [batch for part, batch in zip(parts, target_batches, strict=True) if part is not None]
-        parts = [part for part in parts if part is not None]
-        for part, (target_batch, _) in zip(parts, target_batches, strict=True):
+
+        def note_undecided(view, part, target_batch):
             # A coverage statement for the report, not an action item (REQ-003).
-            jobs.infos.extend(
+            view.infos.extend(
                 {
                     "undecided": {"component": component["name"], "target": target[:300]},
                     "text": f"{component['name']}: code location read but not judged: {target}",
                 }
                 for target in analysis.unresolved_targets(part, target_batch, qualified=len(scope.repositories) > 1)
             )
-        document = analysis.combine_stride_parts(parts)
+
+        def evidence_reviewers(rows, stem, sources, row_targets):
+            """Reviewers of `rows`: a component whose anchors exceed one exchange's read budget gets several."""
+            batches = analysis.evidence_batches(
+                rows,
+                max_windows=EVIDENCE_REVIEW_WINDOWS,
+                max_findings=EVIDENCE_REVIEW_FINDINGS,
+                window_lines=MAX_SLICE_LINES,
+            )
+            reviewers = []
+            for number, batch in enumerate(batches, 1):
+                selector = stem + component["id"] + (f":{number}/{len(batches)}" if len(batches) > 1 else "")
+
+                def review_batch(view, batch=batch, selector=selector):
+                    return _assessment_evidence_review(
+                        view,
+                        analysis,
+                        scope,
+                        identity,
+                        component,
+                        batch,
+                        incident,
+                        context,
+                        fingerprint,
+                        sources,
+                        selector,
+                        targets=row_targets,
+                        component_sources=analysis.source_selection(components["components"]),
+                    )
+
+                reviewers.append((selector, review_batch))
+            return reviewers
+
+        parts = []
+        for index, (target_batch, preload) in enumerate(target_batches, 1):
+            selector = (
+                "stride:" + component["id"] + (f":{index}/{len(target_batches)}" if len(target_batches) > 1 else "")
+            )
+            first = index == 1
+            job_context = {**context, "investigation_targets": target_batch}
+            if len(target_batches) > 1:
+                job_context["survey_jobs"] = {"job": index, "of": len(target_batches)}
+            parts.append(
+                survey(
+                    jobs,
+                    selector,
+                    "stride:" + component["id"],
+                    job_context,
+                    target_batch,
+                    [*preload, *(key for key in context_preload if first and key not in preload)],
+                    job_allowed,
+                )
+            )
+            # Per-component progress: components run concurrently (MR-16).
+            progress(f"Finished survey job: {label(component)} ({index}/{len(target_batches)})")
+        for part, (target_batch, _) in zip(parts, target_batches, strict=True):
+            note_undecided(jobs, part, target_batch)
+        survey_parts = parts
+        document = analysis.combine_stride_parts(survey_parts, later_parts=bool(coverage_targets))
         findings = document["threats"] + scanned[component["id"]]
         if len({row["local_id"] for row in findings}) != len(findings):
             raise ControllerError("STRIDE finding IDs collide with deterministic scanner finding IDs")
@@ -2277,39 +2290,11 @@ def _assessment_stride(
         review_sources = job_allowed | frozenset(
             (row["evidence"]["repository_id"], row["evidence"]["file"]) for row in scanned[component["id"]]
         )
-        # Every finding is reviewed; a component whose anchors exceed one
-        # exchange's read budget is reviewed in several jobs.
-        batches = analysis.evidence_batches(
-            findings,
-            max_windows=EVIDENCE_REVIEW_WINDOWS,
-            max_findings=EVIDENCE_REVIEW_FINDINGS,
-            window_lines=MAX_SLICE_LINES,
-        )
+        # Every finding is reviewed.
+        reviewers = evidence_reviewers(findings, "evidence:", review_sources, targets)
         if findings:
             progress("Independently verifying evidence: " + label(component))
         parts = evidence_parts[position] = []
-        reviewers = []
-        for number, batch in enumerate(batches, 1):
-            selector = "evidence:" + component["id"] + (f":{number}/{len(batches)}" if len(batches) > 1 else "")
-
-            def review_batch(view, batch=batch, selector=selector):
-                return _assessment_evidence_review(
-                    view,
-                    analysis,
-                    scope,
-                    identity,
-                    component,
-                    batch,
-                    incident,
-                    context,
-                    fingerprint,
-                    review_sources,
-                    selector,
-                    targets=targets,
-                    component_sources=analysis.source_selection(components["components"]),
-                )
-
-            reviewers.append((selector, review_batch))
         parts.extend(_assessment_review_batches(jobs, [review_batch for _, review_batch in reviewers]))
         for index, (selector, review_batch) in enumerate(reviewers):
             # The reserve for components not yet analyzed blocked this review;
@@ -2327,9 +2312,90 @@ def _assessment_stride(
             f"Analyzed component: {label(component)} · {found} "
             f"({next(finished)}/{len(components['components'])}){reused}"
         )
+
+        def survey_remaining(view):
+            """Survey the files no lead points to and review what that finds; the numbers say how far it got."""
+            readable = allowed | analysis.related_sources(coverage_targets)
+            coverage_context = {**context, "readable_sources": analysis.owned_sources(neighborhood, readable)}
+            batches = analysis.target_batches(
+                scope,
+                coverage_targets,
+                room=preload_room(coverage_context, max_context_bytes=context_limit),
+                max_targets=64,
+                max_windows=MAX_PRELOAD_WINDOWS,
+                window_lines=MAX_SLICE_LINES,
+                max_unserved=MAX_READS // 2,
+            )
+            total = len(survey_parts) + len(batches)
+
+            def survey_batch(job_view, index, target_batch, preload):
+                job_context = {
+                    **coverage_context,
+                    "investigation_targets": target_batch,
+                    "survey_jobs": {"job": len(survey_parts) + index, "of": total},
+                }
+                return survey(
+                    job_view,
+                    "coverage:" + component["id"] + (f":{index}/{len(batches)}" if len(batches) > 1 else ""),
+                    "coverage:" + component["id"],
+                    job_context,
+                    target_batch,
+                    preload,
+                    readable,
+                    # A job that the budget or the model cannot complete leaves its files unexamined.
+                    on_failure=lambda reason: None,
+                )
+
+            workers = [
+                lambda job_view, index=index, batch=batch, preload=preload: survey_batch(
+                    job_view, index, batch, preload
+                )
+                for index, (batch, preload) in enumerate(batches, 1)
+            ]
+            # The first job fills the host's prompt cache; the others read it side by side.
+            results = [workers[0](view), *_assessment_review_batches(view, workers[1:])]
+            examined = [(part, batch) for part, (batch, _) in zip(results, batches, strict=True) if part is not None]
+            skipped = sorted(
+                {
+                    (target["evidence"]["repository_id"], target["evidence"]["file"])
+                    for part, (batch, _) in zip(results, batches, strict=True)
+                    if part is None
+                    for target in batch
+                }
+            )
+            if skipped:
+                examples = ", ".join(path for _, path in skipped[:5])
+                # REQ-004: a thorough survey names the files its budget did not reach.
+                view.infos.append(
+                    {
+                        "component": component["name"],
+                        "files": len(skipped),
+                        "text": f"{component['name']}: {_count_noun(len(skipped), 'source file')} were not examined "
+                        f"because the budget or the model ended the coverage jobs early (for example {examples})",
+                    }
+                )
+            if not examined:
+                return {"position": position, "skipped": len(skipped), "found": 0}
+            for part, batch in examined:
+                note_undecided(view, part, batch)
+            combined = analysis.combine_stride_parts([*survey_parts, *(part for part, _ in examined)])
+            known = {row["local_id"] for row in document["threats"]}
+            added = [row for row in combined["threats"] if row["local_id"] not in known]
+            reviewers = evidence_reviewers(added, "coverage-evidence:", readable, coverage_targets)
+            decided = _assessment_review_batches(view, [review_batch for _, review_batch in reviewers])
+            return {
+                "position": position,
+                "skipped": len(skipped),
+                "found": len(added),
+                "document": combined,
+                "decisions": [row for part in decided for row in part["decisions"]],
+            }
+
+        if coverage_targets:
+            remaining[position] = (len(coverage_targets), survey_remaining)
         return document, review
 
-    evidence_parts, deferred = {}, []
+    evidence_parts, deferred, remaining = {}, [], {}
     results = _assessment_components_concurrently(jobs, components["components"], analyze)
     documents = [document for document, _ in results]
     reviews = [review for _, review in results]
@@ -2347,7 +2413,6 @@ def _assessment_stride(
         for position in {item[0] for item in deferred}:
             reviews[position - 1]["decisions"] = [row for part in evidence_parts[position] for row in part["decisions"]]
     scope.verify_unchanged()
-    surveyed = sum(len(document["threats"]) for document in documents)
     if envelopes is not None:
         # With verification to follow, the survey is its own step and says what it found (REQ-040).
         if planned["work"]:
@@ -2368,6 +2433,32 @@ def _assessment_stride(
             )
         )
         scope.verify_unchanged()
+    if remaining:
+        # REQ-004: everything before this is paid for. The merge and the stages after it need these findings,
+        # so they keep a share; a hold also never asks for more money.
+        held = len(components["components"])
+        jobs.budget.hold(
+            CONSOLIDATION_HOLD,
+            None if jobs.budget.subscription else held * CONSOLIDATION_USD_PER_COMPONENT,
+            held * CONSOLIDATION_CALLS_PER_COMPONENT,
+        )
+        files = sum(count for count, _ in remaining.values())
+        progress(
+            f"Remaining files · surveying {_count_noun(files, 'program file')} without a lead while the budget lasts"
+        )
+        results = _assessment_components_concurrently(
+            jobs, list(remaining.values()), lambda _, item, view: item[1](view)
+        )
+        jobs.budget.release(CONSOLIDATION_HOLD)
+        for result in results:
+            if "document" in result:
+                documents[result["position"] - 1] = result["document"]
+                reviews[result["position"] - 1]["decisions"].extend(result["decisions"])
+        scope.verify_unchanged()
+        examined = files - sum(result["skipped"] for result in results)
+        found = sum(result["found"] for result in results)
+        progress(f"Remaining files · {examined} of {files} examined · {_count_noun(found, 'finding')}")
+    surveyed = sum(len(document["threats"]) for document in documents)
     # REQ-040: verification findings join the register with the survey's and the scanners'.
     verified = {}
     for row in (pilot or {}).get("findings") or []:
@@ -2700,6 +2791,11 @@ def _assessment_verification_review(jobs, analysis, scope, components, envelopes
 # such as the second endpoint of a cross-repository claim.
 EVIDENCE_REVIEW_WINDOWS = 8
 EVIDENCE_REVIEW_FINDINGS = 15
+# REQ-004: what a thorough survey's remaining files leave for consolidation and the abuse cases, which run after them
+# (thorough runs, per component: Juice Shop USD 0.45 and 7 calls, 2026-10-27; DVWA USD 0.53 and 9 calls, 2026-10-30).
+CONSOLIDATION_HOLD = "consolidation"
+CONSOLIDATION_USD_PER_COMPONENT = 0.5
+CONSOLIDATION_CALLS_PER_COMPONENT = 10
 
 
 # ---------------------------------------------------------------------------

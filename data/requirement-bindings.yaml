@@ -422,6 +422,10 @@ requirements:
     coverage: partial
     guards:
       - tests/test_multi_repo_analysis.py::test_thorough_depth_gives_every_signal_free_program_file_a_coverage_target
+      - tests/test_multi_repo_controller.py::test_thorough_surveys_files_without_a_lead_after_verification_and_reviews_what_it_found
+      - tests/test_multi_repo_controller.py::test_the_jobs_for_files_without_a_lead_run_side_by_side
+      - tests/test_multi_repo_controller.py::test_files_without_a_lead_stop_at_the_reserve_for_later_work_and_are_named
+      - tests/test_multi_repo_controller.py::test_without_remaining_files_nothing_is_held_or_said
       - tests/test_multi_repo_analysis.py::test_client_code_has_its_own_security_signals
       - tests/test_multi_repo_analysis.py::test_plain_client_markup_has_no_security_signal
       - tests/test_assessment_scope.py::test_the_thorough_survey_row_says_every_program_file_is_sent_in_optional_jobs

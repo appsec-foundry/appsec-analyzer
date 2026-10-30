@@ -467,6 +467,149 @@ def test_only_the_first_job_of_a_split_component_carries_its_context_lines(tmp_p
     ]
 
 
+def _remaining_files(tmp_path, count, *, budget=(2, 0.05, 200, 120), host_type=None):
+    """A thorough scope whose component also holds `count` files that no lead points to."""
+    root = tmp_path / "service"
+    checkout(root)
+    for number in range(count):
+        (root / f"plain{number}.py").write_text(f"def label{number}(value):\n    return value.strip()\n")
+    peer = tmp_path / "peer"
+    checkout(peer)
+    # A security signal keeps each app.py a file with a lead.
+    for path in (root / "app.py", peer / "app.py"):
+        path.write_text(path.read_text() + 'password = request.args["password"]\n')
+    scope = admit([str(root), str(peer)], str(tmp_path / "out"))
+    host = (host_type or Host)(scope)
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(*budget),
+        host.factory,
+        lambda: False,
+        lambda: None,
+    )
+    architecture = controller._assessment_architecture(scope, jobs, progress=lambda _: None)
+    # The stub host cites every file it reads in its data flows, which would make each a lead.
+    architecture["data_flows"]["data_flows"] = []
+    return scope, host, jobs, architecture
+
+
+def _is_remaining_files_job(ctx):
+    return any(target.get("coverage") for target in ctx.get("investigation_targets", []))
+
+
+def test_thorough_surveys_files_without_a_lead_after_verification_and_reviews_what_it_found(tmp_path, monkeypatch):
+    from orchestrator import assessment_test_cases
+
+    scope, host, jobs, architecture = _remaining_files(tmp_path, 2)
+    seen_by_verification = []
+
+    def verification_sees(*args, **kwargs):
+        seen_by_verification.extend(ctx for role, ctx in host.calls if _is_remaining_files_job(ctx))
+        seen_by_verification.append("verification ran")
+        return {"findings": []}
+
+    monkeypatch.setattr(assessment_test_cases, "plan_pilot", lambda *args, **kwargs: {"work": []})
+    monkeypatch.setattr(assessment_test_cases, "run_pilot", verification_sees)
+    steps = []
+    documents, reviews, merged = controller._assessment_stride(
+        scope,
+        jobs,
+        architecture,
+        [],
+        [],
+        progress=steps.append,
+        depth="thorough",
+        test_cases={"aspects": ["AuthZ"]},
+        pilot={},
+    )
+    assert seen_by_verification == ["verification ran"]
+    survey = [ctx for role, ctx in host.calls if role == "stride_analyzer"]
+    remaining = [ctx for ctx in survey if _is_remaining_files_job(ctx)]
+    assert [target["evidence"]["file"] for ctx in remaining for target in ctx["investigation_targets"]] == [
+        "plain0.py",
+        "plain1.py",
+    ]
+    # The job with leads keeps its request: it is the component's only one and does not know of the others.
+    component = remaining[0]["component"]["id"]
+    assert [ctx.get("survey_jobs") for ctx in survey if ctx["component"]["id"] == component] == [
+        None,
+        {"job": 2, "of": 2},
+    ]
+    assert not any(
+        target.get("coverage")
+        for ctx in survey
+        if not _is_remaining_files_job(ctx)
+        for target in ctx["investigation_targets"]
+    )
+    # Every finding of both passes is reviewed once, under the identifier the merge input carries.
+    document = next(row for row in documents if row["component_id"] == component)
+    review = next(row for row, source in zip(reviews, documents, strict=True) if source is document)
+    assert {row["evidence"]["file"] for row in document["threats"]} == {"app.py", "plain0.py"}
+    assert sorted(row["local_id"] for row in review["decisions"]) == sorted(
+        row["local_id"] for row in document["threats"]
+    )
+    assert merged["threats"]
+    (start, end) = [step for step in steps if step.startswith("Remaining files · ")]
+    assert "2 program files" in start
+    assert end == "Remaining files · 2 of 2 examined · 1 finding"
+
+
+def test_the_jobs_for_files_without_a_lead_run_side_by_side(tmp_path, monkeypatch):
+    import threading
+
+    # One source window per job makes three files take three jobs.
+    monkeypatch.setattr("runtime.assessment_host.MAX_PRELOAD_WINDOWS", 1)
+    barrier = threading.Barrier(2, timeout=20)
+    order = []
+
+    class SideBySide(Host):
+        def invoke(self, role, prompt):
+            context = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])["context"]
+            if _is_remaining_files_job(context):
+                order.append(context["survey_jobs"]["job"])
+                # The first fills the prompt cache alone. In a row, the second would wait here until the barrier breaks.
+                if context["survey_jobs"]["job"] > 2:
+                    barrier.wait()
+            return super().invoke(role, prompt)
+
+    scope, host, jobs, architecture = _remaining_files(tmp_path, 3, host_type=SideBySide)
+    documents, _, _ = controller._assessment_stride(
+        scope, jobs, architecture, [], [], progress=lambda _: None, depth="thorough"
+    )
+    assert order[0] == 2 and sorted(order) == [2, 3, 4]
+    assert not barrier.broken
+    assert sum(len(row["threats"]) for row in documents) == 5
+
+
+def test_files_without_a_lead_stop_at_the_reserve_for_later_work_and_are_named(tmp_path):
+    scope, host, jobs, architecture = _remaining_files(tmp_path, 2, budget=(1.05, 0.05, 200, 3600))
+    jobs.budget.plan_completion()
+    asked = []
+    jobs.budget.on_budget_increase = asked.append
+    # Two components keep USD 1 for consolidation and the abuse cases.
+    documents, reviews, merged = controller._assessment_stride(
+        scope, jobs, architecture, [], [], progress=lambda _: None, depth="thorough"
+    )
+    assert not any(_is_remaining_files_job(ctx) for _, ctx in host.calls)
+    assert asked == [] and jobs.budget.holds == {}
+    gaps = [gap for gap in jobs.gaps if gap.get("budget")]
+    assert gaps and {gap["selector"].split(":")[0] for gap in gaps} == {"coverage"}
+    (note,) = [row["text"] for row in jobs.infos if "budget or the model" in row["text"]]
+    assert "2 source files" in note and "plain0.py" in note
+    # What the survey found before keeps its review.
+    assert merged["threats"] and sum(len(row["threats"]) for row in documents) == 2
+    assert sum(len(row["decisions"]) for row in reviews) == 2
+
+
+def test_without_remaining_files_nothing_is_held_or_said(tmp_path):
+    scope, host, jobs, architecture = _remaining_files(tmp_path, 2)
+    steps = []
+    controller._assessment_stride(scope, jobs, architecture, [], [], progress=steps.append, depth="standard")
+    assert not any(_is_remaining_files_job(ctx) for _, ctx in host.calls)
+    assert not any(step.startswith("Remaining files") for step in steps)
+
+
 def test_a_job_with_more_preloaded_windows_than_reads_passes_its_receipt(tmp_path):
     """Preloaded windows join the receipt; its contract must admit more ranges than MAX_READS."""
     from runtime.assessment_host import MAX_READS

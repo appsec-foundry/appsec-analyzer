@@ -4030,6 +4030,10 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     console.step("Surveying component: API (1/1)")
     clock.tick(60)
     console.step("Analyzed component: API")
+    # Verification ran in between; these lines still belong to the survey.
+    console.method = "Verify"
+    console.step("Remaining files · surveying 2 program files without a lead while the budget lasts")
+    console.step("Remaining files · 2 of 2 examined · 1 finding")
     # The evidence review of verification findings and the text combination run inside the merge; the first
     # opens the consolidation without a row of its own.
     console.step("Reviewing the evidence of verification findings: API")
@@ -4042,7 +4046,11 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     console.close()
     rows = [(phase, event, detail) for phase, event, _, _, _, detail in _rows(lines)]
     # The threat analysis ends before the merge, which opens the consolidation even without a merge review.
-    assert [row[1:] for row in rows if row[0].endswith("Threat analysis")][-1] == ("done", "1m00s · 1 component")
+    assert [row[1:] for row in rows if row[0].endswith("Threat analysis")][-3:] == [
+        ("·", "Survey    Remaining files · surveying 2 program files without a lead while the budget lasts"),
+        ("·", "Survey    Remaining files · 2 of 2 examined · 1 finding"),
+        ("done", "1m00s · 1 component"),
+    ]
     consolidation = [row[1:] for row in rows if row[0].endswith("Consolidation")]
     assert consolidation[:3] == [
         ("start", "merges duplicate findings, then reviews and ranks them"),

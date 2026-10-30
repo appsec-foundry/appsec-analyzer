@@ -427,6 +427,7 @@ class _AssessmentConsole:
         ("Finished survey job", "Threat analysis"),
         ("Independently verifying evidence", "Threat analysis"),
         ("Analyzed component", "Threat analysis"),
+        ("Remaining files · ", "Threat analysis"),
         ("Reviewing merge candidates", "Consolidation"),
         ("Reviewing the evidence of verification findings", "Consolidation"),
         ("Combining the texts of", "Consolidation"),
@@ -471,7 +472,7 @@ class _AssessmentConsole:
     # cases run concurrently and are named once, in the list of "Abuse cases to verify".
     LISTED = ("Discovering repository", "Surveying component")
     # Steps that state a result and start their phase if it has not started; each gets a permanent line as written.
-    STATED = ("Merge · ", "Scanners · ")
+    STATED = ("Merge · ", "Scanners · ", "Remaining files · ")
     # Listed names come from repository files and model output.
     _NAME_MAX = 100
     # What a phase's subjects are, for progress lines and the done line's count.
@@ -1500,6 +1501,9 @@ class _AssessmentConsole:
             self.record("·", "\n".join([f"{head} · {_duration(now - self.started)}", *detail]), now)
             return
         if prefix in self.STATED:
+            if prefix == "Remaining files · ":
+                # They run after verification, but they belong to the survey.
+                self.method = "Survey"
             self.record("·", text, now)
             return
         if prefix == "Abuse cases to verify":
