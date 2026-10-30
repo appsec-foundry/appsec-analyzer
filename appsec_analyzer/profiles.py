@@ -553,6 +553,24 @@ def call_reservation(profile: dict) -> float:
     return math.ceil(max(bounds) * 100) / 100
 
 
+def saved_depth(candidates: dict[str, dict], output: Path) -> str | None:
+    """The depth whose profile matches the run saved in ``output``, or None.
+
+    The state keeps only the profile fingerprint, so `--resume` without a depth
+    finds the earlier depth by the candidate profile with the same fingerprint.
+    """
+    from runtime.assessment_state import STATE_NAME, _read_state
+
+    path = output / STATE_NAME
+    if not os.path.lexists(path):
+        return None
+    try:
+        saved = (_read_state(path).get("operator_profile") or {}).get("definition_sha256")
+    except Exception:  # noqa: BLE001 - an unreadable state is reported by the run itself
+        return None
+    return next((depth for depth, profile in candidates.items() if profile["definition_sha256"] == saved), None)
+
+
 def restore_profile(profile: dict, output: Path, *, resume: bool) -> dict:
     """Freeze alias resolutions across resume, then recheck against the catalog.
 

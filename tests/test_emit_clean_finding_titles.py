@@ -333,3 +333,11 @@ def test_a_schema_valid_derivation_is_returned_untouched():
     raw = "Insecure Direct Object Reference via Client-Supplied Id (routes/a.ts:1)"
     threat = _multi_instance(raw)
     assert ecf.build_clean_title(raw, threat) == ecf._derive_title(raw, threat)
+
+
+def test_a_clause_with_an_article_is_the_object_and_stays():
+    from model.emit_clean_finding_titles import clean_weakness
+
+    assert clean_weakness("User keeps using a withdrawn right") == "User keeps using a withdrawn right"
+    assert clean_weakness("Account takeover via XSS") == "Account takeover"
+    assert clean_weakness("Code execution using notevil") == "Code execution"

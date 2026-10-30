@@ -63,6 +63,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- `assess --resume` without a depth option continues at the depth of the saved run. Before, it fell back to `standard`, so a resumed thorough run silently became a new standard run.
+- The route inventory recognizes administrator guards such as `requireAdmin()`, guard lists passed as `router.use(...guards)`, and routes whose path is a constant or a configuration value, such as an OIDC callback registered with `router.get(config.oidc.callbackPath, …)`. Before, admin routes showed unknown authorization and the sign-in callback was missing from the attack surface.
+- A route with a detected guard is no longer listed as public by design because of its name, and `refresh` and `status` mark a route as public only as a token refresh or a top-level probe. Before, `POST /backoffice/refresh` behind an admin guard appeared as public.
+- A control outside the identity and session sections, such as a registry credential helper in the build pipeline, no longer counts as password sign-in. Before, an OIDC-only application received a "Password Reset: Missing" control.
+- A finding whose evidence lies in a route file takes its attack vector from the route registered just before the evidence line. Before, a shared file name token could match an unauthenticated login route, and a session finding was reported as reachable without sign-in.
+- Finding titles keep a clause such as "using a withdrawn right" when it names the object of the sentence. Before, the title "User keeps using a withdrawn right" was shortened to "User keeps".
 - When an architecture result cites a comment or blank line as evidence for a flow's authentication or an external service's role, Analyzer now asks the model to fix only those lines, as it already did for threat analysis. Before, the model had to regenerate the whole result, often repeated the citation, and the assessment stopped.
 - Flows to an identity provider's public discovery document or signing keys no longer stop an assessment at the trust-boundary step with `Additional properties are not allowed ('public' was unexpected)`. Two internal schemas had not been updated for the provider fields `public` and `issuer`; a schema test now compares nested fields of these schemas.
 - A stop that is not a model rejection now shows the Analyzer check that raised it. A schema violation names the field, the rule and the schema rule path instead of printing the whole schema.

@@ -121,10 +121,18 @@ _SKIP_DIRS = {"node_modules", ".git", "dist", "build", "coverage", ".angular", "
 _SEV_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1}
 
 
+# Only a control of the sign-in domains covers a mechanism: "Registry authentication via
+# credential helper" in the build pipeline says nothing about how users sign in.
+_SIGN_IN_DOMAIN_RE = re.compile(r"(?i)identity|authentication|session|token|^IAM$|^SessionMgmt$")
+
+
 def _existing_covers(controls: list, coverage_re: str) -> bool:
     rx = re.compile(coverage_re, re.IGNORECASE)
     for c in controls:
         if not isinstance(c, dict):
+            continue
+        domain = str(c.get("domain") or "")
+        if domain and not _SIGN_IN_DOMAIN_RE.search(domain):
             continue
         name = str(c.get("control") or c.get("name") or "")
         if rx.search(name):

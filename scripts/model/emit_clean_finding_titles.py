@@ -131,7 +131,9 @@ def clean_weakness(raw_title: str) -> str:
     s = re.sub(r"\s*'[^']*'\s*", " ", s)
     # Drop the implementation mechanism after `via` / `using` / `through`
     # ("via eval", "via DomSanitizer.trust HTML bypass", "using notevil").
-    s = re.sub(r"\s+(?:via|using|through)\s+.*$", "", s, flags=re.IGNORECASE)
+    # A clause that opens with an article names the object of the sentence
+    # instead ("User keeps using a withdrawn right") and stays.
+    s = re.sub(r"\s+(?:via|using|through)\s+(?!(?:a|an|the|another|other|their|its)\b).*$", "", s, flags=re.IGNORECASE)
     # Drop any embedded file token (`routes/fileUpload.ts:45`, `Dockerfile:5`).
     s = _FILE_TOKEN_RE.sub("", s)
     # Drop " on:<line>" line-reference artefacts (e.g. "on:6") — placed after the

@@ -798,3 +798,25 @@ def test_launch_progress_refuses_unsafe_or_owned_output(tmp_path, defect):
     with pytest.raises(ValueError):
         progress_path(str(output))
     assert victim.read_text() == "preserve"
+
+
+def test_resume_without_a_depth_keeps_the_depth_of_the_saved_run(tmp_path, monkeypatch):
+    from runtime import assessment_state
+
+    from appsec_analyzer import cli, profiles
+
+    repo, output = tmp_path / "repo", tmp_path / "out"
+    repo.mkdir()
+    output.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    (output / assessment_state.STATE_NAME).write_text("{}")
+    saved = profiles.resolve_scan("claude", depth="thorough", repositories=[str(repo)])
+    monkeypatch.setattr(assessment_state, "_read_state", lambda path: {"operator_profile": saved})
+    base = ["assess", "--repo", str(repo), "--output", str(output), "--resume", "--non-interactive"]
+    ns = cli._parser().parse_args(base)
+    cli._prepare_profile(ns)
+    assert ns.assessment_depth == "thorough"
+    ns = cli._parser().parse_args([*base, "--assessment-depth", "standard"])
+    cli._prepare_profile(ns)
+    assert ns.assessment_depth == "standard"

@@ -21,8 +21,9 @@ renderer reads the YAML. Signals, in order:
 
 3.  **Route auth_required** — only for models without an actor inventory
     or an attribution the access groups cannot express: the threat's
-    `evidence[].file` matched against `attack_surface[].entry_point`.
-    Unauthenticated → `internet-anon`, authenticated → `internet-user`,
+    `evidence[].file` and line matched against the handler location of
+    `attack_surface[]` entries, else the file name against their entry
+    points. Unauthenticated → `internet-anon`, authenticated → `internet-user`,
     no match → `internet-anon`.
 
 The field is only written when missing (`vektor` not set on the threat).
@@ -117,16 +118,46 @@ def _file_route_tokens(file_path: str) -> set[str]:
     return _tokens(base)
 
 
+_HANDLER_NOTE_RE = re.compile(r"\bhandler:\s*(?P<file>[^\s;:]+):(?P<line>\d+)")
+
+
+def _handler_auth_required(file_path: str, line, attack_surface: list[dict]) -> bool | None:
+    """The auth_required of the route whose handler in the same file precedes the evidence line.
+
+    The inventory records each entry's handler as ``handler: <file>:<line>``;
+    the closest preceding registration is the route the evidence belongs to.
+    """
+    target = file_path.replace("\\", "/").lstrip("./")
+    evidence_line = line if isinstance(line, int) else None
+    best: tuple[int, bool] | None = None
+    for entry in attack_surface or []:
+        match = _HANDLER_NOTE_RE.search(str(entry.get("notes") or ""))
+        if not match or match.group("file").lstrip("./") != target:
+            continue
+        handler_line = int(match.group("line"))
+        if evidence_line is not None and handler_line > evidence_line:
+            continue
+        if best is None or handler_line > best[0]:
+            best = (handler_line, bool(entry.get("auth_required")))
+    return best[1] if best else None
+
+
 def _route_auth_required(
     file_path: str | None,
     attack_surface: list[dict],
+    line=None,
 ) -> bool | None:
-    """Match a threat's evidence.file against the attack_surface[] catalog
-    by token overlap. Returns the auth_required boolean of the strongest
-    match, or None when no entry can be confidently linked.
+    """Match a threat's evidence against the attack_surface[] catalog.
+
+    The handler location decides first; only without one does the token
+    overlap of the file name with entry points pick the strongest match.
+    Returns None when no entry can be confidently linked.
     """
     if not file_path:
         return None
+    by_handler = _handler_auth_required(file_path, line, attack_surface)
+    if by_handler is not None:
+        return by_handler
     file_tokens = _file_route_tokens(file_path)
     if not file_tokens:
         return None
@@ -180,14 +211,14 @@ def _derive_vektor(threat: dict, attack_surface: list[dict], actors: dict[str, d
     if evidence and isinstance(evidence, list):
         first = evidence[0] if isinstance(evidence[0], dict) else {}
         file_path = first.get("file") or ""
-        auth = _route_auth_required(file_path, attack_surface)
+        auth = _route_auth_required(file_path, attack_surface, first.get("line"))
         if auth is True:
             return "internet-user"
         if auth is False:
             return "internet-anon"
 
     # No attack_surface[] match. Use file-location heuristic:
-    #   routes/*    → most likely an authenticated route not in the curated
+    #   routes/* (also nested, apps/api/src/routes/*) → most likely an authenticated route not in the curated
     #                 public surface list → internet-user
     #   server.ts / app.ts / index.ts / lib/* → router setup, libraries,
     #                 middleware that applies broadly → internet-anon (the
@@ -196,7 +227,7 @@ def _derive_vektor(threat: dict, attack_surface: list[dict], actors: dict[str, d
     #                 anyone who loads the page; XSS / CSRF cases already
     #                 hit the victim-required branch via CWE override)
     fp = (file_path or "").lower()
-    if fp.startswith("routes/"):
+    if fp.startswith("routes/") or "/routes/" in fp:
         return "internet-user"
     return "internet-anon"
 

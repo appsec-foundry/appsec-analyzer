@@ -266,3 +266,24 @@ class TestCoverageAndIdempotency:
         assert eac.main([str(tmp_path), "--repo-root", str(tmp_path)]) == 0
         data = _read_yaml(tmp_path)
         assert any(c["control"] == "Password-Based Login" for c in data["security_controls"])
+
+
+def test_a_credential_control_outside_sign_in_is_no_password_authentication():
+    data = {
+        "security_controls": [
+            {
+                "domain": "Cryptography Secrets and Data Protection",
+                "control": "Registry authentication via credential helper",
+            },
+            {"domain": "Identity and Authentication Controls", "control": "OIDC authorization code flow with PKCE"},
+        ],
+        "threats": [],
+    }
+    rows, _ = eac.build_auth_coverage(data, _routes(("GET", "/auth/login"), ("POST", "/auth/logout")), None)
+    assert not [r for r in rows if r["effectiveness"] == "Missing"]
+
+
+def test_a_password_control_in_the_identity_section_still_counts():
+    data = {"security_controls": [{"domain": "Identity and Authentication Controls", "control": "Password login"}]}
+    rows, _ = eac.build_auth_coverage(data, [], None)
+    assert [r["effectiveness"] for r in rows if r["control"] == "Password Reset"] == ["Missing"]

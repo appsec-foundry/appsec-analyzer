@@ -304,6 +304,6 @@ Copyable examples are [developer.yaml](../examples/profiles/developer.yaml), [re
 
 ## Resume a run
 
-The private assessment state stores the resolved profile, including each role's model and settings. On `--resume`, OpenAI aliases stay fixed to the stored model IDs, and the current catalog must still recognize those IDs and their options. If you change the profile, the effective configuration, or the cost information, `--resume` continues as a new run that reuses compatible accepted jobs.
+The private assessment state stores the resolved profile, including each role's model and settings. On `--resume`, OpenAI aliases stay fixed to the stored model IDs, and the current catalog must still recognize those IDs and their options. If you change the profile, the effective configuration, or the cost information, `--resume` continues as a new run that reuses compatible accepted jobs. Without a depth option, `--resume` keeps the depth of the saved run; a different `--assessment-depth` counts as a changed configuration.
 
 The saved configuration also includes `test_cases`, the depth settings, requested and skipped abuse cases, the verification aspects, and `max_parallel`. Changing any of them requires a new run. Runs saved by older Analyzer versions may lack some of these settings. Analyzer then reports the incompatibility, and you start a new assessment. Existing reports stay readable.
