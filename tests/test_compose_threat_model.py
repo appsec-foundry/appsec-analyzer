@@ -2895,6 +2895,44 @@ def test_remediation_priorities_rank_a_cause_by_its_worst_finding(tmp_path: Path
     assert rows[w1].endswith(">-</td><td>-</td><td>-</td></tr>")
 
 
+def test_remediation_priorities_without_p1_or_p2_show_the_best_present_tier(tmp_path: Path) -> None:
+    """A model whose measures are all P3 still names what to do first, and a cause
+    without any measure says that its lasting fix applies."""
+    out = _prepare_output_dir(tmp_path)
+    data = yaml.safe_load((out / "threat-model.yaml").read_text())
+    threats = data["threats"] + [{"t_id": "T-020", "title": "Mutable base image", "risk": "Medium"}]
+    _with_model(
+        out,
+        threats=threats,
+        weaknesses=[
+            {
+                "id": "W-001",
+                "title": "Build pipeline trusts mutable references",
+                "severity": "Medium",
+                "severity_basis": "observed-practice",
+                "observable_backing": {"practice_evidence": [{"id": "T-020"}]},
+                "structural_recommendation": "pin every reference to an immutable digest",
+            },
+            {
+                "id": "W-002",
+                "title": "Endpoints are reachable without enforced authentication",
+                "severity": "Medium",
+                "severity_basis": "design-risk",
+                "structural_recommendation": "enforce authentication centrally",
+            },
+        ],
+        mitigations=[
+            {"id": "M-004", "title": "Pin base images", "priority": "P3", "effort": "Low", "threat_ids": ["T-020"]}
+        ],
+    )
+    rendered, _ = compose.render(CONTRACT, out)
+    rows = _remediation_rows(rendered)
+    w1 = next(r for r in rows if '<a href="#w-001">W-001</a>' in r)
+    w2 = next(r for r in rows if '<a href="#w-002">W-002</a>' in r)
+    assert ">M-004</a>" in w1
+    assert "No separate measure; the lasting fix applies." in w2
+
+
 def test_remediation_priorities_without_root_causes_list_the_top_fixes(tmp_path: Path) -> None:
     """Without a weakness register the table still lists the P1/P2 measures."""
     out = _prepare_output_dir(tmp_path)

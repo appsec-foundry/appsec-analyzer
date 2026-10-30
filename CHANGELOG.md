@@ -63,6 +63,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Remediation Priorities names a measure to do first when no measure has priority P1 or P2; it then shows the best priority present. A root cause without any measure of its own says that its lasting fix applies. Before, an assessment with only Medium findings showed every row with empty cells.
 - A finding that only verification reported and that the evidence review refuted no longer supports the verdict, the risk distribution, a weakness, or a fix recommendation. It stays in the findings register with the review's reason and its manual review task (REQ-040).
 - `assess --resume` without a depth option continues at the depth of the saved run. Before, it fell back to `standard`, so a resumed thorough run silently became a new standard run.
 - The route inventory recognizes administrator guards such as `requireAdmin()`, guard lists passed as `router.use(...guards)`, and routes whose path is a constant or a configuration value, such as an OIDC callback registered with `router.get(config.oidc.callbackPath, …)`. Before, admin routes showed unknown authorization and the sign-in callback was missing from the attack surface.

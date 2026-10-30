@@ -7985,7 +7985,11 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
         for r in enriched:
             if r["business_note"] == _business_relevance.UNNAMED_CONTEXT_NOTE:
                 r["business_note"] = ""
-    eligible = [r for r in enriched if r["priority"] in ("P1", "P2")]
+    # Do first means P1/P2. A model whose measures are all P3 or P4 would
+    # otherwise show no measure at all, so its best present tier takes their place.
+    tiers = sorted({r["priority"] for r in enriched}, key=lambda p: {"P1": 0, "P2": 1, "P3": 2, "P4": 3}.get(p, 9))
+    first = {"P1", "P2"} if not tiers or tiers[0] in ("P1", "P2") else {tiers[0]}
+    eligible = [r for r in enriched if r["priority"] in first]
 
     top = _ms_top_weaknesses(ctx)
     ranked = _ranked_weaknesses(ctx)
@@ -8057,8 +8061,11 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
             cell += f"<br/><em>→ {html.escape(lasting, quote=False)}</em>"
         return cell
 
-    def _fix_cell(r: dict[str, Any] | None) -> str:
+    def _fix_cell(r: dict[str, Any] | None, w: dict | None = None) -> str:
         if r is None:
+            # A cause with no measure of its own differs from one whose measures wait behind higher priorities.
+            if w is not None and not any(_cause_of(m, [w]) for m in enriched):
+                return "<em>No separate measure; the lasting fix applies.</em>"
             return "—"
         cell = _md(ctx.linkify_with_label(r["id"]))
         if r["business_note"]:
@@ -8085,7 +8092,7 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
                 shown_ids.add(r["id"])
             effort = html.escape(str(r["effort"]), quote=False) if r else "—"
             cells = (cause if i == 0 else "") + (
-                f"<td{wrap}>{_fix_cell(r)}</td><td>{_resolves_cell(r)}</td><td>{effort}</td>"
+                f"<td{wrap}>{_fix_cell(r, w)}</td><td>{_resolves_cell(r)}</td><td>{effort}</td>"
             )
             rows_html.append(f"<tr>{cells}</tr>")
 
