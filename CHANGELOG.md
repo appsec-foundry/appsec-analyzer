@@ -67,6 +67,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A cited ignore-file pattern such as `*.env` or `**/node_modules` in `.dockerignore` or `.gitignore` counts as configuration, not as a block-comment line. Before, a control that rested on such a file could never cite valid evidence, and the Controls step stopped the assessment after three attempts.
 - A configuration rule hit is rated insecure practice instead of confirmed exploitable, and a hit in a file that serves only local development, such as `compose.dev.yaml`, is marked "Development only" and does not raise the verdict (REQ-009). A file that the repository's CI, Dockerfile, or Makefile names is not development only.
 - Remediation Priorities names a measure to do first when no measure has priority P1 or P2; it then shows the best priority present. A root cause without any measure of its own says that its lasting fix applies. Before, an assessment with only Medium findings showed every row with empty cells.
 - A finding that only verification reported and that the evidence review refuted no longer supports the verdict, the risk distribution, a weakness, or a fix recommendation. It stays in the findings register with the review's reason and its manual review task (REQ-040).
