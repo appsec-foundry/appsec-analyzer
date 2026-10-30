@@ -1534,14 +1534,22 @@ def validate_local_architecture(
     # apply them here too, so this job can still correct its own result.
     from validators.validate_assessment_architecture import flow_invariant_errors, legacy_source_errors
 
+    anchors = []
     errors = legacy_source_errors(
         scope,
         "data-flows",
         {"data_flows": artifact["data_flows"], "external_entities": artifact["external_entities"]},
         repository_ids={repository_id},
+        anchors=anchors,
     )
     if errors:
-        raise Rejection("Local architecture violates repository evidence rules", errors)
+        # When every violation is a non-executable citation, the exchange asks
+        # for those lines alone (MR-2); a full regeneration tends to repeat them.
+        raise Rejection(
+            "Local architecture violates repository evidence rules",
+            errors,
+            anchors=anchors if len(anchors) == len(errors) else (),
+        )
     # The combined flow gate enforces these invariants too, but no job can
     # still correct its result there; checking them here lets the analyst
     # repair it in the exchange.
@@ -1806,15 +1814,11 @@ def validate_executable_evidence(scope, artifact, summary, repository_id=None, a
             ]
         if own_evidence:
             with scope.scanner_snapshot(repo.repository_id) as root:
-                check = dict(require_line=True, require_code=True)
-                errors = repository_evidence_errors(own_evidence, root, **check)
+                anchors = []
+                errors = repository_evidence_errors(
+                    own_evidence, root, require_line=True, require_code=True, anchors=anchors
+                )
                 if errors:
-                    anchors = [
-                        (row, problem[0])
-                        for row in own_evidence
-                        if type(row.get("line")) is int
-                        and (problem := repository_evidence_errors([row], root, **check))
-                    ]
                     raise Rejection(summary, errors, anchors=anchors if len(anchors) == len(errors) else ())
 
 

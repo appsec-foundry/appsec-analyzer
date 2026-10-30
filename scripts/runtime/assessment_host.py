@@ -12,6 +12,7 @@ import copy
 import json
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -60,12 +61,54 @@ class ModelAnswerFailure(ExchangeError):
     one exchange failure a job may replace (`AssessmentJobs.exchange`).
     """
 
-    def __init__(self, message, *, attempts=None, rejection=None, calls_used=None, read_rounds=None):
+    def __init__(self, message, *, attempts=None, rejection=None, calls_used=None, read_rounds=None, trail=()):
         super().__init__(message)
         self.attempts = attempts
         self.rejection = rejection
         self.calls_used = calls_used
         self.read_rounds = read_rounds
+        # One entry per rejected result (see `rejection_entry`), oldest first.
+        self.trail = tuple(trail)
+
+
+_CODE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def raise_site(exc: BaseException) -> str | None:
+    """The analyzer line that raised `exc`, as ``path:line in function``; ``None`` outside the analyzer.
+
+    A stop message that names the rejecting check lets a reader go straight to
+    the rule instead of searching for its wording.
+    """
+    site, tb = None, exc.__traceback__
+    while tb is not None:
+        code = tb.tb_frame.f_code
+        try:
+            relative = Path(code.co_filename).resolve().relative_to(_CODE_ROOT).as_posix()
+        except (OSError, ValueError):
+            relative = None
+        if relative is not None:
+            site = f"{relative}:{tb.tb_lineno} in {code.co_name}"
+        tb = tb.tb_next
+    return site
+
+
+def rejection_entry(exc: BaseException) -> dict:
+    """What one rejected result tells a reader: the check, its violations and the correction that followed.
+
+    `corrections` lists the correction paths the exchange tried next, in order;
+    it stays empty when no correction was left. `citation_anchors` counts the
+    rows a line-only correction (MR-2) could repair; with none, only a full
+    regeneration can address a non-executable citation.
+    """
+    rejection = exc if isinstance(exc, Rejection) else None
+    return {
+        "check": raise_site(exc),
+        "summary": (rejection.summary if rejection else str(exc))[:300],
+        "violations": len(rejection.errors) if rejection and rejection.errors else 1,
+        "citation_anchors": len(rejection.anchors) if rejection else 0,
+        "corrections": [],
+    }
 
 
 class Rejection(ExchangeError):
@@ -735,6 +778,7 @@ def run_exchange(
     # model that reads one slice per call cannot multiply its calls.
     read_rounds = 0
     reasons: list[str] = []
+    trail: list[dict] = []
     # Anchor-only correction calls (MR-2), counted with the job's calls.
     extra = 0
     for number in range(1, MAX_EXCHANGES + 1):
@@ -826,8 +870,20 @@ def run_exchange(
         if envelope_error:
             corrections += 1
             reasons.append(ENVELOPE_REASON)
+            trail.append(
+                {
+                    "check": "exchange envelope",
+                    "summary": ENVELOPE_REASON,
+                    "violations": 1,
+                    "citation_anchors": 0,
+                    "corrections": [],
+                }
+            )
             if corrections > MAX_CORRECTIONS:
-                raise ModelAnswerFailure(f"Result rejected after {corrections} attempt(s): {ENVELOPE_REASON}")
+                raise ModelAnswerFailure(
+                    f"Result rejected after {corrections} attempt(s): {ENVELOPE_REASON}", trail=trail
+                )
+            trail[-1]["corrections"].append("full correction")
             notice = getattr(transport, "on_correction", None)
             if callable(notice):
                 notice(ENVELOPE_REASON)
@@ -853,6 +909,7 @@ def run_exchange(
                     nonlocal corrections
                     corrections += 1
                     reasons.append(str(exc))
+                    trail.append(rejection_entry(exc))
                     if corrections > MAX_CORRECTIONS or number + extra >= MAX_EXCHANGES:
                         kept = _salvaged(exc)
                         if kept is not None:
@@ -866,6 +923,7 @@ def run_exchange(
                             rejection=exc,
                             calls_used=number + extra,
                             read_rounds=read_rounds,
+                            trail=trail,
                         ) from None
                     # A reporting transport may say that the answer is being corrected.
                     notice = getattr(transport, "on_correction", None)
@@ -889,6 +947,7 @@ def run_exchange(
                 if (kept := rejected(exc)) is not None:
                     return ExchangeResult(kept, tuple(slices), number + extra, cost)
                 if isinstance(exc, Rejection) and exc.quotations:
+                    trail[-1]["corrections"].append("quotation correction")
                     fixed, usd, called = _correct_quotations(
                         transport, artifact, exc.quotations, slices, deadline, should_stop, context_limit_bytes
                     )
@@ -910,9 +969,12 @@ def run_exchange(
                                 return ExchangeResult(kept, tuple(slices), number + extra, cost)
                 if isinstance(exc, Rejection) and exc.anchors:
                     # MR-2: only citations are wrong, so only their lines are asked for.
+                    trail[-1]["corrections"].append("line-only citation correction")
                     fixed, usd = _correct_anchors(
                         transport, artifact, exc.anchors, slices, deadline, should_stop, context_limit_bytes
                     )
+                    if fixed is None:
+                        trail[-1]["corrections"][-1] += " (no usable answer)"
                     extra += 1
                     cost = None if cost is None or usd is None else cost + usd
                     if fixed is not None:
@@ -933,6 +995,7 @@ def run_exchange(
                     "for this reason. Correct that result and return it complete, or read more source first.",
                     "result": artifact,
                 }
+                trail[-1]["corrections"].append("full correction")
                 if isinstance(exc, Rejection) and _serve_anchors(
                     scope,
                     exc.reads,
@@ -941,6 +1004,7 @@ def run_exchange(
                     seen,
                     lambda: _slices_fit(context, slices, max_context_bytes=context_limit_bytes),
                 ):
+                    trail[-1]["corrections"][-1] += " with the cited source windows"
                     feedback["instruction"] += (
                         " The controller added the cited source windows to source_slices: keep a claim only "
                         "when those lines support it."
@@ -1059,4 +1123,5 @@ def run_exchange(
         attempts=corrections or None,
         calls_used=min(number + extra, MAX_EXCHANGES),
         read_rounds=read_rounds,
+        trail=trail,
     )

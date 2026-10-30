@@ -210,12 +210,15 @@ def repository_evidence_errors(
     require_line: bool = False,
     require_code: bool = False,
     allow_imports: bool = True,
+    anchors: list | None = None,
 ) -> list[str]:
     """Validate contained regular-file evidence and optional one-based lines.
 
     `require_code` rejects a cited blank or comment line, and with
     `allow_imports=False` an import line: claims of an implemented function
     (capabilities, service roles, authentication) must cite the code doing it.
+    Each such row is appended to `anchors` as ``(row, error)``, so a caller
+    can ask for the corrected line alone (MR-2) instead of the whole result.
     """
     errors: list[str] = []
     file_lines: dict[Path, list[str]] = {}
@@ -250,10 +253,13 @@ def repository_evidence_errors(
             continue
         problem = _cited_line_problem(lines[line - 1], allow_imports=allow_imports) if require_code else None
         if problem:
-            errors.append(
+            error = (
                 f"{label}[{index}] cites {problem} ({relative}:{line}); cite the executable code the claim is "
                 "about, such as the handler that performs or omits a check, not text describing it"
             )
+            errors.append(error)
+            if anchors is not None:
+                anchors.append((row, error))
     return errors
 
 
@@ -280,8 +286,12 @@ def _orm_application_ownership_errors(components: list, repo_root: Path) -> list
     ]
 
 
-def repository_path_errors(fragment_type: str, data: Any, repo_root: Path) -> list[str]:
-    """Validate repository-backed paths that JSON Schema cannot resolve."""
+def repository_path_errors(fragment_type: str, data: Any, repo_root: Path, *, anchors: list | None = None) -> list[str]:
+    """Validate repository-backed paths that JSON Schema cannot resolve.
+
+    Rows whose cited line is not executable code are appended to `anchors`
+    (see `repository_evidence_errors`).
+    """
     try:
         root = repo_root.resolve()
     except (OSError, RuntimeError) as exc:
@@ -311,6 +321,7 @@ def repository_path_errors(fragment_type: str, data: Any, repo_root: Path) -> li
                         label=f"component {component_id} capability {item.get('capability')}",
                         require_code=True,
                         allow_imports=False,
+                        anchors=anchors,
                     )
                 )
             paths = component.get("paths", [])
@@ -334,7 +345,11 @@ def repository_path_errors(fragment_type: str, data: Any, repo_root: Path) -> li
             if isinstance(auth, dict):
                 errors.extend(
                     repository_evidence_errors(
-                        auth.get("evidence"), root, label=f"data flow {flow_id} authentication", require_code=True
+                        auth.get("evidence"),
+                        root,
+                        label=f"data flow {flow_id} authentication",
+                        require_code=True,
+                        anchors=anchors,
                     )
                 )
         for entity in data.get("external_entities") or []:
@@ -349,6 +364,7 @@ def repository_path_errors(fragment_type: str, data: Any, repo_root: Path) -> li
                         label=f"entity {entity.get('id')} service role {item.get('role')}",
                         require_code=True,
                         allow_imports=False,
+                        anchors=anchors,
                     )
                 )
     elif fragment_type == "assets":

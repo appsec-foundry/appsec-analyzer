@@ -85,11 +85,13 @@ def _repository_projection(value, repository_id):
     return value
 
 
-def legacy_source_errors(scope, fragment_type, document, repository_ids=None) -> list[str]:
+def legacy_source_errors(scope, fragment_type, document, repository_ids=None, anchors=None) -> list[str]:
     """Run the single-root evidence guards per repository; return their findings.
 
     Each message names the repository-relative location the guard rejected,
-    so a scoped job can correct its own result.
+    so a scoped job can correct its own result. Rows citing a non-executable
+    line are appended to `anchors` as ``(row, error)``; the projected rows
+    keep the result's repository, file, line and hash.
     """
     from validators.validate_fragment import repository_path_errors
 
@@ -101,7 +103,7 @@ def legacy_source_errors(scope, fragment_type, document, repository_ids=None) ->
         if fragment_type == "components":
             projection["components"] = [r for r in projection["components"] if r["paths"]]
         with scope.scanner_snapshot(repo.repository_id) as root:
-            errors += repository_path_errors(fragment_type, projection, root)
+            errors += repository_path_errors(fragment_type, projection, root, anchors=anchors)
             if fragment_type == "data-flows":
                 from analyzers.discover_identity_providers import identity_authentication_errors
 
