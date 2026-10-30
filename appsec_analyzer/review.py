@@ -51,6 +51,10 @@ def _offer_update() -> str:
     pipx = shutil.which("pipx", path=search_path) if source else None
     if not pipx:
         return ""
+    from appsec_analyzer.version_info import describe, installed_version, version_change
+
+    before = describe()
+    print(f"Installed version: {before}")
     print(
         f"Update the installed Analyzer from {source} with `pipx {' '.join(PIPX_UPGRADE)}`? [y/N] ", end="", flush=True
     )
@@ -66,7 +70,10 @@ def _offer_update() -> str:
         return "; the update could not be completed"
     if result.returncode:
         return "; the update failed, see its output above"
-    return "; Analyzer was updated, run the command again"
+    after = version_change(before, installed_version())
+    if after is None:
+        return "; Analyzer was updated, run the command again; check the new version with `appsec-analyzer --version`"
+    return f"; Analyzer was updated, run the command again; installed version: {after}"
 
 
 def _load(assessment: str):

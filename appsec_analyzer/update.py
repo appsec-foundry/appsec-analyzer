@@ -9,32 +9,7 @@ import sys
 from pathlib import Path
 
 from appsec_analyzer.review import PIPX_UPGRADE, UPDATE_TIMEOUT, _pipx_source
-from appsec_analyzer.terminal import field
-
-VERSION_TIMEOUT = 30
-
-
-def _installed_version() -> str | None:
-    """What `--version` of the freshly installed package reports; ``None`` when it cannot be read.
-
-    This process still runs the replaced code, so the new installation is asked
-    in a process of its own, from the same pipx environment.
-    """
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "appsec_analyzer", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=VERSION_TIMEOUT,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode:
-        return None
-    # `--version` prints the program name, then the version.
-    _, _, version = result.stdout.strip().partition(" ")
-    return field(version) or None
+from appsec_analyzer.version_info import describe, installed_version, version_change
 
 
 def update_installation() -> int:
@@ -52,8 +27,6 @@ def update_installation() -> int:
     pipx = shutil.which("pipx", path=search_path)
     if not pipx:
         raise ValueError("pipx was not found on PATH; install pipx or update the way you installed Analyzer")
-    from appsec_analyzer.version_info import describe
-
     before = describe()
     print(f"Installed version: {before}")
     print(
@@ -82,9 +55,9 @@ def update_installation() -> int:
         print(result.stdout, end="", file=sys.stderr)
         raise ValueError("the update failed, see the pipx output above")
     print(f"Analyzer was reinstalled from {source}.")
-    after = _installed_version()
+    after = version_change(before, installed_version())
     if after is None:
         print("The new version could not be read; check it with `appsec-analyzer --version`.")
     else:
-        print(f"Installed version: {after}" + (" (unchanged)" if after == before else f" (was {before})"))
+        print(f"Installed version: {after}")
     return 0

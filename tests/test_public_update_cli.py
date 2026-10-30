@@ -29,7 +29,7 @@ def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE, after="9f8e7
         calls.append(argv)
         return subprocess.CompletedProcess(argv, returncode, stdout=PIPX_OUTPUT)
 
-    monkeypatch.setattr("appsec_analyzer.version_info.describe", lambda: BEFORE)
+    monkeypatch.setattr(update, "describe", lambda: BEFORE)
 
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
