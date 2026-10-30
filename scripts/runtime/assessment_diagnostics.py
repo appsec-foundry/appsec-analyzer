@@ -158,6 +158,9 @@ def failure_fields(error: BaseException) -> dict:
             ):
                 if type(value) is int and 0 <= value <= MAX_EXCHANGES:
                     fields[field] = value
+            trail = attempt_trail(error)
+            if trail:
+                fields["attempt_trail"] = trail
         return fields
     result = {"reason": "internal_error"}
     if type(error).__name__ in {
@@ -174,6 +177,21 @@ def failure_fields(error: BaseException) -> dict:
     if isinstance(error, OSError) and type(error.errno) is int:
         result["errno"] = error.errno
     return result
+
+
+def attempt_trail(error) -> list[dict]:
+    """Each rejected result of a failed exchange: the rejecting check, its counts and the corrections tried."""
+    rows = []
+    for entry in list(getattr(error, "trail", ()))[:12]:
+        if not isinstance(entry, dict):
+            continue
+        row = {key: safe_reason(str(entry.get(key) or ""))[:300] for key in ("check", "summary")}
+        for key in ("violations", "citation_anchors"):
+            if type(entry.get(key)) is int and 0 <= entry[key] <= 10_000:
+                row[key] = entry[key]
+        row["corrections"] = [safe_reason(str(path))[:80] for path in list(entry.get("corrections") or [])[:4]]
+        rows.append(row)
+    return rows
 
 
 def transport_summary(error: TransportError) -> str:

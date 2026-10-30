@@ -632,6 +632,27 @@ def test_an_exhausted_correction_says_whether_every_attempt_failed_alike(tmp_pat
     assert ("each for the same reason" in str(raised.value)) is repeat
 
 
+def test_an_exhausted_correction_names_each_rejecting_check_and_the_correction_tried(tmp_path):
+    """The stop names the rule's code location and why corrections failed, without the diagnostics."""
+    from appsec_analyzer.assessment.console import model_failure_rows
+
+    def review(artifact, slices):
+        raise host.Rejection("Local architecture violates repository evidence rules", ["df-001 cites a comment"])
+
+    model = Model([_result("a"), _result("b"), _result("c")])
+    with pytest.raises(host.ModelAnswerFailure) as raised:
+        _reviewed(model, tmp_path, review)
+    trail = raised.value.trail
+    assert [entry["corrections"] for entry in trail] == [["full correction"], ["full correction"], []]
+    assert all(entry["check"].startswith("tests/test_assessment_host.py:") for entry in trail)
+    assert all(entry["check"].endswith(" in review") and entry["citation_anchors"] == 0 for entry in trail)
+    attempts = [text for label, text in model_failure_rows(raised.value) if label == "Attempts"]
+    assert len(attempts) == 2
+    assert attempts[0].startswith("1–2: Local architecture violates repository evidence rules [tests/")
+    assert attempts[0].endswith("1 violation, 0 for line-only correction → full correction")
+    assert attempts[1].startswith("3: ") and attempts[1].endswith("→ no correction left")
+
+
 def test_a_salvage_keeps_what_the_last_rejection_does_not_concern(tmp_path):
     def review(artifact, slices):
         if artifact["summary"] != "kept":
@@ -1071,6 +1092,23 @@ def test_an_unusable_anchor_answer_falls_back_to_a_full_correction(tmp_path):
     model, result = _anchored(tmp_path, "routes/deluxe.ts", source, 2, replies)
     assert result.artifact["threats"][0]["evidence"]["line"] == 3 and result.calls == 3
     assert "rejected_result" in model.prompts[2]
+
+
+def test_a_failed_anchor_correction_is_named_in_the_attempt_trail(tmp_path):
+    from runtime.assessment_diagnostics import attempt_trail
+
+    source = b"const user = load()\n\nawait user.update({ role: 'deluxe' })\n"
+
+    def replies(finding):
+        unusable = {"anchors": [{"anchor_id": "a1", "line": 99}]}
+        return [unusable, {"action": "complete", "reads": [], "artifact": {"threats": [finding(2)]}}] * 2
+
+    with pytest.raises(host.ModelAnswerFailure) as raised:
+        _anchored(tmp_path, "routes/deluxe.ts", source, 2, replies)
+    first = attempt_trail(raised.value)[0]
+    assert first["citation_anchors"] == 1 and first["violations"] == 1
+    assert first["corrections"] == ["line-only citation correction (no usable answer)", "full correction"]
+    assert first["check"].startswith("tests/test_assessment_host.py:") and first["check"].endswith(" in review")
 
 
 @pytest.mark.parametrize(

@@ -190,9 +190,42 @@ def stop_message(headline: str, *rows: tuple[str, str]) -> str:
     return "\n".join(lines)
 
 
+def _attempt_lines(trail: list[dict]) -> list[str]:
+    """One line per run of equal rejections: the check, its counts and what the exchange tried next.
+
+    Together with Detail this names the rejecting rule and why the corrections
+    did not repair it, so the stop can be traced without the diagnostics.
+    """
+    runs: list[list] = []
+    for entry in trail:
+        key = (entry.get("summary"), entry.get("check"), tuple(entry.get("corrections") or ()))
+        if runs and runs[-1][0] == key:
+            runs[-1][2] += 1
+        else:
+            runs.append([key, entry, 1])
+    lines, first = [], 1
+    for _key, entry, count in runs:
+        number = f"{first}" if count == 1 else f"{first}–{first + count - 1}"
+        first += count
+        anchors = entry.get("citation_anchors") or 0
+        violations = entry.get("violations") or 1
+        next_step = " then ".join(entry.get("corrections") or ()) or "no correction left"
+        lines.append(
+            f"{number}: {entry.get('summary') or 'rejected'}"
+            + (f" [{entry['check']}]" if entry.get("check") else "")
+            + f"; {_count_noun(violations, 'violation')}, {anchors} for line-only correction"
+            + f" → {next_step}"
+        )
+    return lines
+
+
 def model_failure_rows(error) -> list[tuple[str, str]]:
-    """Rows for a rejected analysis, from job context only; technical IDs stay in diagnostics."""
-    from runtime.assessment_diagnostics import safe_reason
+    """Rows for a rejected analysis, from job context only; technical IDs stay in diagnostics.
+
+    Attempts names the analyzer check that rejected each result and the
+    correction tried after it: code locations, not repository or job IDs.
+    """
+    from runtime.assessment_diagnostics import attempt_trail, safe_reason
     from runtime.assessment_host import ModelAnswerFailure
 
     if not isinstance(error, ModelAnswerFailure):
@@ -226,6 +259,7 @@ def model_failure_rows(error) -> list[tuple[str, str]]:
         rows.append(("Detail", safe_reason(str(error.rejection))))
     else:
         rows.append(("Detail", safe_reason(job.get("reason", str(error)))))
+    rows += [("Attempts", line) for line in _attempt_lines(attempt_trail(error))]
     rows += [KEPT, ("Continue", f"{RESUME}; if it stops the same way, read the diagnostics first")]
     diagnostics = getattr(error, "diagnostic_path", None)
     if diagnostics:

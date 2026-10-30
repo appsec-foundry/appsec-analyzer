@@ -1023,6 +1023,39 @@ def test_local_architecture_leaves_a_mixed_role_path_to_classification(tmp_path,
     call()
 
 
+def _commented_authentication(tmp_path):
+    """A local architecture whose flow authentication cites a comment above the code doing it."""
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    views = list(scope.repositories)
+    source = b"// Authenticates with the mail server\nresult = request.args['input']\n"
+    views[0] = RepositoryView(views[0].repository_id, views[0].root, "b" * 40, "c" * 64, {"app.py": source})
+    scope = AssessmentScope(tuple(views), scope.output)
+    code = dict(evidence[0], line=2, sha256=hashlib.sha256(source).hexdigest())
+    identity["source_scope_sha256"] = scope.inventory()["scope_sha256"]
+    artifact = _role_architecture(code, identity, ["basic"], via_client=False)
+    comment = dict(code, line=1)
+    artifact["data_flows"][0]["authentication"]["evidence"] = [comment]
+    window = dict(ranges[0], sha256=code["sha256"], end_line=2)
+    local = [dict(components[0], id="component-api", paths=[dict(components[0]["paths"][0], sha256=code["sha256"])])]
+    inventory = dict(components=local + components[1:], source_scope_sha256=identity["source_scope_sha256"])
+    arguments = (scope, code["repository_id"], inventory, dict(component_inventory_fingerprint=FP), artifact)
+    return arguments, [window], comment
+
+
+def test_local_architecture_names_a_commented_authentication_citation_as_an_anchor(tmp_path):
+    """The repository evidence guard hands a comment citation to the line-only correction (MR-2)."""
+    arguments, ranges, comment = _commented_authentication(tmp_path)
+    with pytest.raises(Rejection, match="repository evidence rules") as raised:
+        stage.validate_local_architecture(*arguments, ranges)
+    rejection = raised.value
+    assert len(rejection.anchors) == len(rejection.errors) == 1
+    cited, problem = rejection.anchors[0]
+    assert {k: cited[k] for k in ("repository_id", "file", "line", "sha256")} == comment
+    assert "authentication[0] cites a comment (app.py:1)" in problem
+    arguments[-1]["data_flows"][0]["authentication"]["evidence"] = [dict(comment, line=2)]
+    stage.validate_local_architecture(*arguments, ranges)
+
+
 @pytest.mark.parametrize("client_id", ["component-ui", "component-portal"])
 def test_a_client_without_any_legitimate_role_returns_to_the_analyst_unless_its_entry_proves_the_user(
     tmp_path, client_id
