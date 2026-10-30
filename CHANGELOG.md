@@ -60,6 +60,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A component's evidence-review batches run side by side, and the run caps all simultaneously running model calls at `max_parallel`.
 - The completion summary's Verification line counts findings, controls, partial and undecidable items only, and names the other report formats by short name.
 - With a Claude subscription, USD limits and budget prompts say that they count subscription usage at API prices. The limits themselves are unchanged.
+- The Verification Items appendix starts with the results that need attention: findings and partial protection, then undecided items and evidenced controls, each with its title, component, reason, and findings. Not-applicable, not-examined, and disabled items share one line per aspect, and only items with a result get a detail section. Before, the appendix listed every item for every component, mostly as not applicable, with internal candidate counts.
 - A thorough assessment examines every program file of each component, in extra survey jobs after the others; files the budget does not reach are named as unexamined (REQ-004). Client code gains its own security signals at every depth, such as raw HTML bindings, HTTP interceptors, route guards, and browser storage. Thorough runs send more source code to the model host and cost more; the run header says so.
 
 ### Fixed

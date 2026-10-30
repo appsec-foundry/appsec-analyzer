@@ -16590,20 +16590,21 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
     except (OSError, yaml.YAMLError):
         catalog = {}
     cases = [case for case in catalog.get("test_cases", []) if isinstance(case, dict)]
+    known = {case["id"] for case in cases}
+    # The reader's question first: what did verification find, and where does it hold?
     counts: dict[str, int] = {}
     for row in results:
-        counts[row.get("outcome")] = counts.get(row.get("outcome"), 0) + 1
-    summary = " · ".join(
-        f"{counts[key]} {label.lower()}" for key, label in _TEST_CASE_OUTCOMES.items() if key in counts
-    )
+        if row.get("test_case_id") in known:
+            counts[row.get("outcome")] = counts.get(row.get("outcome"), 0) + 1
+    summary = ", ".join(f"{counts[key]} {label.lower()}" for key, label in _TEST_CASE_OUTCOMES.items() if key in counts)
     lines = [
         '<a id="appendix-verification-items"></a>',
         "## Appendix: Verification Items",
         "",
-        f"Verification catalog version {block.get('catalog_version')}. Examined in this run: {summary or 'none'}. "
-        "A verification item is reported as a control only when every applicable rule is satisfied; a rule without "
-        "a recorded scanner result never counts as satisfied. A finding that several verification items link counts "
-        "once in the severity totals and once per verification item here.",
+        f"Verification checks fixed security properties item by item (catalog version {block.get('catalog_version')}). "
+        f"Results per item and component in this run: {summary or 'none'}. "
+        "A control means that the examined code enforces the property at every place it applies; a partial, "
+        "undecidable or no-finding result is never a control, and neither is an item this run did not examine.",
         "",
     ]
     incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
@@ -16613,18 +16614,6 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             "so the items it did not reach are undecidable.",
             "",
         ]
-    if any(row.get("scope") == "component" for rows in by_id.values() for row in rows):
-        lines += [
-            "A model-investigated verification item shows one row per component. It is a control only when the "
-            "control is evidenced at every candidate location; a partial, no finding or undecidable result is never a "
-            "control. Comments, documentation and controls outside the examined sources are not control evidence.",
-            "",
-        ]
-
-    def inapplicable(rows: list[dict]) -> list[dict]:
-        """The not-applicable component rows of a test case, when several share one line."""
-        found = [row for row in rows if row.get("scope") == "component" and row.get("outcome") == "not_applicable"]
-        return found if len(found) > 1 else []
 
     # A saved model from before verification findings joined the register lists them apart; one that the
     # survey reported too is shown under the survey's ID.
@@ -16640,96 +16629,130 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         if isinstance(t, dict) and re.fullmatch(r"T-\d{3,}", str(t.get("id")))
         for value in (t.get("verification") or {}).get("finding_ids") or []
     }
-    lines += ["| Verification item | Aspect | Outcome | Reason |", "|---|---|---|---|"]
-    for case in cases:
-        rows = by_id.get(case["id"]) or []
-        collapsed = inapplicable(rows)
-        shown = [row for row in rows if not any(row is other for other in collapsed)]
-        for row in shown if rows else [None]:
-            outcome = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"]) if row else "Not examined"
-            reason = _table_text(row["reason"]) if row else "Needs a model investigation that this run did not make."
-            subject = f"[{case['id']}](#{case['id'].lower()})"
-            if row and row.get("scope") == "component":
-                subject += f" · {component(row)}"
-            lines.append(f"| {subject} | {case['aspect']} | {outcome} | {reason} |")
-        if collapsed:
-            listed = ", ".join(component(row) for row in collapsed)
-            lines.append(
-                f"| [{case['id']}](#{case['id'].lower()}) · {len(collapsed)} components | {case['aspect']} "
-                f"| {_TEST_CASE_OUTCOMES['not_applicable']} | {_table_text(collapsed[0]['reason'])}: {listed} |"
+
+    def findings_text(row: dict) -> str:
+        values = [v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v)]
+        if apart:
+            linked = [f"{v} (as {', '.join(survey_ids[v])})" if survey_ids.get(v) else v for v in values]
+            return (
+                f"Findings: {', '.join(linked)} (see [Verification Findings](#verification-findings))."
+                if linked
+                else ""
             )
-    lines.append("")
+        shown = list(dict.fromkeys(register[v] for v in values if v in register))
+        if missing := sum(1 for v in values if v not in register):
+            shown.append(f"{missing} not in the findings register")
+        return f"Findings: {', '.join(shown)}." if shown else ""
+
+    def outcome_text(row: dict) -> str:
+        label = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"])
+        if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
+            label += " (model review only)"
+        elif row["outcome"] == "finding" and row.get("evidence_basis") == "review":
+            label += " (confirmed by the evidence review)"
+        return label
+
+    def subject(case: dict, row: dict | None) -> str:
+        return component(row) if row and row.get("scope") == "component" else "Repository"
+
+    attention, undecided, controls = [], [], []
     for case in cases:
+        for row in by_id.get(case["id"]) or []:
+            if row.get("outcome") in ("finding", "partial"):
+                attention.append((case, row))
+            elif row.get("outcome") == "undecidable":
+                undecided.append((case, row))
+            elif row.get("outcome") == "control":
+                controls.append((case, row))
+
+    def result_rows(rows: list[tuple[dict, dict]]) -> list[str]:
+        out = ["| Verification item | Where | Outcome | Reason |", "|---|---|---|---|"]
+        for case, row in rows:
+            reason = _table_text(row["reason"])
+            if found := findings_text(row):
+                reason += f". {found}"
+            out.append(
+                f"| [{case['id']}](#{case['id'].lower()}) {_table_text(case['title'])} | {subject(case, row)} "
+                f"| {outcome_text(row)} | {reason} |"
+            )
+        return out + [""]
+
+    lines += ["### Results that need attention", ""]
+    lines += (
+        result_rows(attention) if attention else ["No verification item reported a finding or a partial result.", ""]
+    )
+    if undecided:
+        lines += [
+            "### Not decided",
+            "",
+            "The examined source could not settle these items; they are neither findings nor controls.",
+            "",
+        ] + result_rows(undecided)
+    if controls:
+        lines += ["### Controls evidenced", ""] + result_rows(controls)
+
+    # Everything else stays listed, compactly, so the appendix still names every item and every disable reason.
+    detailed = {case["id"] for case, _ in attention + undecided + controls}
+    scoped_components = {str(row.get("component_id")) for row in results if row.get("scope") == "component"}
+    rest: dict[str, dict[str, list[str]]] = {}
+    for case in cases:
+        if case["id"] in detailed:
+            continue
         rows = by_id.get(case["id"]) or []
+        anchor = f'<a id="{case["id"].lower()}"></a>{case["id"]}'
+        if not rows:
+            rest.setdefault(case["aspect"], {}).setdefault("Not examined", []).append(anchor)
+            continue
+        for index, outcome in enumerate(dict.fromkeys(row["outcome"] for row in rows)):
+            label = _TEST_CASE_OUTCOMES.get(outcome, outcome)
+            entry = anchor if index == 0 else case["id"]
+            # The outcome per component stays visible: all components share one label, others name theirs.
+            where = [component(row) for row in rows if row["outcome"] == outcome and row.get("scope") == "component"]
+            if where and len(where) == len(scoped_components):
+                label += " for all components"
+            elif where:
+                entry += f" ({', '.join(where)})"
+            if outcome == "disabled":
+                reason = next(row["reason"] for row in rows if row["outcome"] == "disabled")
+                entry += f" ({_table_text(reason)})"
+            rest.setdefault(case["aspect"], {}).setdefault(label, []).append(entry)
+    if rest:
+        lines += [
+            "### Other items",
+            "",
+            "Items without a finding, partial, undecided or control result in this run, by aspect.",
+            "",
+        ]
+        for aspect, groups in rest.items():
+            parts = "; ".join(f"{label}: {', '.join(entries)}" for label, entries in groups.items())
+            lines.append(f"- **{aspect}** — {parts}")
+        lines.append("")
+
+    if detailed:
+        lines += ["### Item details", ""]
+    for case in cases:
+        if case["id"] not in detailed:
+            continue
         lines += [
             f'<a id="{case["id"].lower()}"></a>',
-            f"### {case['id']}: {_table_text(case['title'])}",
+            f"#### {case['id']}: {_table_text(case['title'])}",
             "",
-            f"Mode: {case['mode']}. STRIDE: {', '.join(case['stride'])}. CWE: {', '.join(case['cwe'])}.",
-            "",
-            f"Objective: {_table_text(case['objective'])}",
+            f"What must hold: {_table_text(case['objective'])}",
             "",
             f"Evidence for a control: {_table_text(case['evidence']['control'])}.",
             "",
         ]
-        collapsed = inapplicable(rows)
-        if collapsed:
-            listed = ", ".join(component(row) for row in collapsed)
-            lines += [f"Not applicable for {len(collapsed)} components: {listed}.", ""]
-        for row in rows:
-            if any(row is other for other in collapsed):
+        for row in by_id.get(case["id"]) or []:
+            if row.get("outcome") == "not_applicable":
                 continue
-            outcome = f"{_TEST_CASE_OUTCOMES.get(row['outcome'], row['outcome'])}. {_table_text(row['reason'])}."
-            candidates = row.get("candidates") or {}
-            if row.get("scope") == "component":
-                lines += [f"Outcome for {component(row)}: {outcome} {_candidate_counts(candidates)}", ""]
-                if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
-                    lines += ["Evidenced by model review only; no post-check confirmed it.", ""]
-                elif row["outcome"] == "finding" and row.get("evidence_basis") == "review":
-                    lines += ["Confirmed by the evidence review; no post-check confirmed it.", ""]
-                values = [v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v)]
-                if not apart:
-                    shown = list(dict.fromkeys(register[value] for value in values if value in register))
-                    if missing := sum(1 for value in values if value not in register):
-                        shown.append(f"{missing} not in the findings register")
-                    if shown:
-                        lines += [f"Findings: {', '.join(shown)}.", ""]
-                    continue
-                linked = [
-                    f"{value} (as {', '.join(survey_ids[value])})" if survey_ids.get(value) else value
-                    for value in values
-                ]
-                if linked:
-                    lines += [
-                        f"Findings: {', '.join(linked)} (see [Verification Findings](#verification-findings)).",
-                        "",
-                    ]
-                continue
+            text = f"{subject(case, row)}: {outcome_text(row)}. {_table_text(row['reason'])}."
+            if found := findings_text(row):
+                text += f" {found}"
             rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
-            lines += [
-                f"Outcome: {outcome} "
-                f"Evidenced for {candidates.get('evidenced', 0)} of {candidates.get('applicable', 0)} applicable rules.",
-                "",
-                f"Rules: {rules}" if rules else "Rules: none",
-                "",
-            ]
+            if row.get("scope") != "component" and rules:
+                text += f" Rules: {rules}."
+            lines += [text, ""]
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _candidate_counts(candidates: dict) -> str:
-    """The candidate locations of a component result, in neutral counts."""
-    parts = [
-        f"{candidates.get(key, 0)} {label}"
-        for key, label in (
-            ("weaknesses", "weakness"),
-            ("evidenced", "control"),
-            ("undecidable", "undecidable"),
-            ("rejected", "rejected"),
-            ("unexamined", "not examined"),
-        )
-        if candidates.get(key)
-    ]
-    return f"Candidate locations: {candidates.get('applicable', 0)}" + (f" ({', '.join(parts)})." if parts else ".")
 
 
 _METHOD_NAMES = {"survey": "survey", "scanners": "scanners", "verification": "verification"}
