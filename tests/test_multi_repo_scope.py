@@ -457,7 +457,7 @@ def test_source_and_slice_limits_fail_closed(tmp_path, monkeypatch):
     assert {"path": "app.py", "reason": "oversized"} in admitted.repositories[0].exclusions
 
 
-@pytest.mark.parametrize("payload", [b"GIF89a\x10\x00\x10\x00" * 8, b"\xff\xd8\xff\xe0 jpeg-like" * 8])
+@pytest.mark.parametrize("payload", [b"GIF89a\x10\x00\x10\x00" * 8, b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" * 8])
 def test_an_oversized_file_is_excluded_by_its_kind_not_rejecting_its_repository(tmp_path, monkeypatch, payload):
     """MR-10: an oversized text file, such as a lockfile, is excluded as not analysed."""
     roots = pair(tmp_path)
@@ -470,6 +470,24 @@ def test_an_oversized_file_is_excluded_by_its_kind_not_rejecting_its_repository(
     assert {"path": "package-lock.json", "reason": "oversized"} in admitted.repositories[1].exclusions
     assert "package-lock.json" not in admitted.repositories[1].files
     # The inventory that records the exclusion still satisfies its contract.
+    admitted.inventory()
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ("const név = 'árvíztűrő';\n".encode("latin-1", "replace"), "non-utf8-text"),
+        ("const a = 'x';\n".encode("utf-16"), "non-utf8-text"),
+        (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe", "binary"),
+    ],
+)
+def test_source_that_is_not_utf8_is_named_apart_from_binary_data(tmp_path, payload, reason):
+    """REQ-003: text in another encoding is a coverage gap, not an unnamed binary."""
+    roots = pair(tmp_path)
+    (Path(roots[0]) / "legacy.js").write_bytes(payload)
+    admitted = scope.admit(roots, str(tmp_path / "out"))
+    assert {"path": "legacy.js", "reason": reason} in admitted.repositories[0].exclusions
+    assert "legacy.js" not in admitted.repositories[0].files
     admitted.inventory()
 
 

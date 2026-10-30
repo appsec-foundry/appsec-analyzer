@@ -752,6 +752,10 @@ def _export_pentest_tasks_if_configured(output_dir: Path, cfg: dict[str, Any]) -
     except (OSError, subprocess.SubprocessError):
         return
     if proc.returncode == 0 and target.is_file():
+        # The merged register is masked for known values only; the report's masking never saw this file.
+        from validators import secret_scan
+
+        secret_scan.mask_file(target)
         _append_event(output_dir, "EXPORT_BACKSTOP", f"{script} wrote {basename} from .threats-merged.json")
 
 
@@ -3925,6 +3929,40 @@ def _single_repository_meta(scope) -> dict:
     }
 
 
+def _assessment_source_identity(scope) -> list[str]:
+    """Builder arguments naming the assessed source: its captured state and, with one Git checkout, its commit."""
+    state = hashlib.sha256("\n".join(sorted(r.state_sha256 for r in scope.repositories)).encode()).hexdigest()
+    arguments = ["--source-state", state]
+    if len(scope.repositories) == 1 and not scope.repositories[0].without_git:
+        arguments += ["--source-commit", scope.repositories[0].head]
+    return arguments
+
+
+def _excluded_paths(scope, reason: str) -> list[str]:
+    """The report paths of the files admission excluded for ``reason``."""
+    repositories = scope.inventory()["repositories"]
+    return sorted(
+        (row["path"] if len(repositories) == 1 else f"{repo['label']}/{row['path']}")
+        for repo in repositories
+        for row in repo["exclusions"]
+        if row["reason"] == reason
+    )
+
+
+def _unanalysed_source(scope, workspace: Path) -> list[dict[str, Any]]:
+    """REQ-003: the source that reached no analysis, by reason, for the report's coverage gaps."""
+    rows = []
+    for reason in ("oversized", "non-utf8-text"):
+        excluded = _excluded_paths(scope, reason)
+        if excluded:
+            rows.append({"reason": reason, "files": len(excluded), "examples": excluded[:10]})
+    findings = workspace / ".config-scan-findings.json"
+    unparsed = json.loads(findings.read_text(encoding="utf-8")).get("unparsed_iac") if findings.is_file() else None
+    if unparsed:
+        rows.append({"reason": "unparsed-config", "files": unparsed["file_count"], "examples": unparsed["files"][:10]})
+    return rows
+
+
 def _assessment_invocation(argv: list[str]) -> str:
     """The run's flags without values that name local paths or free text."""
     keep_value = {
@@ -4110,6 +4148,8 @@ def _assessment_render(
         _run_script(
             "model/build_threat_model_yaml.py",
             [str(workspace), "--repo-root", str(root), "--plugin-root", str(PLUGIN_ROOT)]
+            # The model is built on a combined copy without Git; the scope knows what was assessed.
+            + _assessment_source_identity(scope)
             # REQ-017: the workspace starts empty, so the replaced assessment's changelog comes along.
             + (["--history", str(history)] if history else []),
         )
@@ -4147,6 +4187,9 @@ def _assessment_render(
         unexamined = [{"component": e["component"], "files": e["files"]} for e in jobs.infos if "component" in e]
         if unexamined:
             model["meta"]["unexamined_source"] = unexamined
+        unanalysed = _unanalysed_source(scope, workspace)
+        if unanalysed:
+            model["meta"]["unanalysed_source"] = unanalysed
         unowned = next((e["unowned"] for e in jobs.infos if "unowned" in e), None)
         if unowned:
             model["meta"]["unowned_source"] = unowned
@@ -4295,6 +4338,8 @@ def _assessment_publish(
         for basename, digest in list(delivered.items()):
             if (staging / (stamped := stamp_threat_model._stamped_name(basename, slug))).is_file():
                 delivered[stamped] = digest
+    # REQ-032: the last exports came after the quality gates, so everything is checked once more under its final name.
+    _run_script("validators/qa_checks.py", ["published_secrets", str(staging), str(workspace)])
     # Recorded first: a run that stops after this still owns what it moved.
     record(delivered)
     for name in delivered:
@@ -4501,16 +4546,12 @@ def assess_repositories(
     labels = sorted(row["label"] for row in scope.inventory()["repositories"])
     warnings: list[str] = []
     infos: list[str] = []
-    oversized = sorted(
-        (row["path"] if len(labels) == 1 else f"{repo['label']}/{row['path']}")
-        for repo in scope.inventory()["repositories"]
-        for row in repo["exclusions"]
-        if row["reason"] == "oversized"
-    )
-    if oversized:
-        # MR-10: an oversized text file is excluded, never silently.
-        shown = ", ".join(oversized[:10]) + (f" and {len(oversized) - 10} more" if len(oversized) > 10 else "")
-        warnings.append(f"{len(oversized)} source file(s) over 1 MiB were not analysed: {shown}")
+    for reason, description in (("oversized", "over 1 MiB"), ("non-utf8-text", "not in UTF-8")):
+        excluded = _excluded_paths(scope, reason)
+        if excluded:
+            # MR-10: a text file is excluded, never silently.
+            shown = ", ".join(excluded[:10]) + (f" and {len(excluded) - 10} more" if len(excluded) > 10 else "")
+            warnings.append(f"{len(excluded)} source file(s) {description} were not analysed: {shown}")
     # The repository list is stated in the report's assessment notes; joined
     # into the system name it surfaced in titles, scope and actor labels.
     project = (

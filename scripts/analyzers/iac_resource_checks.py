@@ -13,8 +13,9 @@ A regex cannot judge these files: a securityContext may sit on the pod or on
 the container, a Compose port may be published with or without a host
 address, and a secret may be a literal or a reference. Catalog entries with
 ``expect: structured`` name one evaluator below; each parses the file and
-returns ``(line, snippet)`` for the first violation, or ``None``. An
-unparsable file yields no violation.
+returns ``(line, snippet)`` for the first violation, or ``None``. YAML that
+cannot be parsed raises ``UnparsableFile``: its checks did not run, which the
+scanner reports instead of counting the file as clean.
 
 Secret-literal rule, shared by Compose ``environment``, Kubernetes ``env`` and
 Terraform attributes and variable defaults: a key whose name denotes a
@@ -246,11 +247,15 @@ _LineLoader.add_constructor("tag:yaml.org,2002:map", _construct_map)
 _LineLoader.add_constructor("tag:yaml.org,2002:seq", _construct_seq)
 
 
+class UnparsableFile(ValueError):
+    """The file is not valid YAML, so the structured checks on it did not run."""
+
+
 def _documents(text: str) -> list[Any]:
     try:
         return list(yaml.load_all(text, Loader=_LineLoader))  # noqa: S506 - SafeLoader subclass
     except (yaml.YAMLError, ValueError, TypeError, RecursionError):
-        return []
+        raise UnparsableFile from None
 
 
 def _line_of(container: Any, key: Any = None) -> int:

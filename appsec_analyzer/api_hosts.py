@@ -32,6 +32,7 @@ from runtime.analyst_host import HostCancelled, HostReply, TransportError
 MAX_REPLY_BYTES = 1_048_576
 MAX_REQUEST_BYTES = 1_048_576
 PREFLIGHT_SECONDS = 10
+CONNECT_SECONDS = 10
 _WIRE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -225,8 +226,11 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self._address = address
 
     def connect(self) -> None:
-        raw = socket.create_connection((self._address, 443), timeout=self.timeout)
+        # Only the connection has a short limit: a model's reply can take as long as its call may.
+        limit = min(self.timeout, CONNECT_SECONDS)
+        raw = socket.create_connection((self._address, 443), timeout=limit)
         self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        self.sock.settimeout(self.timeout)
 
 
 def credential(profile: ApiProfile) -> str:
@@ -401,7 +405,7 @@ class ResponsesTransport:
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise ApiTransportError("invalid_timeout", usd=0.0)
         token = credential(self.profile)
-        if type(schema) is not dict or type(system) is not str or type(prompt) is not str:
+        if type(schema) is not dict or type(system) is not str or not isinstance(prompt, str):
             raise ApiTransportError("invalid_request", usd=0.0)
         body = _request_body(self.profile, system, prompt, schema)
         if len(body) > self.profile.max_request_bytes:
@@ -423,7 +427,7 @@ class ResponsesTransport:
             "/model/" + quote(self.profile.model, safe="") + "/converse" if self.profile.kind == "bedrock" else url.path
         )
         address = self.profile.pinned_ip or _public_addresses(url.hostname or "")[0]
-        connection = _PinnedHTTPS(url.hostname or "", address, timeout=min(timeout_s, 10))
+        connection = _PinnedHTTPS(url.hostname or "", address, timeout=timeout_s)
         result: list[object] = []
 
         def send() -> None:

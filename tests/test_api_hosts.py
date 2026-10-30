@@ -353,3 +353,41 @@ def test_default_accepts_output_above_former_caps_but_explicit_limit_is_enforced
     assert response.payload == {"accepted": True}
     with pytest.raises(api_hosts.TransportError, match="invalid_response"):
         api_hosts.ResponsesTransport(_profile(), 0.1).invoke("s", "p", {}, 5, lambda: False)
+
+
+def test_a_controller_prompt_is_sent_like_any_other_text(fake_host):
+    """The exchange layer sends a str subclass; refusing it stopped every API assessment."""
+    from runtime.assessment_host import _prompt
+
+    prompt = _prompt({"context": {"name": "artificial"}, "source_slices": []})
+    assert type(prompt) is not str
+    transport = api_hosts.ResponsesTransport(_profile(), 0.1)
+    transport.invoke("system", prompt, {"type": "object"}, 5, lambda: False)
+    assert fake_host.instances[0].requests, "the request was refused before transmission"
+
+
+def test_the_reply_may_take_as_long_as_the_call_may(fake_host):
+    """Only connecting has a short limit; a reply over ten seconds is not a failure."""
+    transport = api_hosts.ResponsesTransport(_profile(), 0.1)
+    transport.invoke("system", "source", {"type": "object"}, 90, lambda: False)
+    assert fake_host.instances[0].timeout == 90
+
+
+def test_connect_limit_is_short_and_the_established_socket_gets_the_call_limit(monkeypatch):
+    seen = {}
+
+    class Socket:
+        def settimeout(self, value):
+            seen["read"] = value
+
+    class Context:
+        def wrap_socket(self, raw, server_hostname):
+            return Socket()
+
+    monkeypatch.setattr(
+        api_hosts.socket, "create_connection", lambda address, timeout: seen.update(connect=timeout) or object()
+    )
+    connection = api_hosts._PinnedHTTPS("api.example.test", "203.0.113.1", timeout=90)
+    connection._context = Context()
+    connection.connect()
+    assert seen == {"connect": api_hosts.CONNECT_SECONDS, "read": 90}

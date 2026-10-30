@@ -1041,6 +1041,9 @@ def _scan_local(ns: argparse.Namespace) -> int:
                     "captured_files": len(view.files),
                     "excluded_files": list(view.exclusions),
                     "config_iac_applicable": config is not None,
+                    **(
+                        {"unparsed_config_files": config["unparsed_iac"]} if config and "unparsed_iac" in config else {}
+                    ),
                     "findings": records,
                 }
             )
@@ -1084,6 +1087,12 @@ def _scan_summary(result: dict, *, output: str | None) -> str:
                 f"Scanner findings: {len(findings)} (unverified)",
             ]
         )
+        unparsed = repository.get("unparsed_config_files")
+        if unparsed:
+            shown = ", ".join(_terminal_field(path) for path in unparsed["files"])
+            lines.append(
+                f"Configuration files not parsed, so their resource checks did not run: {unparsed['file_count']} ({shown})"
+            )
         for record in findings:
             finding = record["finding"]
             severity = _terminal_field(finding.get("severity", "Unknown"))

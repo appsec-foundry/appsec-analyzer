@@ -55,6 +55,7 @@ from shared._atomic_io import atomic_write_json
 
 from analyzers import supply_chain_facts
 from analyzers.iac_resource_checks import EVALUATORS as RESOURCE_EVALUATORS
+from analyzers.iac_resource_checks import UnparsableFile
 from analyzers.scan_excludes import INVENTORY_GIT, RepoInventory, repo_inventory
 
 EVALUATORS = {**AGENT_EVALUATORS, **RESOURCE_EVALUATORS}
@@ -418,6 +419,7 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
     selected = _selected_files(repo_root, checks, inventory, depth=depth)
     pending: list[dict[str, Any]] = []
     evaluated: list[dict[str, Any]] = []
+    unparsed: set[str] = set()
     for check in checks:
         before = len(pending)
         if check["expect"] == "repository":
@@ -431,12 +433,19 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
             pending.append({"check": check, "path": None, "line": 0, "snippet": "File not found", "searched_files": []})
             evaluated.append(_evaluated(check, True, True, 0))
             continue
+        examined = 0
         for path in paths:
             try:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError as exc:
                 raise ConfigScanError(f"cannot read scan target {path}: {exc}") from exc
-            violation = _violation(check, path, text)
+            try:
+                violation = _violation(check, path, text)
+            except UnparsableFile:
+                # The check did not run here: neither a finding nor a satisfied check.
+                unparsed.add(path.relative_to(repo_root).as_posix())
+                continue
+            examined += 1
             if violation is not None:
                 line, snippet = violation
                 row = {"check": check, "path": path, "line": line, "snippet": snippet}
@@ -444,7 +453,7 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
                     row["searched_files"] = [path.relative_to(repo_root).as_posix()]
                 pending.append(row)
         evaluated.append(
-            _evaluated(check, len(pending) > before, check["expect"] == "file_exists" or bool(paths), len(paths))
+            _evaluated(check, len(pending) > before, check["expect"] == "file_exists" or bool(examined), examined)
         )
 
     findings: list[dict[str, Any]] = []
@@ -482,6 +491,8 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
     uncovered = _uncovered_surfaces(repo_root, checks_path, checks, inventory)
     if uncovered:
         result["uncovered_iac"] = uncovered
+    if unparsed:
+        result["unparsed_iac"] = {"file_count": len(unparsed), "files": sorted(unparsed)[:UNCOVERED_FILES_LISTED]}
     return result
 
 
@@ -536,6 +547,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     uncovered = ", ".join(row["iac_type"] for row in result.get("uncovered_iac", []))
     suffix = f"; no checks for: {uncovered}" if uncovered else ""
+    if "unparsed_iac" in result:
+        suffix += f"; not parsed: {result['unparsed_iac']['file_count']} file(s)"
     if result["inventory_source"] != INVENTORY_GIT:
         suffix += f"; inventory: {result['inventory_source']} (no git ignore rules applied)"
     print(f"config-iac-scanner: {result['checks_run']} checks, {result['violations']} violations{suffix}")

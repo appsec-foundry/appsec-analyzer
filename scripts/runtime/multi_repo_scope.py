@@ -15,6 +15,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import selectors
 import signal
 import stat
@@ -45,6 +46,8 @@ GIT_TIMEOUT = 30
 # MR-6: the one output location a sole repository may hold, as in a single scan.
 CHECKOUT_OUTPUT = PurePosixPath("docs/security")
 SENSITIVE_NAMES = (".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*")
+_WIDE_TEXT_MARKS = (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE, codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)
+_CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0e-\x1f\x7f]")
 
 
 class ScopeError(ValueError):
@@ -266,15 +269,20 @@ class OversizedText(ScopeError):
     """An oversized text file, such as a lockfile or a generated bundle (MR-10)."""
 
 
+def _undecodable_reason(data: bytes) -> str:
+    """Why bytes that are not UTF-8 stay out: other text is a coverage gap, binary data is not source."""
+    if data.startswith(_WIDE_TEXT_MARKS) or not _CONTROL_BYTES.search(data):
+        return "non-utf8-text"
+    return "binary"
+
+
 def _binary_prefix(prefix: bytes) -> bool:
     """Apply the captured-file binary rule to a leading chunk."""
-    if b"\0" in prefix:
-        return True
     try:
         codecs.getincrementaldecoder("utf-8")().decode(prefix, final=False)
     except UnicodeError:
-        return True
-    return False
+        return _undecodable_reason(prefix) == "binary"
+    return b"\0" in prefix
 
 
 def _read(root: Path, relative: str) -> bytes:
@@ -484,7 +492,7 @@ def _capture(root: Path, repository_id: str, remaining: int, output: PurePosixPa
         try:
             data.decode("utf-8")
         except UnicodeError:
-            exclusions.append({"path": path, "reason": "binary"})
+            exclusions.append({"path": path, "reason": _undecodable_reason(data)})
             continue
         if b"\0" in data:
             exclusions.append({"path": path, "reason": "binary"})

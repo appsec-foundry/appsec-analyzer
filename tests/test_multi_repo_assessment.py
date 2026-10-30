@@ -4142,3 +4142,15 @@ def test_an_application_gets_its_connection_to_a_database_it_opens(tmp_path, pat
     assert controller._assessment_database_flows(scope, components, modelled) == modelled
     components["components"][1]["framework"] = "sqlite"
     assert controller._assessment_database_flows(scope, components, {"data_flows": []}) == {"data_flows": []}
+
+
+def test_source_in_another_encoding_is_named_in_the_run_and_the_report(tmp_path, monkeypatch):
+    """REQ-003: a text file the run could not read is a stated gap, never a silent drop."""
+
+    def seed(roots):
+        (roots[0] / "legacy.js").write_bytes("const név = 'árvíztűrő';\n".encode("latin-1", "replace") * 4)
+
+    outcome, _, out = _assess(tmp_path, monkeypatch, ("edge", "service"), seed=seed)
+    assert outcome["status"] == "complete"
+    assert any("not in UTF-8 were not analysed: edge/legacy.js" in w for w in outcome["warnings"])
+    assert "`edge/legacy.js`" in (out / "security-assessment.md").read_text()

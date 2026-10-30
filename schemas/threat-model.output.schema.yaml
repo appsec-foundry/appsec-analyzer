@@ -118,6 +118,24 @@ properties:
           properties:
             component: {type: string, minLength: 1}
             files: {type: integer, minimum: 1}
+      unanalysed_source:
+        type: array
+        description: >-
+          Source that reached no analysis, by reason, with at most ten example paths: files over the
+          size limit, text not in UTF-8, and configuration a structured check could not parse;
+          rendered in §1 Scope as a coverage gap.
+        items:
+          type: object
+          additionalProperties: false
+          required: [reason, files, examples]
+          properties:
+            reason: {enum: [oversized, non-utf8-text, unparsed-config]}
+            files: {type: integer, minimum: 1}
+            examples:
+              type: array
+              minItems: 1
+              maxItems: 10
+              items: {type: string, minLength: 1}
       undecided_targets:
         type: array
         description: >-
@@ -345,6 +363,12 @@ properties:
             very first assessment (no prior state to diff against).
         current_sha:
           type: [string, "null"]
+        source_state:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: |
+            Digest of the captured source of this run. Two entries with the same
+            digest assessed the same source, uncommitted changes included.
         changed_files:
           type: [integer, "null"]
           minimum: 0

@@ -67,6 +67,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- `assess` with OpenAI API, LiteLLM, Amazon Bedrock, or GitHub Copilot CLI no longer rejects every assessment prompt before sending it, and an API call may wait for its reply as long as the call is allowed to run instead of failing after 10 seconds.
+- `--fail-on` and the changelog compare a reassessment with the captured source of the earlier run. Before, a run on a source without a readable commit counted as unchanged, so new findings were never reported and the gate passed.
+- A text file in another encoding, such as Latin-1 or UTF-16, is named as not analysed in the console and in the report, as an oversized file already was, instead of being dropped as binary without a word.
+- A Kubernetes, Compose, or workflow file that cannot be parsed, such as a Helm template, is named as not parsed in `scan-sources`, `score`, and the report. Before, its resource checks were skipped without a trace.
+- The delivery check for unmasked secrets covers every published text file, including `pentest-tasks.yaml`, which is created after the report checks.
+- `scan-sources` with a path that does not exist no longer advises `--trust-mode trusted`.
 - A cited ignore-file pattern such as `*.env` or `**/node_modules` in `.dockerignore` or `.gitignore` counts as configuration, not as a block-comment line. Before, a control that rested on such a file could never cite valid evidence, and the Controls step stopped the assessment after three attempts.
 - A configuration rule hit is rated insecure practice instead of confirmed exploitable, and a hit in a file that serves only local development, such as `compose.dev.yaml`, is marked "Development only" and does not raise the verdict (REQ-009). A file that the repository's CI, Dockerfile, or Makefile names is not development only.
 - Remediation Priorities names a measure to do first when no measure has priority P1 or P2; it then shows the best priority present. A root cause without any measure of its own says that its lasting fix applies. Before, an assessment with only Medium findings showed every row with empty cells.

@@ -22,6 +22,7 @@ from appsec_analyzer.score.calculation import top_findings as top_findings
 
 HERE = resource_root() / "scripts"
 SCANNER_TIMEOUT_S = 600
+UNPARSED_CONFIG = "config-iac: configuration files could not be parsed"
 
 SCANNER_SCHEMAS = {
     "route-inventory": "route-inventory.schema.json",
@@ -131,4 +132,6 @@ def collect(
             rules = data["rules_evaluated"]
         elif label in {"config-iac", "source-auth"}:
             findings.extend({**finding, "_scanner": label} for finding in data["findings"])
+            if "unparsed_iac" in data:
+                warnings.append(UNPARSED_CONFIG)
     return rules, findings, warnings, statuses
