@@ -475,6 +475,9 @@ requirements:
       - docs/profiles.md
     coverage: partial
     guards:
+      - tests/test_severity_rollup.py::test_a_contradicted_finding_stays_listed_but_supports_no_verdict_or_total
+      - tests/test_merge_threats.py::TestWeaknessRegister::test_a_contradicted_finding_backs_no_weakness
+      - tests/test_emit_finding_fix_mitigations.py::test_a_finding_the_evidence_review_contradicted_gets_no_fix_card
       - tests/test_test_case_catalog.py::test_catalog_matches_its_schema
       - tests/test_test_case_catalog.py::test_every_shipped_rule_is_a_starting_point_or_recorded_as_unmapped
       - tests/test_test_case_catalog.py::test_controls_and_abuse_cases_exist

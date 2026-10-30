@@ -293,3 +293,14 @@ def test_a_fix_waiting_for_a_manual_review_is_scheduled_one_band_lower(tmp_path:
 
 def test_after_review_priority_never_drops_below_p4() -> None:
     assert [effm.after_review_priority(p) for p in ("P1", "P2", "P3", "P4", "")] == ["P2", "P3", "P4", "P4", "P4"]
+
+
+def test_a_finding_the_evidence_review_contradicted_gets_no_fix_card(tmp_path: Path, monkeypatch) -> None:
+    contradicted = _threat("T-001", evidence_review_contradicted={"reason": "A router-wide guard precedes the route."})
+    _write_yaml(tmp_path, {"mitigations": [], "threats": [contradicted, _threat("T-002")]})
+
+    assert _run(tmp_path, monkeypatch) == 0
+
+    data = _read_yaml(tmp_path)
+    assert [card["threat_ids"] for card in data["mitigations"]] == [["T-002"]]
+    assert not {t["id"]: t for t in data["threats"]}["T-001"].get("mitigation_ids")

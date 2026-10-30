@@ -3278,6 +3278,24 @@ class TestWeaknessRegister:
         assert w[0]["kind"] == "implementation"
         assert len(w[0]["observable_backing"]["practice_evidence"]) == 5
 
+    def test_a_contradicted_finding_backs_no_weakness(self, mt):
+        practice = [
+            {
+                "source": "stride",
+                "cwe": "CWE-89",
+                "component_id": "seeder",
+                "evidence": {"file": "seed.ts", "line": i},
+                "evidence_tier": "insecure-practice",
+            }
+            for i in range(3)
+        ]
+        practice[0]["evidence_review_contradicted"] = {"reason": "The query is parameterized."}
+        (weakness,) = mt.build_weakness_register(practice, None)
+        assert [row["line"] for row in weakness["observable_backing"]["practice_evidence"]] == [1, 2]
+        for row in practice:
+            row["evidence_review_contradicted"] = {"reason": "The query is parameterized."}
+        assert mt.build_weakness_register(practice, None) == []
+
     def test_database_mechanism_does_not_absorb_other_injection_cwes(self, mt):
         """A mechanism-level weakness is not a catch-all CWE-class bucket."""
         threats = [

@@ -382,3 +382,20 @@ def test_verdict_practice_concern_does_not_claim_confirmation():
 )
 def test_the_root_cause_section_needs_two_critical_findings_on_the_register_basis(threats, expected):
     assert sr.has_root_cause_section({"threats": threats}) is expected
+
+
+def test_a_contradicted_finding_stays_listed_but_supports_no_verdict_or_total():
+    contradicted = {
+        "id": "T-007",
+        "risk": "Critical",
+        "evidence_check": "ambiguous",
+        "evidence_review_contradicted": {"reason": "A router-wide admin guard precedes the route."},
+    }
+    ambiguous = {"id": "T-008", "risk": "High", "evidence_check": "ambiguous"}
+    model = {"threats": [contradicted, ambiguous], "weaknesses": []}
+    assert [t["id"] for t in sr.register_threats(model)] == ["T-007", "T-008"]
+    assert sr.verdict_basis(model) == {"F-008": "High"}
+    assert sr.verdict_floor_ids(model) == []
+    assert sr.verdict_severity(model) == "yellow"
+    assert sr.risk_distribution_counts(model)["critical"] == 0
+    assert sr.risk_distribution_counts(model)["high"] == 1

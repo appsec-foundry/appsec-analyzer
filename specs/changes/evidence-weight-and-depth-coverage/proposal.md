@@ -31,4 +31,8 @@ Risks raised: thorough costs more and takes longer; for the reviewed application
 
 ## Status
 
-This change records the approved requirements, their acceptance rules, and their bindings. It does not implement them. The guards in the bindings do not yet cover the new rules.
+This change records the approved requirements, their acceptance rules, and their bindings.
+
+REQ-040 is implemented through one finding-state predicate, `counts_toward_assessment`, which the verdict basis, the risk distribution, the weakness register, and the generated fix mitigations use. The register and the review mitigation keep the finding. Its guards are bound.
+
+REQ-009 and REQ-004 are not implemented yet, and no guard covers their new rules.
