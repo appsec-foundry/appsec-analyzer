@@ -11,10 +11,11 @@ _RELATIVE = {
 }
 
 
-def _coverage(values: dict) -> str:
+def _coverage(values: dict, depth: str = "standard") -> str:
+    survey = "survey of every program file" if depth == "thorough" else "survey"
     if not values["verify"]:
-        return "survey only, no verification"
-    parts = [f"survey, verification of {len(values['verify'])} security aspects"]
+        return f"{survey} only, no verification"
+    parts = [f"{survey}, verification of {len(values['verify'])} security aspects"]
     if values["abuse_cases"]:
         parts.append(f"up to {values['abuse_cases']} business rules")
     if values["architect_review"]:
@@ -46,7 +47,7 @@ def choose(profiles: dict[str, dict]) -> str:
     for number, (depth, limit) in enumerate(zip(depths, limits), 1):
         sys.stderr.write(
             f"  {number}) {depth:<9} {limit:<{width}}  {_RELATIVE[depth]:<16}  "
-            f"{_coverage(profiles[depth]['settings']['depth_settings'])}\n"
+            f"{_coverage(profiles[depth]['settings']['depth_settings'], depth)}\n"
         )
     sys.stderr.write("\n")
     for _ in range(3):

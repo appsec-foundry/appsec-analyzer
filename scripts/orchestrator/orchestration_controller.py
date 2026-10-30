@@ -2045,7 +2045,7 @@ def _assessment_stride(
         if platform is not None:
             context["platform_settings"] = platform
         progress(f"Surveying component: {label(component)} ({position}/{len(components['components'])})")
-        targets = analysis.analysis_targets(scope, component, architecture, scanned[component["id"]])
+        targets = analysis.analysis_targets(scope, component, architecture, scanned[component["id"]], depth=depth)
         unexamined = analysis.unexamined_files(component, targets)
         if unexamined:
             examples = ", ".join(path for _, path in unexamined[:5])
@@ -2161,9 +2161,21 @@ def _assessment_stride(
         # no call only requests them; the read allowance stays for following a
         # lead to its control or sink. More source gets further bounded jobs,
         # never silent truncation or a larger per-job budget.
+        # REQ-004: thorough coverage targets run in optional jobs after the
+        # required ones, so a budget stop leaves only them unexamined.
+        lead_targets = [target for target in targets if not target.get("coverage")]
+        coverage_targets = [target for target in targets if target.get("coverage")]
+        batch_limits = dict(
+            room=room,
+            max_targets=64,
+            max_windows=MAX_PRELOAD_WINDOWS,
+            window_lines=MAX_SLICE_LINES,
+            max_unserved=MAX_READS // 2,
+        )
+        coverage_batches = analysis.target_batches(scope, coverage_targets, **batch_limits) if coverage_targets else []
         target_batches = analysis.target_batches(
             scope,
-            targets,
+            lead_targets,
             room=room,
             max_targets=64,
             max_windows=MAX_PRELOAD_WINDOWS,
@@ -2173,11 +2185,14 @@ def _assessment_stride(
             reserve_windows=len(context_preload),
         ) or [([], [])]
         jobs.budget.plan_required("stride:" + component["id"], "stride_analyzer", len(target_batches))
+        required_jobs = len(target_batches)
+        target_batches = [*target_batches, *coverage_batches]
         parts = []
         for index, (target_batch, preload) in enumerate(target_batches, 1):
             selector = (
                 "stride:" + component["id"] + (f":{index}/{len(target_batches)}" if len(target_batches) > 1 else "")
             )
+            optional = index > required_jobs
             first = index == 1
             job_context = {**context, "investigation_targets": target_batch}
             if len(target_batches) > 1:
@@ -2186,7 +2201,9 @@ def _assessment_stride(
                 jobs.execute(
                     role="stride_analyzer",
                     selector=selector,
-                    budget_group="stride:" + component["id"],
+                    budget_group=("coverage:" if optional else "stride:") + component["id"],
+                    # A coverage job that the budget or the model cannot complete leaves its files unexamined.
+                    on_failure=(lambda reason: None) if optional else None,
                     instructions=stride_instructions(),
                     context=job_context,
                     schema=schema,
@@ -2221,6 +2238,27 @@ def _assessment_stride(
             )
             # Per-component progress: components run concurrently (MR-16).
             progress(f"Finished survey job: {label(component)} ({index}/{len(target_batches)})")
+        skipped = sorted(
+            {
+                (target["evidence"]["repository_id"], target["evidence"]["file"])
+                for part, (target_batch, _) in zip(parts, target_batches, strict=True)
+                if part is None
+                for target in target_batch
+            }
+        )
+        if skipped:
+            examples = ", ".join(path for _, path in skipped[:5])
+            # REQ-004: a thorough survey names the files its budget did not reach.
+            jobs.infos.append(
+                {
+                    "component": component["name"],
+                    "files": len(skipped),
+                    "text": f"{component['name']}: {_count_noun(len(skipped), 'source file')} were not examined "
+                    f"because the budget or the model ended the coverage jobs early (for example {examples})",
+                }
+            )
+        target_batches = [batch for part, batch in zip(parts, target_batches, strict=True) if part is not None]
+        parts = [part for part in parts if part is not None]
         for part, (target_batch, _) in zip(parts, target_batches, strict=True):
             # A coverage statement for the report, not an action item (REQ-003).
             jobs.infos.extend(
@@ -3238,7 +3276,16 @@ def _method_rows(test_cases, depth: str = "standard") -> list[tuple[str, str]]:
     methods = _AssessmentConsole.METHODS
     rows = [
         ("Scanners", methods["Scanners"].format(starts="survey and verify" if test_cases else "the survey")),
-        ("Survey", methods["Survey"]),
+        (
+            "Survey",
+            methods["Survey"]
+            + (
+                "; thorough also sends every other program file of each component to the model host, "
+                "in optional jobs that cost extra and stop first when the budget runs short"
+                if depth == "thorough"
+                else ""
+            ),
+        ),
     ]
     if test_cases:
         aspects = test_cases.get("aspects") if isinstance(test_cases, dict) else None

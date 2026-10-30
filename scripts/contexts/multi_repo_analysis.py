@@ -198,14 +198,27 @@ def _security_patterns():
     return tuple(pattern for _, pattern in SECURITY_PATTERNS)
 
 
+# REQ-004: client code has its own signals. A browser client rarely names a
+# route or a server keyword, yet it binds raw HTML, intercepts requests,
+# guards navigation and keeps tokens in browser storage.
+_CLIENT_SIGNALS = re.compile(
+    r"\[innerHTML\]|v-html\b|bypassSecurityTrust\w*|\bHttpInterceptor\b|\bHttpInterceptorFn\b"
+    r"|\bcan(?:Activate|ActivateChild|Match|Load)\b|\bCanActivateFn\b|\bbeforeEach\s*\("
+    r"|\b(?:local|session)Storage\b|\bpostMessage\s*\(|\bwindow\.open\s*\(|\bdocument\.cookie\b"
+    r"|\binterceptors\.(?:request|response)\b"
+)
+
+
 def has_security_signal(data: bytes) -> bool:
-    """Whether the security keyword catalog matches a file's content (MR-13).
+    """Whether the security keyword catalog or a client signal matches a file's content (MR-13, REQ-004).
 
     Identifiers are also split at camelCase and snake_case joints, so
     ``checkPermission`` and ``custom_permission_check`` match the catalog's
     word-bounded ``permission`` like the plain word does.
     """
     text = data.decode("utf-8", "ignore")
+    if _CLIENT_SIGNALS.search(text):
+        return True
     words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text).replace("_", " ")
     return any(pattern.search(text) or pattern.search(words) for pattern in _security_patterns())
 
@@ -266,7 +279,9 @@ def template_pairs(scope, sources) -> dict[tuple, list[str]]:
     return pairs
 
 
-def analysis_targets(scope, component: dict, architecture: dict, scanned: list[dict]) -> list[dict]:
+def analysis_targets(
+    scope, component: dict, architecture: dict, scanned: list[dict], *, depth: str = "standard"
+) -> list[dict]:
     """Source-backed surfaces to examine, independent of finding counts or repository names.
 
     These are investigation leads, not vulnerabilities. Full route inventories
@@ -293,7 +308,9 @@ def analysis_targets(scope, component: dict, architecture: dict, scanned: list[d
     related. A file without any
     other lead becomes a target only when
     the security keyword catalog matches it (`has_security_signal`);
-    `unexamined_files` names the rest for the run report.
+    `unexamined_files` names the rest for the run report. At thorough depth
+    every remaining program file becomes a ``coverage`` target as well
+    (REQ-004); the controller runs those in optional jobs after the others.
 
     Each anchor cites a line the STRIDE evidence rule accepts: the surface
     decision must cite it, so a comment or blank anchor, such as the license
@@ -471,6 +488,10 @@ def analysis_targets(scope, component: dict, architecture: dict, scanned: list[d
     for rid, path in sorted(own - covered_files):
         if has_security_signal(repos[rid].files[path]):
             add({"repository_id": rid, "file": path, "line": 1}, "component-source")
+        elif depth == "thorough" and not _TEST_SOURCE_RE.search(path):
+            target = add({"repository_id": rid, "file": path, "line": 1}, "coverage")
+            if target is not None:
+                target["coverage"] = True
     pairs = template_pairs(scope, own | {(rid, path) for rid, path, _ in targets})
     for (rid, path, _), target in targets.items():
         for span in registrations.get((rid, path), {}).values():
