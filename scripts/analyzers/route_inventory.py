@@ -220,6 +220,60 @@ def _dynamic_registrations(text: str) -> list[_DynamicRegistration]:
     return out
 
 
+# `router.route('/items/:id').get(read).patch(update)`: one path, one
+# registration per chained method.
+_JS_ROUTE_CHAIN_RE = re.compile(
+    r"""\b(?P<obj>app|router|api|server|route|r)\s*\.\s*route\s*\(\s*(?P<quote>['"`])(?P<path>[^'"`]+)(?P=quote)\s*\)"""
+)
+_JS_CHAIN_LINK_RE = re.compile(r"\s*\.\s*(?P<method>get|post|put|patch|delete|head|options|all)\s*(?P<open>\()", re.I)
+
+
+class _ChainedRegistration:
+    """One method of a `route(path)` chain in the shape of a route match."""
+
+    re = _JS_ROUTE_RE
+
+    def __init__(self, head: re.Match, link: re.Match) -> None:
+        self._head, self._link = head, link
+
+    def group(self, name: str):
+        return self._link.group("method") if name == "method" else self._head.group(name)
+
+    def start(self, name: str = 0) -> int:
+        return self._link.start("open") if name == "open" else self._link.start("method")
+
+
+def _closing_paren(text: str, open_paren: int) -> int:
+    """The index after the bracket that closes ``text[open_paren]``; string literals do not count."""
+    depth, i = 0, open_paren
+    while i < len(text):
+        ch = text[i]
+        if ch in "'\"`":
+            end = i + 1
+            while end < len(text) and text[end] != ch:
+                end += 2 if text[end] == "\\" else 1
+            i = end + 1
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def _chained_registrations(text: str) -> list[_ChainedRegistration]:
+    out = []
+    for head in _JS_ROUTE_CHAIN_RE.finditer(text):
+        position = head.end()
+        while link := _JS_CHAIN_LINK_RE.match(text, position):
+            out.append(_ChainedRegistration(head, link))
+            position = _closing_paren(text, link.start("open"))
+    return out
+
+
 _JS_DECORATOR_RE = re.compile(
     r"""(?ix)
     @(?P<method>Get|Post|Put|Patch|Delete|Head|Options|All)
@@ -827,7 +881,8 @@ def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
 
     verbs = list(_JS_ROUTE_RE.finditer(text))
     registrations = sorted(
-        verbs + _terminal_mounts(text, verbs) + _dynamic_registrations(text), key=lambda match: match.start()
+        verbs + _terminal_mounts(text, verbs) + _dynamic_registrations(text) + _chained_registrations(text),
+        key=lambda match: match.start(),
     )
     for index, m in enumerate(registrations):
         method = (m.group("method") if "method" in m.re.groupindex else "all").upper()

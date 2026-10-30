@@ -1075,3 +1075,15 @@ def test_a_route_with_a_configured_path_is_an_authentication_entry_point(tmp_pat
 def test_a_client_call_or_a_setting_read_is_no_route(tmp_path: Path, source: str) -> None:
     (tmp_path / "client.ts").write_text(source)
     assert _run(tmp_path)["routes"] == []
+
+
+def test_each_method_of_a_route_chain_is_a_route_with_its_own_guard(tmp_path: Path) -> None:
+    (tmp_path / "items.ts").write_text(
+        "import { Router } from 'express';\nconst router = Router();\n"
+        "router\n  .route('/items/:id')\n  .get(readItem)\n  .patch(requireAuth(), updateItem);\n"
+    )
+    rows = {(row["method"], row["path"]): row for row in _run(tmp_path)["routes"]}
+    assert set(rows) == {("GET", "/items/:id"), ("PATCH", "/items/:id")}
+    assert rows[("GET", "/items/:id")]["authn_signal"] == "unknown"
+    assert rows[("PATCH", "/items/:id")]["authn_signal"] == "middleware_present"
+    assert rows[("PATCH", "/items/:id")]["handler_line"] == 6
