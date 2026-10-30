@@ -1431,3 +1431,22 @@ def test_pre_render_gate_blocks_unpublished_refs_with_an_actionable_plan(tmp_pat
     assert action["fragments_to_rewrite"] == [".fragments/security-architecture.md"]
     assert action["severity"] == "blocking"
     assert "F-021" in action["raw_issue"] and "Never re-point" in action["remediation"]
+
+
+@pytest.mark.parametrize("line", ["*.env", "**/node_modules", "*/tmp", "*.pem"])
+def test_an_ignore_file_pattern_is_code_not_a_comment(line):
+    assert vf._cited_line_problem(line, allow_imports=True) is None
+
+
+@pytest.mark.parametrize("line", [" * @param id the record", "*", " */", "/* config", "# secrets", "// note"])
+def test_comment_lines_stay_comments(line):
+    assert vf._cited_line_problem(line, allow_imports=True) == "a comment"
+
+
+def test_dockerignore_pattern_is_accepted_as_executable_evidence(tmp_path):
+    (tmp_path / ".dockerignore").write_text("# keep secrets out of the image\n*.env\n**/*.pem\n", encoding="utf-8")
+    rows = [{"file": ".dockerignore", "line": 2}, {"file": ".dockerignore", "line": 3}]
+    assert vf.repository_evidence_errors(rows, tmp_path, require_line=True, require_code=True) == []
+    assert vf.repository_evidence_errors(
+        [{"file": ".dockerignore", "line": 1}], tmp_path, require_line=True, require_code=True
+    )

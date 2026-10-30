@@ -182,7 +182,9 @@ def _regular_repository_file(repo_root: Path, relative: str) -> Path | None:
         return None
 
 
-_COMMENT_LINE_RE = re.compile(r"^(?://|/\*|\*|<!--|--\s|#(?:\s|#|!|$))")
+# A leading `*` is a block-comment line only as `* text`, a lone `*` or a closing `*/`:
+# `*.env`, `**/node_modules` and `*/tmp` are ignore-file patterns, not comments.
+_COMMENT_LINE_RE = re.compile(r"^(?://|/\*|\*(?:\s|$)|\*/\s*$|<!--|--\s|#(?:\s|#|!|$))")
 _IMPORT_LINE_RE = re.compile(
     r"^(?:import\s|from\s+\S+\s+import\s|package\s|using\s+[\w.]+\s*;|use\s+[\w:\\]+|#\s*include\b|@import\b"
     r"|export\s+(?:\*|\{[^}]*\})\s+from\s|require(?:_once)?[\s(]"
