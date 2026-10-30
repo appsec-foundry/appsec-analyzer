@@ -122,12 +122,23 @@ def test_compose_environment_literal_is_found_and_masked(text, line):
         "services:\n  api:\n    environment:\n      DB_PASSWORD: ${DB_PASSWORD}\n",
         "services:\n  api:\n    environment:\n      - DB_PASSWORD\n      - DB_PASSWORD_FILE=/run/secrets/db\n",
         "services:\n  api:\n    image: app\n",
-        "not: [valid",
         "- a\n- b\n",
     ],
 )
 def test_compose_environment_without_literal_is_clean(text):
     assert irc.compose_environment_secret_literal(text, P) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["not: [valid", "{{- if .Values.enabled }}\napiVersion: apps/v1\nkind: Deployment\n{{- end }}\n"],
+)
+def test_unparsable_yaml_is_reported_not_judged_clean(text):
+    """A file whose checks could not run must not read as a file that passed them."""
+    for name, evaluator in irc.EVALUATORS.items():
+        if name.startswith(("kubernetes", "compose", "github")):
+            with pytest.raises(irc.UnparsableFile):
+                evaluator(text, P)
 
 
 @pytest.mark.parametrize(
@@ -247,10 +258,9 @@ def test_kubernetes_env_literal_is_found_masked_and_references_are_clean():
     [
         "services:\n  api:\n    privileged: true\n",
         "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: c}\ndata: {password: x}\n",
-        "{{- if .Values.enabled }}\napiVersion: apps/v1\nkind: Deployment\n{{- end }}\n",
     ],
 )
-def test_non_workload_yaml_and_helm_templates_are_not_judged(text):
+def test_non_workload_yaml_is_not_judged(text):
     for name, evaluator in irc.EVALUATORS.items():
         if name.startswith("kubernetes"):
             assert evaluator(text, P) is None, name
@@ -888,7 +898,6 @@ JOB_B_PERMS = (
         pytest.param(ON + "jobs:\n" + JOB_A_PERMS + JOB_B, 8, None, id="partial-job-level"),
         pytest.param(ON + "permissions:\n  contents: write\njobs:\n" + JOB_A, None, 3, id="root-contents-write"),
         pytest.param(ON + "permissions: write-all\njobs:\n" + JOB_A, None, 2, id="root-write-all"),
-        pytest.param(ON + "jobs: [", None, None, id="unparsable"),
     ],
 )
 def test_github_workflow_permission_checks(text, missing_line, broad_line):

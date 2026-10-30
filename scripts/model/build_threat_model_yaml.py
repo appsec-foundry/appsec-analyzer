@@ -2581,6 +2581,18 @@ def build_tier_root_causes(threats: list[dict], components: list[dict], sidecar:
     return out
 
 
+def _same_source(prior: dict, current_sha: str | None, source_state: str | None) -> bool:
+    """Whether the prior entry assessed exactly this source.
+
+    The captured source state decides wherever a run records one, because a
+    commit alone misses uncommitted changes. ``unknown`` names no revision, so
+    two runs that could not read one are not thereby the same source.
+    """
+    if source_state or prior.get("source_state"):
+        return prior.get("source_state") == source_state
+    return bool(current_sha) and current_sha != "unknown" and prior.get("current_sha") == current_sha
+
+
 def build_changelog(
     skill_cfg: dict,
     threats: list[dict],
@@ -2591,6 +2603,7 @@ def build_changelog(
     current_sha: str | None = None,
     mitigations: list[dict] | None = None,
     run_id: str | None = None,
+    source_state: str | None = None,
 ) -> list[dict]:
     """Prepend a new entry to the prior changelog history (newest first).
 
@@ -2714,11 +2727,10 @@ def build_changelog(
         resolved_block = {"threats": [], "reason_by_id": {}}
     elif (
         prior_has_fps
-        and current_sha
-        and (prior_entry or {}).get("current_sha") == current_sha
+        and _same_source(prior_entry or {}, current_sha, source_state)
         and (cur_depth or "").strip().lower() == (prior_depth or "").strip().lower()
     ):
-        # Same HEAD commit re-scanned at the SAME depth. The source did not
+        # Same source re-scanned at the SAME depth. The source did not
         # change between the two runs, so a per-finding fingerprint diff surfaces
         # only LLM analysis nondeterminism — title rewording, CWE swaps outside a
         # family, anchor-file and instance-count drift, component folding — NOT
@@ -2848,6 +2860,7 @@ def build_changelog(
         "run_id": run_id,
         "baseline_sha": None,
         "current_sha": current_sha,
+        **({"source_state": source_state} if source_state else {}),
         "changed_files": None,
         # Delta bookkeeping (new 2026-06-13).
         "threat_count": cur_n,
@@ -3083,6 +3096,12 @@ def main() -> int:
         default=None,
         help="JSON changelog of the assessment this run replaces; used when output_dir holds no changelog.",
     )
+    ap.add_argument(
+        "--source-state",
+        default=None,
+        help="Digest of the captured source; an earlier run with the same digest assessed the same source.",
+    )
+    ap.add_argument("--source-commit", default=None, help="Assessed commit when --repo-root is not its Git checkout.")
     args = ap.parse_args()
 
     od = args.output_dir
@@ -3360,9 +3379,10 @@ def main() -> int:
         attack_surface,
         existing_changelog,
         args.plugin_root,
-        current_sha=(meta.get("git") or {}).get("commit_sha"),
+        current_sha=args.source_commit or (meta.get("git") or {}).get("commit_sha"),
         mitigations=mitigations,
         run_id=_run_id,
+        source_state=args.source_state,
     )
 
     try:

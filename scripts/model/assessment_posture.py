@@ -232,7 +232,7 @@ def _merge_rules_evaluated(documents: list[list[dict]]) -> list[dict]:
 def _merge_config(rows: list[tuple[_Repo, dict]], receipts: list[str]) -> dict:
     if not rows:
         return dict(NO_IAC_STUB)
-    findings, uncovered, facts = [], [], []
+    findings, uncovered, unparsed, facts = [], [], [], []
     for repo, document in rows:
         absent = 0
         for finding in document["findings"]:
@@ -248,6 +248,8 @@ def _merge_config(rows: list[tuple[_Repo, dict]], receipts: list[str]) -> dict:
         uncovered.extend(
             repo.rewrite(document.get("uncovered_iac", []), frozenset(), frozenset({"files"}), captured=False)
         )
+        if "unparsed_iac" in document:
+            unparsed.append(repo.rewrite(document["unparsed_iac"], frozenset(), frozenset({"files"}), captured=False))
         if "supply_chain_facts" in document:
             facts.append(
                 repo.rewrite(document["supply_chain_facts"], _FACT_PATHS, frozenset({"searched_files"}), captured=False)
@@ -279,6 +281,11 @@ def _merge_config(rows: list[tuple[_Repo, dict]], receipts: list[str]) -> dict:
             merged["supply_chain_facts"]["installs"] = [item for row in facts for item in row.get("installs", [])]
     if uncovered:
         merged["uncovered_iac"] = uncovered
+    if unparsed:
+        merged["unparsed_iac"] = {
+            "file_count": sum(row["file_count"] for row in unparsed),
+            "files": [path for row in unparsed for path in row["files"]],
+        }
     return merged
 
 

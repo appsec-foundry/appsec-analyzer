@@ -1088,16 +1088,42 @@ def check_unmasked_secrets(md_path: Path, output_dir: Path | None = None) -> Rep
             if p.exists():
                 targets.append(p)
         targets.extend(sorted((output_dir / ".fragments").glob("*.md")))
-    for target in targets:
-        for hit in _scan_file_for_secrets(target):
-            report.issues.append(
-                f"{target.name}: {hit.render()} — mask the value "
-                "(tokens: first 4 chars + ****; passwords: **** plus length only)"
-            )
-    report.issues.extend(_known_secret_value_issues(targets, output_dir))
+    report.issues.extend(_secret_issues(targets, output_dir))
     if not report.issues:
         report.ok = 1
     return report
+
+
+def check_published_secrets(directory: Path, output_dir: Path | None = None) -> Report:
+    """Hard gate at delivery: every text file of ``directory``, whatever it is called.
+
+    ``check_unmasked_secrets`` runs before the last exports exist and looks up
+    fixed names, so a file added or renamed since would pass unseen. ``output_dir``
+    is the run's workspace, which knows the run's secret values. A file that is
+    not UTF-8, such as a PDF, is rendered from the report scanned here.
+    """
+    report = Report(check="published_secrets")
+    targets: list[Path] = []
+    for path in sorted(directory.iterdir()):
+        try:
+            path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        targets.append(path)
+    report.issues.extend(_secret_issues(targets, output_dir))
+    if not report.issues:
+        report.ok = 1
+    return report
+
+
+def _secret_issues(targets: list[Path], output_dir: Path | None) -> list[str]:
+    issues = [
+        f"{target.name}: {hit.render()} — mask the value "
+        "(tokens: first 4 chars + ****; passwords: **** plus length only)"
+        for target in targets
+        for hit in _scan_file_for_secrets(target)
+    ]
+    return issues + _known_secret_value_issues(targets, output_dir)
 
 
 def _known_secret_value_issues(targets: list[Path], output_dir: Path | None) -> list[str]:
@@ -11647,6 +11673,14 @@ def main(argv: list[str]) -> int:
             return 2
         out_dir = Path(argv[3]) if len(argv) == 4 else None
         report = check_unmasked_secrets(Path(argv[2]), out_dir)
+        print(json.dumps(report.as_dict(), indent=2))
+        return 0 if not report.issues else 1
+    if sub == "published_secrets":
+        if len(argv) not in (3, 4):
+            print("usage: validators/qa_checks.py published_secrets <directory> [<output-dir>]", file=sys.stderr)
+            return 2
+        out_dir = Path(argv[3]) if len(argv) == 4 else None
+        report = check_published_secrets(Path(argv[2]), out_dir)
         print(json.dumps(report.as_dict(), indent=2))
         return 0 if not report.issues else 1
     if sub == "relevant_findings":

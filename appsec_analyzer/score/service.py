@@ -163,8 +163,13 @@ def score_repository(selection: str, *, progress: Callable[[ScoreEvent], None] |
                         score=None,
                         reason="Required scanners did not complete successfully. No security score is available; see warnings.",
                     )
-                elif diagnostics:
-                    result["warnings"].append("Scanners reported diagnostics; detailed source output is withheld")
+                else:
+                    if security_score.UNPARSED_CONFIG in diagnostics:
+                        result["warnings"].append(
+                            "Some configuration files could not be parsed, so their resource checks did not run."
+                        )
+                    if set(diagnostics) - {security_score.UNPARSED_CONFIG}:
+                        result["warnings"].append("Scanners reported diagnostics; detailed source output is withheld")
                 result["top_findings"] = security_score.top_findings(findings, full_titles=True)
                 result["repo"] = display
                 result["interface_version"] = INTERFACE_VERSION

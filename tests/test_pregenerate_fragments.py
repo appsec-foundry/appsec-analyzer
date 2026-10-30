@@ -189,6 +189,17 @@ class TestSystemOverview:
         )
         assert "module0.py" not in md
 
+    def test_scope_names_source_that_reached_no_analysis(self, minimal_yaml_data):
+        minimal_yaml_data["meta"]["unanalysed_source"] = [
+            {"reason": "non-utf8-text", "files": 1, "examples": ["src/legacy.js"]},
+            {"reason": "unparsed-config", "files": 12, "examples": ["k8s/a`b.yaml"] * 2},
+        ]
+        md = pf.gen_system_overview(minimal_yaml_data)
+        assert (
+            "**Not analysed:** 1 text file not in UTF-8 (`src/legacy.js`); 12 configuration files that could not be "
+            "parsed, so their resource checks did not run (`k8s/a'b.yaml`, `k8s/a'b.yaml` and 10 more)." in md
+        )
+
     def test_scope_names_program_files_outside_every_component(self, minimal_yaml_data):
         minimal_yaml_data["meta"]["unowned_source"] = {
             "files": 4,

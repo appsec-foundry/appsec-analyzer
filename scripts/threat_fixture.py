@@ -168,6 +168,8 @@ def scrub_yaml_obj(obj: dict[str, Any]) -> dict[str, Any]:
                 entry["previous_date"] = SENTINEL_DATE
             if "current_sha" in entry:
                 entry["current_sha"] = SENTINEL_SHA
+            if "source_state" in entry:
+                entry["source_state"] = SENTINEL_SHA
     return obj
 
 

@@ -418,6 +418,26 @@ def _components_by_repository(components: list, sources: list | None) -> list[tu
     return [(label, names) for label, names in groups.items() if names]
 
 
+# REQ-003: why source reached no analysis, in singular and plural.
+_UNANALYSED_REASONS = {
+    "oversized": ("file over 1 MiB", "files over 1 MiB"),
+    "non-utf8-text": ("text file not in UTF-8", "text files not in UTF-8"),
+    "unparsed-config": (
+        "configuration file that could not be parsed, so its resource checks did not run",
+        "configuration files that could not be parsed, so their resource checks did not run",
+    ),
+}
+
+
+def _unanalysed_clause(row: dict) -> str:
+    files = row["files"]
+    singular, plural = _UNANALYSED_REASONS[row["reason"]]
+    # A path comes from the repository, so it cannot end the code span around it.
+    paths = [str(path).replace("`", "'") for path in row["examples"]]
+    rest = f" and {files - len(paths)} more" if files > len(paths) else ""
+    return f"{files} {singular if files == 1 else plural} ({', '.join(f'`{path}`' for path in paths)}{rest})"
+
+
 def gen_system_overview(yaml_data: dict) -> str:
     """## 1. System Overview — business purpose + perimeter, NO deployment topology
     (that lives in §2.1).
@@ -586,6 +606,14 @@ def gen_system_overview(yaml_data: dict) -> str:
             f"{len(unexamined)} {'component' if len(unexamined) == 1 else 'components'} had no route, lead or "
             "security signal (" + ", ".join(f"{row['component']} {row['files']}" for row in unexamined) + ")."
         )
+        lines.append("")
+    unanalysed = [
+        _unanalysed_clause(row)
+        for row in meta.get("unanalysed_source") or []
+        if isinstance(row, dict) and row.get("reason") in _UNANALYSED_REASONS
+    ]
+    if unanalysed:
+        lines.append(f"**Not analysed:** {'; '.join(unanalysed)}.")
         lines.append("")
     undecided = [
         row

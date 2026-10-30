@@ -146,6 +146,22 @@ $defs:
               items:
                 type: string
                 minLength: 1
+      # Files a structured check could not parse, so that check did not run on
+      # them; absent when every file parsed. `files` is capped per repository.
+      unparsed_iac:
+        type: object
+        required: [file_count, files]
+        additionalProperties: false
+        properties:
+          file_count:
+            type: integer
+            minimum: 1
+          files:
+            type: array
+            minItems: 1
+            items:
+              type: string
+              minLength: 1
 
   finding:
     type: object

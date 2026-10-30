@@ -52,6 +52,8 @@ properties:
         $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/meta/properties/analysis_duration_seconds
       unexamined_source:
         $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/meta/properties/unexamined_source
+      unanalysed_source:
+        $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/meta/properties/unanalysed_source
       undecided_targets:
         $ref: https://appsec-advisor/schemas/threat-model.output.schema.yaml#/properties/meta/properties/undecided_targets
       unowned_source:

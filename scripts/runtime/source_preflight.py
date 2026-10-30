@@ -8,6 +8,10 @@ from pathlib import Path
 
 from appsec_analyzer import resource_root
 
+# Exit codes of validators/preflight_untrusted.py with --strict.
+FINDINGS_EXIT = 2
+UNREADABLE_EXIT = 3
+
 
 class SourcePreflightError(ValueError):
     """Selected repositories failed the existing admission preflight."""
@@ -17,8 +21,15 @@ def _failure(name: str, args: list[str]) -> str | None:
     done = subprocess.run(
         [sys.executable, str(resource_root() / "scripts" / name), *args], text=True, capture_output=True, check=False
     )
-    if done.returncode:
+    if done.returncode == UNREADABLE_EXIT:
+        raise SourcePreflightError("Selected repository does not exist or cannot be read. Check the path.")
+    if done.returncode == FINDINGS_EXIT:
         return f"{Path(name).name} failed with exit {done.returncode}: {(done.stderr or done.stdout).strip()}"
+    if done.returncode:
+        # Not a verdict on the repository, so neither its files nor the trust mode are the way out.
+        raise SourcePreflightError(
+            f"Repository preflight could not run (exit {done.returncode}). Check the Analyzer installation."
+        )
     return None
 
 

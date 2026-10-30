@@ -265,6 +265,8 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 
 `scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `assess`.
 
+Configuration files that cannot be parsed, such as Helm templates, are named in the result, because their resource checks do not run.
+
 ```sh
 # Show what the scanners found, without a rating
 appsec-analyzer scan-sources --repo /path/to/project

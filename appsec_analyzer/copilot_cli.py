@@ -217,7 +217,7 @@ class CopilotCliTransport:
         ]
 
     def invoke(self, system, prompt, schema, timeout_s, should_stop):
-        if type(system) is not str or type(prompt) is not str or type(schema) is not dict:
+        if type(system) is not str or not isinstance(prompt, str) or type(schema) is not dict:
             raise TransportError("Invalid Copilot request", reason="invalid_request")
         if type(timeout_s) is not int or not 1 <= timeout_s <= 3600:
             raise TransportError("Invalid Copilot timeout", reason="invalid_request")
