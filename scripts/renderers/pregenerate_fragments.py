@@ -471,7 +471,9 @@ def gen_system_overview(yaml_data: dict) -> str:
         sources = None
     if sources:
         repository = ", ".join(
-            f"`{row.get('label')}` (revision `{str(row.get('head') or '')[:12]}`"
+            f"`{row.get('label')}` (directory without Git)"
+            if row.get("without_git")
+            else f"`{row.get('label')}` (revision `{str(row.get('head') or '')[:12]}`"
             + (", uncommitted changes" if row.get("dirty") else "")
             + ")"
             for row in sources

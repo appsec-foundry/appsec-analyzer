@@ -34,6 +34,7 @@
           "repository_id": {"type": "string"},
           "label": {"type": "string"},
           "head": {"type": "string"},
+          "without_git": {"const": true},
           "state_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
           "captured_files": {"type": "integer", "minimum": 0},
           "excluded_files": {"type": "array", "items": {"type": "object"}},

@@ -18,6 +18,7 @@
           "label": {"type": "string", "minLength": 1, "maxLength": 255},
           "head": {"type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"},
           "dirty": {"type": "boolean"},
+          "without_git": {"const": true},
           "state_sha256": {"$ref": "#/$defs/sha256"},
           "files": {
             "type": "array", "maxItems": 20000,

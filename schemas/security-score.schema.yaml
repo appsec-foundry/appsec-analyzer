@@ -16,6 +16,7 @@ properties:
       state_sha256: {$ref: '#/$defs/hash'}
       dirty: {type: boolean}
       captured_files: {$ref: '#/$defs/count'}
+      without_git: {const: true}
       # Accepted in earlier saved results; new CLI output omits this field.
       excluded_files:
         type: array

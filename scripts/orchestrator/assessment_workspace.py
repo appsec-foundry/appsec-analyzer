@@ -257,7 +257,15 @@ def source_repositories(scope: AssessmentScope) -> list[dict]:
     selection order but meaningless to a reader; report text lists them by name.
     """
     rows = sorted(scope.inventory()["repositories"], key=lambda row: row["label"])
-    return [{"label": row["label"], "head": row["head"], "dirty": row["dirty"]} for row in rows]
+    return [
+        {
+            "label": row["label"],
+            "head": row["head"],
+            "dirty": row["dirty"],
+            **({"without_git": True} if row.get("without_git") else {}),
+        }
+        for row in rows
+    ]
 
 
 def recon_summary(project: str, scope: AssessmentScope) -> str:
@@ -265,7 +273,8 @@ def recon_summary(project: str, scope: AssessmentScope) -> str:
     lines = [f"# Recon Summary — {project}", "", "## Project", "", f"**Project**: {project}", "", "## Repositories", ""]
     for row in scope.inventory()["repositories"]:
         state = "uncommitted changes" if row["dirty"] else "clean"
-        lines.append(f"- {row['label']} — revision {row['head'][:12]}, {state}, {len(row['files'])} captured files")
+        source = "directory without Git" if row.get("without_git") else f"revision {row['head'][:12]}, {state}"
+        lines.append(f"- {row['label']} — {source}, {len(row['files'])} captured files")
     return "\n".join(lines) + "\n"
 
 

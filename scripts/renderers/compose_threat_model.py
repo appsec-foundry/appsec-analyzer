@@ -13534,6 +13534,12 @@ def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment,
     # fallback the appendix shows "—" for paths that the user actually knows.
     skill_cfg = _read_skill_config(ctx.output_dir)
     repo = meta.get("repository_root") or skill_cfg.get("repo_root") or "—"
+    # The temporary checkout of a directory without Git is gone when the report is read.
+    sources = meta.get("source_repositories") or []
+    if any(row.get("without_git") for row in sources):
+        repo = ", ".join(
+            row["label"] + (" (directory without Git)" if row.get("without_git") else "") for row in sources
+        )
     out_dir = meta.get("output_dir") or skill_cfg.get("output_dir") or "—"
     # M3.3 — derive total duration from per-stage stats when meta lacks it.
     stage_rows = _read_stage_stats(ctx.output_dir)

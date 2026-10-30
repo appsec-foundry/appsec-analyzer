@@ -17,7 +17,7 @@ appsec-analyzer preflight --repo https://github.com/your-org/your-project.git --
 
 Repository checks:
 
-- Local selections must be top-level Git checkouts.
+- A local selection must be a top-level Git checkout or a [directory without Git](#directories-without-git). A `.git` that has content but cannot be read fails the check.
 - Remote repositories are checked with `git ls-remote` for `HEAD`. This needs Git 2.34 or later, times out after 30 seconds, and downloads no source. It uses the same credentials, destination restrictions, TLS checks, and trusted SSH host keys as cloning.
 - An empty repository, or one without a commit on the default branch, fails.
 - Git often reports a missing private repository and missing permission in the same way, so Analyzer cannot always tell them apart. A later clone can still fail.
@@ -51,7 +51,7 @@ Keys that cannot read model metadata can still use this test to diagnose the pri
 
 ## Run an assessment
 
-`appsec-analyzer assess` analyzes one or more local Git checkouts or explicitly selected Git URLs as one system. It uses Claude CLI by default. Analyzer captures a fixed source copy, runs analysis roles, checks their output and evidence, and publishes a report after validation.
+`appsec-analyzer assess` analyzes one or more local Git checkouts, directories without Git, or explicitly selected Git URLs as one system. It uses Claude CLI by default. Analyzer captures a fixed source copy, runs analysis roles, checks their output and evidence, and publishes a report after validation.
 
 The report covers components, data flows, trust boundaries, controls, weaknesses, abuse cases, prioritized findings, and fixes. It describes the captured source. Production behavior and business intent still need human review.
 
@@ -88,6 +88,19 @@ For `claude` and `codex`, the spending limit for `assess` is USD 20 by default. 
 Control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run up to four jobs in parallel by default. The default is three when the number of components divides by three, and two on Codex and Copilot subscriptions. Set `max_parallel` in a scan profile or pass `--max-parallel N` (1 to 16). The CLI value wins and applies as given. The run header shows the value, and the time reserve uses it.
 
 For the OpenAI API, use `--profile codex` with `--assessment-depth`. The profile supplies the connection, model, reasoning, and output cap for that depth, so `--host` is not needed. Claude role overrides do not apply. Older `--host` and depth-profile calls still work; see [model selection](model-selection.md).
+
+### Directories without Git
+
+`assess`, `scan-sources`, `score`, and `audit-requirements` accept a local directory without Git. `authnz-review` and `analyze-threats` still need a Git checkout.
+
+A directory counts as without Git when it lies in no Git repository and has no `.git`, or only an empty `.git` directory. A subdirectory of a Git checkout is rejected, and so is a `.git` that has content but cannot be read. Repair or remove such a `.git`.
+
+- **Result directory:** `--output` is required and must be outside the selected directory. Analyzer writes nothing into the selected directory.
+- **Which files count:** A `.gitignore` applies as in a Git checkout. Without one, Analyzer prints a notice and nearly every readable file counts as source, including build output and dependencies. This raises cost and sends more to the model. Add a `.gitignore` before you start. Files with secret names, such as `.env` or `*.pem`, stay out in every case.
+- **Temporary copy:** Analyzer copies the files into a private temporary directory and removes the copy after the run. After a hard stop the copy stays, and the next run says so.
+- **State of the source:** The assessment covers the directory as it was at the start. Later edits do not reach the run. `--resume` continues only if the content is unchanged.
+- **Report:** The report names the source as a directory without Git and shows no commit.
+- **Limits:** The limits for checkouts apply: 20,000 files and 64 MiB of captured source.
 
 ### Rate limits and connection failures
 

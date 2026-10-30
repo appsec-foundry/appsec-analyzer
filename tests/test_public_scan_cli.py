@@ -351,6 +351,7 @@ def test_public_budget_reaches_requirements_audit(tmp_path, monkeypatch, capsys,
 
     monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
     monkeypatch.setattr(requirements_audit, "audit_repository", record_audit)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     assert (
         cli.main(
             [

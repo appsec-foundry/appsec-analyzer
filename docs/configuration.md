@@ -20,7 +20,7 @@ For custom abuse cases, repeat `--abuse-case-file PATH` or list the paths under 
 
 `scan-sources` runs fixed checks without a model account. It supports repeated `--repo`, depth, trust mode, an existing external output directory, and `--json`. Git URLs still require a download.
 
-`score REPO` gives a quick scanner-based indication without model calls. It accepts one top-level Git checkout or explicit Git URL, with text, JSON, or YAML output. It uses no model profile or budget and writes nothing into the checkout. See [security scoring](security-score.md) for coverage and limits.
+`score REPO` gives a quick scanner-based indication without model calls. It accepts one top-level Git checkout, a directory without Git, or an explicit Git URL, with text, JSON, or YAML output. It uses no model profile or budget and writes nothing into the checkout. See [security scoring](security-score.md) for coverage and limits.
 
 `analyze-threats` answers a focused question about selected code, a design, or a change. It uses Claude CLI and a per-call budget. Select background documents with repeatable `--context FILE`. See [focused threat analysis](threat-analyst.md) for scope and remote-review options.
 

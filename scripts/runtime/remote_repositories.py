@@ -12,6 +12,7 @@ import fcntl
 import hashlib
 import http.client
 import ipaddress
+import itertools
 import os
 import re
 import shlex
@@ -40,6 +41,8 @@ SECRET_ENV = ("APPSEC_GIT_TOKEN", "APPSEC_GIT_USERNAME", "APPSEC_GIT_SSH_KEY_FIL
 # GITLAB_TOKEN goes only to GitLab hosts, so an ambient token never reaches an arbitrary Git URL.
 TOKEN_ENV = ("APPSEC_GIT_TOKEN", "GIT_TOKEN", "GITLAB_TOKEN")
 TOKEN_NAME_ENV = "APPSEC_GIT_TOKEN_ENV"
+# A temporary checkout of a directory without Git lies in a slot with this prefix.
+DIRECTORY_SLOT = "directory-"
 
 
 class RemoteError(ValueError):
@@ -541,6 +544,10 @@ def _private_directory(path: Path) -> None:
         os.close(fd)
 
 
+def temporary_area() -> Path:
+    return Path(tempfile.gettempdir()).resolve() / f"appsec-remotes-{os.getuid()}"
+
+
 def _row(symbol: str, status: str, label: str, message: str) -> None:
     """A progress row in the layout of the ``Preflight`` rows."""
     from renderers.term_style import Style
@@ -549,24 +556,40 @@ def _row(symbol: str, status: str, label: str, message: str) -> None:
     print(f"  {style(symbol, status)} {style(f'{label:<12}', 'muted')}{message}", file=sys.stderr, flush=True)
 
 
+def _check_directories(directories: list[Path], output: Path) -> None:
+    """Make the checks admission can no longer make once a copy stands in for each directory."""
+    for directory in directories:
+        if output == directory or directory in output.parents or output in directory.parents:
+            raise RemoteError("Output must be outside the selected directory")
+    for first, second in itertools.combinations(directories, 2):
+        if first == second or first in second.parents or second in first.parents:
+            raise RemoteError("Duplicate or overlapping repository selections")
+
+
 @contextmanager
 def checkout_arguments(argv: list[str], on_clone=None):
-    """Resolve all URL selections atomically; never mutate caller-owned local roots.
+    """Resolve URLs and directories without Git atomically; never mutate caller-owned local roots.
 
     ``on_clone(number, total, remote)`` runs after each completed clone.
     """
+    # Imported here: this file also runs as a credential helper, without the engine on its path.
+    from runtime.multi_repo_scope import ScopeError
+    from runtime.plain_directory import copy_to_checkout, no_git_directory
+
     indexes = [i + 1 for i, a in enumerate(argv) if a == "--repo" and i + 1 < len(argv)]
     remotes = {i: remote for i in indexes if (remote := parse_remote(argv[i])) is not None}
-    if not remotes:
+    directories = {i: root for i in indexes if i not in remotes and (root := no_git_directory(argv[i])) is not None}
+    if not remotes and not directories:
         yield argv
         return
     if len(indexes) > MAX_REPOSITORIES or len({r.url for r in remotes.values()}) != len(remotes):
         raise RemoteError("Select at most 16 distinct repositories")
     outputs = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--output"]
     if len(outputs) != 1 or not outputs[0] or outputs[0].startswith("--"):
-        raise RemoteError("Git URLs require an explicit --output outside the temporary checkouts")
+        raise RemoteError("Git URLs and directories without Git require an explicit --output")
     output = Path(outputs[0]).resolve()
-    parent = Path(tempfile.gettempdir()).resolve() / f"appsec-remotes-{os.getuid()}"
+    _check_directories(list(directories.values()), output)
+    parent = temporary_area()
     if output == parent or parent in output.parents or output in parent.parents:
         raise RemoteError("Output must be outside the temporary checkout area")
     _private_directory(parent)
@@ -578,8 +601,9 @@ def checkout_arguments(argv: list[str], on_clone=None):
         try:
             fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RemoteError("Another remote assessment is using this output directory") from None
+            raise RemoteError("Another assessment is using this output directory") from None
         result = argv.copy()
+        quiet = "--quiet" in argv
         for number, (index, remote) in enumerate(remotes.items(), start=1):
             slot = workspace / hashlib.sha256(remote.url.encode()).hexdigest()
             _private_directory(slot)
@@ -587,7 +611,6 @@ def checkout_arguments(argv: list[str], on_clone=None):
             if root.exists() or root.is_symlink():
                 raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
             created.append(root)
-            quiet = "--quiet" in argv
             label = "Repository" if len(remotes) == 1 else f"Repo {number}/{len(remotes)}"
             if not quiet:
                 _row("·", "muted", label, f"cloning {remote.name} from {describe_route(remote)}, latest commit only")
@@ -597,6 +620,26 @@ def checkout_arguments(argv: list[str], on_clone=None):
                 _row("✓", "ok", label, f"cloned in {time.monotonic() - started:.0f} s")
             if on_clone:
                 on_clone(number, len(remotes), remote)
+            result[index] = str(root)
+        for number, (index, source) in enumerate(directories.items(), start=1):
+            slot = workspace / (DIRECTORY_SLOT + hashlib.sha256(os.fsencode(source)).hexdigest())
+            _private_directory(slot)
+            root = slot / source.name
+            if root.exists() or root.is_symlink():
+                raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
+            created.append(root)
+            label = "Repository" if len(directories) == 1 else f"Directory {number}/{len(directories)}"
+            try:
+                copy_to_checkout(source, root)
+            except ScopeError as exc:
+                raise RemoteError(str(exc)) from None
+            if not quiet:
+                _row("✓", "ok", label, f"copied {source.name} into a temporary directory, removed after the run")
+            # Shown with --quiet too: it decides what reaches a model.
+            if not (source / ".gitignore").is_file():
+                _row(
+                    "⚠", "warn", label, f"no .gitignore in {source.name}: build output and dependencies count as source"
+                )
             result[index] = str(root)
         yield result
     finally:
