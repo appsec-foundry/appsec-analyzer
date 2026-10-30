@@ -362,6 +362,7 @@ requirements:
 
   REQ-004:
     applies_to:
+      - appsec_analyzer/depth_prompt.py
       - scripts/orchestrator/build_stride_dispatch_manifest.py
       - scripts/runtime/aggregate_run_issues.py
       - agents/appsec-recon-scanner.md
@@ -400,6 +401,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_analysis.py::test_thorough_depth_gives_every_signal_free_program_file_a_coverage_target
+      - tests/test_multi_repo_analysis.py::test_client_code_has_its_own_security_signals
+      - tests/test_multi_repo_analysis.py::test_plain_client_markup_has_no_security_signal
+      - tests/test_assessment_scope.py::test_the_thorough_survey_row_says_every_program_file_is_sent_in_optional_jobs
       - tests/test_assessment_scanner_findings.py::test_an_absence_is_reviewed_by_reading_its_file_and_merged
       - tests/test_assessment_scanner_findings.py::test_an_architecture_hit_is_reviewed_with_its_component_and_kept_only_when_confirmed
       - tests/test_assessment_scanner_findings.py::test_a_high_confidence_architecture_anti_pattern_becomes_an_owned_scanner_finding
