@@ -127,7 +127,9 @@ def run(ns, *, api_profile=None, runtime=None):
         try:
             if remote:
                 _say(ns, label, f"checking read access to {describe_route(remote)}", immediate=True)
-                check_access(remote)
+                used = check_access(remote)
+                if used:
+                    kind = f"remote read access at {used}"
             elif no_git_directory(value):
                 kind = "directory without Git"
             else:
