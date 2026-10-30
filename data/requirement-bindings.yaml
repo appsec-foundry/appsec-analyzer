@@ -427,6 +427,7 @@ requirements:
 
   REQ-040:
     applies_to:
+      - scripts/model/emit_verdict_to_model.py
       - data/source-auth-checks.yaml
       - data/config-iac-checks.yaml
       - data/crypto-checks.yaml
