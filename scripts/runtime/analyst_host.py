@@ -56,6 +56,12 @@ POLL_SECONDS = 0.2
 EVENT_SUMMARY_SECONDS = 5
 MARKER = "UNTRUSTED_ANALYSIS_INPUT"
 MARKER_ESCAPED = "UNTRUSTED_ANALYSIS_\\u0049NPUT"
+# Answers the host may validate against the output schema within one call; it
+# counts attempts and then ends the call with `error_max_structured_output_retries`.
+# Its default of five let a STRIDE call whose model sent the artifact as a JSON
+# string five times spend the whole call limit of USD 2 (2026-10-30); no
+# recorded successful call needed more than three.
+STRUCTURED_OUTPUT_ATTEMPTS = 3
 # Variables a model session never needs; dropped so they cannot leak into it.
 _DROPPED_ENV_PREFIXES = ("GIT_", "APPSEC_", "OUTPUT_DIR", "CLAUDE_CODE_SESSION", "CLAUDE_SESSION")
 
@@ -130,6 +136,23 @@ _API_STATUS_CODES = {
     402: "billing_error",
     429: "rate_limit",
 }
+# API error codes that an existing failure code already names. "unknown" also
+# stands for an expired gateway sign-in, so it must not become a retried code.
+_API_ERROR_ALIASES = {"max_output_tokens": "output_token_limit", "unknown": "error"}
+# Result subtypes for a call the host ended itself, at one of its limits or on a
+# crash. Any other subtype is named "error": the code is never the host's text.
+HOST_RESULT_ERRORS = frozenset(
+    {"error_max_budget_usd", "error_max_turns", "error_max_structured_output_retries", "error_during_execution"}
+)
+# Every code `_failure_reason` and `_stderr_failure` return. Each must be a
+# report code and have a retry class (`test_every_host_failure_code_has_exactly_one_retry_class`).
+FAILURE_REASONS = frozenset(
+    {_API_ERROR_ALIASES.get(code, code) for code in API_ERROR_CODES}
+    | set(_API_STATUS_CODES.values())
+    | HOST_RESULT_ERRORS
+    | {"server_error", "invalid_request", "api_error", "error", "no_result", "no_structured_output"}
+    | {"host_arguments", "authentication_failed", "host_configuration"}
+)
 # What the operator has to do; a code without an entry needs no action of theirs.
 _FAILURE_HINTS = {
     "authentication_failed": "the Claude Code login expired or is missing; sign in again with /login",
@@ -141,7 +164,7 @@ _FAILURE_HINTS = {
 def _failure_reason(outcome: object, api_error: str | None) -> str:
     """Name a failed host call by a fixed code: an API error, a host limit, or a missing result."""
     if api_error in API_ERROR_CODES:
-        return api_error
+        return _API_ERROR_ALIASES.get(api_error, api_error)
     if not isinstance(outcome, dict):
         return "no_result"
     status = outcome.get("api_error_status")
@@ -150,10 +173,11 @@ def _failure_reason(outcome: object, api_error: str | None) -> str:
     if outcome.get("terminal_reason") == "api_error":
         return "api_error"
     subtype = outcome.get("subtype")
-    # Host limits such as error_max_budget_usd; bounded, never echoed beyond that.
-    if isinstance(subtype, str) and subtype.startswith("error_") and subtype.isascii() and len(subtype) <= 60:
+    if subtype in HOST_RESULT_ERRORS:
         return subtype
-    return "error" if outcome.get("is_error") else "no_structured_output"
+    if outcome.get("is_error") or isinstance(subtype, str) and subtype.startswith("error_"):
+        return "error"
+    return "no_structured_output"
 
 
 def _reported_usd(outcome: object) -> float | None:
@@ -424,6 +448,7 @@ class ClaudeCliTransport:
     def environment(self, *, blocks: bool = False) -> dict[str, str]:
         env = {k: v for k, v in os.environ.items() if not k.startswith(_DROPPED_ENV_PREFIXES)}
         env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+        env["MAX_STRUCTURED_OUTPUT_RETRIES"] = str(STRUCTURED_OUTPUT_ATTEMPTS)
         if self.short_cache:
             env["FORCE_PROMPT_CACHING_5M"] = "1"
         if blocks:

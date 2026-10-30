@@ -413,7 +413,9 @@ def no_retry_wait(monkeypatch):
     monkeypatch.setattr(multi_repo_discovery, "TRANSIENT_RETRY_DELAYS", (0, 0, 0))
 
 
-@pytest.mark.parametrize("reason", ["rate_limit", "server_error", "api_error", "no_structured_output"])
+@pytest.mark.parametrize(
+    "reason", ["rate_limit", "server_error", "api_error", "no_structured_output", "error_max_structured_output_retries"]
+)
 def test_a_transient_settled_failure_is_retried_until_the_call_succeeds(tmp_path, no_retry_wait, reason):
     host = Refused(2, reason)
     jobs, kwargs = _hanging(tmp_path, host)
@@ -461,13 +463,18 @@ def test_every_host_failure_code_has_exactly_one_retry_class():
     from pathlib import Path
 
     from runtime import multi_repo_discovery as policy
+    from runtime.analyst_host import FAILURE_REASONS
     from runtime.assessment_diagnostics import FAILURE_CODES
 
     classes = (policy.TRANSIENT_FAILURES, policy.NETWORK_FAILURES, policy.FATAL_FAILURES)
     assert not any(a & b for i, a in enumerate(classes) for b in classes[i + 1 :])
-    produced = set(FAILURE_CODES)
+    # A classified code missing from the report codes reached the operator as
+    # "transport; check the selected host" (a per-call budget stop, 2026-10-30).
+    assert set().union(*classes) == FAILURE_CODES
+    # Codes the Claude host derives from its result are no literals below.
+    produced = set(FAILURE_CODES) | FAILURE_REASONS
     root = Path(__file__).resolve().parents[1]
-    for source in (root / "appsec_analyzer").rglob("*.py"):
+    for source in (*(root / "appsec_analyzer").rglob("*.py"), *(root / "scripts").rglob("*.py")):
         for node in ast.walk(ast.parse(source.read_text())):
             if not isinstance(node, ast.Call):
                 continue
@@ -496,7 +503,15 @@ def test_a_transient_failure_that_persists_still_stops_a_required_job(tmp_path, 
 
 @pytest.mark.parametrize(
     "reason,usd",
-    [("authentication_failed", 0.0), ("billing_error", 0.0), ("invalid_request", 0.0), ("error_max_budget_usd", 0.05)],
+    [
+        ("authentication_failed", 0.0),
+        ("billing_error", 0.0),
+        ("invalid_request", 0.0),
+        ("error_max_budget_usd", 0.05),
+        ("error_max_turns", 0.05),
+        ("error_during_execution", 0.05),
+        ("error", 0.05),
+    ],
 )
 def test_a_failure_a_repeat_cannot_clear_is_not_retried(tmp_path, no_retry_wait, reason, usd):
     from runtime.analyst_host import TransportError

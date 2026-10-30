@@ -153,10 +153,13 @@ MAX_CALL_SECONDS = 900
 MAX_TIMEOUT_RETRIES = 1
 # Host failures with a settled cost that a repeated stateless call can clear:
 # an overloaded, rate-limited or failing API, and a model that answered in text
-# instead of the structured result. Without a retry, one such failure among a
-# run's hundreds of calls stopped every stage before STRIDE. Login, billing and
-# request errors, host limits and unsettled costs are never retried.
-TRANSIENT_FAILURES = frozenset({"rate_limit", "server_error", "api_error", "no_structured_output"})
+# instead of the structured result or used up the host's schema attempts with
+# answers it rejected. Without a retry, one such failure among a run's hundreds
+# of calls stopped every stage before STRIDE. Login, billing and request errors,
+# the spending, turn and time limits of a call, and unsettled costs are never retried.
+TRANSIENT_FAILURES = frozenset(
+    {"rate_limit", "server_error", "api_error", "no_structured_output", "error_max_structured_output_retries"}
+)
 # A provider connection that dropped or never opened. A live Codex STRIDE call
 # lost its stream after 21 s (2026-10-18) and, without a retry, ended a run of
 # hundreds of calls. These follow the transient retry rules; a connection that
@@ -196,6 +199,15 @@ FATAL_FAILURES = frozenset(
         "host_arguments",
         "host_configuration",
         "host_exit",
+        "host_failure",
+        "error",
+        "error_max_budget_usd",
+        "error_max_turns",
+        "error_during_execution",
+        "access_denied",
+        "model_metadata_unavailable",
+        "metadata_request_failed",
+        "unclassified",
     }
 )
 # Seconds to wait before each repeated call; their count bounds the retries of

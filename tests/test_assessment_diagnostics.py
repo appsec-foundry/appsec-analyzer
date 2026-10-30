@@ -22,6 +22,22 @@ def test_rejected_output_schema_needs_correction_before_retry():
     assert "PRIVATE" not in message
 
 
+@pytest.mark.parametrize("reason", ["error_max_budget_usd", "error_max_structured_output_retries", "error_max_turns"])
+def test_a_host_limit_is_reported_by_its_own_name_not_as_a_transport_failure(reason):
+    error = TransportError("PRIVATE_PROVIDER_TEXT", reason=reason, usd=2.08, exit_code=1)
+    assert diagnostics.failure_fields(error) == {"reason": reason, "exit_code": 1}
+    message = diagnostics.transport_summary(error)
+    assert message.startswith(reason + "; ") and "check the selected host" not in message
+    assert message.endswith("--resume") and "PRIVATE" not in message
+
+
+def test_a_failure_code_nobody_declared_is_reported_as_unclassified():
+    error = TransportError("PRIVATE_PROVIDER_TEXT", reason="some_new_host_code")
+    assert diagnostics.failure_fields(error) == {"reason": "unclassified"}
+    message = diagnostics.transport_summary(error)
+    assert message.startswith("unclassified; ") and "transport" not in message
+
+
 def test_parallel_calls_keep_job_identity_and_never_log_inputs_or_answers(tmp_path):
     log = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
 

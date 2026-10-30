@@ -46,6 +46,7 @@ def log(tmp_path: Path) -> dict:
 def test_the_session_is_started_without_tools_configuration_or_persistence(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_DIR", "/elsewhere")
     monkeypatch.setenv("APPSEC_RUN_ID", "assessment-run")
+    monkeypatch.setenv("MAX_STRUCTURED_OUTPUT_RETRIES", "50")
     t = transport(tmp_path, f"print(json.dumps({REPLY!r}))\n")
     reply = t.invoke("system text", "the prompt", {"type": "object"}, 30, lambda: False)
     assert reply.payload == {"ok": True} and reply.usd == 0.01
@@ -66,6 +67,9 @@ def test_the_session_is_started_without_tools_configuration_or_persistence(tmp_p
     assert Path(seen["cwd"]) == (tmp_path / "work").resolve()
     assert "GIT_DIR" not in seen["env"] and "APPSEC_RUN_ID" not in seen["env"]
     assert seen["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    # The host counts attempts; an inherited value cannot lift the bound, and one correction stays possible.
+    assert seen["env"]["MAX_STRUCTURED_OUTPUT_RETRIES"] == str(host.STRUCTURED_OUTPUT_ATTEMPTS)
+    assert host.STRUCTURED_OUTPUT_ATTEMPTS >= 2
 
 
 @pytest.mark.parametrize(
@@ -441,6 +445,14 @@ def test_a_rejected_usage_window_reports_its_reset_as_the_cooldown(tmp_path):
         ),
         ({"is_error": True, "subtype": "success", "terminal_reason": "api_error"}, "api_error", None),
         ({"is_error": True, "subtype": "error_max_budget_usd", "total_cost_usd": 0.4}, "error_max_budget_usd", 0.4),
+        (
+            {"is_error": True, "subtype": "error_max_structured_output_retries", "total_cost_usd": 0.3},
+            "error_max_structured_output_retries",
+            0.3,
+        ),
+        ({"is_error": True, "subtype": "error_max_turns", "total_cost_usd": 0.2}, "error_max_turns", 0.2),
+        # A subtype a newer host adds is named by the fixed fallback, never by its own text.
+        ({"is_error": True, "subtype": "error_new_host_limit", "total_cost_usd": 0.1}, "error", 0.1),
         ({"is_error": False, "subtype": "success", "result": "model prose"}, "no_structured_output", None),
         ({"is_error": True, "subtype": "success", "total_cost_usd": "0.1"}, "error", None),
     ],
@@ -450,6 +462,20 @@ def test_an_unrecorded_failure_is_classified_from_the_result_alone(tmp_path, out
         transport(tmp_path, f"print(json.dumps({outcome!r}))\n").invoke("s", "p", {}, 30, lambda: False)
     assert caught.value.reason == reason and caught.value.usd == usd
     assert "model prose" not in str(caught.value)
+    assert reason in host.FAILURE_REASONS
+
+
+@pytest.mark.parametrize("code", sorted(host.API_ERROR_CODES))
+def test_every_api_error_code_is_named_by_a_declared_failure_reason(code):
+    reason = host._failure_reason({"is_error": True, "subtype": "success"}, code)
+    assert reason in host.FAILURE_REASONS
+    # "unknown" also covers an expired gateway sign-in, which a repeated call cannot clear.
+    assert reason == {"max_output_tokens": "output_token_limit", "unknown": "error"}.get(code, code)
+
+
+@pytest.mark.parametrize("text", [b"", b"error: unknown option --x", b"Not logged in", b"Invalid configuration"])
+def test_every_stderr_classification_is_a_declared_failure_reason(text):
+    assert host._stderr_failure(text)[0] in host.FAILURE_REASONS
 
 
 @pytest.mark.parametrize("tokens, usd", [(54_000, None), (0, 0.0)])

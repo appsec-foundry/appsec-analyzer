@@ -61,6 +61,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A Claude model call whose answers keep failing the output schema now stops after three attempts and runs once more, instead of using up its spending limit and stopping the assessment.
+- A stopped assessment now names the host's actual limit or error, such as a model call's spending limit, instead of `transport; check the selected host`.
 - Every program file and server-side template now belongs to a component, so the survey also covers code that discovery did not read. Before, only files that discovery's model had read belonged to a component, unless Analyzer recognized the framework's routes. Most of the code of PHP, Go, Ruby, ASP.NET MVC, Razor Pages and Java servlet applications went unanalysed, as did the services and data access of recognized applications. A Spring application in the default `com.example` package was not recognized as an application at all. Assessments now send more code to the survey model, so they cost more and take longer. Code that still belongs to no component is counted in the final summary without `--verbose`.
 - An assessment no longer stops with `KeyError: 'jobs'` after verification when a component had no verification item to check.
 - A report with exactly one Critical finding is published again. Its attack walkthroughs linked to Critical Findings by Root Cause, a section that appears only with two or more Critical findings, and the quality check stopped the report.

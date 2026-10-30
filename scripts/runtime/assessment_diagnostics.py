@@ -56,6 +56,23 @@ FAILURE_CODES = frozenset(
         "host_arguments",
         "host_configuration",
         "host_exit",
+        "host_failure",
+        "error",
+        "error_max_budget_usd",
+        "error_max_turns",
+        "error_max_structured_output_retries",
+        "error_during_execution",
+        "dns_unavailable",
+        "tls_failed",
+        "model_not_available",
+        "destination_denied",
+        "invalid_timeout",
+        "invalid_metadata",
+        "access_denied",
+        "model_metadata_unavailable",
+        "metadata_request_failed",
+        # A reason outside this list; it names no cause it cannot vouch for.
+        "unclassified",
     }
 )
 
@@ -117,7 +134,7 @@ def failure_fields(error: BaseException) -> dict:
             fields["repository_id"] = identifier(error.repository_id)
         return fields
     if isinstance(error, TransportError):
-        result = {"reason": error.reason if error.reason in FAILURE_CODES else "transport"}
+        result = {"reason": error.reason if error.reason in FAILURE_CODES else "unclassified"}
         for key in ("exit_code", "http_status"):
             value = getattr(error, key, None)
             if type(value) is int and -255 <= value <= 599:
@@ -185,6 +202,13 @@ def transport_summary(error: TransportError) -> str:
         "invalid_response_payload": "Codex's final envelope contained an invalid or ambiguous structured payload",
         "unexpected_host_item": "Codex emitted a tool or unsupported item; check CLI isolation before retrying",
         "incomplete_response": "Codex did not return one completed turn with a final answer",
+        "error_max_budget_usd": "a model call reached its spending limit before it returned a valid answer",
+        "error_max_structured_output_retries": "the model's answers kept failing the output schema",
+        "error_max_turns": "a model call reached its turn limit before it returned a valid answer",
+        "error_during_execution": "the host stopped during the call; check the host installation",
+        "output_token_limit": "the model's answer exceeded its output token limit",
+        "error": "the host ended the call with an unnamed error; check the host login and the private diagnostic feed",
+        "unclassified": "the failure has no known cause; check the private diagnostic feed",
     }
     return (
         reason + "; " + hints.get(reason, "check the selected host") + "; then continue compatible work with --resume"
