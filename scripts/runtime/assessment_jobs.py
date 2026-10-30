@@ -25,7 +25,14 @@ from shared._atomic_io import atomic_write_json
 
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, DIVISIBLE_MAX_PARALLEL, validate_max_parallel
 from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
-from runtime.assessment_host import MAX_EXCHANGES, ExchangeError, ExchangeResult, ModelAnswerFailure, run_exchange
+from runtime.assessment_host import (
+    MAX_EXCHANGES,
+    ExchangeError,
+    ExchangeResult,
+    InvalidHostReply,
+    ModelAnswerFailure,
+    run_exchange,
+)
 from runtime.multi_repo_discovery import MAX_CALL_SECONDS, BudgetedHost, BudgetExhausted, DiscoveryBudget
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -726,7 +733,7 @@ class AssessmentJobs:
             if trace:
                 trace.emit("job_replaced", reason="budget_reserved")
             return ExchangeResult(on_failure(str(exc)), (), 0, None)
-        except (ModelAnswerFailure, HostTimeout, TransportError) as exc:
+        except (ModelAnswerFailure, InvalidHostReply, HostTimeout, TransportError) as exc:
             # Account failures and exhausted shared cooldowns must stop optional jobs too.
             operator = isinstance(exc, TransportError) and exc.reason in (
                 "authentication_failed",
@@ -735,7 +742,7 @@ class AssessmentJobs:
                 "rate_limit",
             )
             replaceable = not operator and (
-                isinstance(exc, (ModelAnswerFailure, HostTimeout)) or not self.budget.unsettled
+                isinstance(exc, (ModelAnswerFailure, InvalidHostReply, HostTimeout)) or not self.budget.unsettled
             )
             if on_failure is None or not replaceable or self.should_stop():
                 if isinstance(exc, HostTimeout):

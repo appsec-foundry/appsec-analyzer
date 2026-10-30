@@ -53,6 +53,14 @@ class ExchangeError(ValueError):
     """Invalid or incomplete model exchange; no artifact can be published."""
 
 
+class InvalidHostReply(ExchangeError):
+    """A reply that is not JSON data, is too large or breaks the exchange contract.
+
+    It is never used and never corrected. A required job ends the run with it;
+    an optional job is replaced by its fallback and the gap is recorded.
+    """
+
+
 class ModelAnswerFailure(ExchangeError):
     """The model returned no acceptable result within the exchange's limits.
 
@@ -818,9 +826,9 @@ def run_exchange(
         try:
             encoded = json.dumps(reply.payload, allow_nan=False)
         except (TypeError, ValueError):
-            raise ExchangeError("Host reply is not JSON data") from None
+            raise InvalidHostReply("Host reply is not JSON data") from None
         if len(encoded.encode()) > MAX_RESPONSE_BYTES:
-            raise ExchangeError("Host reply exceeds its size limit")
+            raise InvalidHostReply("Host reply exceeds its size limit")
         contract_error = None
         envelope_error = False
         if not validator.is_valid(reply.payload):
@@ -842,7 +850,7 @@ def run_exchange(
                 # schema: the model's error, which a correction turn can fix.
                 envelope_error = True
             elif not artifact_errors or not projected_validator.is_valid(payload["artifact"]):
-                raise ExchangeError("Host reply violates the assessment exchange contract")
+                raise InvalidHostReply("Host reply violates the assessment exchange contract")
             else:
                 # The host enforced only the structural projection of the artifact;
                 # a well-formed result that breaks a condition of its full contract

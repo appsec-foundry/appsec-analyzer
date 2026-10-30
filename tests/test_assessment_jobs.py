@@ -1224,3 +1224,17 @@ def test_model_calls_over_the_runs_parallelism_wait_for_a_running_call():
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(lambda _: free.invoke(lambda ceiling: Host(), "s", "p", {}, 60, lambda: False), range(6)))
     assert peak[0] > 2
+
+
+def test_a_reply_outside_the_contract_replaces_an_optional_job_and_still_ends_a_required_one(tmp_path):
+    off_contract = {"action": "complete", "reads": [], "artifact": {"result": "ok"}, "command": "cat /etc/passwd"}
+    jobs, host, kwargs, _ = setup(tmp_path, replies=[off_contract])
+    result = jobs.execute(
+        **{**kwargs, "selector": "review:orders"}, on_failure=lambda reason: {"result": "not reviewed"}
+    )
+    assert result == {"result": "not reviewed"} and host.calls == 1
+    assert "exchange contract" in jobs.gaps[0]["reason"]
+    jobs, host, kwargs, _ = setup(tmp_path / "required", replies=[off_contract])
+    with pytest.raises(ExchangeError, match="exchange contract"):
+        jobs.execute(**kwargs)
+    assert host.calls == 1
