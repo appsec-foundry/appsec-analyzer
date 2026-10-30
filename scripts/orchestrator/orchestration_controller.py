@@ -3752,7 +3752,10 @@ def _single_repository_meta(scope) -> dict:
 
     branch = read("rev-parse", "--abbrev-ref", "HEAD")
     return {
-        "git": {"commit_sha": row["head"], "branch": branch if branch and branch != "HEAD" else "unknown"},
+        # A directory without Git has no revision to show; its commit exists only for this run.
+        "git": {"commit_sha": "", "branch": ""}
+        if repo.without_git
+        else {"commit_sha": row["head"], "branch": branch if branch and branch != "HEAD" else "unknown"},
         "repo_url": public_remote_url(read("remote", "get-url", "origin")),
         "repository_root": str(repo.root),
         "output_dir": str(scope.output),

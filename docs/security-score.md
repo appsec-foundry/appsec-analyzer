@@ -1,6 +1,6 @@
 # Security score
 
-`appsec-analyzer score REPO` gives a quick deterministic indication from 0 to 100 using the existing Analyzer analysis engine, without a model account, model calls, or model charges. Install Analyzer and Git first. `REPO` must name one top-level Git checkout with a commit, or an explicitly selected HTTPS or SSH Git URL. Run `appsec-analyzer score --help` for arguments and examples.
+`appsec-analyzer score REPO` gives a quick deterministic indication from 0 to 100 using the existing Analyzer analysis engine, without a model account, model calls, or model charges. Install Analyzer and Git first. `REPO` must name one top-level Git checkout with a commit, a [directory without Git](security-assessment.md#directories-without-git), or an explicitly selected HTTPS or SSH Git URL. Run `appsec-analyzer score --help` for arguments and examples.
 
 ```sh
 appsec-analyzer score /path/to/project
@@ -63,7 +63,7 @@ JSON and YAML follow the [score schema](../schemas/security-score.schema.yaml). 
 
 Press Ctrl+C to cancel. The status ends with `Cancelled by user after ...` and exit code 130. No result is published, and the temporary source and scanner files are removed.
 
-An invalid local selection says whether the path is missing, is a file, is a subdirectory, is not a readable Git checkout, or has no readable commit. Select an existing top-level Git checkout with a commit, and check your Git installation and read permissions. Remote failures name the rejected URL, destination, access, or checkout limit. See [Git repository access](configuration.md#git-repository-access) for credentials, host authorization, and trusted SSH keys. Raw Git and scanner errors are not shown, because they can contain credentials or source details.
+An invalid local selection says whether the path is missing, is a file, is a subdirectory of a checkout, has a `.git` that Git cannot read, or has no readable commit. Select an existing top-level Git checkout with a commit or a directory without Git, and check your Git installation and read permissions. Remote failures name the rejected URL, destination, access, or checkout limit. See [Git repository access](configuration.md#git-repository-access) for credentials, host authorization, and trusted SSH keys. Raw Git and scanner errors are not shown, because they can contain credentials or source details.
 
 A scanner that times out, fails, or returns no valid result makes the score `incomplete`, with no overall score. The warnings name the scanner and the failure. Retry, or check the installation. Findings from completed scanners stay visible. If the source changes during the analysis, wait until the edits are done and run again. The outdated result is not printed.
 

@@ -104,6 +104,7 @@ def _check_dependencies(ns) -> None:
 
 def run(ns, *, api_profile=None, runtime=None):
     from runtime.multi_repo_scope import _selected_root
+    from runtime.plain_directory import no_git_directory
     from runtime.remote_repositories import MAX_REPOSITORIES, check_access, describe_route, parse_remote
 
     _check_dependencies(ns)
@@ -122,10 +123,13 @@ def run(ns, *, api_profile=None, runtime=None):
     checks = []
     for index, (value, remote) in enumerate(zip(repositories, selections), 1):
         label = "Repository" if len(repositories) == 1 else f"Repo {index}/{len(repositories)}"
+        kind = "remote read access" if remote else "local Git checkout"
         try:
             if remote:
                 _say(ns, label, f"checking read access to {describe_route(remote)}", immediate=True)
                 check_access(remote)
+            elif no_git_directory(value):
+                kind = "directory without Git"
             else:
                 _selected_root(value)
         except (OSError, RuntimeError, ValueError) as exc:
@@ -137,7 +141,7 @@ def run(ns, *, api_profile=None, runtime=None):
             _say(ns, label, "access check failed", status="critical")
             raise ValueError(f"Preflight repository {index}: {reason}") from None
         checks.append({"repository": index, "status": "readable"})
-        _say(ns, label, "remote read access" if remote else "local Git checkout", status="ok")
+        _say(ns, label, kind, status="ok")
     host = ns.run_profile["adapter"]
     result = {
         "interface_version": 1,

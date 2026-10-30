@@ -137,6 +137,7 @@ def test_real_checkout_and_cleanup_with_stable_identity(transport, tmp_path, url
 def test_multiple_urls_and_local_paths_share_one_invocation(transport, tmp_path, monkeypatch):
     local = tmp_path / "local"
     local.mkdir()
+    git("init", "-q", cwd=local)
     args = [
         "--repo",
         "git@git.example:team/storefront.git",
@@ -168,7 +169,7 @@ def test_multiple_urls_and_local_paths_share_one_invocation(transport, tmp_path,
 def test_concurrent_output_is_refused_and_existing_checkout_preserved(transport, tmp_path):
     args = ["--repo", "git@git.example:team/storefront.git", "--output", str(tmp_path / "report")]
     with remote.checkout_arguments(args) as result:
-        with pytest.raises(remote.RemoteError, match="Another remote assessment"):
+        with pytest.raises(remote.RemoteError, match="Another assessment"):
             with remote.checkout_arguments(args):
                 pass
         assert (Path(result[1]) / "source.txt").is_file()

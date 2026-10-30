@@ -1,6 +1,6 @@
 # Separate requirements audit
 
-`audit-requirements` checks a local requirements catalog (Analyzer YAML or an OSCAL catalog, see [catalog formats](#catalog-formats)) against one admitted Git checkout. It sends selected source excerpts to Claude CLI and produces a separate requirements verdict. For a complete security assessment, use `assess`. For fixed source checks without a model, use `scan-sources`.
+`audit-requirements` checks a local requirements catalog (Analyzer YAML or an OSCAL catalog, see [catalog formats](#catalog-formats)) against one admitted Git checkout or directory without Git. It sends selected source excerpts to Claude CLI and produces a separate requirements verdict. For a complete security assessment, use `assess`. For fixed source checks without a model, use `scan-sources`.
 
 ```sh
 mkdir -p /private/audit

@@ -33,6 +33,8 @@ from analyzers.scan_excludes import assessment_artifacts_in_inventory, declared_
 from jsonschema import Draft202012Validator
 from validators.secret_scan import mask_text
 
+from runtime.remote_repositories import DIRECTORY_SLOT, temporary_area
+
 SCHEMA = Path(__file__).resolve().parents[2] / "schemas" / "multi-repo-scope.schema.json"
 MAX_REPOSITORIES = 16
 MAX_FILES = 20_000
@@ -47,6 +49,10 @@ SENSITIVE_NAMES = (".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "id_rsa
 
 class ScopeError(ValueError):
     """Admission or source validation failed; no partial scope is usable."""
+
+
+class GitCommandFailed(ScopeError):
+    """Git ran and refused, for example outside a repository."""
 
 
 def _digest(value: bytes) -> str:
@@ -84,13 +90,21 @@ def _user_excludes_file() -> str | None:
     return str(path.resolve()) if path.is_absolute() and path.is_file() else None
 
 
-def _git(root: Path, *args: str, overrides: tuple[str, ...] = ()) -> bytes:
+def _git(
+    root: Path,
+    *args: str,
+    overrides: tuple[str, ...] = (),
+    git_dir: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> bytes:
     """Read Git metadata without hooks, fsmonitor, or unbounded output.
 
     Commands that compare worktree content also need ``_filter_overrides``.
+    ``git_dir`` keeps Git's own data outside ``root``.
     """
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0")
+    env.update(environment or {})
     command = [
         "git",
         "--no-pager",
@@ -106,6 +120,7 @@ def _git(root: Path, *args: str, overrides: tuple[str, ...] = ()) -> bytes:
         *(item for value in overrides for item in ("-c", value)),
         "-C",
         str(root),
+        *((f"--git-dir={git_dir}", "--work-tree=.") if git_dir else ()),
         *args,
     ]
     try:
@@ -132,7 +147,7 @@ def _git(root: Path, *args: str, overrides: tuple[str, ...] = ()) -> bytes:
                     if len(chunks) > MAX_GIT_BYTES:
                         raise ScopeError("Git metadata exceeds the admission limit")
         if proc.wait(timeout=max(0.01, deadline - time.monotonic())):
-            raise ScopeError("Git metadata validation failed")
+            raise GitCommandFailed("Git metadata validation failed")
         return bytes(chunks)
     except subprocess.TimeoutExpired:
         raise ScopeError("Git metadata read exceeded its time limit") from None
@@ -169,6 +184,19 @@ def _filter_overrides(root: Path) -> tuple[str, ...]:
         for driver in sorted(drivers)
         for key, value in (("clean", ""), ("smudge", ""), ("process", ""), ("required", "false"))
     )
+
+
+def sensitive_name(name: str) -> bool:
+    return any(fnmatch.fnmatchcase(name.lower(), pattern) for pattern in SENSITIVE_NAMES)
+
+
+def _directory_copy(root: Path) -> bool:
+    """Whether ``root`` is the temporary checkout of a directory without Git.
+
+    Only the private location decides, so repository content cannot claim it.
+    """
+    slot = root.parent
+    return slot.name.startswith(DIRECTORY_SLOT) and slot.parent.parent == temporary_area()
 
 
 def _lines(text: str) -> list[str]:
@@ -307,6 +335,8 @@ class RepositoryView:
     # Products of assessment runs. Never source and never part of the source
     # identity: a concurrent run or plugin hook rewriting them changes nothing.
     artifacts: tuple[str, ...] = ()
+    # The source is a directory without Git; ``head`` exists only for this run.
+    without_git: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "files", MappingProxyType(dict(self.files)))
@@ -328,7 +358,7 @@ class RepositoryView:
         )
 
     def inventory(self) -> dict:
-        return {
+        row = {
             "repository_id": self.repository_id,
             "label": self.root.name,
             "head": self.head,
@@ -337,6 +367,7 @@ class RepositoryView:
             "files": [dict(row) for row in self._file_rows],
             "exclusions": list(self.exclusions),
         }
+        return {**row, "without_git": True} if self.without_git else row
 
 
 def _omission(root: Path, parts: tuple[str, ...], mode: str | None) -> str | None:
@@ -430,7 +461,7 @@ def _capture(root: Path, repository_id: str, remaining: int, output: PurePosixPa
         if reason not in (None, "deleted"):
             exclusions.append({"path": path, "reason": reason})
             continue
-        if any(fnmatch.fnmatchcase(parts[-1].lower(), pattern) for pattern in SENSITIVE_NAMES):
+        if sensitive_name(parts[-1]):
             exclusions.append({"path": path, "reason": "sensitive-name"})
             continue
         # A deletion is recorded, not confused with an empty captured file.
@@ -466,7 +497,15 @@ def _capture(root: Path, repository_id: str, remaining: int, output: PurePosixPa
         "exclusions": exclusions,
     }
     return RepositoryView(
-        repository_id, root, head, _json_digest(state), files, tuple(exclusions), dirty, tuple(sorted(artifacts))
+        repository_id,
+        root,
+        head,
+        _json_digest(state),
+        files,
+        tuple(exclusions),
+        dirty,
+        tuple(sorted(artifacts)),
+        _directory_copy(root),
     )
 
 
@@ -600,7 +639,12 @@ def _selected_root(value: str) -> Path:
         root = Path(value).resolve(strict=True)
     except (OSError, RuntimeError, ValueError):
         raise ScopeError("Selected repository does not exist") from None
-    top = _git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
+    try:
+        top = _git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
+    except GitCommandFailed:
+        if os.path.lexists(root / ".git"):
+            raise ScopeError("The selected directory has a .git that Git cannot read; repair or remove it") from None
+        raise ScopeError("The selected directory is not a Git checkout") from None
     if root != Path(top).resolve():
         raise ScopeError("Multi-repository selections must name top-level Git checkouts")
     return root

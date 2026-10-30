@@ -6,6 +6,7 @@ import json
 import os
 import re
 import selectors
+import shutil
 import signal
 import subprocess
 import sys
@@ -648,12 +649,22 @@ def test_sigint_cancels_without_traceback_or_result_and_removes_temporary_files(
             process.communicate()
 
 
+def test_directory_without_git_is_scored_and_named(repo, capsys):
+    shutil.rmtree(repo / ".git")
+    assert cli.main(["score", str(repo), "--json"]) == 0
+    source = json.loads(capsys.readouterr().out)["source"]
+    assert source["without_git"] is True and source["captured_files"] == 2
+    assert cli.main(["score", str(repo)]) == 0
+    assert "Source: directory without Git" in capsys.readouterr().out
+    assert not (repo / ".git").exists()
+
+
 @pytest.mark.parametrize(
     "kind, expected",
     [
         ("missing", "Selected repository does not exist"),
         ("file", "not a directory"),
-        ("plain", "Cannot read the Git checkout"),
+        ("damaged-git", "Cannot read the Git checkout"),
         ("empty-git", "no readable commit"),
         ("subdirectory", "top-level Git checkout rather than a subdirectory"),
     ],
@@ -662,10 +673,12 @@ def test_local_source_errors_explain_recovery_before_scanners(repo, tmp_path, mo
     selection = tmp_path / "selection"
     if kind == "file":
         selection.write_text("not a checkout")
-    elif kind in {"plain", "empty-git"}:
+    elif kind == "damaged-git":
         selection.mkdir()
-        if kind == "empty-git":
-            _git(selection, "init", "-q")
+        (selection / ".git").write_text("gitdir: /nowhere\n")
+    elif kind == "empty-git":
+        selection.mkdir()
+        _git(selection, "init", "-q")
     elif kind == "subdirectory":
         selection = repo / "src"
         selection.mkdir()

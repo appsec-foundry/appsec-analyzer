@@ -10,7 +10,7 @@
 > [!NOTE]
 > **Alpha.** Early version, actively developed. Feedback from real-world projects welcome.
 
-AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or on several that form one system.
+AppSec Analyzer reviews application security from source code. It maps components, data flows, and trust boundaries, checks the security controls it finds, and reports findings with code references and suggested fixes. It works on one Git repository or directory, or on several that form one system.
 
 It does not scan dependencies for known CVEs, search comprehensively for secrets, or test the running application. Review deployment controls and business assumptions yourself.
 
@@ -250,7 +250,7 @@ appsec-analyzer review /path/to/assessment --with codex
 
 ### `score`: deterministic security rating
 
-`score` rates a local checkout or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
+`score` rates a local directory or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
 
 ```sh
 # Rate a local checkout

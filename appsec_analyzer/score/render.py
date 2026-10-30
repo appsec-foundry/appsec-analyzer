@@ -23,6 +23,12 @@ def _score_role(score: int | None) -> str:
     return "ok"
 
 
+def _source_label(source: dict) -> str:
+    if source.get("without_git"):
+        return "directory without Git"
+    return f"{source['head'][:12]} ({'dirty' if source['dirty'] else 'clean'})"
+
+
 def render_text(result: dict, *, style: Style | None = None, width: int = 88) -> str:
     """Show score, coverage, ranked areas, then actionable finding references."""
     st = style if style is not None else Style(False)
@@ -108,8 +114,7 @@ def render_text(result: dict, *, style: Style | None = None, width: int = 88) ->
         lines.extend(f"  - {warning}" for warning in result["warnings"])
     lines += [
         "",
-        f"Source: {source['head'][:12]} ({'dirty' if source['dirty'] else 'clean'})"
-        f" · {source['captured_files']} captured files",
+        f"Source: {_source_label(source)} · {source['captured_files']} captured files",
         "Compare only commits of this repository with matching scoring and coverage settings.",
     ]
     return "\n".join(lines)

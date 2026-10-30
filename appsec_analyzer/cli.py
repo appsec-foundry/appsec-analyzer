@@ -344,7 +344,9 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             "Guide: docs/security-score.md"
         ),
     )
-    score.add_argument("repo", metavar="REPO", help="Top-level local Git checkout or HTTPS/SSH Git URL")
+    score.add_argument(
+        "repo", metavar="REPO", help="Top-level local Git checkout, directory without Git, or HTTPS/SSH Git URL"
+    )
     _add_git_token_argument(score)
     formats = score.add_mutually_exclusive_group()
     formats.add_argument("--json", action="store_true", help="Print the complete machine-readable JSON result")
@@ -582,7 +584,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         action="append",
         required=not default_repo,
         metavar="PATH",
-        help="Repository to assess: a local path (. for the current directory) or a Git URL; required for assess",
+        help="Repository to assess: a local path (. for the current directory; Git is optional) or a Git URL; required for assess",
     )
     _add_git_token_argument(scope_group)
     scope_group.add_argument(
@@ -1030,6 +1032,7 @@ def _scan_local(ns: argparse.Namespace) -> int:
                     "repository_id": view.repository_id,
                     "label": view.root.name,
                     "head": view.head,
+                    **({"without_git": True} if view.without_git else {}),
                     "state_sha256": view.state_sha256,
                     "captured_files": len(view.files),
                     "excluded_files": list(view.exclusions),

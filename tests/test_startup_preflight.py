@@ -172,6 +172,22 @@ def test_api_dns_denial_prevents_connection(metadata, monkeypatch):
     assert not metadata.instances
 
 
+def test_preflight_accepts_and_names_a_directory_without_git(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    directory = tmp_path / "plain"
+    directory.mkdir()
+    assert cli.main(["preflight", "--repo", str(directory)]) == 0
+    assert "directory without Git" in capsys.readouterr().err
+    assert sorted(directory.iterdir()) == []
+
+
+def test_preflight_names_a_damaged_git_directory(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    (tmp_path / ".git").write_text("gitdir: /nowhere\n")
+    assert cli.main(["preflight", "--repo", str(tmp_path)]) == 2
+    assert ".git that Git cannot read" in capsys.readouterr().err
+
+
 def test_cli_preflight_never_clones_or_starts_assessment(repository, monkeypatch, capsys):
     cli._engine_imports()
     from orchestrator import orchestration_controller

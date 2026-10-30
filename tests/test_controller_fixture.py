@@ -11,6 +11,7 @@ abuse matching, rendering and publication run for real.
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,7 @@ from model import case_candidates, case_outcomes
 from orchestrator import orchestration_controller as controller
 from runtime.analyst_host import HostReply, TransportError
 from runtime.assessment_host import MARKER
+from runtime.remote_repositories import checkout_arguments
 from validators.validate_intermediate import validate_threat_model_output
 
 from tests.test_multi_repo_assessment import FullHost, _assess
@@ -296,6 +298,52 @@ def test_web_application_run_publishes_a_valid_model(tmp_path, monkeypatch):
     head = subprocess.run(["git", "-C", str(tmp_path / "shop"), "rev-parse", "HEAD"], capture_output=True, text=True)
     assert model["meta"]["git"]["commit_sha"] == head.stdout.strip(), "the published model names its source revision"
     assert model.get("abuse_case_analysis", {}).get("status") != "not_run"
+
+
+class InterruptedHost(FullHost):
+    """Rejects the security architecture render, so a later run can resume."""
+
+    interrupt = True
+
+    def invoke(self, role, system, prompt, schema, timeout_s, should_stop):
+        if role == "secarch_renderer" and self.interrupt:
+            return HostReply(dict(action="complete", reads=[], artifact={"unexpected": True}), 0.01)
+        return super().invoke(role, system, prompt, schema, timeout_s, should_stop)
+
+
+def test_a_directory_without_git_resumes_on_its_content_and_reports_no_commit(tmp_path, monkeypatch):
+    from runtime.assessment_host import ExchangeError
+
+    monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
+    assess = controller.assess_repositories
+
+    def through_checkout(argv, **options):
+        with checkout_arguments(argv) as local:
+            return assess(local, **options)
+
+    monkeypatch.setattr(controller, "assess_repositories", through_checkout)
+    host = InterruptedHost()
+    with pytest.raises(ExchangeError):
+        _assess(
+            tmp_path,
+            monkeypatch,
+            ("shop",),
+            ("--no-pdf",),
+            seed=lambda roots: shutil.rmtree(roots[0] / ".git"),
+            host=host,
+        )
+    assert "stride_analyzer" in host.roles
+    host.roles.clear()
+    host.interrupt = False
+    outcome = _assess_again(tmp_path, host, tmp_path / "out", ("--no-pdf", "--resume"))
+    assert outcome["status"] == "complete"
+    assert "stride_analyzer" not in host.roles, "the same content must reuse its accepted jobs"
+    assert not (tmp_path / "shop" / ".git").exists()
+    model = yaml.safe_load((tmp_path / "out" / "security-assessment.yaml").read_text())
+    assert model["meta"]["git"]["commit_sha"] == ""
+    report = (tmp_path / "out" / "security-assessment.md").read_text()
+    assert "`shop` (directory without Git)" in report and "| Repository | shop (directory without Git) |" in report
+    assert "appsec-remotes" not in report
 
 
 def test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them(tmp_path, monkeypatch):

@@ -18,6 +18,7 @@ from appsec_analyzer.engine import initialize
 initialize()
 from jsonschema import Draft202012Validator
 from runtime.multi_repo_scope import ScopeError, _git, admit
+from runtime.plain_directory import no_git_directory
 from runtime.remote_repositories import RemoteError, checkout_arguments, parse_remote
 from validators.secret_scan import mask_text
 
@@ -103,20 +104,21 @@ def score_repository(selection: str, *, progress: Callable[[ScoreEvent], None] |
                 ) from None
             if not root.is_dir():
                 raise ScoreError("Selected repository is not a directory. Select the top-level Git checkout.")
-            try:
-                top = _git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
-            except ScopeError:
-                raise ScoreError(
-                    "Cannot read the Git checkout. Select a Git repository and check Git installation and read permissions."
-                ) from None
-            if root != Path(top).resolve():
-                raise ScoreError("Select the top-level Git checkout rather than a subdirectory.")
-            try:
-                _git(root, "rev-parse", "--verify", "HEAD")
-            except ScopeError:
-                raise ScoreError(
-                    "Repository has no readable commit. Select a checkout with an existing commit."
-                ) from None
+            if no_git_directory(str(root)) is None:
+                try:
+                    top = _git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
+                except ScopeError:
+                    raise ScoreError(
+                        "Cannot read the Git checkout. Select a Git repository and check Git installation and read permissions."
+                    ) from None
+                if root != Path(top).resolve():
+                    raise ScoreError("Select the top-level Git checkout rather than a subdirectory.")
+                try:
+                    _git(root, "rev-parse", "--verify", "HEAD")
+                except ScopeError:
+                    raise ScoreError(
+                        "Repository has no readable commit. Select a checkout with an existing commit."
+                    ) from None
             temporary = Path(tempfile.gettempdir()).resolve()
             if temporary == root or root in temporary.parents:
                 raise ScoreError("Temporary storage must be outside the selected repository")
@@ -174,6 +176,7 @@ def score_repository(selection: str, *, progress: Callable[[ScoreEvent], None] |
                     "state_sha256": view.state_sha256,
                     "dirty": view.dirty,
                     "captured_files": len(view.files),
+                    **({"without_git": True} if view.without_git else {}),
                 }
                 report(ScoreEvent("verify_sources"))
                 scope.verify_unchanged()
