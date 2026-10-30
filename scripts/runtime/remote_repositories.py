@@ -24,6 +24,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from contextlib import contextmanager
@@ -36,6 +37,7 @@ FETCH_SECONDS = 120
 PREFLIGHT_TIMEOUT = 30
 MAX_BYTES = 536_870_912
 MAX_ENTRIES = 100_000
+STDERR_BYTES = 8192
 SECRET_ENV = ("APPSEC_GIT_TOKEN", "APPSEC_GIT_USERNAME", "APPSEC_GIT_SSH_KEY_FILE")
 # The first variable set wins unless TOKEN_NAME_ENV (or --git-token-env) names another one.
 # GITLAB_TOKEN goes only to GitLab hosts, so an ambient token never reaches an arbitrary Git URL.
@@ -43,10 +45,58 @@ TOKEN_ENV = ("APPSEC_GIT_TOKEN", "GIT_TOKEN", "GITLAB_TOKEN")
 TOKEN_NAME_ENV = "APPSEC_GIT_TOKEN_ENV"
 # A temporary checkout of a directory without Git lies in a slot with this prefix.
 DIRECTORY_SLOT = "directory-"
+# Git, curl and OpenSSH wording in the C locale; the first match wins. Only the class leaves this
+# module, so no text from Git or the host reaches a message.
+_FAILURES = (
+    ("proxy", r"from proxy after CONNECT|Proxy CONNECT aborted|CONNECT tunnel failed|Could not resolve proxy"),
+    ("name", r"Could not resolve host"),
+    (
+        "certificate",
+        r"SSL certificate problem|server certificate verification failed"
+        r"|SSL: (?:certificate subject name|no alternative certificate)",
+    ),
+    ("host_key", r"Host key verification failed|host key is known|REMOTE HOST IDENTIFICATION HAS CHANGED"),
+    ("ssh_login", r"Permission denied \("),
+    ("token", r"Authentication failed for"),
+    ("login", r"could not read (?:Username|Password) for"),
+    (
+        "connection",
+        r"Failed to connect to|Could not connect|Connection (?:refused|timed out|reset)|Network is unreachable"
+        r"|No route to host|Operation timed out|Empty reply from server"
+        r"|GnuTLS recv error|gnutls_handshake|SSL_ERROR_SYSCALL",
+    ),
+    ("not_found", r"repository '.*' not found|does not appear to be a git repository|returned error: 404"),
+    ("forbidden", r"returned error: 403"),
+    ("redirect", r"returned error: 30\d"),
+    ("rate_limited", r"returned error: 429"),
+    ("server", r"returned error: 5\d\d"),
+)
+_EXPLANATIONS = {
+    "proxy": "the proxy refused the connection to {host}; check HTTPS_PROXY and whether the proxy allows this host",
+    "name": "the host name {host} could not be resolved; check the URL and DNS",
+    "certificate": (
+        "the TLS certificate of {host} was not accepted; check the host name and the certificates this system trusts"
+    ),
+    "host_key": "the SSH host key of {host} is unknown or has changed; verify it and add it to known_hosts",
+    "ssh_login": "{host} refused the SSH login; load the key into the SSH agent or set APPSEC_GIT_SSH_KEY_FILE",
+    "connection": "{route} could not be reached; check the URL and network access",
+    "rate_limited": "{host} is limiting requests (HTTP 429); try again later",
+    "server": "{host} reported a server error; try again later",
+}
+# The answers a different path can change. Another try after a rejected token only adds a failed login.
+_SUFFIX_CAN_HELP = {"redirect", "not_found", "login", "forbidden", "unknown"}
 
 
 class RemoteError(ValueError):
     """A safe, credential-free diagnostic for the operator."""
+
+
+class _GitFailed(RemoteError):
+    """Git exited with an error. ``kind`` names a class of ``_FAILURES`` or ``unknown``."""
+
+    def __init__(self, message: str, kind: str):
+        super().__init__(message)
+        self.kind = kind
 
 
 @dataclass(frozen=True)
@@ -217,7 +267,7 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 def _redirect_target(remote: Remote) -> str | None:
     """Where the host sends a Git client that asks for this URL, or None when that is unknown.
 
-    Only a failed HTTPS access calls this, to explain a redirect that Analyzer refuses to follow.
+    Only a redirect that Git reported calls this, to explain why Analyzer refused to follow it.
     It sends one request with the token Git would use, does not follow the answer, and reports
     only a valid repository URL on the same host.
     """
@@ -255,12 +305,9 @@ def credential_hint(remote: Remote) -> str:
     """Name the variables a failed access needed, without exposing any value."""
     if remote.scheme == "ssh":
         return "load the key into the SSH agent or set APPSEC_GIT_SSH_KEY_FILE, and trust the host key in known_hosts"
-    redirected = None if remote.url.endswith(".git") else _redirect_target(remote)
-    if redirected:
-        return f"the host redirects this URL to {redirected}, which Analyzer does not follow; use that URL"
     selected = select_token(remote.host)
     if selected:
-        hint = f"the token from {selected[0]} was not accepted; check its scope and APPSEC_GIT_USERNAME"
+        hint = f"the token from {selected[0]} was not accepted; check its value, expiry, scope and APPSEC_GIT_USERNAME"
     elif os.environ.get("GITLAB_TOKEN"):
         hint = (
             f"GITLAB_TOKEN is set but is sent only to gitlab.com and GITLAB_HOST; for {remote.host} "
@@ -271,9 +318,35 @@ def credential_hint(remote: Remote) -> str:
             "set APPSEC_GIT_TOKEN, GIT_TOKEN or GITLAB_TOKEN (GitLab hosts only: gitlab.com or GITLAB_HOST), "
             "name another variable with --git-token-env NAME, or configure a Git credential helper"
         )
-    if not remote.url.endswith(".git"):
-        hint += "; if the host redirects URLs without .git, Analyzer does not follow it, so try adding .git"
     return hint
+
+
+def _explanation(remote: Remote, kind: str) -> str | None:
+    """The cause of a failure class for this remote, or None when Git named no known cause."""
+    if kind in _EXPLANATIONS:
+        return _EXPLANATIONS[kind].format(host=remote.host, route=describe_route(remote))
+    if kind == "redirect":
+        target = _redirect_target(remote)
+        if target:
+            return f"the host redirects this URL to {target}, which Analyzer does not follow; use that URL"
+        return f"{remote.host} redirects this URL, which Analyzer does not follow; check the repository's current URL"
+    selected = select_token(remote.host) if remote.scheme == "https" else None
+    if kind == "token":
+        if selected:
+            return credential_hint(remote)
+        return (
+            f"{remote.host} rejected the login from your Git credential helper; renew it, or {credential_hint(remote)}"
+        )
+    if kind == "login":
+        return f"{remote.host} asks for a login, which a private or a missing repository can cause: " + credential_hint(
+            remote
+        )
+    if kind in {"not_found", "forbidden"}:
+        problem = "reports no repository at this URL" if kind == "not_found" else "refused access (HTTP 403)"
+        if selected:
+            return f"{remote.host} {problem}; check the URL and whether the token from {selected[0]} may read it"
+        return f"{remote.host} {problem}; check the URL, and for a private repository: {credential_hint(remote)}"
+    return None
 
 
 def _base_env() -> dict[str, str]:
@@ -386,6 +459,8 @@ def _git_env(remote: Remote, directory: Path) -> dict[str, str]:
         GCM_INTERACTIVE="never",
         GIT_LFS_SKIP_SMUDGE="1",
         GIT_CONFIG_COUNT=str(len(config)),
+        # _FAILURES matches Git's untranslated wording.
+        LC_ALL="C",
     )
     for i, (key, value) in enumerate(config):
         env[f"GIT_CONFIG_KEY_{i}"] = key
@@ -422,6 +497,31 @@ def _stop(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
+class _Stderr(threading.Thread):
+    """The end of a child's stderr, where Git states the failure.
+
+    Reading to the end keeps a talkative host from stalling the child; keeping only the end bounds memory.
+    """
+
+    def __init__(self, stream):
+        super().__init__(daemon=True)
+        self._stream = stream
+        self._end = b""
+        self.start()
+
+    def run(self):
+        with self._stream:
+            for chunk in iter(lambda: self._stream.read1(4096), b""):
+                self._end = (self._end + chunk)[-STDERR_BYTES:]
+
+    def kind(self) -> str:
+        """The failure class Git stated. A host's own ``remote:`` lines cannot choose it."""
+        self.join(1)
+        lines = self._end.decode("utf-8", "replace").splitlines()
+        text = "\n".join(line for line in lines if not line.startswith("remote:"))
+        return next((kind for kind, pattern in _FAILURES if re.search(pattern, text)), "unknown")
+
+
 def _git(command: list[str], root: Path, env: dict[str, str], hint="", scheme: str = "ssh") -> None:
     deadline = time.monotonic() + FETCH_SECONDS
     proc = subprocess.Popen(
@@ -430,9 +530,10 @@ def _git(command: list[str], root: Path, env: dict[str, str], hint="", scheme: s
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    stderr = _Stderr(proc.stderr)
     try:
         while proc.poll() is None:
             _within_limits(root)
@@ -443,8 +544,9 @@ def _git(command: list[str], root: Path, env: dict[str, str], hint="", scheme: s
         if proc.returncode:
             checks = "credentials and trusted SSH host keys" if scheme == "ssh" else "and credentials"
             detail = hint() if callable(hint) else hint
-            raise RemoteError(
-                f"Git checkout failed; check repository access, {checks}" + (f": {detail}" if detail else "")
+            raise _GitFailed(
+                f"Git checkout failed; check repository access, {checks}" + (f": {detail}" if detail else ""),
+                stderr.kind(),
             )
     finally:
         _stop(proc)
@@ -464,38 +566,86 @@ def _require_git_version() -> None:
         raise RemoteError("Git URL provisioning requires Git 2.34 or newer")
 
 
-def clone(remote: Remote, root: Path) -> None:
+def _with_git_suffix(remote: Remote) -> Remote | None:
+    """The same path with .git. HTTPS only: over SSH, Git finds such a repository by itself."""
+    if remote.scheme != "https" or remote.url.endswith(".git"):
+        return None
+    return parse_remote(remote.url + ".git")
+
+
+def _explained(failed: _GitFailed, remote: Remote, failure: str) -> RemoteError:
+    detail = _explanation(remote, failed.kind)
+    return RemoteError(f"{failure}: {detail}") if detail else failed
+
+
+def _attempt(action, remote: Remote, failure: str) -> str | None:
+    """Run ``action`` on the selected URL and, when the suffix can help, once more with .git.
+
+    Each attempt builds its own Git environment, so it passes the destination checks and refuses
+    redirects. Returns the URL that worked when it is not the selected one. A failed second attempt
+    is the one reported: a first redirect says little about what the host holds at the .git URL.
+    """
+    try:
+        action(remote)
+        return None
+    except _GitFailed as failed:
+        second = _with_git_suffix(remote) if failed.kind in _SUFFIX_CAN_HELP else None
+        if second is None:
+            raise _explained(failed, remote, failure) from None
+    try:
+        action(second)
+    except _GitFailed as failed:
+        raise _explained(failed, second, failure) from None
+    return second.url
+
+
+def clone(remote: Remote, root: Path) -> str | None:
+    """Check out the repository. Returns the URL used when it is not the selected one."""
     _require_git_version()
-    env = _git_env(remote, root.parent)
-    _git(
-        [
-            "clone",
-            "--quiet",
-            "--depth=1",
-            "--single-branch",
-            "--no-tags",
-            "--no-checkout",
-            "--template=",
-            "--",
-            remote.url,
-            str(root),
-        ],
-        root,
-        env,
-        lambda: credential_hint(remote),
-        remote.scheme,
-    )
+    env: dict[str, str] = {}
+
+    def fetch(target: Remote) -> None:
+        nonlocal env
+        env = _git_env(target, root.parent)
+        _git(
+            [
+                "clone",
+                "--quiet",
+                "--depth=1",
+                "--single-branch",
+                "--no-tags",
+                "--no-checkout",
+                "--template=",
+                "--",
+                target.url,
+                str(root),
+            ],
+            root,
+            env,
+            lambda: credential_hint(target),
+            target.scheme,
+        )
+
+    used = _attempt(fetch, remote, "Git checkout failed")
     # No global filters, hooks or repository-supplied submodule commands run.
     clean = {k: v for k, v in env.items() if k not in SECRET_ENV}
     _git(["-C", str(root), "checkout", "--quiet", "--detach", "HEAD"], root, clean)
+    return used
 
 
-def check_access(remote: Remote) -> None:
-    """Check read access without downloading objects or retaining remote output."""
+def check_access(remote: Remote) -> str | None:
+    """Check read access without downloading objects or retaining remote output.
+
+    Returns the URL that worked when it is not the selected one.
+    """
     try:
         _require_git_version()
     except (OSError, subprocess.SubprocessError):
         raise RemoteError("Git preflight could not check the installed Git version") from None
+    return _attempt(_read_head, remote, "Git preflight failed")
+
+
+def _read_head(remote: Remote) -> None:
     with tempfile.TemporaryDirectory(prefix="appsec-git-check-") as work:
         directory = Path(work)
         try:
@@ -510,9 +660,10 @@ def check_access(remote: Remote) -> None:
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 start_new_session=True,
             )
+            stderr = _Stderr(proc.stderr)
             code = proc.wait(timeout=PREFLIGHT_TIMEOUT)
         except subprocess.TimeoutExpired:
             raise RemoteError(
@@ -528,8 +679,9 @@ def check_access(remote: Remote) -> None:
             raise RemoteError("Git preflight found no HEAD; select a repository with a default-branch commit")
         if code:
             checks = "credentials and trusted SSH host keys" if remote.scheme == "ssh" else "and credentials"
-            raise RemoteError(
-                f"Git preflight failed; check repository URL, read permission, {checks}: " + credential_hint(remote)
+            raise _GitFailed(
+                f"Git preflight failed; check repository URL, read permission, {checks}: " + credential_hint(remote),
+                stderr.kind(),
             )
 
 
@@ -615,9 +767,12 @@ def checkout_arguments(argv: list[str], on_clone=None):
             if not quiet:
                 _row("·", "muted", label, f"cloning {remote.name} from {describe_route(remote)}, latest commit only")
             started = time.monotonic()
-            clone(remote, root)
+            used = clone(remote, root)
             if not quiet:
                 _row("✓", "ok", label, f"cloned in {time.monotonic() - started:.0f} s")
+            # Shown with --quiet too: it decides what reaches a model.
+            if used:
+                _row("·", "muted", label, f"used {used}, because the URL without .git failed")
             if on_clone:
                 on_clone(number, len(remotes), remote)
             result[index] = str(root)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shlex
@@ -151,7 +152,9 @@ def test_multiple_urls_and_local_paths_share_one_invocation(transport, tmp_path,
     reported = []
     clone = remote.clone
     cloned = []
-    monkeypatch.setattr(remote, "clone", lambda selected, root: (clone(selected, root), cloned.append(selected.name)))
+    monkeypatch.setattr(
+        remote, "clone", lambda selected, root: (clone(selected, root), cloned.append(selected.name))[0]
+    )
     on_clone = lambda number, total, selected: reported.append((number, total, selected.name, list(cloned)))  # noqa: E731
     with remote.checkout_arguments(args, on_clone=on_clone) as result:
         roots = [Path(result[i]) for i in (1, 3, 5)]
@@ -508,9 +511,11 @@ def test_preflight_timeout_stops_child_group(tmp_path, monkeypatch):
     stopped = []
 
     class Process:
+        stderr = io.BytesIO()
+
         def __init__(self, args, **kwargs):
             assert args[:4] == ["git", "ls-remote", "--quiet", "--exit-code"]
-            assert kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+            assert kwargs["stdout"] == subprocess.DEVNULL and kwargs["stderr"] == subprocess.PIPE
             assert kwargs["stdin"] == subprocess.DEVNULL and kwargs["start_new_session"]
 
         def wait(self, timeout):
@@ -629,10 +634,8 @@ def test_failure_hint_names_tried_variables_or_the_one_that_failed(monkeypatch, 
     failed = remote.credential_hint(https)
     assert "token from GIT_TOKEN was not accepted" in failed and "ambient-secret" not in failed
     assert "SSH agent" in remote.credential_hint(remote.parse_remote("git@git.example:team/a.git"))
-    monkeypatch.setattr(remote, "_redirect_target", lambda _: None)
     bare = remote.credential_hint(remote.parse_remote("https://git.example/team/a"))
-    assert "if the host redirects URLs without .git" in bare and "team/a" not in bare
-    assert "without .git" not in failed
+    assert "GIT_TOKEN was not accepted" in bare and "team/a" not in bare and ".git" not in bare
     with pytest.raises(remote.RemoteError) as raised:
         remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed, "https")
     assert "GIT_TOKEN was not accepted" in str(raised.value) and "SSH host keys" not in str(raised.value)
@@ -717,7 +720,7 @@ def test_redirect_to_the_git_suffix_is_reported_and_never_followed(probe, monkey
     address, method, path, headers = probe.seen
     assert (address, method, path) == ("192.0.2.10", "GET", "/team/a/info/refs?service=git-upload-pack")
     assert headers["Authorization"].startswith("Basic ")
-    hint = remote.credential_hint(bare)
+    hint = remote._explanation(bare, "redirect")
     assert "redirects this URL to https://git.example/team/a.git" in hint and "probe-secret" not in hint
     assert "was not accepted" not in hint
 
@@ -753,6 +756,278 @@ def test_no_probe_through_a_proxy_or_after_a_network_error(probe, monkeypatch):
     assert remote._redirect_target(bare) is None
 
 
-def test_a_url_with_the_git_suffix_is_never_probed(probe):
-    assert "redirects this URL" not in remote.credential_hint(remote.parse_remote("https://git.example/team/a.git"))
+def test_only_a_redirect_that_git_reported_is_probed(probe):
+    moved = remote.parse_remote("https://git.example/old/a.git")
+    for kind in ("token", "login", "not_found", "forbidden", "connection", "unknown"):
+        remote._explanation(moved, kind)
+    assert "redirects this URL" not in remote.credential_hint(moved)
     assert probe.seen == []
+    probe.location = "https://git.example/new/a.git/info/refs?service=git-upload-pack"
+    assert "redirects this URL to https://git.example/new/a.git" in remote._explanation(moved, "redirect")
+
+
+def test_a_redirect_without_a_known_target_says_so(probe, monkeypatch):
+    monkeypatch.setattr(remote, "_proxy", lambda _: "http://proxy.example:3128")
+    message = remote._explanation(remote.parse_remote("https://git.example/team/a.git"), "redirect")
+    assert "git.example redirects this URL" in message and "use that URL" not in message
+    assert probe.seen == []
+
+
+BARE = "https://git.example/team/a"
+SUFFIX = f"{BARE}.git"
+# Output of Git, curl and OpenSSH in the C locale. The first eight classes were recorded from real runs;
+# 403, 429 and 503 follow the recorded wording of 301, and the two SSH texts are OpenSSH's standard ones.
+GIT_OUTPUT = {
+    "login": (
+        "error: unable to read askpass response from 'false'\n"
+        "fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled\n"
+    ),
+    "token": (
+        "remote: HTTP Basic: Access denied. If a password was provided for Git authentication, the password was "
+        "incorrect or you're required to use a token instead of a password.\n"
+        "fatal: Authentication failed for 'https://gitlab.com/team/a.git/'\n"
+    ),
+    "not_found": "remote: Not found.\nfatal: repository 'https://codeberg.org/team/a.git/' not found\n",
+    "redirect": "fatal: unable to access 'https://gitlab.com/team/a/': The requested URL returned error: 301\n",
+    "certificate": (
+        "fatal: unable to access 'https://expired.badssl.com/x.git/': "
+        "server certificate verification failed. CAfile: none CRLfile: none\n"
+    ),
+    "proxy": "fatal: unable to access 'https://x.example/a.git/': Received HTTP code 403 from proxy after CONNECT\n",
+    "name": "fatal: unable to access 'https://x.example/a.git/': Could not resolve host: x.example\n",
+    "connection": (
+        "fatal: unable to access 'https://127.0.0.1:9/x.git/': "
+        "Failed to connect to 127.0.0.1 port 9 after 0 ms: Connection refused\n"
+    ),
+    "forbidden": "fatal: unable to access 'https://x.example/a.git/': The requested URL returned error: 403\n",
+    "rate_limited": "fatal: unable to access 'https://x.example/a.git/': The requested URL returned error: 429\n",
+    "server": "fatal: unable to access 'https://x.example/a.git/': The requested URL returned error: 503\n",
+    "host_key": (
+        "No ED25519 host key is known for x.example and you have requested strict checking.\n"
+        "Host key verification failed.\nfatal: Could not read from remote repository.\n"
+    ),
+    "ssh_login": "git@x.example: Permission denied (publickey).\nfatal: Could not read from remote repository.\n",
+}
+
+
+@pytest.mark.parametrize(
+    ("kind", "output"),
+    [
+        *GIT_OUTPUT.items(),
+        ("certificate", "fatal: ...: SSL: certificate subject name (*.x.example) does not match target host name\n"),
+        ("connection", "ssh: connect to host 127.0.0.1 port 9: Connection refused\n"),
+        ("connection", "fatal: ...: GnuTLS recv error (-110): The TLS connection was non-properly terminated.\n"),
+        ("name", "ssh: Could not resolve hostname x.example: Temporary failure in name resolution\n"),
+        ("proxy", "fatal: unable to access 'https://x.example/a.git/': Proxy CONNECT aborted\n"),
+        ("unknown", "fatal: Could not read from remote repository.\n"),
+        ("unknown", ""),
+    ],
+)
+def test_each_git_failure_maps_to_one_cause(kind, output):
+    assert remote._Stderr(io.BytesIO(output.encode())).kind() == kind
+
+
+def test_each_cause_has_its_own_message(monkeypatch, no_token_env):
+    https = remote.parse_remote(SUFFIX)
+    expected = {
+        "name": "the host name git.example could not be resolved",
+        "connection": "git.example could not be reached",
+        "proxy": "the proxy refused the connection to git.example",
+        "certificate": "the TLS certificate of git.example was not accepted",
+        "host_key": "the SSH host key of git.example is unknown or has changed",
+        "ssh_login": "git.example refused the SSH login",
+        "rate_limited": "git.example is limiting requests",
+        "server": "git.example reported a server error",
+        "login": "git.example asks for a login, which a private or a missing repository can cause",
+        "not_found": "git.example reports no repository at this URL",
+        "forbidden": "git.example refused access",
+        "token": "git.example rejected the login from your Git credential helper",
+    }
+    assert set(expected) == set(GIT_OUTPUT) - {"redirect"}
+    for kind, text in expected.items():
+        assert text in remote._explanation(https, kind)
+    assert remote._explanation(https, "unknown") is None
+    for kind in ("name", "connection", "proxy", "certificate", "rate_limited", "server"):
+        assert "TOKEN" not in remote._explanation(https, kind)
+    assert "APPSEC_GIT_TOKEN" in remote._explanation(https, "login")
+    monkeypatch.setenv("GIT_TOKEN", "ambient-secret")
+    messages = {kind: remote._explanation(https, kind) for kind in expected}
+    assert "the token from GIT_TOKEN was not accepted" in messages["token"]
+    assert "whether the token from GIT_TOKEN may read it" in messages["not_found"]
+    assert "whether the token from GIT_TOKEN may read it" in messages["forbidden"]
+    assert "ambient-secret" not in str(messages)
+    assert "SSH agent" in remote._explanation(remote.parse_remote("git@git.example:team/a.git"), "login")
+
+
+class _FakeGit:
+    def __init__(self, directory):
+        self.directory = directory
+        self.answers = {}
+
+    def answer(self, url, output):
+        self.answers[url] = output
+        (self.directory / "answers.json").write_text(json.dumps(self.answers))
+
+    def urls(self):
+        log = self.directory / "urls"
+        return log.read_text().split() if log.exists() else []
+
+
+@pytest.fixture
+def fake_git(tmp_path, monkeypatch, no_token_env):
+    """A real child process that answers each URL with recorded output; all of Analyzer stays real."""
+    directory = tmp_path / "fake-git"
+    directory.mkdir()
+    script = directory / "git"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import json, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args == ['--version']:\n"
+        "    print('git version 2.40.0')\n"
+        "    raise SystemExit\n"
+        "if '--' not in args:\n"
+        "    raise SystemExit\n"
+        "here = pathlib.Path(__file__).parent\n"
+        "url = args[args.index('--') + 1]\n"
+        "with open(here / 'urls', 'a') as urls:\n"
+        "    urls.write(url + '\\n')\n"
+        "answers = here / 'answers.json'\n"
+        "output = json.loads(answers.read_text()).get(url, '') if answers.exists() else ''\n"
+        "sys.stderr.write(output)\n"
+        "sys.exit(2 if output == 'no HEAD' else 128 if output else 0)\n"
+    )
+    script.chmod(0o700)
+    monkeypatch.setenv("PATH", str(directory) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setattr(remote, "_address", lambda _: "192.0.2.10")
+    monkeypatch.setattr(remote, "_credentials", lambda *_: [])
+    return _FakeGit(directory)
+
+
+def test_preflight_and_clone_report_the_cause_git_stated(fake_git, tmp_path):
+    fake_git.answer(SUFFIX, GIT_OUTPUT["connection"])
+    target = remote.parse_remote(SUFFIX)
+    with pytest.raises(remote.RemoteError, match="^Git preflight failed: git.example could not be reached") as caught:
+        remote.check_access(target)
+    assert "TOKEN" not in str(caught.value)
+    with pytest.raises(remote.RemoteError, match="^Git checkout failed: git.example could not be reached"):
+        remote.clone(target, tmp_path / "checkout")
+
+
+def test_a_failure_without_a_known_cause_keeps_the_general_message(fake_git):
+    fake_git.answer(SUFFIX, "fatal: Could not read from remote repository.\n")
+    with pytest.raises(remote.RemoteError, match="^Git preflight failed; check repository URL") as caught:
+        remote.check_access(remote.parse_remote(SUFFIX))
+    assert "APPSEC_GIT_TOKEN" in str(caught.value)
+
+
+def test_host_text_cannot_choose_the_cause_or_reach_the_message(fake_git):
+    fake_git.answer(SUFFIX, "remote: fatal: Authentication failed for 'https://evil.example/' host-supplied-text\n")
+    with pytest.raises(remote.RemoteError, match="^Git preflight failed; check repository URL") as caught:
+        remote.check_access(remote.parse_remote(SUFFIX))
+    assert "host-supplied-text" not in str(caught.value) and "evil.example" not in str(caught.value)
+
+
+def test_long_git_output_neither_stalls_nor_reaches_the_message(fake_git):
+    fake_git.answer(SUFFIX, "remote: host-supplied-text\n" * 50_000 + GIT_OUTPUT["not_found"])
+    with pytest.raises(remote.RemoteError, match="reports no repository at this URL") as caught:
+        remote.check_access(remote.parse_remote(SUFFIX))
+    assert "host-supplied-text" not in str(caught.value)
+    stderr = remote._Stderr(io.BytesIO(b"x" * 1_000_000))
+    stderr.join()
+    assert stderr.kind() == "unknown" and len(stderr._end) == remote.STDERR_BYTES
+
+
+def test_git_output_stays_in_the_matched_language(fake_git, tmp_path):
+    assert remote._git_env(remote.parse_remote(SUFFIX), tmp_path)["LC_ALL"] == "C"
+
+
+@pytest.mark.parametrize("kind", ["redirect", "not_found", "login", "forbidden"])
+def test_preflight_tries_the_git_suffix_and_names_the_url_that_worked(fake_git, kind):
+    fake_git.answer(BARE, GIT_OUTPUT[kind])
+    assert remote.check_access(remote.parse_remote(BARE)) == SUFFIX
+    assert fake_git.urls() == [BARE, SUFFIX]
+
+
+def test_only_a_failed_https_url_without_the_suffix_gets_a_second_attempt(fake_git):
+    assert remote.check_access(remote.parse_remote(BARE)) is None
+    assert fake_git.urls() == [BARE]
+    fake_git.answer(SUFFIX, GIT_OUTPUT["redirect"])
+    with pytest.raises(remote.RemoteError):
+        remote.check_access(remote.parse_remote(SUFFIX))
+    assert fake_git.urls() == [BARE, SUFFIX]
+    ssh = "git@git.example:team/a"
+    fake_git.answer(ssh, GIT_OUTPUT["not_found"])
+    with pytest.raises(remote.RemoteError):
+        remote.check_access(remote.parse_remote(ssh))
+    assert fake_git.urls() == [BARE, SUFFIX, ssh]
+
+
+@pytest.mark.parametrize("kind", ["name", "connection", "proxy", "certificate", "token", "rate_limited", "server"])
+def test_no_second_attempt_when_the_suffix_cannot_help(fake_git, kind):
+    fake_git.answer(BARE, GIT_OUTPUT[kind])
+    with pytest.raises(remote.RemoteError, match="^Git preflight failed: "):
+        remote.check_access(remote.parse_remote(BARE))
+    assert fake_git.urls() == [BARE]
+
+
+def test_an_empty_repository_gets_no_second_attempt(fake_git):
+    fake_git.answer(BARE, "no HEAD")
+    with pytest.raises(remote.RemoteError, match="no HEAD"):
+        remote.check_access(remote.parse_remote(BARE))
+    assert fake_git.urls() == [BARE]
+
+
+def test_second_failure_is_the_one_reported(fake_git):
+    fake_git.answer(BARE, GIT_OUTPUT["redirect"])
+    fake_git.answer(SUFFIX, GIT_OUTPUT["login"])
+    with pytest.raises(remote.RemoteError) as caught:
+        remote.check_access(remote.parse_remote(BARE))
+    message = str(caught.value)
+    assert "asks for a login" in message and "APPSEC_GIT_TOKEN" in message and "use that URL" not in message
+    assert fake_git.urls() == [BARE, SUFFIX]
+
+
+def test_suffix_attempt_repeats_the_destination_checks(fake_git, tmp_path, monkeypatch):
+    environments, destinations = [], []
+    build = remote._git_env
+
+    def checked(target, directory):
+        env = build(target, directory)
+        environments.append((target.url, dict(config(env))["http.followRedirects"]))
+        return env
+
+    def address(target):
+        destinations.append((target.host, target.port))
+        return "192.0.2.10"
+
+    monkeypatch.setattr(remote, "_git_env", checked)
+    monkeypatch.setattr(remote, "_address", address)
+    fake_git.answer(BARE, GIT_OUTPUT["redirect"])
+    remote.check_access(remote.parse_remote(BARE))
+    assert environments == [(BARE, "false"), (SUFFIX, "false")]
+    assert destinations == [("git.example", 443), ("git.example", 443)]
+
+
+def test_clone_tries_the_git_suffix_and_always_names_the_url(fake_git, tmp_path, monkeypatch, capsys):
+    (tmp_path / "tmp").mkdir()
+    monkeypatch.setattr(remote.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    fake_git.answer(BARE, GIT_OUTPUT["redirect"])
+    with remote.checkout_arguments(["--repo", BARE, "--output", str(tmp_path / "out"), "--quiet"]) as local:
+        assert Path(local[1]).name == "a"
+    assert fake_git.urls() == [BARE, SUFFIX]
+    assert f"used {SUFFIX}" in capsys.readouterr().err
+
+
+def test_a_failed_checkout_step_is_not_mistaken_for_a_failed_url(fake_git, tmp_path, monkeypatch):
+    run = remote._git
+
+    def fail_checkout(command, *rest):
+        if "checkout" in command:
+            raise remote._GitFailed("Git checkout failed", "unknown")
+        run(command, *rest)
+
+    monkeypatch.setattr(remote, "_git", fail_checkout)
+    with pytest.raises(remote.RemoteError, match="Git checkout failed"):
+        remote.clone(remote.parse_remote(BARE), tmp_path / "checkout")
+    assert fake_git.urls() == [BARE]

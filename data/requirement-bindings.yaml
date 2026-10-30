@@ -303,11 +303,18 @@ requirements:
     documents:
       - docs/security-assessment.md
       - docs/headless-mode.md
+      - docs/configuration.md
       - README.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
       - tests/test_startup_preflight.py::test_url_preflight_checks_read_access_without_output_or_clone
+      - tests/test_startup_preflight.py::test_url_preflight_names_the_url_that_worked
+      - tests/test_remote_repositories.py::test_preflight_tries_the_git_suffix_and_names_the_url_that_worked
+      - tests/test_remote_repositories.py::test_clone_tries_the_git_suffix_and_always_names_the_url
+      - tests/test_remote_repositories.py::test_suffix_attempt_repeats_the_destination_checks
+      - tests/test_remote_repositories.py::test_no_second_attempt_when_the_suffix_cannot_help
+      - tests/test_remote_repositories.py::test_second_failure_is_the_one_reported
       - tests/test_remote_repositories.py::test_multiple_urls_and_local_paths_share_one_invocation
       - tests/test_remote_repositories.py::test_real_checkout_and_cleanup_with_stable_identity
       - tests/test_plain_directory.py::test_directory_is_analyzed_as_a_removed_checkout_and_stays_untouched
@@ -2500,10 +2507,15 @@ requirements:
     decisions: []
     documents:
       - docs/configuration.md
+      - docs/security-assessment.md
       - docs/threat-analyst.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_remote_repositories.py::test_each_git_failure_maps_to_one_cause
+      - tests/test_remote_repositories.py::test_each_cause_has_its_own_message
+      - tests/test_remote_repositories.py::test_host_text_cannot_choose_the_cause_or_reach_the_message
+      - tests/test_remote_repositories.py::test_long_git_output_neither_stalls_nor_reaches_the_message
       - tests/test_remote_repositories.py::test_token_variables_are_tried_in_order
       - tests/test_remote_repositories.py::test_gitlab_token_reaches_only_gitlab_hosts
       - tests/test_remote_repositories.py::test_named_variable_must_be_set_is_validated_and_ignores_the_host_rule

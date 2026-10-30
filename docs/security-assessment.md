@@ -20,6 +20,8 @@ Repository checks:
 - A local selection must be a top-level Git checkout or a [directory without Git](#directories-without-git). A `.git` that has content but cannot be read fails the check.
 - Remote repositories are checked with `git ls-remote` for `HEAD`. This needs Git 2.34 or later, times out after 30 seconds, and downloads no source. It uses the same credentials, destination restrictions, TLS checks, and trusted SSH host keys as cloning.
 - An empty repository, or one without a commit on the default branch, fails.
+- A failed check names the cause when Git reports one: a host name that cannot be resolved, an unreachable host, a refusing proxy, a rejected TLS certificate or SSH host key, a refused SSH login, a rejected token, a missing login, a missing repository, refused access, a redirect, a request limit, or a server error.
+- If an HTTPS URL without `.git` fails, the check tries it once with `.git` and shows the URL that worked. See [Configuration](configuration.md) for when it skips this attempt.
 - Git often reports a missing private repository and missing permission in the same way, so Analyzer cannot always tell them apart. A later clone can still fail.
 
 Provider checks:

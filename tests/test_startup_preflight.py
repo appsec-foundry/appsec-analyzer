@@ -272,6 +272,16 @@ def test_url_preflight_checks_read_access_without_output_or_clone(monkeypatch, c
     assert "source.git" not in capsys.readouterr().out
 
 
+def test_url_preflight_names_the_url_that_worked(monkeypatch, capsys):
+    cli._engine_imports()
+    from runtime import remote_repositories
+
+    monkeypatch.setattr(hosts, "claude_preflight", lambda: None)
+    monkeypatch.setattr(remote_repositories, "check_access", lambda remote: f"{remote.url}.git")
+    assert cli.main(["preflight", "--repo", "https://git.example/team/source", "--json"]) == 0
+    assert "remote read access at https://git.example/team/source.git" in capsys.readouterr().err
+
+
 def test_url_preflight_announces_the_access_check_before_it_runs(monkeypatch, capsys):
     cli._engine_imports()
     from runtime import remote_repositories
