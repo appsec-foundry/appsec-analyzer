@@ -324,6 +324,19 @@ def test_terminate_becomes_the_runs_own_cancellation(signum):
     assert signal.getsignal(signum) is previous
 
 
+def test_a_hangup_ignored_by_nohup_stays_ignored():
+    state = SimpleNamespace(cancelled=False)
+    previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        with controller._stop_on_terminate(state):
+            assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+            os.kill(os.getpid(), signal.SIGHUP)
+            time.sleep(0.05)
+        assert not state.cancelled
+    finally:
+        signal.signal(signal.SIGHUP, previous)
+
+
 def test_a_second_ctrl_c_interrupts_at_once():
     state = SimpleNamespace(cancelled=False)
     with pytest.raises(KeyboardInterrupt), controller._stop_on_terminate(state):

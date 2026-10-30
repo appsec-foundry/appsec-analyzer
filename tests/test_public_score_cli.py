@@ -802,3 +802,21 @@ def test_failed_remote_clone_is_actionable_private_and_cleans_up(monkeypatch, ca
     assert not output.out and "check repository access, credentials and trusted SSH host keys" in output.err
     assert "Traceback" not in output.err and "FIXTURE_SOURCES" not in output.err and "KeyError" not in output.err
     assert checkouts and all(not path.exists() for path in checkouts)
+
+
+def test_sigterm_unwinds_like_ctrl_c_so_temporary_files_are_removed():
+    import os
+    import signal
+
+    from appsec_analyzer import cli
+
+    previous = signal.getsignal(signal.SIGTERM)
+    cleaned = []
+    with pytest.raises(KeyboardInterrupt):
+        with cli._sigterm_as_interrupt():
+            try:
+                os.kill(os.getpid(), signal.SIGTERM)
+                signal.pause()
+            finally:
+                cleaned.append(True)
+    assert cleaned and signal.getsignal(signal.SIGTERM) == previous

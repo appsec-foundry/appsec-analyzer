@@ -232,7 +232,8 @@ def _run_script(
     timeout: float | None = None,
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    execution_options = {}
+    # Own session: the terminal's Ctrl-C must reach the controller's cancellation, not kill a step into a failure.
+    execution_options: dict[str, Any] = {"start_new_session": True}
     if timeout is not None:
         execution_options["timeout"] = timeout
     if cwd is not None:
@@ -269,6 +270,7 @@ def _run_external(
         text=True,
         capture_output=True,
         check=False,
+        start_new_session=True,
     )
     if completed.returncode not in acceptable:
         detail = (completed.stderr or completed.stdout).strip()
@@ -591,6 +593,7 @@ def _compose_if_ready(output_dir: Path, repo_root: str) -> bool:
                 capture_output=True,
                 text=True,
                 timeout=600,
+                start_new_session=True,
             )
             if proc.returncode != 0:
                 _run.last_error = (  # type: ignore[attr-defined]
@@ -5120,7 +5123,12 @@ def _stop_on_terminate(state):
             raise KeyboardInterrupt
         state.cancelled = True
 
-    stops = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+    # `nohup` ignores the hangup on purpose; taking it over would stop a run the user detached.
+    stops = tuple(
+        signum
+        for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+        if not (signum == signal.SIGHUP and signal.getsignal(signum) == signal.SIG_IGN)
+    )
     previous = {signum: signal.signal(signum, cancel) for signum in stops}
     try:
         yield

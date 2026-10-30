@@ -288,3 +288,14 @@ class TestRetiredSelfReportedProvenance:
 # ---------------------------------------------------------------------------
 # OR-8: a controller abort converges on the single terminator
 # ---------------------------------------------------------------------------
+
+
+def test_deterministic_steps_run_in_their_own_session(tmp_path):
+    """A terminal Ctrl-C reaches the controller's cancellation, not the step, so it cannot become a failed run."""
+    import os
+
+    script = tmp_path / "session.py"
+    script.write_text("import os\nprint(os.getsid(0), os.getpid())\n")
+    completed = controller._run_script(str(script), [])
+    child_session, child_pid = map(int, completed.stdout.split())
+    assert child_session == child_pid != os.getsid(0)

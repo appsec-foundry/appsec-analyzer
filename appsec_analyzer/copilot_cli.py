@@ -23,7 +23,7 @@ _scripts = str(resource_root() / "scripts")
 if _scripts not in sys.path:
     sys.path.insert(0, _scripts)
 
-from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, TransportError
+from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, TransportError, contains_marker
 
 SUPPORTED_VERSION = "1.0.101"
 MAX_BYTES = 1_048_576
@@ -146,7 +146,8 @@ def _run(argv, *, cwd, env, data=b"", timeout_s=10, should_stop=lambda: False):
 
 
 def _failure(stdout: bytes, stderr: bytes, code: int) -> TransportError:
-    text = (stdout[-16_384:] + b" " + stderr[-16_384:]).decode("utf-8", errors="replace").lower()
+    # The host's diagnostics decide; stdout carries model text, so it counts only when stderr is empty.
+    text = (stderr[-16_384:] if stderr.strip() else stdout[-16_384:]).decode("utf-8", errors="replace").lower()
     rules = (
         ("quota_exhausted", ("usage limit", "quota", "ai credits", "credit limit")),
         ("rate_limit", ("rate limit", "429")),
@@ -155,7 +156,9 @@ def _failure(stdout: bytes, stderr: bytes, code: int) -> TransportError:
         ("connection_timeout", ("timed out", "timeout")),
         ("connection_failed", ("failed to connect", "connection reset", "network error")),
     )
-    reason = next((name for name, markers in rules if any(marker in text for marker in markers)), "host_failure")
+    reason = next(
+        (name for name, markers in rules if any(contains_marker(text, marker) for marker in markers)), "host_failure"
+    )
     return TransportError("Copilot CLI exchange failed", reason=reason, exit_code=code)
 
 

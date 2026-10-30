@@ -761,7 +761,9 @@ def checkout_arguments(argv: list[str], on_clone=None):
             _private_directory(slot)
             root = slot / remote.name
             if root.exists() or root.is_symlink():
-                raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
+                raise RemoteError(
+                    f"A stale temporary checkout remains after an unclean stop; remove {root} before retrying"
+                )
             created.append(root)
             label = "Repository" if len(remotes) == 1 else f"Repo {number}/{len(remotes)}"
             if not quiet:
@@ -781,7 +783,9 @@ def checkout_arguments(argv: list[str], on_clone=None):
             _private_directory(slot)
             root = slot / source.name
             if root.exists() or root.is_symlink():
-                raise RemoteError("A stale temporary checkout remains after an unclean stop; remove it before retrying")
+                raise RemoteError(
+                    f"A stale temporary checkout remains after an unclean stop; remove {root} before retrying"
+                )
             created.append(root)
             label = "Repository" if len(directories) == 1 else f"Directory {number}/{len(directories)}"
             try:

@@ -55,8 +55,8 @@ Exit codes of `assess`:
 | --- | --- |
 | `0` | The assessment completed and the selected gate passed. |
 | `20` | The assessment completed, but the findings gate failed. Keep the reports. |
-| `3` | The run paused or stopped before completion. Keep the output and resume. |
-| `130` | Interrupted by an operator or signal. |
+| `3` | The run paused or stopped before completion, also after one Ctrl+C, `SIGTERM`, or `stop`. Keep the output and resume. |
+| `130` | Interrupted at once by a second Ctrl+C. |
 | `1` or `2` | Operational, configuration, or invocation error. |
 
 ## Commands without an assessment

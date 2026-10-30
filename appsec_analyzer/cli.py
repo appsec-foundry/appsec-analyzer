@@ -13,6 +13,7 @@ import shutil
 import stat
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
@@ -864,6 +865,26 @@ def _scan(ns: argparse.Namespace) -> int:
         return _scan_local(local)
 
 
+@contextmanager
+def _sigterm_as_interrupt():
+    """Let SIGTERM unwind like Ctrl-C, so temporary checkouts and directories are removed."""
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+
+    previous = signal.signal(signal.SIGTERM, interrupt)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
 def _score(ns: argparse.Namespace) -> int:
     try:
         return _run_score(ns)
@@ -1468,6 +1489,12 @@ def _state(ns: argparse.Namespace) -> tuple[Path, dict]:
     output = Path(ns.output).absolute()
     _real_directory(output)
     state = _read_state(output / STATE_NAME)
+    if state["status"] == "running":
+        from runtime import acquire_lock
+
+        # A run that was killed cannot record its end; without a live lock it is no longer running.
+        if acquire_lock._classify_lock(output / ".appsec-lock")[0] not in ("fresh", "hung"):
+            state["status"] = "interrupted"
     return output, state
 
 
@@ -1794,9 +1821,11 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
             print(json.dumps(_capabilities(), sort_keys=True))
             return 0
         if ns.command == "scan-sources":
-            return _scan(ns)
+            with _sigterm_as_interrupt():
+                return _scan(ns)
         if ns.command == "score":
-            return _score(ns)
+            with _sigterm_as_interrupt():
+                return _score(ns)
         if ns.command == "abuse-cases":
             _engine_imports()
             from model.resolve_abuse_cases import main as abuse_cases

@@ -741,3 +741,16 @@ def test_snapshot_keeps_line_numbers_after_multiline_masking(tmp_path):
             lines = (snapshot / "app.py").read_text().split("\n")
         assert lines[0] == "first = 1" and lines[5] == "after = 6" and lines[6] == ""
         assert "MIIB" not in "\n".join(lines)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads files whatever their mode")
+def test_an_unreadable_source_file_is_named_in_the_admission_error(tmp_path):
+    root = repository(tmp_path / "service")
+    locked = root / "locked.txt"
+    locked.write_text("data\n")
+    locked.chmod(0)
+    try:
+        with pytest.raises(scope.ScopeError, match=r"locked\.txt is not readable"):
+            scope.admit([str(root)], str(tmp_path / "out"), minimum=1)
+    finally:
+        locked.chmod(0o644)

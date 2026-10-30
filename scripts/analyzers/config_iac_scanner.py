@@ -46,7 +46,7 @@ import argparse
 import datetime as dt
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -404,6 +404,12 @@ def _development_only(repo_root: Path, relative: str, inventory: RepoInventory) 
     return True
 
 
+def _requirement_applies(check: dict[str, Any], inventory: RepoInventory) -> bool:
+    """Whether a missing file counts: a check with ``requires_file`` needs that manifest in the repository."""
+    manifest = check.get("requires_file")
+    return not manifest or any(PurePosixPath(name).match(manifest) for name in inventory.files)
+
+
 def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dict[str, Any]:
     """Run each catalog check on its selected files: at most one finding per check and file.
 
@@ -429,6 +435,9 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
             evaluated.append(_evaluated(check, len(pending) > before, _repository_applies(facts, check), 0))
             continue
         paths = selected[check["id"]]
+        if check["expect"] == "file_exists" and not paths and not _requirement_applies(check, inventory):
+            evaluated.append(_evaluated(check, False, False, 0))
+            continue
         if check["expect"] == "file_exists" and not paths:
             pending.append({"check": check, "path": None, "line": 0, "snippet": "File not found", "searched_files": []})
             evaluated.append(_evaluated(check, True, True, 0))

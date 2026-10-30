@@ -820,3 +820,18 @@ def test_resume_without_a_depth_keeps_the_depth_of_the_saved_run(tmp_path, monke
     ns = cli._parser().parse_args([*base, "--assessment-depth", "standard"])
     cli._prepare_profile(ns)
     assert ns.assessment_depth == "standard"
+
+
+def test_status_of_a_killed_run_is_interrupted_while_a_live_run_stays_running(tmp_path: Path) -> None:
+    import time
+
+    output = tmp_path / "out"
+    _state(output, status="running")
+    assert json.loads(_run("status", output).stdout)["assessment_status"] == "interrupted"
+    now = int(time.time())
+    (output / ".appsec-lock").write_text(f"{os.getpid()}\n{now}\n")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from runtime import acquire_lock
+
+    acquire_lock._write_lock(output / ".appsec-lock", os.getpid(), now, "assessment-" + "a" * 32, acquired_ts=now)
+    assert json.loads(_run("status", output).stdout)["assessment_status"] == "running"

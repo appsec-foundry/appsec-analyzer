@@ -133,6 +133,11 @@ def _deliverable(output: Path, name: str) -> str:
         raise ExchangeError("Assessment deliverable is missing or unreadable") from None
 
 
+def _is_atomic_temp(name: str) -> bool:
+    """Whether ``name`` is a leftover temporary file of ``atomic_write_text``: ``.<target>.tmp-<random>``."""
+    return name.startswith(".") and ".tmp-" in name
+
+
 class AssessmentState:
     # The lock is refreshed on this clock, independent of job progress, and
     # states the threshold after which a holder that stopped refreshing it (a
@@ -399,7 +404,12 @@ class AssessmentState:
         In a sole checkout's `docs/security` (MR-6) only the controller's own
         files count: inputs and a legacy report beside them are kept as they are.
         """
-        leftovers = {child.name for child in self.output.iterdir()} - {
+        leftovers = {
+            child.name
+            for child in self.output.iterdir()
+            # A killed run leaves its stop request or a half-written atomic file behind.
+            if child.name != STOP_NAME and not _is_atomic_temp(child.name)
+        } - {
             ".appsec-lock",
             ".appsec-lock.guard",
             *RUN_DIAGNOSTIC_NAMES,
@@ -454,7 +464,6 @@ class AssessmentState:
                 for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
                     (self.output / name).unlink()
                 self._superseded = kept
-                self.path.unlink()
                 return
         if STATE_NAME in leftovers or IMPORT_NAME in leftovers:
             try:
@@ -583,7 +592,6 @@ class AssessmentState:
         for name in sorted(leftovers - {STATE_NAME, WORK_NAME} - set(kept)):
             (self.output / name).unlink()
         self._superseded = kept
-        self.path.unlink(missing_ok=True)
         return []
 
     def _imported_run(self):
