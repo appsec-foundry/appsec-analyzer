@@ -14,12 +14,22 @@ SOURCE = "https://example.test/appsec-analyzer.git"
 PIPX_OUTPUT = "appsec-analyzer is already at latest version 0.1.0a0\n"
 
 
-def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE):
+BEFORE = "1a2b3c4d (2026-10-01)"
+
+
+def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE, after="9f8e7d6c (2026-10-30)"):
     calls = []
 
     def run(argv, **kwargs):
+        if argv[1:] == ["-m", "appsec_analyzer", "--version"]:
+            # The new installation reports its version in a process of its own.
+            if after is None:
+                return subprocess.CompletedProcess(argv, 1, stdout="")
+            return subprocess.CompletedProcess(argv, 0, stdout=f"appsec-analyzer {after}\n")
         calls.append(argv)
         return subprocess.CompletedProcess(argv, returncode, stdout=PIPX_OUTPUT)
+
+    monkeypatch.setattr("appsec_analyzer.version_info.describe", lambda: BEFORE)
 
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
@@ -41,6 +51,29 @@ def test_yes_or_enter_upgrades_the_pipx_installation_and_names_the_source(monkey
     assert "[Y/n]" in output
     assert f"Analyzer was reinstalled from {SOURCE}." in output
     assert "already at latest version" not in output
+    assert output.index(f"Installed version: {BEFORE}") < output.index("[Y/n]")
+    assert f"Installed version: 9f8e7d6c (2026-10-30) (was {BEFORE})" in output
+
+
+@pytest.mark.parametrize(
+    "after, shown",
+    [
+        (BEFORE, f"Installed version: {BEFORE} (unchanged)"),
+        (None, "The new version could not be read; check it with `appsec-analyzer --version`."),
+        ("9f8e7d6c (2026-10-30)\x1b[31m", "Installed version: 9f8e7d6c (2026-10-30) [31m (was"),
+    ],
+)
+def test_the_update_names_the_version_it_installed(monkeypatch, capsys, after, shown):
+    _setup(monkeypatch, after=after)
+    assert cli.main(["update"]) == 0
+    output = capsys.readouterr().out
+    assert shown in output and "\x1b" not in output
+
+
+def test_a_declined_update_still_names_the_installed_version(monkeypatch, capsys):
+    _setup(monkeypatch, answer="n")
+    assert cli.main(["update"]) == 0
+    assert f"Installed version: {BEFORE}" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("answer", ["n", "no", "maybe"])
