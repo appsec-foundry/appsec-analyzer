@@ -12,7 +12,6 @@ import copy
 import json
 import math
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -71,26 +70,15 @@ class ModelAnswerFailure(ExchangeError):
         self.trail = tuple(trail)
 
 
-_CODE_ROOT = Path(__file__).resolve().parents[2]
-
-
 def raise_site(exc: BaseException) -> str | None:
-    """The analyzer line that raised `exc`, as ``path:line in function``; ``None`` outside the analyzer.
+    """The analyzer function and line that raised `exc`; ``None`` outside the analyzer.
 
     A stop message that names the rejecting check lets a reader go straight to
     the rule instead of searching for its wording.
     """
-    site, tb = None, exc.__traceback__
-    while tb is not None:
-        code = tb.tb_frame.f_code
-        try:
-            relative = Path(code.co_filename).resolve().relative_to(_CODE_ROOT).as_posix()
-        except (OSError, ValueError):
-            relative = None
-        if relative is not None:
-            site = f"{relative}:{tb.tb_lineno} in {code.co_name}"
-        tb = tb.tb_next
-    return site
+    from appsec_analyzer.terminal import code_location
+
+    return code_location(exc) or None
 
 
 def rejection_entry(exc: BaseException) -> dict:

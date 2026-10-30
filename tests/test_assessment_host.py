@@ -637,18 +637,19 @@ def test_an_exhausted_correction_names_each_rejecting_check_and_the_correction_t
     from appsec_analyzer.assessment.console import model_failure_rows
 
     def review(artifact, slices):
-        raise host.Rejection("Local architecture violates repository evidence rules", ["df-001 cites a comment"])
+        # A check inside the analyzer: an oversized packet is refused in `_prompt`.
+        host._prompt({"context": {}, "source_slices": []}, max_context_bytes=1)
 
     model = Model([_result("a"), _result("b"), _result("c")])
     with pytest.raises(host.ModelAnswerFailure) as raised:
         _reviewed(model, tmp_path, review)
     trail = raised.value.trail
     assert [entry["corrections"] for entry in trail] == [["full correction"], ["full correction"], []]
-    assert all(entry["check"].startswith("tests/test_assessment_host.py:") for entry in trail)
-    assert all(entry["check"].endswith(" in review") and entry["citation_anchors"] == 0 for entry in trail)
+    assert all(entry["check"].startswith("_prompt (scripts/runtime/assessment_host.py:") for entry in trail)
+    assert all(entry["citation_anchors"] == 0 for entry in trail)
     attempts = [text for label, text in model_failure_rows(raised.value) if label == "Attempts"]
     assert len(attempts) == 2
-    assert attempts[0].startswith("1–2: Local architecture violates repository evidence rules [tests/")
+    assert attempts[0].startswith("1–2: Assessment packet exceeds its context limit [_prompt (scripts/runtime/")
     assert attempts[0].endswith("1 violation, 0 for line-only correction → full correction")
     assert attempts[1].startswith("3: ") and attempts[1].endswith("→ no correction left")
 
@@ -1108,7 +1109,8 @@ def test_a_failed_anchor_correction_is_named_in_the_attempt_trail(tmp_path):
     first = attempt_trail(raised.value)[0]
     assert first["citation_anchors"] == 1 and first["violations"] == 1
     assert first["corrections"] == ["line-only citation correction (no usable answer)", "full correction"]
-    assert first["check"].startswith("tests/test_assessment_host.py:") and first["check"].endswith(" in review")
+    # The test's own review is no analyzer code; the deepest analyzer frame is the call of the review.
+    assert first["check"].startswith("run_exchange (scripts/runtime/assessment_host.py:")
 
 
 @pytest.mark.parametrize(

@@ -1566,6 +1566,34 @@ def test_architecture_failure_names_repository_without_exchange_counters(monkeyp
     assert "different receiving endpoints" in output and "repo-private" not in output
 
 
+def test_a_schema_violation_stop_names_the_location_rule_and_check(monkeypatch, capsys):
+    """The stop shows the failing field and the Analyzer check, not the schema and instance dump."""
+    import jsonschema
+    from runtime import assessment_host as host
+
+    schema = {"type": "object", "additionalProperties": False, "properties": {"scheme": {"type": "string"}}}
+
+    def violated(argv):
+        jsonschema.validate({"scheme": "none", "public": True}, schema)
+
+    monkeypatch.setattr(controller, "assess_repositories", violated)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == 1
+    output = " ".join(capsys.readouterr().err.split())
+    assert (
+        "a result violates its schema at $: Additional properties are not allowed ('public' was unexpected)"
+        " (schema rule additionalProperties)" in output
+    )
+    assert "Failed validating" not in output and "On instance" not in output
+
+    def refused(argv):
+        host._prompt({"context": {}, "source_slices": []}, max_context_bytes=1)
+
+    monkeypatch.setattr(controller, "assess_repositories", refused)
+    assert controller.assess_main(["--repo", "x", "--output", "y"]) == 1
+    output = " ".join(capsys.readouterr().err.split())
+    assert "Check _prompt (scripts/runtime/assessment_host.py:" in output
+
+
 def test_exhausted_usage_window_is_not_reported_as_rate_limit(monkeypatch, capsys, tmp_path):
     from runtime.analyst_host import TransportError
 
