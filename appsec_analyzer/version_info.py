@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 # The build writes build-info.json into the package. This module must import nothing from
@@ -14,6 +15,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parent
 BUILD_INFO = "build-info.json"
 GIT_TIMEOUT = 10
+VERSION_TIMEOUT = 30
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TAG = re.compile(r"v\d+\.\d+\.\d+[0-9A-Za-z.+-]*")
@@ -87,3 +89,34 @@ def describe() -> str:
     if info["tag"]:
         return info["tag"].removeprefix("v") + suffix
     return f"{info['commit'][:8]} ({info['date']}){suffix}"
+
+
+def installed_version() -> str | None:
+    """What `--version` of the installed package reports now; ``None`` when it cannot be read.
+
+    After a reinstall this process still runs the replaced code, so the new
+    installation is asked in a process of its own, from the same environment.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "appsec_analyzer", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=VERSION_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode:
+        return None
+    # `--version` prints the program name, then the version; the text reaches the terminal.
+    _, _, version = result.stdout.strip().partition(" ")
+    version = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", version).split())[:120]
+    return version or None
+
+
+def version_change(before: str, after: str | None) -> str | None:
+    """The installed version after an update, marked as unchanged or with the one it replaced."""
+    if after is None:
+        return None
+    return after + (" (unchanged)" if after == before else f" (was {before})")

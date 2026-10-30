@@ -211,12 +211,24 @@ def _newer_result(tmp_path):
     return source
 
 
-def _update_setup(monkeypatch, *, answer="y", returncode=0, source="https://example.test/appsec-analyzer.git"):
+def _update_setup(
+    monkeypatch,
+    *,
+    answer="y",
+    returncode=0,
+    source="https://example.test/appsec-analyzer.git",
+    after="9f8e7d6c (2026-10-30)",
+):
     calls = []
 
     def run(argv, **kwargs):
+        if argv[1:] == ["-m", "appsec_analyzer", "--version"]:
+            # The new installation reports its version in a process of its own.
+            return subprocess.CompletedProcess(argv, 0 if after else 1, stdout=f"appsec-analyzer {after}\n")
         calls.append(argv)
         return subprocess.CompletedProcess(argv, returncode)
+
+    monkeypatch.setattr("appsec_analyzer.version_info.describe", lambda: "1a2b3c4d (2026-10-01)")
 
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
@@ -234,7 +246,25 @@ def test_yes_updates_installation_and_does_not_start_review(tmp_path, monkeypatc
     with pytest.raises(review.ReviewError, match="was updated, run the command again"):
         review.review_assessment(str(source))
     assert calls == [["/usr/bin/pipx", "upgrade", "--pip-args=--force-reinstall", "appsec-analyzer"]]
-    assert "https://example.test/appsec-analyzer.git" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "https://example.test/appsec-analyzer.git" in output
+    assert output.index("Installed version: 1a2b3c4d (2026-10-01)") < output.index("[y/N]")
+
+
+@pytest.mark.parametrize(
+    "after, note",
+    [
+        ("9f8e7d6c (2026-10-30)", "installed version: 9f8e7d6c (2026-10-30) (was 1a2b3c4d (2026-10-01))"),
+        ("1a2b3c4d (2026-10-01)", "installed version: 1a2b3c4d (2026-10-01) (unchanged)"),
+        (None, "check the new version with `appsec-analyzer --version`"),
+    ],
+)
+def test_an_update_names_the_version_it_installed(tmp_path, monkeypatch, after, note):
+    source = _newer_result(tmp_path)
+    _update_setup(monkeypatch, after=after)
+    with pytest.raises(review.ReviewError) as error:
+        review.review_assessment(str(source))
+    assert note in str(error.value)
 
 
 def test_failed_update_reports_failure(tmp_path, monkeypatch):
