@@ -354,3 +354,46 @@ def test_other_hosts_keep_their_fixed_host_names(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gw.example.org")
     assert controller._model_host_name("codex-cli") == "Codex CLI"
     assert controller._model_host_name("lite") == "LiteLLM gateway"
+
+
+@pytest.fixture
+def stopped_run():
+    from appsec_analyzer.assessment.console import _AssessmentProgress
+
+    yield _AssessmentProgress
+    _AssessmentProgress.budget = None
+    _AssessmentProgress.show_costs = False
+
+
+def _budget(**fields):
+    return SimpleNamespace(
+        **{"calls": 12, "spent_usd": 3.456, "max_usd": 10.0, "subscription": False, "api_prices": False, **fields}
+    )
+
+
+def test_stop_reports_cost_so_far(stopped_run):
+    stopped_run.budget, stopped_run.show_costs = _budget(), True
+    assert stopped_run.cost_row() == (
+        "Used",
+        "USD 3.46 of 10.00 spent; a call still running is not counted",
+    )
+    assert ("Used", "USD 3.46 of 10.00 spent; a call still running is not counted") in controller._resume_rows()
+    assert ("Used", "USD 3.46 of 10.00 spent; a call still running is not counted") in controller._resume_rows(
+        capacity=True
+    )
+    stopped_run.budget = _budget(api_prices=True)
+    assert "used at API prices" in stopped_run.cost_row()[1]
+
+
+def test_stop_without_usd_reports_calls_only(stopped_run):
+    stopped_run.budget, stopped_run.show_costs = _budget(subscription=True), True
+    assert stopped_run.cost_row() == ("Used", "12 model calls")
+    stopped_run.budget, stopped_run.show_costs = _budget(), False
+    assert stopped_run.cost_row() == ("Used", "12 model calls")
+
+
+def test_stop_before_first_call_reports_no_cost(stopped_run):
+    assert stopped_run.cost_row() is None
+    stopped_run.budget = _budget(calls=0, spent_usd=0.0)
+    assert stopped_run.cost_row() is None
+    assert all(row[0] != "Used" for row in controller._resume_rows())

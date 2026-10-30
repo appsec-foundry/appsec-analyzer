@@ -4436,6 +4436,7 @@ def assess_repositories(
         subscription_label="GitHub Copilot account allowance" if adapter == "copilot-cli" else "ChatGPT subscription",
     )
     _AssessmentProgress.max_parallel = budget.max_parallel
+    _AssessmentProgress.budget = budget
     if run_profile is not None and run_profile["adapter"] in ("openai", "lite", "bedrock"):
         from appsec_analyzer.profiles import call_reservation
 
@@ -4462,6 +4463,7 @@ def assess_repositories(
 
             run_profile = restore_profile(run_profile, Path(ns.output), resume=True)
     _AssessmentConsole.max_columns = ns.width
+    _AssessmentProgress.show_costs = display_costs
     console = None if progress or ns.quiet else _AssessmentConsole(ns.verbose, show_costs=display_costs)
     if console:
         console.start_ticker()
@@ -5426,13 +5428,15 @@ def _stop(headline: str, *rows: tuple[str, str], stream=None) -> None:
 
 def _resume_rows(before: str = "", *, capacity: bool = False) -> list[tuple[str, str]]:
     """The rows for a stop that --resume continues; ``before`` is what to do or wait for first."""
+    used = _AssessmentProgress.cost_row()
     if capacity:
         return [
             ("Reason", "provider rate limit reported recently"),
             KEPT,
+            *([used] if used else []),
             ("Continue", "wait for provider capacity, then " + RESUME),
         ]
-    return [KEPT, ("Continue", before + RESUME)]
+    return [KEPT, *([used] if used else []), ("Continue", before + RESUME)]
 
 
 def assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
@@ -5440,6 +5444,7 @@ def assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     code = 1
     _AssessmentProgress.last_retry = None
     _AssessmentProgress.max_parallel = None
+    _AssessmentProgress.budget = None
     # REQ-035: every file the run creates is readable by the current user only.
     umask = os.umask(0o077)
     try:

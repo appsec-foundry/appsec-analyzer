@@ -280,6 +280,9 @@ class _AssessmentProgress:
     last_retry: tuple[str, float] | None = None
     # The run's parallel model jobs, which a rate-limit stop advises lowering.
     max_parallel: int | None = None
+    # The run's budget and whether it shows USD, for the cost a stop reports.
+    budget = None
+    show_costs = False
     # Exit code -> the end record's status; any other code failed.
     STATUS = {0: "complete", 20: "complete", ASSESS_PAUSED_EXIT: "paused", 130: "interrupted"}
 
@@ -302,6 +305,20 @@ class _AssessmentProgress:
         resumable = code in (ASSESS_PAUSED_EXIT, 130)
         cls.emit("end", status=cls.STATUS.get(code, "failed"), exit_code=code, resumable=resumable)
         cls.path = None
+
+    @classmethod
+    def cost_row(cls) -> tuple[str, str] | None:
+        """The cost of the model calls made so far, for a stop; ``None`` before the first call."""
+        budget = cls.budget
+        if budget is None or not budget.calls:
+            return None
+        if budget.subscription or not cls.show_costs:
+            return ("Used", f"{budget.calls} model calls")
+        basis = "used at API prices" if budget.api_prices else "spent"
+        return (
+            "Used",
+            f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} {basis}; a call still running is not counted",
+        )
 
     @classmethod
     def note_retry(cls, message: str) -> None:
