@@ -29,15 +29,42 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _SelfHosted(urllib.request.HTTPSHandler):
+    """Reaches a self-hosted instance like its Git host: at a checked address, or through the operator's proxy."""
+
+    def __init__(self, host: str):
+        super().__init__()
+        self._host = host
+
+    def https_open(self, req):
+        from runtime.remote_repositories import Remote, RemoteError, _address, _check_allowlist, _PinnedHTTPS, _proxy
+
+        remote = Remote(f"https://{self._host}", "https", self._host, 443, "platform")
+        try:
+            if _proxy(remote):
+                _check_allowlist(remote)
+                return super().https_open(req)
+            address = _address(remote)
+        except RemoteError as exc:
+            raise TransportError(str(exc)) from None
+        return self.do_open(lambda *_, **__: _PinnedHTTPS(remote, address), req)
+
+
 class ApiClient:
     """GET requests to one API base. A token is only ever sent to that base."""
 
-    def __init__(self, base_url: str, headers: dict[str, str], token_header: tuple[str, str] | None):
+    def __init__(
+        self,
+        base_url: str,
+        headers: dict[str, str],
+        token_header: tuple[str, str] | None,
+        *handlers: urllib.request.BaseHandler,
+    ):
         self._base = base_url.rstrip("/")
         self._headers = {**headers, "Accept": "application/json", "User-Agent": "appsec-analyzer"}
         if token_header:
             self._headers[token_header[0]] = token_header[1]
-        self._opener = urllib.request.build_opener(_NoRedirect)
+        self._opener = urllib.request.build_opener(_NoRedirect, *handlers)
 
     def get(self, path: str) -> Response:
         request = urllib.request.Request(self._base + path, headers=self._headers, method="GET")
@@ -73,5 +100,6 @@ def github_client(token: str | None) -> ApiClient:
     )
 
 
-def gitlab_client(token: str | None) -> ApiClient:
-    return ApiClient("https://gitlab.com/api/v4", {}, ("PRIVATE-TOKEN", token) if token else None)
+def gitlab_client(token: str | None, host: str = "gitlab.com") -> ApiClient:
+    handlers = () if host == "gitlab.com" else (_SelfHosted(host),)
+    return ApiClient(f"https://{host}/api/v4", {}, ("PRIVATE-TOKEN", token) if token else None, *handlers)

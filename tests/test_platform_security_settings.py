@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -10,9 +11,10 @@ import pytest
 
 from appsec_analyzer import cli
 from appsec_analyzer.platform_settings import checks
-from appsec_analyzer.platform_settings.client import ApiClient, Response, TransportError
+from appsec_analyzer.platform_settings.client import ApiClient, Response, TransportError, gitlab_client
+from appsec_analyzer.platform_settings.projection import model_context, report_block
 from appsec_analyzer.platform_settings.service import PlatformSettingsError, check_platform_settings
-from appsec_analyzer.platform_settings.source import SourceError, parse_repository
+from appsec_analyzer.platform_settings.source import SourceError, parse_repository, platform_hosts
 
 GH = "https://github.com/o/r"
 GL = "https://gitlab.com/g/s/p"
@@ -414,7 +416,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         type(self).seen.append((self.path, self.headers.get("PRIVATE-TOKEN")))
-        if self.path == "/redirect":
+        if self.path.endswith("/redirect"):
             self.send_response(302)
             self.send_header("Location", "http://127.0.0.1:1/elsewhere")
             self.end_headers()
@@ -628,6 +630,218 @@ def test_scan_rejects_an_unset_platform_token_variable(monkeypatch, capsys):
     )
     assert code == 2
     assert "unset or empty" in capsys.readouterr().err
+
+
+# --- self-hosted GitLab -----------------------------------------------------------------------
+
+HOST = "gitlab.firma.test"
+SELF = f"https://{HOST}/g/s/p"
+
+
+@pytest.fixture
+def direct(monkeypatch):
+    """No proxy and no host allow-list from the surrounding environment."""
+    for name in ("HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy", "APPSEC_URL_ALLOWLIST"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _resolves_to(monkeypatch, *answers):
+    """Each lookup returns the next answer; each connection is recorded and refused."""
+    pending, connected = iter(answers), []
+
+    def refuse(address, *_, **__):
+        connected.append(address)
+        raise OSError("refused by the test")
+
+    monkeypatch.setattr("socket.getaddrinfo", lambda *_, **__: [(2, 1, 6, "", (next(pending), 443))])
+    monkeypatch.setattr("socket.create_connection", refuse)
+    return connected
+
+
+def _named_instance(monkeypatch):
+    """Name HOST and record which hosts receive a client."""
+    monkeypatch.setenv("GITLAB_HOST", HOST)
+    fake, hosts = Fake(gl_routes()), []
+    monkeypatch.setattr(
+        "appsec_analyzer.platform_settings.service.gitlab_client", lambda token, host: hosts.append(host) or fake
+    )
+    return hosts
+
+
+@pytest.mark.parametrize("named", [HOST, HOST.upper(), f"https://{HOST}/", f"{HOST}:8443"])
+@pytest.mark.parametrize("url", [SELF, f"git@{HOST}:g/s/p.git", f"ssh://git@{HOST}/g/s/p"])
+def test_a_named_host_is_a_gitlab_instance(monkeypatch, named, url):
+    monkeypatch.setenv("GITLAB_HOST", named)
+    repo = parse_repository(url)
+    assert (repo.platform, repo.host, repo.path) == ("gitlab", HOST, "g/s/p")
+
+
+def test_a_host_that_was_not_named_is_refused_with_the_way_to_name_it(monkeypatch):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    with pytest.raises(SourceError, match="GITLAB_HOST"):
+        parse_repository(SELF)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://other.test/g/p",
+        f"https://{HOST}.evil.test/g/p",
+        f"https://{HOST}:8443/g/p",
+        f"https://user:pass@{HOST}/g/p",
+        f"https://{HOST}/g/../p",
+        f"http://{HOST}/g/p",
+    ],
+)
+def test_a_named_host_admits_nothing_else(monkeypatch, url):
+    monkeypatch.setenv("GITLAB_HOST", HOST)
+    with pytest.raises(SourceError):
+        parse_repository(url)
+
+
+def test_a_named_host_with_invalid_characters_is_refused(monkeypatch):
+    monkeypatch.setenv("GITLAB_HOST", "bad_host?x")
+    with pytest.raises(SourceError):
+        parse_repository("https://bad_host?x/g/p")
+
+
+def test_gitlab_host_does_not_change_github(monkeypatch):
+    monkeypatch.setenv("GITLAB_HOST", "github.com")
+    assert parse_repository(GH).platform == "github"
+
+
+def test_gitlab_com_keeps_its_fixed_client(monkeypatch):
+    hosts = _named_instance(monkeypatch)
+    assert check_platform_settings(GL)["host"] == "gitlab.com"
+    assert hosts == ["gitlab.com"]
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "169.254.169.254", "0.0.0.0", "::1", "fe80::1", "::ffff:10.0.0.1"])
+def test_self_hosted_client_refuses_a_prohibited_address(monkeypatch, direct, address):
+    connected = _resolves_to(monkeypatch, address)
+    with pytest.raises(TransportError, match="prohibited"):
+        gitlab_client("t", HOST).get("/x")
+    assert connected == []
+
+
+def test_self_hosted_client_connects_only_to_the_checked_address(monkeypatch, direct):
+    connected = _resolves_to(monkeypatch, "10.20.30.40")
+    with pytest.raises(TransportError, match="could not be reached"):
+        gitlab_client("t", HOST).get("/x")
+    assert connected == [("10.20.30.40", 443)]
+
+
+def test_self_hosted_client_checks_the_address_for_every_request(monkeypatch, direct):
+    connected = _resolves_to(monkeypatch, "10.20.30.40", "127.0.0.1")
+    client = gitlab_client("t", HOST)
+    with pytest.raises(TransportError, match="could not be reached"):
+        client.get("/x")
+    with pytest.raises(TransportError, match="prohibited"):
+        client.get("/x")
+    assert connected == [("10.20.30.40", 443)]
+
+
+@pytest.mark.parametrize("proxy", [None, "http://proxy.test:3128"])
+def test_self_hosted_client_keeps_the_host_allow_list(monkeypatch, direct, proxy):
+    connected = _resolves_to(monkeypatch, "10.20.30.40")
+    monkeypatch.setenv("APPSEC_URL_ALLOWLIST", "other.test")
+    if proxy:
+        monkeypatch.setenv("HTTPS_PROXY", proxy)
+    with pytest.raises(TransportError, match="APPSEC_URL_ALLOWLIST"):
+        gitlab_client("t", HOST).get("/x")
+    assert connected == []
+
+
+def test_self_hosted_client_uses_the_operators_proxy(monkeypatch, direct):
+    connected = _resolves_to(monkeypatch)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.test:3128")
+    with pytest.raises(TransportError, match="could not be reached"):
+        gitlab_client("t", HOST).get("/x")
+    assert connected == [("proxy.test", 3128)]
+
+
+@pytest.fixture
+def instance(server, monkeypatch, direct):
+    """The pinned connection reaches the local test server instead of a TLS host."""
+    port = int(server.rsplit(":", 1)[1])
+    monkeypatch.setattr("runtime.remote_repositories._address", lambda remote: "10.20.30.40")
+    monkeypatch.setattr(
+        "runtime.remote_repositories._PinnedHTTPS",
+        lambda remote, address: http.client.HTTPConnection("127.0.0.1", port, timeout=5),
+    )
+
+
+def test_self_hosted_client_sends_the_token_to_the_instance_api(instance):
+    assert gitlab_client("t", HOST).get("/x").body == {"ok": True}
+    assert _Handler.seen == [("/api/v4/x", "t")]
+
+
+def test_self_hosted_client_refuses_a_redirect_and_keeps_the_token(instance):
+    with pytest.raises(TransportError, match="redirected"):
+        gitlab_client("t", HOST).get("/redirect")
+    assert _Handler.seen == [("/api/v4/redirect", "t")]
+
+
+def test_cli_checks_a_named_host_and_prints_it_first(monkeypatch, capsys):
+    hosts = _named_instance(monkeypatch)
+    assert cli.main(["platform-settings", SELF, "--json"]) == 0
+    captured = capsys.readouterr()
+    assert hosts == [HOST]
+    assert f"Sending read requests to {HOST}" in captured.err
+    assert json.loads(captured.out)["host"] == HOST
+
+
+def test_cli_says_how_to_name_a_host(monkeypatch, capsys):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    assert cli.main(["platform-settings", SELF]) == 2
+    assert "GITLAB_HOST" in capsys.readouterr().err
+
+
+def test_phase_checks_a_named_host_and_keeps_it_from_models_and_the_report(tmp_path, monkeypatch):
+    hosts = _named_instance(monkeypatch)
+    document, said, _ = _phase([SELF], tmp_path / "work", monkeypatch)
+    assert hosts == [HOST]
+    assert document["repositories"][0]["result"]["host"] == HOST
+    assert any(f"sending read requests to {HOST}" in line for line in said)
+    assert HOST not in json.dumps([model_context(document), report_block(document)])
+
+
+def test_phase_skips_a_host_that_was_not_named_and_says_how_to_name_it(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    document, said, fake = _phase([SELF], tmp_path / "work", monkeypatch)
+    row = document["repositories"][0]
+    assert fake.requests == []
+    assert (row["status"], row["code"]) == ("skipped", "unsupported_platform")
+    assert "GITLAB_HOST" in row["reason"] and any("GITLAB_HOST" in line for line in said)
+
+
+def test_platform_hosts_counts_each_supported_host_once():
+    selections = [GL, "https://gitlab.com/g/other", GH, "/home/user/repo", "https://example.com/o/r"]
+    assert platform_hosts(selections) == ["github.com", "gitlab.com"]
+
+
+def test_assess_stops_when_one_token_would_reach_several_hosts(monkeypatch, capsys):
+    monkeypatch.setenv("PLATSEC_TEST_TOKEN", "secret-token-value")
+    monkeypatch.setenv("GITLAB_HOST", HOST)
+    monkeypatch.setattr("appsec_analyzer.hosts.claude_preflight", lambda: None)
+    code = cli.main(
+        [
+            "assess",
+            "--repo",
+            GL,
+            "--repo",
+            SELF,
+            "--output",
+            "/tmp/never-created",
+            "--profile",
+            "claude",
+            "--platform-token-env",
+            "PLATSEC_TEST_TOKEN",
+        ]
+    )
+    err = capsys.readouterr().err
+    assert code == 2
+    assert f"gitlab.com, {HOST}" in err and "secret-token-value" not in err
 
 
 # --- model context ----------------------------------------------------------------------------

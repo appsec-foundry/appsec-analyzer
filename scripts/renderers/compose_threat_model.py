@@ -16506,7 +16506,9 @@ def _boundary_assumption_verdict(row: dict, ctx: RenderContext) -> str:
 
 _PLATFORM_SKIP_TEXT = {
     "local_repository": "skipped (local repository; supply a GitHub or GitLab URL to check its platform settings)",
-    "unsupported_platform": "skipped (not a github.com or gitlab.com repository URL)",
+    "unsupported_platform": (
+        "skipped (not a github.com or gitlab.com repository URL; set GITLAB_HOST for a self-hosted GitLab)"
+    ),
     "check_failed": "could not be checked; treated as unknown",
 }
 _PLATFORM_ID = re.compile(r"PLATSEC-\d{3}")

@@ -29,7 +29,7 @@ def check_platform_settings(
 ) -> dict:
     """Return the validated result; the token is used for requests only and never stored."""
     repo = parse_repository(url)
-    make = client_factory or (lambda r, t: (github_client if r.platform == "github" else gitlab_client)(t))
+    make = client_factory or (lambda r, t: github_client(t) if r.platform == "github" else gitlab_client(t, r.host))
     client = make(repo, token)
     runner = (checks.GitHub if repo.platform == "github" else checks.GitLab)(client, repo, bool(token))
     try:

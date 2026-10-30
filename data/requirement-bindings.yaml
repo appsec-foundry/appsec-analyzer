@@ -206,11 +206,13 @@ requirements:
       - appsec_analyzer/platform_settings/**
       - scripts/orchestrator/orchestration_controller.py
       - scripts/renderers/compose_threat_model.py
+      - scripts/runtime/remote_repositories.py
       - schemas/threat-model.output.schema.yaml
       - data/sections-contract.yaml
     decisions: []
     documents:
       - README.md
+      - docs/configuration.md
       - docs/platform-security-settings.md
       - skills/appsec-analyzer/SKILL.md
       - docs/internal/contracts/requirement-acceptance.md
@@ -231,6 +233,17 @@ requirements:
       - tests/test_platform_security_settings.py::test_phase_records_a_failed_check_and_does_not_stop_the_scan
       - tests/test_platform_security_settings.py::test_phase_never_stores_credentials_from_a_url_or_the_token
       - tests/test_platform_security_settings.py::test_phase_reuses_the_stored_result_on_resume_without_a_new_request
+      - tests/test_platform_security_settings.py::test_a_named_host_is_a_gitlab_instance
+      - tests/test_platform_security_settings.py::test_a_named_host_admits_nothing_else
+      - tests/test_platform_security_settings.py::test_a_host_that_was_not_named_is_refused_with_the_way_to_name_it
+      - tests/test_platform_security_settings.py::test_self_hosted_client_refuses_a_prohibited_address
+      - tests/test_platform_security_settings.py::test_self_hosted_client_connects_only_to_the_checked_address
+      - tests/test_platform_security_settings.py::test_self_hosted_client_checks_the_address_for_every_request
+      - tests/test_platform_security_settings.py::test_self_hosted_client_keeps_the_host_allow_list
+      - tests/test_platform_security_settings.py::test_self_hosted_client_refuses_a_redirect_and_keeps_the_token
+      - tests/test_platform_security_settings.py::test_phase_checks_a_named_host_and_keeps_it_from_models_and_the_report
+      - tests/test_platform_security_settings.py::test_phase_skips_a_host_that_was_not_named_and_says_how_to_name_it
+      - tests/test_platform_security_settings.py::test_assess_stops_when_one_token_would_reach_several_hosts
       - tests/test_platform_security_settings.py::test_projection_passes_only_allow_listed_values
       - tests/test_platform_security_settings.py::test_projection_is_absent_when_nothing_was_checked
       - tests/test_platform_settings_controller.py::test_controls_and_stride_receive_only_the_allow_listed_projection

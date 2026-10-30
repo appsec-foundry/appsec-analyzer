@@ -354,7 +354,7 @@ appsec-analyzer abuse-cases AC-B-001 --repo /path/to/project
 
 ### `platform-settings`: GitHub and GitLab security settings
 
-`platform-settings` checks security settings of a repository on github.com or gitlab.com, such as required reviews, blocked force pushes, secret scanning, and workflow permissions. See [Platform security settings](docs/platform-security-settings.md).
+`platform-settings` checks security settings of a repository on github.com, gitlab.com, or a self-hosted GitLab named by `GITLAB_HOST`, such as required reviews, blocked force pushes, secret scanning, and workflow permissions. See [Platform security settings](docs/platform-security-settings.md).
 
 - Sends read requests to the platform API only. Makes no model calls and sends no source code.
 - Reports each of seven checks as `set`, `not set`, or `not checkable`, with the reason.

@@ -20,7 +20,7 @@ from appsec_analyzer.terminal import field
 ARTIFACT = "platform-settings.json"
 SCHEMA_VERSION = 1
 LOCAL = "local repository; give a GitHub or GitLab URL to check its platform settings"
-UNSUPPORTED = "not a github.com or gitlab.com repository URL"
+UNSUPPORTED = "not a github.com or gitlab.com repository URL; set GITLAB_HOST for a self-hosted GitLab"
 FAILED = "the platform check could not finish"
 # The start-check line of a skipped repository; the stored reason keeps the full text.
 _SKIPPED = {"local_repository": "local checkout", "unsupported_platform": UNSUPPORTED}

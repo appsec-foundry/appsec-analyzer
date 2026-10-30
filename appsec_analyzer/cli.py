@@ -368,8 +368,9 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         help="Check security settings of a GitHub or GitLab repository without model calls",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Check security settings of a repository on github.com or gitlab.com, such as branch protection,\n"
-            "secret scanning, and workflow permissions. Sends read requests to the platform API only;\n"
+            "Check security settings of a repository on github.com, gitlab.com, or a self-hosted GitLab named\n"
+            "by GITLAB_HOST, such as branch protection, secret scanning, and workflow permissions.\n"
+            "Sends read requests to the platform API only;\n"
             "no model calls, no source code, and no writes to the repository or the platform.\n"
             "Each setting is reported as set, not set, or not checkable, with the reason."
         ),
@@ -379,10 +380,13 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             "and should be read-only. Results describe the settings at check time only.\n"
             "Examples:\n"
             "  appsec-analyzer platform-settings https://github.com/your-org/your-project\n"
-            "  GITHUB_READ_TOKEN=... appsec-analyzer platform-settings URL --token-env GITHUB_READ_TOKEN --json"
+            "  GITHUB_READ_TOKEN=... appsec-analyzer platform-settings URL --token-env GITHUB_READ_TOKEN --json\n"
+            "  GITLAB_HOST=gitlab.example.com appsec-analyzer platform-settings https://gitlab.example.com/group/project"
         ),
     )
-    platform.add_argument("url", metavar="URL", help="HTTPS or SSH URL of a github.com or gitlab.com repository")
+    platform.add_argument(
+        "url", metavar="URL", help="HTTPS or SSH URL of a github.com, gitlab.com, or GITLAB_HOST repository"
+    )
     platform.add_argument("--token-env", metavar="NAME", help="Environment variable holding a read-only platform token")
     platform_formats = platform.add_mutually_exclusive_group()
     platform_formats.add_argument("--json", action="store_true", help="Print the result as JSON")
@@ -592,7 +596,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="NAME",
         help=(
             "Environment variable holding a read-only GitHub or GitLab token for the Platform Security Settings "
-            "phase; without it only public data is checked"
+            "phase; without it only public data is checked; the repositories must share one platform host"
         ),
     )
     provider_group.add_argument(
@@ -1322,6 +1326,13 @@ def _assess(ns: argparse.Namespace) -> int:
     if getattr(ns, "platform_token_env", None) and not os.environ.get(ns.platform_token_env, "").strip():
         raise ValueError(f"--platform-token-env {ns.platform_token_env} names an unset or empty environment variable")
     repositories = ns.repo or [str(Path.cwd())]
+    if getattr(ns, "platform_token_env", None):
+        from appsec_analyzer.platform_settings.source import platform_hosts
+
+        if len(hosts := platform_hosts(repositories)) > 1:
+            raise ValueError(
+                f"--platform-token-env sends one token to one host, but this run selects {', '.join(hosts)}"
+            )
     args = ["--repo", repositories[0]]
     for repo in repositories[1:]:
         args += ["--repo", repo]
