@@ -224,6 +224,10 @@ $defs:
         type: ["string", "null"]
       breach_vector:
         $ref: "#/$defs/breachVector"
+      # The file serves only local development: its name says so and no build or
+      # deployment definition of the repository refers to it (REQ-009).
+      development_only:
+        type: boolean
     # A line-0 citation is an absence and must say so; an absence names what
     # was searched and cites no line.
     allOf:

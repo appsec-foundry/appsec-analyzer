@@ -7587,3 +7587,13 @@ def test_classification_line_ignores_malformed_test_case_and_rule_ids(tmp_path: 
     cell = _card_with(tmp_path, test_case_ids=["TC-x](javascript:alert(1))"], rule_ids=["bad id"])
     assert "Test cases:" not in cell and "Rules:" not in cell
     assert "Test cases:" not in _card_with(tmp_path)
+
+
+def test_a_development_only_finding_card_names_its_assumption(tmp_path: Path) -> None:
+    out = _prepare_output_dir(tmp_path)
+    data = yaml.safe_load((out / "threat-model.yaml").read_text())
+    data["threats"][0]["development_only"] = True
+    _with_model(out, threats=data["threats"])
+    rendered, _ = compose.render(CONTRACT, out)
+    assert rendered.count("**Development only:**") == 1
+    assert "does not raise the verdict" in rendered

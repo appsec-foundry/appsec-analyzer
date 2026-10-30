@@ -35,4 +35,6 @@ This change records the approved requirements, their acceptance rules, and their
 
 REQ-040 is implemented through one finding-state predicate, `counts_toward_assessment`, which the verdict basis, the risk distribution, the weakness register, and the generated fix mitigations use. The register and the review mitigation keep the finding. Its guards are bound.
 
-REQ-009 and REQ-004 are not implemented yet, and no guard covers their new rules.
+REQ-009 is implemented. Configuration rule hits default to the insecure-practice tier unless an upstream producer set the tier; the configuration scanner marks a file as development only when its name says so and no CI, Dockerfile, Makefile, or similar release definition of the repository names it; such a finding keeps its register card with the stated assumption and is left out of the verdict basis through the `raises_verdict` predicate. Its guards are bound.
+
+REQ-004 is not implemented yet, and no guard covers its new rules.

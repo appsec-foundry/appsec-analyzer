@@ -143,6 +143,14 @@ def counts_toward_assessment(threat: dict | None) -> bool:
     return in_report_scope(threat) and not is_review_contradicted(threat)
 
 
+def raises_verdict(threat: dict | None) -> bool:
+    """The finding may raise the verdict: it counts, and it is not in configuration
+    that serves only local development (REQ-009, REQ-040)."""
+    return counts_toward_assessment(threat) and not (
+        isinstance(threat, dict) and threat.get("development_only") is True
+    )
+
+
 def in_report_scope(threat: dict | None) -> bool:
     """The finding belongs to the delivered model (the finalized field, else not refuted)."""
     if not isinstance(threat, dict):

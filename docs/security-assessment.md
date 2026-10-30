@@ -264,6 +264,7 @@ depths:
 With verification on:
 
 - Findings from scanner rules carry `rule_ids` and `test_case_ids` in `security-assessment.yaml`, and their details link the verification items and rules.
+- A configuration rule hit counts as an insecure practice, not as a confirmed exploitable weakness, because a setting alone does not show how it is exploited where the system runs. A hit in a file that serves only local development, such as `compose.dev.yaml`, is marked "Development only" when no build or deployment definition of the repository refers to the file. Such a finding stays in the findings register but does not raise the verdict.
 - `security-assessment.yaml` gains a `test_case_results` block, with `incomplete_aspects` when the budget ended verification early.
 - Every finding names the methods that found it in `found_by`: `survey`, `scanners`, or `verification`. Findings that hold verification findings carry `verification` with their `TCF-` IDs and verification items, and survey or scanner findings that verification contradicts carry `verification_contradicted`. A finding of verification alone that the evidence review refuted carries `evidence_review_contradicted` with the review's reason. It stays in the findings register, but the verdict, the risk distribution, weaknesses, and fix recommendations leave it out; only a manual review task names it.
 - The report gains the appendix Verification Items, which lists every catalog item and its outcome, with one row per component for model-investigated items.

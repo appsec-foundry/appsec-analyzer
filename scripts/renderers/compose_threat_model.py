@@ -15582,6 +15582,13 @@ def _build_threat_card(
             violated_card = "**Violates:** " + " · ".join(_parts)
 
     fields = [meta_line]
+    if t.get("development_only") is True:
+        # REQ-009: the assumption is named, because a development file can also reach production.
+        fields.append(
+            "**Development only:** the file serves local development by its name, and no build or deployment "
+            "definition of the repository refers to it. The finding does not raise the verdict; check it if this "
+            "file is used beyond development."
+        )
     if verification_card := _verification_card(t):
         fields.append(verification_card)
     if violated_card:

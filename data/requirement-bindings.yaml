@@ -796,6 +796,9 @@ requirements:
 
   REQ-009:
     applies_to:
+      - scripts/analyzers/config_iac_scanner.py
+      - schemas/config-scan-findings.schema.yaml
+      - scripts/shared/_finding_state.py
       - scripts/analyzers/architect_review.py
       - scripts/analyzers/architect_review_runtime.py
       - scripts/shared/_severity_policy.py
@@ -833,6 +836,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_merge_threats.py::test_a_configuration_rule_hit_is_an_insecure_practice_unless_set_upstream
+      - tests/test_merge_threats.py::test_a_development_only_configuration_finding_keeps_its_label
+      - tests/test_config_iac_scanner.py::test_development_only_configuration_is_labelled
+      - tests/test_severity_rollup.py::test_a_development_only_finding_is_counted_but_never_raises_the_verdict
+      - tests/test_compose_threat_model.py::test_a_development_only_finding_card_names_its_assumption
       - tests/test_architect_review_runtime.py::test_corrections_survive_grouping_hydration_and_repeat_rebuild
       - tests/test_severity_policy.py::test_policy_risk_reaches_register_summary_and_sarif
       - tests/test_triage_compute_ranking.py::test_policy_cap_wins_over_critical_input
