@@ -382,3 +382,29 @@ def test_verdict_practice_concern_does_not_claim_confirmation():
 )
 def test_the_root_cause_section_needs_two_critical_findings_on_the_register_basis(threats, expected):
     assert sr.has_root_cause_section({"threats": threats}) is expected
+
+
+def test_a_contradicted_finding_stays_listed_but_supports_no_verdict_or_total():
+    contradicted = {
+        "id": "T-007",
+        "risk": "Critical",
+        "evidence_check": "ambiguous",
+        "evidence_review_contradicted": {"reason": "A router-wide admin guard precedes the route."},
+    }
+    ambiguous = {"id": "T-008", "risk": "High", "evidence_check": "ambiguous"}
+    model = {"threats": [contradicted, ambiguous], "weaknesses": []}
+    assert [t["id"] for t in sr.register_threats(model)] == ["T-007", "T-008"]
+    assert sr.verdict_basis(model) == {"F-008": "High"}
+    assert sr.verdict_floor_ids(model) == []
+    assert sr.verdict_severity(model) == "yellow"
+    assert sr.risk_distribution_counts(model)["critical"] == 0
+    assert sr.risk_distribution_counts(model)["high"] == 1
+
+
+def test_a_development_only_finding_is_counted_but_never_raises_the_verdict():
+    model = {"threats": [{"id": "T-006", "risk": "Critical", "development_only": True}], "weaknesses": []}
+    assert sr.verdict_basis(model) == {}
+    assert sr.verdict_severity(model) == "green"
+    assert sr.risk_distribution_counts(model)["critical"] == 1
+    model["threats"][0]["development_only"] = False
+    assert sr.verdict_severity(model) == "red"

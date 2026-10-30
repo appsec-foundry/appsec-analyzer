@@ -573,3 +573,25 @@ def test_repository_checks_are_not_applicable_without_their_precondition(tmp_pat
 
     assert result["rules_evaluated"] == [{"check_id": "IAC-040", "status": "not_applicable", "files": 0}]
     assert result["findings"] == []
+
+
+@pytest.mark.parametrize(
+    ("name", "release_file", "expected"),
+    [
+        ("compose.dev.yaml", None, True),
+        ("docker-compose.override.yml", None, True),
+        ("compose.dev.yaml", (".gitlab-ci.yml", "deploy:\n  script: docker compose -f compose.dev.yaml up\n"), False),
+        ("compose.yaml", None, False),
+    ],
+)
+def test_development_only_configuration_is_labelled(tmp_path, name, release_file, expected):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / name).write_text("services:\n  api:\n    privileged: true\n", encoding="utf-8")
+    if release_file:
+        (repo / release_file[0]).write_text(release_file[1], encoding="utf-8")
+
+    result = scanner.scan(repo, scanner.DEFAULT_CHECKS, depth="standard", output=tmp_path / "result.json")
+
+    (row,) = [row for row in result["findings"] if row["check_id"] == "IAC-020" and row["file"] == name]
+    assert row.get("development_only", False) is expected

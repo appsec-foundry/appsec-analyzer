@@ -362,6 +362,7 @@ requirements:
 
   REQ-004:
     applies_to:
+      - appsec_analyzer/depth_prompt.py
       - scripts/orchestrator/build_stride_dispatch_manifest.py
       - scripts/runtime/aggregate_run_issues.py
       - agents/appsec-recon-scanner.md
@@ -400,6 +401,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_analysis.py::test_thorough_depth_gives_every_signal_free_program_file_a_coverage_target
+      - tests/test_multi_repo_analysis.py::test_client_code_has_its_own_security_signals
+      - tests/test_multi_repo_analysis.py::test_plain_client_markup_has_no_security_signal
+      - tests/test_assessment_scope.py::test_the_thorough_survey_row_says_every_program_file_is_sent_in_optional_jobs
       - tests/test_assessment_scanner_findings.py::test_an_absence_is_reviewed_by_reading_its_file_and_merged
       - tests/test_assessment_scanner_findings.py::test_an_architecture_hit_is_reviewed_with_its_component_and_kept_only_when_confirmed
       - tests/test_assessment_scanner_findings.py::test_a_high_confidence_architecture_anti_pattern_becomes_an_owned_scanner_finding
@@ -427,6 +432,7 @@ requirements:
 
   REQ-040:
     applies_to:
+      - scripts/model/emit_verdict_to_model.py
       - data/source-auth-checks.yaml
       - data/config-iac-checks.yaml
       - data/crypto-checks.yaml
@@ -474,6 +480,9 @@ requirements:
       - docs/profiles.md
     coverage: partial
     guards:
+      - tests/test_severity_rollup.py::test_a_contradicted_finding_stays_listed_but_supports_no_verdict_or_total
+      - tests/test_merge_threats.py::TestWeaknessRegister::test_a_contradicted_finding_backs_no_weakness
+      - tests/test_emit_finding_fix_mitigations.py::test_a_finding_the_evidence_review_contradicted_gets_no_fix_card
       - tests/test_test_case_catalog.py::test_catalog_matches_its_schema
       - tests/test_test_case_catalog.py::test_every_shipped_rule_is_a_starting_point_or_recorded_as_unmapped
       - tests/test_test_case_catalog.py::test_controls_and_abuse_cases_exist
@@ -792,6 +801,9 @@ requirements:
 
   REQ-009:
     applies_to:
+      - scripts/analyzers/config_iac_scanner.py
+      - schemas/config-scan-findings.schema.yaml
+      - scripts/shared/_finding_state.py
       - scripts/analyzers/architect_review.py
       - scripts/analyzers/architect_review_runtime.py
       - scripts/shared/_severity_policy.py
@@ -829,6 +841,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_merge_threats.py::test_a_configuration_rule_hit_is_an_insecure_practice_unless_set_upstream
+      - tests/test_merge_threats.py::test_a_development_only_configuration_finding_keeps_its_label
+      - tests/test_config_iac_scanner.py::test_development_only_configuration_is_labelled
+      - tests/test_severity_rollup.py::test_a_development_only_finding_is_counted_but_never_raises_the_verdict
+      - tests/test_compose_threat_model.py::test_a_development_only_finding_card_names_its_assumption
       - tests/test_architect_review_runtime.py::test_corrections_survive_grouping_hydration_and_repeat_rebuild
       - tests/test_severity_policy.py::test_policy_risk_reaches_register_summary_and_sarif
       - tests/test_triage_compute_ranking.py::test_policy_cap_wins_over_critical_input

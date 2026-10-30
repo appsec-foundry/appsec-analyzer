@@ -58,7 +58,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from shared._critical_findings_sync import resync_critical_findings  # noqa: E402
-from shared._finding_state import review_before_fix  # noqa: E402
+from shared._finding_state import is_review_contradicted, review_before_fix  # noqa: E402
 from shared._register_titles import clamp_mitigation_title  # noqa: E402
 
 _M_ID_RE = re.compile(r"\bM-(\d{3,})\b")
@@ -253,6 +253,9 @@ def _synthesize(data: dict, state: dict, open_decisions: dict[str, dict] | None 
         if tid in covered:
             continue
         if (t.get("source") or "") == "config-scan":
+            continue
+        # REQ-040: a finding the evidence review contradicted gets no fix, only its review card.
+        if is_review_contradicted(t):
             continue
         if not tid:
             continue

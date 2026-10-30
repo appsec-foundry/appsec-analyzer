@@ -373,6 +373,36 @@ def _evaluated(check: dict[str, Any], violated: bool, applies: bool, files: int)
     return {"check_id": check["id"], "status": status, "files": files}
 
 
+# Configuration that by name serves only local development (REQ-009).
+_DEVELOPMENT_FILE_RE = re.compile(
+    r"(?i)(?:^|/)(?:docker-)?compose[.-](?:dev|development|local|override)\.ya?ml$"
+    r"|(?:^|/)[^/]+\.(?:dev|development|local)\.[^/]+$"
+)
+# Build and deployment definitions that can use a file for a release.
+_RELEASE_DEFINITION_RE = re.compile(
+    r"(?i)(?:^|/)(?:\.gitlab-ci\.ya?ml|\.github/workflows/[^/]+\.ya?ml|Jenkinsfile|azure-pipelines\.ya?ml"
+    r"|\.circleci/config\.ya?ml|Makefile|(?:[^/]*\.)?Dockerfile(?:\.[^/]+)?|skaffold\.ya?ml)$"
+)
+
+
+def _development_only(repo_root: Path, relative: str, inventory: RepoInventory) -> bool:
+    """Whether a file serves only local development: its name says so and no
+    build or deployment definition of the repository refers to it."""
+    if not _DEVELOPMENT_FILE_RE.search(relative):
+        return False
+    name = relative.rsplit("/", 1)[-1]
+    for definition in inventory.files:
+        if definition == relative or not _RELEASE_DEFINITION_RE.search(definition):
+            continue
+        try:
+            text = (repo_root / definition).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        if name in text:
+            return False
+    return True
+
+
 def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dict[str, Any]:
     """Run each catalog check on its selected files: at most one finding per check and file.
 
@@ -432,6 +462,8 @@ def scan(repo_root: Path, checks_path: Path, *, depth: str, output: Path) -> dic
             "scenario": f"{canonical['title']}: {check.get('rationale', '').strip()}",
             "breach_vector": check.get("breach_vector", DEFAULT_BREACH_VECTOR),
         }
+        if row["path"] is not None and _development_only(repo_root, relative, inventory):
+            finding["development_only"] = True
         if "searched_files" in row:
             finding["evidence_kind"] = "absence"
             finding["searched_files"] = row["searched_files"]

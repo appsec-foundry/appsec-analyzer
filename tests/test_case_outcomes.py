@@ -178,9 +178,10 @@ def test_appendix_lists_every_catalog_test_case_and_never_shows_an_unexamined_on
     assert out.startswith('<a id="appendix-verification-items"></a>\n## Appendix: Verification Items')
     for case in catalog["test_cases"]:
         assert f'<a id="{case["id"].lower()}"></a>' in out
-    assert "| [TC-AUTHZ-01](#tc-authz-01) | AuthZ | Not examined |" in out
-    assert "| [TC-CI-01](#tc-ci-01) | SupplyChain | Undecidable |" in out
-    assert "Control evidenced" not in out
+    assert '<a id="tc-authz-01"></a>TC-AUTHZ-01' in out.split("### Other items", 1)[1]
+    assert "Not examined: " in out
+    assert "| [TC-CI-01](#tc-ci-01) Workflows run with least-privilege tokens | Repository | Undecidable |" in out
+    assert "### Controls evidenced" not in out and "| Control evidenced |" not in out
 
 
 def test_appendix_is_absent_without_results(tmp_path):
@@ -241,13 +242,14 @@ def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_find
     # The verification finding is part of a finding of the register (REQ-040).
     model["threats"] = [{"id": "T-001", "verification": {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}}]
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
-    assert "| [TC-AUTHZ-01](#tc-authz-01) · Order API | AuthZ | Finding |" in out
-    assert "| [TC-AUTHZ-02](#tc-authz-02) · Order API | AuthZ | Partial, not a control |" in out
-    assert "| [TC-AUTHZ-03](#tc-authz-03) · Order API | AuthZ | No finding, no control |" in out
-    assert "| [TC-AUTHZ-04](#tc-authz-04) | AuthZ | Not examined |" in out
+    attention = out.split("### Results that need attention", 1)[1].split("\n### ", 1)[0]
+    assert "| Order API | Finding (model review only) |" in attention and "Findings: T-001. |" in attention
+    assert "| Order API | Partial, not a control (model review only) |" in attention
+    other = out.split("### Other items", 1)[1].split("\n### ", 1)[0]
+    assert "No finding, no control" in other and "TC-AUTHZ-03" in other
+    assert "Not examined: " in other and "TC-AUTHZ-04" in other
     assert "Control evidenced" not in out and "Partial control" not in out
-    assert "Outcome for Order API: Finding." in out and "Findings: T-001.\n" in out
-    assert "Evidenced by model review only" in out
+    assert "Order API: Finding (model review only). " in out and "Findings: T-001.\n" in out
     # One below the register's floor is counted, and a saved model that lists them apart keeps its IDs.
     model["threats"] = []
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
@@ -276,8 +278,7 @@ def test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_e
     assert list(_block_validator().iter_errors(block)) == []
     model = {"test_case_results": block, "components": [{"id": "api", "name": "Order API"}], "threats": threats}
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
-    assert "Outcome for Order API: Finding." in out
-    assert "Confirmed by the evidence review; no post-check confirmed it." in out
+    assert "Order API: Finding (confirmed by the evidence review). " in out
     # One finding left unconfirmed keeps the outcome on model review only, and a control is never relabelled.
     rows = [
         {"outcome": "finding", "evidence_basis": "model", "finding_ids": ["TCF-001", "TCF-002"]},
@@ -321,15 +322,18 @@ def test_appendix_lists_components_a_test_case_does_not_apply_to_in_one_row(cata
     out = compose._render_appendix_test_cases(
         _mk_ctx(tmp_path, yaml_data={"test_case_results": block, "components": names}), None, {}
     )
-    assert "| [TC-AUTHZ-04](#tc-authz-04) · 3 components | AuthZ | Not applicable | " in out
-    assert out.count("[TC-AUTHZ-04](#tc-authz-04)") == 1 and "Order API, Store, CI |" in out
-    assert "Not applicable for 3 components: Order API, Store, CI." in out
-    # A single not-applicable component keeps its own row.
-    block["results"] = block["results"][:-2]
+    # The item is named once, in the compact list, with its anchor and the components it does not apply to.
+    other = out.split("### Other items", 1)[1]
+    assert out.count("TC-AUTHZ-04") == 1 and '<a id="tc-authz-04"></a>TC-AUTHZ-04' in other
+    assert "Not applicable for all components: " in other
+    # When another component has another outcome, the not-applicable ones are named.
+    rows[1].update(outcome="no_finding", reason="every candidate location was rejected with evidence")
     out = compose._render_appendix_test_cases(
         _mk_ctx(tmp_path, yaml_data={"test_case_results": block, "components": names}), None, {}
     )
-    assert "| [TC-AUTHZ-04](#tc-authz-04) · Order API | AuthZ | Not applicable |" in out
+    (authz,) = [line for line in out.splitlines() if line.startswith("- **AuthZ**")]
+    no_finding, not_applicable = authz.split("; Not applicable: ", 1)
+    assert "TC-AUTHZ-04 (Store)" in no_finding and "TC-AUTHZ-04 (Order API, CI)" in not_applicable
 
 
 @pytest.mark.parametrize(

@@ -129,6 +129,28 @@ def review_before_fix(threat: dict | None, open_decision: dict | None) -> bool:
     )
 
 
+def is_review_contradicted(threat: dict | None) -> bool:
+    """The evidence review refuted a finding that only verification reported (REQ-040).
+
+    Such a finding stays in the register with the review's reason, unlike a
+    refuted survey finding, because the review reads only bounded windows.
+    """
+    return isinstance(threat, dict) and bool(threat.get("evidence_review_contradicted"))
+
+
+def counts_toward_assessment(threat: dict | None) -> bool:
+    """The finding may support the verdict, severity totals, weaknesses, and fixes (REQ-040)."""
+    return in_report_scope(threat) and not is_review_contradicted(threat)
+
+
+def raises_verdict(threat: dict | None) -> bool:
+    """The finding may raise the verdict: it counts, and it is not in configuration
+    that serves only local development (REQ-009, REQ-040)."""
+    return counts_toward_assessment(threat) and not (
+        isinstance(threat, dict) and threat.get("development_only") is True
+    )
+
+
 def in_report_scope(threat: dict | None) -> bool:
     """The finding belongs to the delivered model (the finalized field, else not refuted)."""
     if not isinstance(threat, dict):

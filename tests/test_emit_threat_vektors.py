@@ -244,3 +244,19 @@ def test_main_prints_summary(tmp_path: Path, capsys) -> None:
 
 def test_cli_usage_error() -> None:
     assert etv.main([]) == 2
+
+
+def test_the_handler_location_outweighs_a_shared_file_name_token() -> None:
+    surface = [
+        {"entry_point": "GET /auth/login", "auth_required": False, "notes": "handler: apps/api/src/routes/auth.ts:34"},
+        {"entry_point": "POST /auth/logout", "auth_required": True, "notes": "handler: apps/api/src/routes/auth.ts:64"},
+    ]
+    threat = {"cwe": "CWE-613", "evidence": [{"file": "apps/api/src/routes/auth.ts", "line": 105}]}
+    assert etv._derive_vektor(threat, surface) == "internet-user"
+    threat["evidence"][0]["line"] = 40
+    assert etv._derive_vektor(threat, surface) == "internet-anon"
+
+
+def test_a_nested_routes_directory_counts_as_a_route_file() -> None:
+    threat = {"cwe": "CWE-613", "evidence": [{"file": "apps/api/src/routes/billing.ts", "line": 9}]}
+    assert etv._derive_vektor(threat, []) == "internet-user"

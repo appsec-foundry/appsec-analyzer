@@ -2447,3 +2447,35 @@ def test_stride_accepts_bounded_action_title_and_preserves_it_in_legacy_projecti
     assert build_mitigations([finding])[0]["title"] == title
     artifact["threats"][0]["mitigation_title"] = "x" * 81
     assert not Draft202012Validator(schema).is_valid(artifact)
+
+
+@pytest.mark.parametrize(("depth", "expected"), [("standard", []), ("quick", []), ("thorough", ["src/format.ts"])])
+def test_thorough_depth_gives_every_signal_free_program_file_a_coverage_target(tmp_path, depth, expected):
+    sources = {
+        "src/format.ts": b"export const label = (value: string) => value.trim()\n",
+        "src/format.spec.ts": b"it('trims', () => expect(label(' a ')).toBe('a'))\n",
+    }
+    scope, component = _owned_sources(tmp_path, sources, list(sources))
+    targets = stage.analysis_targets(scope, component, {"data_flows": {"data_flows": []}}, [], depth=depth)
+    assert [t["evidence"]["file"] for t in targets if t.get("coverage")] == expected
+    assert all(t["kinds"] == ["coverage"] for t in targets if t.get("coverage"))
+    unexamined = {path for _, path in stage.unexamined_files(component, targets)}
+    assert ("src/format.ts" in unexamined) is (depth != "thorough")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b'<div [innerHTML]="body"></div>\n',
+        b"export const authInterceptor: HttpInterceptorFn = (req, next) => next(req)\n",
+        b"export const adminGuard: CanActivateFn = () => true\n",
+        b"localStorage.setItem('k', value)\n",
+        b'<p v-html="text"></p>\n',
+    ],
+)
+def test_client_code_has_its_own_security_signals(source):
+    assert stage.has_security_signal(source)
+
+
+def test_plain_client_markup_has_no_security_signal():
+    assert not stage.has_security_signal(b'<button class="primary" (click)="next()">Next</button>\n')

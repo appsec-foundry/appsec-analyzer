@@ -3278,6 +3278,24 @@ class TestWeaknessRegister:
         assert w[0]["kind"] == "implementation"
         assert len(w[0]["observable_backing"]["practice_evidence"]) == 5
 
+    def test_a_contradicted_finding_backs_no_weakness(self, mt):
+        practice = [
+            {
+                "source": "stride",
+                "cwe": "CWE-89",
+                "component_id": "seeder",
+                "evidence": {"file": "seed.ts", "line": i},
+                "evidence_tier": "insecure-practice",
+            }
+            for i in range(3)
+        ]
+        practice[0]["evidence_review_contradicted"] = {"reason": "The query is parameterized."}
+        (weakness,) = mt.build_weakness_register(practice, None)
+        assert [row["line"] for row in weakness["observable_backing"]["practice_evidence"]] == [1, 2]
+        for row in practice:
+            row["evidence_review_contradicted"] = {"reason": "The query is parameterized."}
+        assert mt.build_weakness_register(practice, None) == []
+
     def test_database_mechanism_does_not_absorb_other_injection_cwes(self, mt):
         """A mechanism-level weakness is not a catch-all CWE-class bucket."""
         threats = [
@@ -3875,3 +3893,41 @@ def test_the_same_weakness_gets_the_same_stride_category_in_every_language(mt):
     sqli = {stride(r, "CWE-89") for r in ("INJ-001", "INJ-JAVA-001", "INJ-PY-001", "INJ-GO-001", "MOBILE-AND-001")}
     assert jwt == {"Spoofing"}
     assert sqli == {"Tampering"}
+
+
+@pytest.mark.parametrize(
+    ("threat", "tier"),
+    [
+        (
+            {"source": "config-scan", "cwe": "CWE-319", "evidence": {"file": "values.yaml", "line": 39}},
+            "insecure-practice",
+        ),
+        (
+            {
+                "source": "config-scan",
+                "cwe": "CWE-319",
+                "evidence": {"file": "values.yaml", "line": 39},
+                "evidence_tier": "confirmed-exploitable",
+            },
+            "confirmed-exploitable",
+        ),
+        ({"source": "stride", "cwe": "CWE-89", "evidence": {"file": "search.ts", "line": 4}}, "confirmed-exploitable"),
+    ],
+)
+def test_a_configuration_rule_hit_is_an_insecure_practice_unless_set_upstream(mt, threat, tier):
+    assert mt._instance_evidence_tier(threat) == tier
+
+
+def test_a_development_only_configuration_finding_keeps_its_label(mt):
+    finding = {
+        "local_id": "CFG-001",
+        "check_id": "IAC-024",
+        "file": "compose.dev.yaml",
+        "line": 9,
+        "title": "Data port published on all interfaces",
+        "severity": "Medium",
+        "development_only": True,
+    }
+    assert mt._config_finding_to_threat(finding)["development_only"] is True
+    del finding["development_only"]
+    assert "development_only" not in mt._config_finding_to_threat(finding)

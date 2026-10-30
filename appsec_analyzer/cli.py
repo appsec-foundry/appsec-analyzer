@@ -1186,6 +1186,14 @@ def _prepare_profile(ns: argparse.Namespace, default: str = "claude") -> None:
         )
 
     profile = resolve(ns.assessment_depth if "assessment_depth" in explicit else None)
+    if ns.command == "assess" and ns.resume and ns.output and "assessment_depth" not in explicit:
+        # REQ-016: a resumed run keeps its depth unless the command names another one.
+        from appsec_analyzer.profiles import DEPTHS, saved_depth
+
+        _engine_imports()
+        depth = saved_depth({depth: resolve(depth) for depth in DEPTHS}, Path(ns.output).expanduser())
+        if depth is not None:
+            profile = resolve(depth)
     if _asks_for_depth(ns, profile, explicit):
         from appsec_analyzer.depth_prompt import choose
         from appsec_analyzer.profiles import DEPTHS

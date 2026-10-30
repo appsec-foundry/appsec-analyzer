@@ -180,6 +180,100 @@ _JS_ROUTE_RE = re.compile(
     re.DOTALL,
 )
 
+# A registration whose path is a constant or a configuration value, such as an
+# OIDC callback: `router.get(config.oidc.callbackPath, handler)`. At least one
+# further argument must follow, so a setting read (`app.get(name)`) never counts.
+_JS_DYNAMIC_ROUTE_RE = re.compile(
+    r"""\b(?P<obj>app|router|api|server|route|r)\s*\.\s*"""
+    r"""(?P<method>get|post|put|patch|delete|head|options|all)\s*(?P<open>\()\s*"""
+    r"""(?P<expr>[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*,"""
+)
+# Only a file that builds a server router registers routes this way; elsewhere
+# `api.get(url, options)` is an HTTP client call.
+_JS_SERVER_ROUTER_RE = re.compile(r"\b(?:Router|express)\s*\(|from\s+['\"](?:express|koa-router|@koa/router)['\"]")
+
+
+class _DynamicRegistration:
+    """A dynamic-path registration in the shape of a route match: its path is a
+    same-file string constant, or the source expression in braces."""
+
+    re = _JS_ROUTE_RE
+
+    def __init__(self, match: re.Match, path: str) -> None:
+        self._match, self._path = match, path
+
+    def group(self, name: str):
+        return self._path if name == "path" else self._match.group(name)
+
+    def start(self, name: str = 0) -> int:
+        return self._match.start(name)
+
+
+def _dynamic_registrations(text: str) -> list[_DynamicRegistration]:
+    if not _JS_SERVER_ROUTER_RE.search(text):
+        return []
+    out = []
+    for m in _JS_DYNAMIC_ROUTE_RE.finditer(text):
+        expr = re.sub(r"\s+", "", m.group("expr"))
+        constant = re.search(rf"\b(?:const|let|var)\s+{re.escape(expr)}\s*(?::[^=;]+)?=\s*(['\"`])(/[^'\"`]*)\1", text)
+        out.append(_DynamicRegistration(m, constant.group(2) if constant else "/{" + expr + "}"))
+    return out
+
+
+# `router.route('/items/:id').get(read).patch(update)`: one path, one
+# registration per chained method.
+_JS_ROUTE_CHAIN_RE = re.compile(
+    r"""\b(?P<obj>app|router|api|server|route|r)\s*\.\s*route\s*\(\s*(?P<quote>['"`])(?P<path>[^'"`]+)(?P=quote)\s*\)"""
+)
+_JS_CHAIN_LINK_RE = re.compile(r"\s*\.\s*(?P<method>get|post|put|patch|delete|head|options|all)\s*(?P<open>\()", re.I)
+
+
+class _ChainedRegistration:
+    """One method of a `route(path)` chain in the shape of a route match."""
+
+    re = _JS_ROUTE_RE
+
+    def __init__(self, head: re.Match, link: re.Match) -> None:
+        self._head, self._link = head, link
+
+    def group(self, name: str):
+        return self._link.group("method") if name == "method" else self._head.group(name)
+
+    def start(self, name: str = 0) -> int:
+        return self._link.start("open") if name == "open" else self._link.start("method")
+
+
+def _closing_paren(text: str, open_paren: int) -> int:
+    """The index after the bracket that closes ``text[open_paren]``; string literals do not count."""
+    depth, i = 0, open_paren
+    while i < len(text):
+        ch = text[i]
+        if ch in "'\"`":
+            end = i + 1
+            while end < len(text) and text[end] != ch:
+                end += 2 if text[end] == "\\" else 1
+            i = end + 1
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def _chained_registrations(text: str) -> list[_ChainedRegistration]:
+    out = []
+    for head in _JS_ROUTE_CHAIN_RE.finditer(text):
+        position = head.end()
+        while link := _JS_CHAIN_LINK_RE.match(text, position):
+            out.append(_ChainedRegistration(head, link))
+            position = _closing_paren(text, link.start("open"))
+    return out
+
+
 _JS_DECORATOR_RE = re.compile(
     r"""(?ix)
     @(?P<method>Get|Post|Put|Patch|Delete|Head|Options|All)
@@ -303,7 +397,9 @@ _AUTHN_PATTERNS = re.compile(
     # Common Express/Juice-Shop-style gate names (the gate is named for the
     # authZ check but is the de-facto authN boundary — without a session it
     # rejects). Including these fixes the "every route auth=unknown" miss.
-    r"isAuthorized|isLoggedIn|ensureLoggedIn|requireLogin|restrictToLoggedIn|denyAll"
+    r"isAuthorized|isLoggedIn|ensureLoggedIn|requireLogin|restrictToLoggedIn|denyAll|"
+    # An administrator gate rejects a request without a session as well.
+    r"requireAdmin|ensureAdmin|isAdmin|adminOnly"
     r")\b"
     # Annotations and attributes start with a non-word character, so they
     # cannot sit behind the `\b` above. Any `[Authorize]` form requires a user.
@@ -328,7 +424,8 @@ _MOUNT_HEAD_RE = re.compile(
 )
 _GUARD_NAME_RE = re.compile(
     r"""\b(?:isAuthorized|isAuthenticated|authenticate|requireAuth|requireLogin|"""
-    r"""ensureLoggedIn|isLoggedIn|restrictToLoggedIn|denyAll|passport\.authenticate)\b"""
+    r"""ensureLoggedIn|isLoggedIn|restrictToLoggedIn|denyAll|passport\.authenticate|"""
+    r"""requireAdmin|ensureAdmin|isAdmin|adminOnly)\b"""
 )
 #: A registration call is short; the cap only bounds an unbalanced one.
 _MOUNT_SCOPE_CAP = 4000
@@ -433,9 +530,16 @@ _STATE_CHANGING = {"POST", "PUT", "DELETE", "PATCH"}
 # is a false positive.
 _PUBLIC_BY_DESIGN_RE = re.compile(
     r"(?i)(?:^|/)(?:login|logout|register|signup|sign-up|reset-password|"
-    r"forgot-password|forgot|recover|2fa|mfa|otp|captcha|token|refresh|"
-    r"oauth|openid|sso|saml|health|healthz|readyz|livez|ping|status|version|"
+    r"forgot-password|forgot|recover|2fa|mfa|otp|captcha|token|"
+    r"oauth|openid|sso|saml|health|healthz|readyz|livez|ping|version|"
     r"webhook|webhooks)\b"
+    # `refresh` and `status` also name application operations (`/backoffice/refresh`,
+    # `/jobs/:id/status`); they are public by design only as a token refresh or a
+    # top-level probe.
+    r"|(?:^|/)(?:auth|token|tokens|session|sessions|oauth|jwt)/refresh\b|(?:^|/)refresh[-_]?tokens?\b"
+    r"|^(?:/api)?(?:/v\d+)?/(?:refresh|status)/?$"
+    # A sign-in callback (`/auth/callback`, `{config.oidc.callbackPath}`) runs before a session exists.
+    r"|(?:^|[/.{])callback"
 )
 
 _PUBLIC_OPERATION_NAME_RE = re.compile(
@@ -465,6 +569,7 @@ _AUTHFLOW_PATH_RE = re.compile(
     r"(?i)(?:^|/)(?:login|logout|signin|sign-in|password|passwd|"
     r"reset-password|forgot-password|forgot|recover|token|jwt|oauth|openid|"
     r"sso|saml|2fa|mfa|otp|session|credential)\b"
+    r"|(?i:(?:^|[/.{])callback)"
 )
 
 # An endpoint that carries user text into a model prompt is its own attack
@@ -553,6 +658,7 @@ _MAX_MANIFEST_BYTES = 512_000
 _AUTHZ_PATTERNS = re.compile(
     r"(?i)\b("
     r"requireRole|hasPermission|hasRole|checkPermission|(?<!\[)authorize|"
+    r"requireAdmin|ensureAdmin|isAdmin|adminOnly|"
     r"@?permission_required|@?has_role|"
     r"policy|RoleBasedAccess|Casbin|Oso|"
     r"can\?|ability\.can|enforce\("
@@ -572,7 +678,7 @@ _AUTHZ_PATTERNS = re.compile(
 # floods the BOLA hypothesis with false positives.
 _AUTHZ_GUARD_NAME_RE = re.compile(
     r"""\b(?:requireRole|hasPermission|hasRole|checkPermission|authorize|RolesAllowed|"""
-    r"""requirePermission|enforce|casbin|oso|opa|can|ability)\b"""
+    r"""requirePermission|requireAdmin|ensureAdmin|isAdmin|adminOnly|enforce|casbin|oso|opa|can|ability)\b"""
 )
 
 # A route path that addresses a specific object by id — the BOLA/IDOR surface.
@@ -723,6 +829,21 @@ def _call_scope(text: str, start: int, open_paren: int, limit: int, line_comment
 
 
 _JS_PATHLESS_USE_RE = re.compile(r"""\b(?P<obj>\w+)\s*\.\s*use\s*(?P<open>\()\s*(?!['"`])""")
+_JS_SPREAD_RE = re.compile(r"\.\.\.\s*(?P<name>[A-Za-z_$][\w$]*)\b")
+
+
+def _with_spread_guards(scope: str, text: str) -> str:
+    """The call followed by the literal of each spread array, such as `router.use(...adminGuards)`.
+
+    Only an array literal declared in the same file counts; any other spread
+    stays opaque and proves no guard.
+    """
+    parts = [scope]
+    for name in dict.fromkeys(m.group("name") for m in _JS_SPREAD_RE.finditer(scope)):
+        declaration = re.search(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]+)?=\s*(?P<open>\[)", text)
+        if declaration:
+            parts.append(_call_scope(text, declaration.start("open"), declaration.start("open"), len(text), "//"))
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -753,18 +874,24 @@ def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
 
     pathless_guards = []
     for use in _JS_PATHLESS_USE_RE.finditer(text):
-        signals = _scan_auth_text(_call_scope(text, use.start(), use.start("open"), len(text), "//"))
+        scope = _call_scope(text, use.start(), use.start("open"), len(text), "//")
+        signals = _scan_auth_text(_with_spread_guards(scope, text))
         if signals != ("unknown", "unknown"):
             pathless_guards.append((use.start(), use.group("obj"), signals))
 
     verbs = list(_JS_ROUTE_RE.finditer(text))
-    registrations = sorted(verbs + _terminal_mounts(text, verbs), key=lambda match: match.start())
+    registrations = sorted(
+        verbs + _terminal_mounts(text, verbs) + _dynamic_registrations(text) + _chained_registrations(text),
+        key=lambda match: match.start(),
+    )
     for index, m in enumerate(registrations):
         method = (m.group("method") if "method" in m.re.groupindex else "all").upper()
         route = m.group("path")
         n = text.count("\n", 0, m.start()) + 1
         limit = registrations[index + 1].start() if index + 1 < len(registrations) else len(text)
-        authn, authz = _scan_auth_text(_call_scope(text, m.start(), m.start("open"), limit, "//"))
+        authn, authz = _scan_auth_text(
+            _with_spread_guards(_call_scope(text, m.start(), m.start("open"), limit, "//"), text)
+        )
         guard_lines: list[int] = []
         # Prefix and exact guards belong only to this object and earlier registrations.
         for mount in _MOUNT_HEAD_RE.finditer(text, 0, m.start()):
@@ -801,6 +928,8 @@ def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
                 router_obj=m.group("obj"),
             )
         )
+        if isinstance(m, _DynamicRegistration) and route.startswith("/{"):
+            out[-1].notes.append("path-from-configuration")
 
     if nestjs:
         for n, line in enumerate(lines, start=1):
@@ -1280,7 +1409,8 @@ def _flag_route(r: RouteCandidate, llm_sdk_declared: bool) -> None:
         and not _is_public_by_design(r.path)
     ):
         r.missing_authz_suspect = True
-    if _is_public_by_design(r.path):
+    # A detected guard outweighs the path name: a protected route is not public.
+    if _is_public_by_design(r.path) and r.authn_signal not in _AUTHN_PRESENT:
         r.notes.append("public-by-design")
     elif (
         r.authn_signal in _AUTHN_PRESENT

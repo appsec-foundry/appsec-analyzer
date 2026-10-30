@@ -1010,3 +1010,80 @@ def test_koa_router_nesting_through_routes_is_composed(tmp_path: Path) -> None:
         },
     )
     assert _route(_run(tmp_path), "GET", "/users/me")["framework"] == "koa"
+
+
+@pytest.mark.parametrize(
+    "guards",
+    [
+        "router.use(requireAuth(), requireAdmin(), csrfProtection);\n",
+        "const adminGuards = [requireAuth(), requireAdmin()];\nrouter.use(...adminGuards);\n",
+    ],
+)
+def test_a_router_wide_admin_gate_authenticates_and_authorizes_later_routes(tmp_path: Path, guards: str) -> None:
+    (tmp_path / "admin.ts").write_text(
+        "import { Router } from 'express';\nconst router = Router();\n"
+        + guards
+        + "router.patch('/apps/:id/scope', h);\n"
+    )
+    (row,) = _run(tmp_path)["routes"]
+    assert (row["authn_signal"], row["authz_signal"]) == ("middleware_present", "middleware_present")
+    assert "authorization-review-required" not in row["notes"]
+
+
+def test_a_spread_without_a_local_array_proves_no_guard(tmp_path: Path) -> None:
+    (tmp_path / "admin.ts").write_text(
+        "import { Router } from 'express';\nimport { guards } from './g';\nconst router = Router();\n"
+        "router.use(...guards);\nrouter.patch('/apps/:id/scope', h);\n"
+    )
+    (row,) = _run(tmp_path)["routes"]
+    assert row["authn_signal"] == "unknown"
+
+
+def test_a_guarded_route_named_like_a_public_probe_is_not_public(tmp_path: Path) -> None:
+    (tmp_path / "admin.ts").write_text(
+        "import { Router } from 'express';\nconst router = Router();\n"
+        "router.post('/backoffice/refresh', requireAuth(), h);\nrouter.post('/auth/refresh', h);\n"
+        "router.get('/jobs/:id/status', h);\nrouter.get('/status', h);\n"
+    )
+    notes = {row["path"]: row["notes"] for row in _run(tmp_path)["routes"]}
+    assert "public-by-design" not in notes["/backoffice/refresh"]
+    assert "public-by-design" not in notes["/jobs/:id/status"]
+    assert "public-by-design" in notes["/auth/refresh"]
+    assert "public-by-design" in notes["/status"]
+
+
+def test_a_route_with_a_configured_path_is_an_authentication_entry_point(tmp_path: Path) -> None:
+    (tmp_path / "auth.ts").write_text(
+        "import { Router } from 'express';\nconst router = Router();\nconst LOGIN_PATH = '/login';\n"
+        "router.get(LOGIN_PATH, startLogin);\n"
+        "router.get(config.oidc.callbackPath, async (req, res) => { await client.authorizationCodeGrant(cfg, url); });\n"
+    )
+    rows = {row["path"]: row for row in _run(tmp_path)["routes"]}
+    assert set(rows) == {"/login", "/{config.oidc.callbackPath}"}
+    callback = rows["/{config.oidc.callbackPath}"]
+    assert {"path-from-configuration", "public-by-design"} <= set(callback["notes"])
+    assert "authentication" in callback["relevance_tags"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "const api = axios.create();\napi.get(endpoint, { params });\n",
+        "import express from 'express';\nconst app = express();\napp.get(settingName);\n",
+    ],
+)
+def test_a_client_call_or_a_setting_read_is_no_route(tmp_path: Path, source: str) -> None:
+    (tmp_path / "client.ts").write_text(source)
+    assert _run(tmp_path)["routes"] == []
+
+
+def test_each_method_of_a_route_chain_is_a_route_with_its_own_guard(tmp_path: Path) -> None:
+    (tmp_path / "items.ts").write_text(
+        "import { Router } from 'express';\nconst router = Router();\n"
+        "router\n  .route('/items/:id')\n  .get(readItem)\n  .patch(requireAuth(), updateItem);\n"
+    )
+    rows = {(row["method"], row["path"]): row for row in _run(tmp_path)["routes"]}
+    assert set(rows) == {("GET", "/items/:id"), ("PATCH", "/items/:id")}
+    assert rows[("GET", "/items/:id")]["authn_signal"] == "unknown"
+    assert rows[("PATCH", "/items/:id")]["authn_signal"] == "middleware_present"
+    assert rows[("PATCH", "/items/:id")]["handler_line"] == 6

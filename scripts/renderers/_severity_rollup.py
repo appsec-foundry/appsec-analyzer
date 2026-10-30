@@ -222,7 +222,7 @@ def _tallied_threats(yaml_data: dict) -> list[tuple[dict, str]]:
     members = _practice_member_numbers(yaml_data) if practice_fold_active(yaml_data) else set()
     rows = []
     for t in yaml_data.get("threats") or []:
-        if folds_into_weakness(t, members):
+        if folds_into_weakness(t, members) or _finding_state.is_review_contradicted(t):
             continue
         sev = (t.get("risk") or t.get("severity") or "").strip().lower()
         if sev in DISTRIBUTION_KEYS:
@@ -367,10 +367,15 @@ def verdict_basis(yaml_data: dict) -> dict[str, str]:
     Findings retain their register ratings; verified priority elevation affects
     the overall concern, as it does scenario selection. Design-risk weaknesses
     have no confirmed finding and therefore carry their own W reference.
-    Refuted findings cannot support a verdict. Practice findings remain citable
+    Refuted findings, findings the evidence review contradicted (REQ-040), and
+    findings in development-only configuration (REQ-009) cannot support a verdict. Practice findings remain citable
     while present in the register, without becoming confirmed exploitation.
     """
-    basis = {display_id(str(t["id"])): priority_severity(t) for t in register_threats(yaml_data) if t.get("id")}
+    basis = {
+        display_id(str(t["id"])): priority_severity(t)
+        for t in register_threats(yaml_data)
+        if t.get("id") and _finding_state.raises_verdict(t)
+    }
     for w in yaml_data.get("weaknesses") or []:
         if w.get("id") and w.get("severity_basis") == "design-risk":
             basis[str(w["id"])] = register_severity(w)
@@ -399,7 +404,7 @@ def verdict_floor_ids(yaml_data: dict, ranked_ids: list[str] | None = None) -> l
     critical = [
         display_id(str(t["id"]))
         for t in register_threats(yaml_data or {})
-        if t.get("id") and priority_severity(t) == "Critical"
+        if t.get("id") and priority_severity(t) == "Critical" and _finding_state.raises_verdict(t)
     ]
     rank = {tid: i for i, tid in enumerate(display_id(str(r)) for r in (ranked_ids or []))}
     position = {tid: i for i, tid in enumerate(critical)}
