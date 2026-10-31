@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- The closing summary of `assess` names the cache reads and writes beside the token total, so the total no longer reads as tokens the model processed anew. Hosts that report no cache figures keep the plain total.
 - `appsec-analyzer update` and the update that `review` offers for a result of a newer Analyzer show the installed version before they ask and the newly installed version afterwards, as release version or commit and date, so you can see which version you run.
 - When the repository's `docs/security` still holds a finished assessment from an earlier release, `assess` starts without it instead of stopping, and names it at the end of the run. Only `--migrate-legacy` imports it, and only before the first run into the destination. `--ignore-legacy` is still accepted but no longer needed.
 - `assess` refuses a requirements catalog that needs more than 32 context rows per component before the first model call, instead of silently leaving the later requirements out of the analysis. A remote catalog is read only up to 16 MiB and its redirects are checked against the URL policy.

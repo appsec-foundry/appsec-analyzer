@@ -2611,14 +2611,24 @@ def test_a_run_with_one_model_names_it_in_the_head_and_has_one_cost_row(tmp_path
     assert re.fullmatch(r"✓ Security assessment of edge written in \S+ · standard · claude-sonnet-5-5", out[0])
     # The default trust mode and the model's own row say nothing new.
     assert not any("Trust mode" in line or "claude-sonnet-5-5  " in line for line in out)
-    assert "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens" in out
+    assert "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens (500k cache reads, 100k cache writes)" in out
+
+
+def test_tokens_stay_a_plain_total_when_the_host_reports_no_cache(tmp_path, monkeypatch, capsys):
+    """An API host reports input and output only, so no cache figure appears, not even a zero."""
+    usage = {"models": {"api-model": {"calls": 5, "input": 1000, "output": 2000, "usd": 2.0}}, "unitemised_calls": 0}
+    out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage)
+    assert "  Cost        ≈ USD 2.00 · 5 model calls · 3k tokens" in out
 
 
 def test_tokens_name_the_calls_they_cover_when_some_calls_report_none(tmp_path, monkeypatch, capsys):
     """Reused calls count in the cost but report no tokens, so the token figure names its own calls."""
     usage = {"models": {"claude-sonnet-5-5": {**_SONNET, "calls": 3}}, "unitemised_calls": 2}
     out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, reused_calls=2, reused_usd=0.4)
-    assert "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens in 3 of them" in out
+    assert (
+        "  Cost        ≈ USD 2.00 · 5 model calls · 603k tokens in 3 of them (500k cache reads, 100k cache writes)"
+        in out
+    )
 
 
 def test_a_run_with_several_models_lists_each_and_what_no_host_itemised(tmp_path, monkeypatch, capsys):
@@ -2629,7 +2639,9 @@ def test_a_run_with_several_models_lists_each_and_what_no_host_itemised(tmp_path
     }
     out = _outcome_lines(tmp_path, monkeypatch, capsys, usage=usage, trust_mode="trusted", calls=7)
     assert "written in" in out[0] and "claude-" not in out[0]
-    cost = out.index("  Cost        ≈ USD 2.00 · 7 model calls · 603k tokens in 5 of them")
+    cost = out.index(
+        "  Cost        ≈ USD 2.00 · 7 model calls · 603k tokens in 5 of them (500k cache reads, 100k cache writes)"
+    )
     # Dearest model first; the calls no host itemised close the rows, so the rows add up to the total.
     assert out[cost + 1 : cost + 4] == [
         "              claude-sonnet-5-5  4 calls · ≈ USD 1.50 · 603k tokens",

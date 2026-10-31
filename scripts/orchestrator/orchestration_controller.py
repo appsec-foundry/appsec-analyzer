@@ -5397,7 +5397,13 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
     )
     if tokens:
         itemised = sum(int(row.get("calls", 0)) for row in models.values())
-        parts.append(f"{_tokens(int(tokens))} tokens" + (f" in {itemised} of them" if unitemised else ""))
+        text = f"{_tokens(int(tokens))} tokens" + (f" in {itemised} of them" if unitemised else "")
+        reads = int(sum(row.get("cache_read", 0) for row in models.values()))
+        writes = int(sum(row.get("cache_write", 0) for row in models.values()))
+        # The total is mostly cache traffic, and a read costs far less than a write, so it names both.
+        if reads or writes:
+            text += f" ({_tokens(reads)} cache reads, {_tokens(writes)} cache writes)"
+        parts.append(text)
     rows: list[tuple[str, str, str | None]] = [("Cost" if show_costs else "Usage", " · ".join(parts), None)]
     reused = outcome.get("reused_calls") or 0
     if reused:
