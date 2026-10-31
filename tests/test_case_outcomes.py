@@ -51,8 +51,47 @@ def test_one_violated_rule_makes_a_finding_even_when_others_are_satisfied(catalo
 def test_not_applicable_rules_do_not_count_as_candidates(catalog):
     statuses = _all(catalog, "TC-CI-01", tcr.NOT_APPLICABLE)
     assert _result(catalog, "TC-CI-01", statuses)["outcome"] == "not_applicable"
-    statuses["IAC-015"] = tcr.SATISFIED
+    statuses["IAC-010"] = tcr.SATISFIED
     assert _result(catalog, "TC-CI-01", statuses)["outcome"] == "control"
+
+
+@pytest.mark.parametrize(
+    ("case_id", "rule"),
+    [
+        ("TC-DEVAGENT-01", "IAC-071"),  # No bad flag: the workflows may start no coding agent at all.
+        ("TC-INFRA-02", "IAC-024"),  # No exposed port: the compose file may hold no data service at all.
+        ("TC-CI-01", "IAC-015"),  # Not too broad: a token scope may still be missing.
+    ],
+)
+def test_a_rule_that_only_found_no_violation_shows_no_control(catalog, case_id, rule):
+    statuses = _all(catalog, case_id, tcr.NOT_APPLICABLE)
+    statuses[rule] = tcr.SATISFIED
+    row = _result(catalog, case_id, statuses)
+    assert row["outcome"] == "no_finding"
+    assert "none shows a control" in row["reason"]
+
+
+def test_unknown_rules_beside_a_mere_absence_of_violations_stay_undecidable(catalog):
+    statuses = _all(catalog, "TC-CI-01", tcr.NOT_APPLICABLE)
+    statuses["IAC-015"] = tcr.SATISFIED
+    del statuses["IAC-010"]
+    row = _result(catalog, "TC-CI-01", statuses)
+    assert row["outcome"] == "undecidable"
+    assert "no rule shows a control" in row["reason"]
+
+
+def test_a_violated_rule_still_makes_a_finding_beside_a_mere_absence_of_violations(catalog):
+    statuses = _all(catalog, "TC-INFRA-02", tcr.NOT_APPLICABLE)
+    statuses["IAC-024"] = tcr.VIOLATED
+    assert _result(catalog, "TC-INFRA-02", statuses)["outcome"] == "finding"
+
+
+def test_every_configuration_rule_of_a_rules_item_is_classified_from_the_shipped_checks(catalog):
+    rules = {rule for case in catalog["test_cases"] for rule in case["starting_points"]["rules"]}
+    no_violation = tcr._no_violation_rules()
+    assert {"IAC-071", "IAC-024", "IAC-015"} <= no_violation
+    assert {"IAC-001", "IAC-010", "IAC-050"}.isdisjoint(no_violation)
+    assert no_violation & rules
 
 
 def test_a_missing_scanner_result_is_never_read_as_a_control(catalog):

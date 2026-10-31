@@ -520,6 +520,10 @@ requirements:
       - tests/test_case_outcomes.py::test_one_violated_rule_makes_a_finding_even_when_others_are_satisfied
       - tests/test_case_outcomes.py::test_not_applicable_rules_do_not_count_as_candidates
       - tests/test_case_outcomes.py::test_a_missing_scanner_result_is_never_read_as_a_control
+      - tests/test_case_outcomes.py::test_a_rule_that_only_found_no_violation_shows_no_control
+      - tests/test_case_outcomes.py::test_unknown_rules_beside_a_mere_absence_of_violations_stay_undecidable
+      - tests/test_case_outcomes.py::test_a_violated_rule_still_makes_a_finding_beside_a_mere_absence_of_violations
+      - tests/test_case_outcomes.py::test_every_configuration_rule_of_a_rules_item_is_classified_from_the_shipped_checks
       - tests/test_case_outcomes.py::test_a_disabled_test_case_reports_disabled_and_keeps_its_findings_linked
       - tests/test_case_outcomes.py::test_annotation_links_rules_and_instances_and_leaves_other_threats_alone
       - tests/test_assessment_scanner_findings.py::test_an_architecture_finding_names_its_rule_and_items_but_adds_no_verification_candidate

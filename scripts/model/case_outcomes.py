@@ -10,8 +10,9 @@ results of a run:
   result of each of its rules: violated, satisfied, or not applicable.
 
 A test case is ``control`` only when every applicable rule is satisfied, with
-a recorded result for each. A missing scanner result is never read as
-satisfied.
+a recorded result for each, and at least one of them found the control itself.
+A rule that only found no violation shows no control. A missing scanner result
+is never read as satisfied.
 
 Outcomes of ``seeded`` and ``model`` test cases need a model investigation
 (REQ-040 pilot). ``assess_candidates`` applies the deterministic rules to the
@@ -24,6 +25,7 @@ differs, and no model-written text reaches a result.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
@@ -34,6 +36,7 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = ROOT / "data" / "test-cases.yaml"
 SCHEMA = ROOT / "schemas" / "test-cases.schema.yaml"
+CONFIG_CHECKS = ROOT / "data" / "config-iac-checks.yaml"
 # Workspace sidecar of the model-backed pilot: component results and findings
 # (orchestrator/assessment_test_cases.py).
 PILOT_SIDECAR = ".test-case-pilot.json"
@@ -46,6 +49,11 @@ UNKNOWN = "unknown"
 # Keys of a threat that name the scanner rule behind it; only architecture
 # findings carry ``rule_id``.
 _RULE_KEYS = ("source_check_id", "config_check_id", "rule_id")
+# Configuration checks that pass only when they find the required setting. Any other check passes
+# when it finds no bad pattern, which says nothing about a control: a repository whose workflows start
+# no coding agent has no sandboxed agent. A structured check counts only when named here.
+_CONTROL_EXPECTATIONS = frozenset({"present", "any_of", "any_of_present", "file_exists", "repository"})
+_CONTROL_EVALUATORS = frozenset({"github_workflow_permissions_missing"})
 
 
 def load_catalog(path: Path = CATALOG) -> dict[str, Any]:
@@ -128,7 +136,19 @@ def rule_statuses(
     return statuses
 
 
-def _outcome(statuses: list[str]) -> tuple[str, str]:
+@functools.lru_cache(maxsize=1)
+def _no_violation_rules() -> frozenset[str]:
+    """Configuration rules whose pass means only that no violation was found."""
+    checks = yaml.safe_load(CONFIG_CHECKS.read_text(encoding="utf-8"))["checks"]
+    return frozenset(
+        check["id"]
+        for check in checks
+        if check.get("expect") not in _CONTROL_EXPECTATIONS and check.get("evaluator") not in _CONTROL_EVALUATORS
+    )
+
+
+def _outcome(rows: list[dict[str, str]]) -> tuple[str, str]:
+    statuses = [row["status"] for row in rows]
     violated = statuses.count(VIOLATED)
     satisfied = statuses.count(SATISFIED)
     unknown = statuses.count(UNKNOWN)
@@ -139,6 +159,10 @@ def _outcome(statuses: list[str]) -> tuple[str, str]:
         return "not_applicable", "no rule of this test case applies to the examined sources"
     if not satisfied:
         return "undecidable", "no scanner result was recorded for the applicable rules"
+    if not any(row["status"] == SATISFIED and row["rule_id"] not in _no_violation_rules() for row in rows):
+        if unknown:
+            return "undecidable", "no rule shows a control, and the others have no recorded result"
+        return "no_finding", "no applicable rule is violated, but none shows a control"
     if unknown:
         return "partial", f"{satisfied} of {applicable} applicable rules satisfied; the others have no recorded result"
     return "control", f"all {applicable} applicable rules satisfied"
@@ -164,7 +188,7 @@ def evaluate(
         if case["id"] in disabled:
             outcome, reason = "disabled", disabled[case["id"]]
         else:
-            outcome, reason = _outcome([row["status"] for row in rows])
+            outcome, reason = _outcome(rows)
         findings = [
             threat.get("id") or threat.get("t_id")
             for threat in threats
