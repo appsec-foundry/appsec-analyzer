@@ -1,5 +1,7 @@
 # Übergabe zur Effizienz der Verifikation
 
+Aktueller Einstieg nach dem Merge: [Verifikation nach dem Merge reviewen und fortsetzen](verification-efficiency-main-handoff-2026-10-31.md). Die folgenden Abschnitte dokumentieren die früheren Arbeitsstände im Feature-Worktree; ihre Aussagen zu uncommittierten Änderungen und damaligen Aufträgen sind historisch.
+
 Stand 2026-10-31. Ziel ist eine generische Verbesserung des Analyzers: unnötige Verifikationsarbeit und Modellkosten reduzieren, ohne Sicherheitsprüfungen oder Quellabdeckung zu verlieren. Juice Shop dient als Vergleichsdatenbestand; anwendungsspezifische Ausschlüsse sind nicht gewünscht. Die zwischenzeitliche Anfrage zur Berichtstabelle wurde vom Benutzer als falsche Session zurückgezogen und gehört nicht zu dieser Arbeit.
 
 ## Arbeitsstand und Einstieg
