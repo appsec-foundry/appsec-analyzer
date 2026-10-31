@@ -134,8 +134,9 @@ class PilotHost(WebApplicationHost):
     run can resume.
     """
 
-    def __init__(self, fail=False, comment_line=None, fail_job=None):
+    def __init__(self, fail=False, comment_line=None, fail_job=None, compact=False):
         super().__init__()
+        self.compact = compact
         self.fail, self.comment_line, self.interrupt, self.fail_job = fail, comment_line, False, fail_job
         self.investigations = []
         # Per investigation call: its candidate_jobs context and its candidate IDs per test case.
@@ -182,7 +183,29 @@ class PilotHost(WebApplicationHost):
             self.investigations.append((context["component"]["id"], context["aspect"]))
             self.served.append({(row["path"], row["start_line"], row["end_line"]) for row in packet["source_slices"]})
             self.starting.append(context.get("starting_files"))
-            payload = dict(action="complete", reads=[], artifact=self.investigate(context, packet["source_slices"]))
+            artifact = self.investigate(context, packet["source_slices"])
+            if self.compact:
+                for key in (
+                    "schema_version",
+                    "source_scope_sha256",
+                    "component_inventory_fingerprint",
+                    "component_id",
+                    "aspect",
+                ):
+                    artifact.pop(key)
+
+                def omit_hashes(value):
+                    if isinstance(value, list):
+                        for child in value:
+                            omit_hashes(child)
+                    elif isinstance(value, dict):
+                        if {"repository_id", "file", "line"} <= value.keys():
+                            value.pop("sha256", None)
+                        for child in value.values():
+                            omit_hashes(child)
+
+                omit_hashes(artifact)
+            payload = dict(action="complete", reads=[], artifact=artifact)
         _assert_schema_valid(role, schema, payload)
         return HostReply(payload, 0.01)
 
@@ -432,11 +455,12 @@ def _verified(model):
     }
 
 
+@pytest.mark.parametrize("compact", [False, True])
 def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_its_findings_into_the_register(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, compact
 ):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
-    host = PilotHost()
+    host = PilotHost(compact=compact)
     outcome, _, plain = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=host)
     assert outcome["status"] == "complete" and not host.investigations
     stride = sorted(host.stride_prompts)

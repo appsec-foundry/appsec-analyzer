@@ -15,8 +15,11 @@ from model import case_postchecks as pc
 from model.case_outcomes import load_catalog
 from orchestrator.assessment_test_cases import INVESTIGATED_ASPECTS
 from orchestrator.orchestration_controller import SEMANTIC_ROLE_REGISTRY, _assessment_role_instructions
+from runtime.analyst_host import HostReply
 from runtime.assessment_host import ExchangeError, Rejection, host_schema, response_schema
+from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
 from runtime.multi_repo_scope import AssessmentScope, RepositoryView
+from validators.validate_assessment_architecture import AssessmentArchitectureError
 
 from appsec_analyzer import profiles, resource_root
 
@@ -272,6 +275,103 @@ def test_a_valid_investigation_is_accepted_unchanged(job):
     assert Draft202012Validator(ca.contract(ca.INVESTIGATION)).is_valid(artifact)
     validate(job, artifact)
     assert artifact == original
+
+
+def _compact_investigation(artifact):
+    artifact = copy.deepcopy(artifact)
+    for key in ("schema_version", "source_scope_sha256", "component_inventory_fingerprint", "component_id", "aspect"):
+        artifact.pop(key)
+
+    def omit_hashes(value):
+        if isinstance(value, list):
+            for child in value:
+                omit_hashes(child)
+        elif isinstance(value, dict):
+            if {"repository_id", "file", "line"} <= value.keys():
+                value.pop("sha256", None)
+            for child in value.values():
+                omit_hashes(child)
+
+    omit_hashes(artifact)
+    return artifact
+
+
+def test_compact_investigation_restores_the_same_validated_evidence(job):
+    normalize = ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)
+    full = reply(job)
+    compact = _compact_investigation(full)
+    wire = Draft202012Validator(ca.investigation_model_contract())
+    assert wire.is_valid(compact) and wire.is_valid(full)
+    assert not Draft202012Validator(ca.contract(ca.INVESTIGATION)).is_valid(compact)
+    assert len(json.dumps(compact)) < len(json.dumps(full))
+    result = normalize(compact)
+    assert result == normalize(copy.deepcopy(full))
+    assert normalize(copy.deepcopy(result)) == result
+    validate(job, result)
+
+
+@pytest.mark.parametrize("field,value", [("repository_id", "repo-" + "9" * 16), ("file", "../server.js"), ("line", 99)])
+def test_compact_investigation_does_not_authorize_foreign_or_unread_evidence(job, field, value):
+    compact = _compact_investigation(reply(job))
+    compact["test_cases"][0]["candidates"][0]["evidence"][0][field] = value
+    assert Draft202012Validator(ca.investigation_model_contract()).is_valid(compact)
+    normalize = ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)
+    with pytest.raises((ExchangeError, Rejection, AssessmentArchitectureError)):
+        validate(job, normalize(compact))
+
+
+@pytest.mark.parametrize("field", ["repository_id", "file", "line"])
+def test_compact_investigation_still_requires_a_complete_location(job, field):
+    compact = _compact_investigation(reply(job))
+    compact["test_cases"][0]["candidates"][0]["evidence"][0].pop(field)
+    assert not Draft202012Validator(ca.investigation_model_contract()).is_valid(compact)
+
+
+def test_compact_investigation_rejects_admitted_but_unread_control_evidence(job):
+    compact = _compact_investigation(reply(job))
+    normalize = ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)
+    ranges = [job["read"]("server.js", 5), {**job["read"]("server.js"), "start_line": 7}]
+    with pytest.raises((ExchangeError, Rejection)):
+        validate(job, normalize(compact), ranges)
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_investigation_job_saves_and_reuses_canonical_evidence(job, tmp_path, compact):
+    class Host:
+        calls = 0
+
+        def invoke(self, instructions, prompt, schema, timeout_s, should_stop):
+            self.calls += 1
+            artifact = _compact_investigation(reply(job)) if compact else reply(job)
+            payload = dict(action="complete", reads=[], artifact=artifact)
+            Draft202012Validator(schema).validate(payload)
+            return HostReply(payload, 0.01)
+
+    host = Host()
+    jobs = AssessmentJobs(
+        job["scope"],
+        tmp_path / "jobs",
+        AssessmentBudget(1.0, 0.5, 10, 60),
+        lambda role, ceiling: host,
+        lambda: False,
+        lambda: None,
+    )
+    kwargs = dict(
+        role="test_case_investigator",
+        selector="test",
+        instructions="Investigate the supplied candidates.",
+        context={},
+        schema=ca.investigation_model_contract(),
+        allowed_sources=frozenset((REPO, path) for path in FILES),
+        preload=[(REPO, "server.js", 1, 9)],
+        normalize=ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES),
+        validate=lambda artifact, ranges: validate(job, artifact, ranges),
+    )
+    result = jobs.execute(**kwargs)
+    assert jobs.execute(**kwargs) == result and host.calls == 1
+    Draft202012Validator(ca.contract(ca.INVESTIGATION)).validate(result)
+    stored = [json.loads(p.read_text()) for p in jobs.directory.glob("*.json") if not p.name.endswith(".receipt.json")]
+    assert stored == [result]
 
 
 def _drop_precheck(artifact):

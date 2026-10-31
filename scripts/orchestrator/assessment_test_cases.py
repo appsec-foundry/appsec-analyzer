@@ -201,7 +201,7 @@ def run_pilot(
         role_instructions = instructions(
             "test_case_investigator", _ADAPTATION + "\n\n" + case_analysis.catalog_instructions(_entry_cases(entry))
         )
-        schema = case_analysis.contract(case_analysis.INVESTIGATION)
+        schema = case_analysis.investigation_model_contract()
         limit = view.context_limit(role_instructions, schema)
         anchors = {(rid, row["anchor"]["file"]) for rows in share.values() for row in rows}
         # The job's context names its starting files, which the preload decides; keep room for one per window.

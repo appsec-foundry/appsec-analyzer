@@ -51,6 +51,8 @@ Keep workflow coordination, calculation, and presentation separate. Reusable mod
 
 The survey analyzes threats per component using STRIDE. Verification checks selected security aspects after the survey and before findings are merged.
 
+Verification uses a model-facing contract that permits omitted job identity fields and citation hashes. The existing normalizer restores them from the job and admitted source bytes, then the canonical investigation contract and source retrieval checks validate the complete artifact. Saved results retain their existing format.
+
 | Part | Responsibility |
 | --- | --- |
 | Verification catalog | [data/test-cases.yaml](data/test-cases.yaml) defines the checks. [schemas/test-cases.schema.yaml](schemas/test-cases.schema.yaml) validates the catalog. |

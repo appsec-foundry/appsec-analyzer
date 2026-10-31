@@ -53,6 +53,34 @@ def contract(name: str) -> dict:
     return copy.deepcopy(_contract(name))
 
 
+def investigation_model_contract() -> dict:
+    """Allow the model to omit fields the normalizer derives from admitted bytes.
+
+    Keep their properties so normalized artifacts and existing full replies
+    still validate at the job boundary. The canonical contract and semantic
+    review remain mandatory after normalization, including retrieval checks.
+    """
+    schema = contract(INVESTIGATION)
+    derived = {"schema_version", "source_scope_sha256", "component_inventory_fingerprint", "component_id", "aspect"}
+    schema["required"] = [key for key in schema["required"] if key not in derived]
+
+    def visit(node):
+        if isinstance(node, list):
+            for child in node:
+                visit(child)
+        elif isinstance(node, dict):
+            properties = node.get("properties", {})
+            if {"repository_id", "file", "line", "sha256"} <= properties.keys():
+                node["required"] = [key for key in node.get("required", []) if key != "sha256"]
+                properties["sha256"]["description"] = "Controller-derived; omit from the model reply."
+            for child in node.values():
+                visit(child)
+
+    visit(schema)
+    Draft202012Validator.check_schema(schema)
+    return schema
+
+
 @lru_cache(maxsize=len(CONTRACTS))
 def _contract(name: str) -> dict:
     schema = analysis.contract(name)

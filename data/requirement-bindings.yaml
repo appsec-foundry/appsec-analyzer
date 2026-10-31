@@ -607,6 +607,11 @@ requirements:
       - tests/test_case_analysis.py::test_findings_keep_the_stride_evidence_rules
       - tests/test_case_analysis.py::test_identity_and_aspect_belong_to_the_job
       - tests/test_case_analysis.py::test_the_normalizer_sets_controller_fields_and_fixes_precheck_candidates
+      - tests/test_case_analysis.py::test_compact_investigation_restores_the_same_validated_evidence
+      - tests/test_case_analysis.py::test_compact_investigation_does_not_authorize_foreign_or_unread_evidence
+      - tests/test_case_analysis.py::test_compact_investigation_still_requires_a_complete_location
+      - tests/test_case_analysis.py::test_compact_investigation_rejects_admitted_but_unread_control_evidence
+      - tests/test_case_analysis.py::test_investigation_job_saves_and_reuses_canonical_evidence
       - tests/test_case_analysis.py::test_an_open_review_keeps_findings_outside_every_test_case
       - tests/test_case_analysis.py::test_an_open_review_lists_only_served_further_reads
       - tests/test_case_analysis.py::test_the_schema_files_reference_the_stride_contract_by_id
