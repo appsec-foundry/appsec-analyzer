@@ -19,17 +19,16 @@ Dies ist ein Hinweis, kein Auftrag. Jede Aussage vor dem Handeln am Code prüfen
    - Nach Freigabe: `requirements.md`, Acceptance-Abschnitt, Binding und `specs/changes/<change>/proposal.md` (reason, affected IDs, compatibility, verification).
    - Status: Der Nutzer hat den Wortlaut noch nicht bestätigt.
 2. **Befund 20:** Die Beschreibung im alten Handover war zu vage. Nichts geändert. Nachfragen oder verwerfen.
-3. **Aufräumen:** Worktree `.claude/worktrees/report-gaps` und Branch `fix/report-gaps` sind gemergt und können weg (`git worktree remove`, `git branch -d`; im geteilten Checkout mit `dangerouslyDisableSandbox`). Erst nach den Vergleichsläufen unten.
-4. **Befund 15, zweiter Teil:** Modellprozesse laufen nach einem zweiten Ctrl+C evtl. weiter. Nach Code-Lesen stoppen die Worker ihre Prozesse selbst. Nicht reproduziert, nicht geändert.
+3. **Befund 15, zweiter Teil:** Modellprozesse laufen nach einem zweiten Ctrl+C evtl. weiter. Nach Code-Lesen stoppen die Worker ihre Prozesse selbst. Nicht reproduziert, nicht geändert.
 
 ## Bereits vor dieser Arbeit rot (nicht von uns)
 
-Auf dem Stand vor den Paketen (`f81d00d4`, per `git archive` geprüft) schlagen schon fehl:
+Auf dem Stand vor den Paketen (`f81d00d4`, per `git archive` geprüft) schlagen schon fehl. Der Branch `fix/report-gaps` zeigt in `test_multi_repo_assessment.py` und `test_rate_limit_pause.py` genau dieselben 7 Fehlschläge, keinen zusätzlichen:
 - `test_multi_repo_assessment.py`: `test_tight_budget_skips_optional_jobs_and_still_publishes_a_gated_report`, `test_single_repository_controller_carries_oauth_provider_into_figure_1`, `test_budget_stop_keeps_accepted_candidates_in_a_separate_incomplete_report[names0/names1]`, `test_a_clean_run_offers_questions_about_its_scope_and_nothing_to_triage`, `test_a_run_opens_its_progress_file_with_what_it_is_about_to_spend`, `test_console_header_states_the_resolved_limits_models_and_checks`.
 - `test_pregenerate_fragments.py::TestSystemOverview::test_scope_names_targets_the_analysis_could_not_decide`.
 - `test_run_tests.py::test_every_test_has_an_explicit_group_or_manual_role`.
 
-Ungeklärt: `test_rate_limit_pause.py::test_subscription_rate_limits_report_no_cost_and_use_the_free_retry_schedule` war im ersten Lauf rot und im späteren grün. Zwei Vergleichsläufe (Branch gegen Stand vor den Paketen) waren beim Schreiben noch nicht fertig.
+`test_rate_limit_pause.py` ist auf dem Branch und auf dem Stand vor den Paketen grün.
 
 ## Regeln, die hier gelten
 
