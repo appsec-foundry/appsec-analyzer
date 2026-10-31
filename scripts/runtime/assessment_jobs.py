@@ -430,8 +430,8 @@ class AssessmentJobs:
         # {component, files, text}; the console collapses them unless --verbose,
         # and the model records them as meta.unexamined_source.
         self.infos: list[dict] = []
-        # Set by a concurrent caller after a failure: no further job starts (MR-16).
-        self.halt = None
+        # One event per surrounding pool, set after a failure: no further job starts (MR-16).
+        self.halts = ()
 
     def context_limit(self, instructions, schema):
         from runtime.assessment_host import context_capacity
@@ -453,6 +453,8 @@ class AssessmentJobs:
         self.notes.extend(child.notes)
         self.gaps.extend(child.gaps)
         self.infos.extend(child.infos)
+        self.reused += child.reused
+        self.ran += child.ran
 
     def _record(self, role: str, *, seconds: float | None = None, calls: int = 0) -> None:
         with self._lock:
@@ -589,7 +591,7 @@ class AssessmentJobs:
         run. A planned budget stop uses the same explicit replacement before
         another optional call can spend the completion reserve.
         """
-        if self.should_stop() or (self.halt is not None and self.halt.is_set()):
+        if self.should_stop() or any(halt.is_set() for halt in self.halts):
             # A stop request is an interruption the run can resume, not a failure.
             raise HostCancelled("Assessment cancelled")
         group = budget_group or selector

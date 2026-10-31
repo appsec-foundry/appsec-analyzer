@@ -403,7 +403,8 @@ def test_only_the_first_job_of_a_split_component_carries_its_context_lines(tmp_p
     jobs = AssessmentJobs(
         scope,
         scope.output / ".assessment/jobs",
-        AssessmentBudget(2, 0.05, 60, 120),
+        # One at a time, so the host records each job's request in job order.
+        AssessmentBudget(2, 0.05, 60, 120, max_parallel=1),
         host.factory,
         lambda: False,
         lambda: None,
@@ -467,12 +468,12 @@ def test_only_the_first_job_of_a_split_component_carries_its_context_lines(tmp_p
     ]
 
 
-def _remaining_files(tmp_path, count, *, budget=(2, 0.05, 200, 120), host_type=None):
-    """A thorough scope whose component also holds `count` files that no lead points to."""
+def _remaining_files(tmp_path, count, *, budget=(2, 0.05, 200, 120), host_type=None, signal=""):
+    """A thorough scope whose component also holds `count` files that no lead points to, unless `signal` is one."""
     root = tmp_path / "service"
     checkout(root)
     for number in range(count):
-        (root / f"plain{number}.py").write_text(f"def label{number}(value):\n    return value.strip()\n")
+        (root / f"plain{number}.py").write_text(f"def label{number}(value):\n    return value.strip()\n{signal}")
     peer = tmp_path / "peer"
     checkout(peer)
     # A security signal keeps each app.py a file with a lead.
@@ -580,6 +581,97 @@ def test_the_jobs_for_files_without_a_lead_run_side_by_side(tmp_path, monkeypatc
     assert order[0] == 2 and sorted(order) == [2, 3, 4]
     assert not barrier.broken
     assert sum(len(row["threats"]) for row in documents) == 5
+
+
+def test_the_survey_jobs_of_a_component_run_side_by_side_after_the_first(tmp_path, monkeypatch):
+    import threading
+
+    # One source window per job gives the files with a lead a job each.
+    monkeypatch.setattr("runtime.assessment_host.MAX_PRELOAD_WINDOWS", 1)
+    barrier = threading.Barrier(2, timeout=20)
+    order = {}
+
+    class SideBySide(Host):
+        def invoke(self, role, prompt):
+            context = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])["context"]
+            if role == "stride_analyzer" and "survey_jobs" in context:
+                seen = order.setdefault(context["component"]["id"], [])
+                seen.append(context["survey_jobs"]["job"])
+                # The first fills the prompt cache alone. In a row, the next two would never meet here.
+                if len(seen) in (2, 3):
+                    barrier.wait()
+            return super().invoke(role, prompt)
+
+    scope, host, jobs, architecture = _remaining_files(
+        tmp_path, 3, host_type=SideBySide, signal='password = request.args["password"]\n'
+    )
+    steps = []
+    documents, _, _ = controller._assessment_stride(scope, jobs, architecture, [], [], progress=steps.append)
+    ((component, seen),) = order.items()
+    assert len(seen) >= 3 and seen[0] == 1 and sorted(seen) == list(range(1, len(seen) + 1))
+    assert not barrier.broken
+    # Finished jobs are counted, whichever job finished, and the findings keep the jobs' order.
+    counted = [step.rsplit("(", 1)[1] for step in steps if step.startswith("Finished survey job: ")]
+    assert [count for count in counted if count.endswith(f"/{len(seen)})")] == [
+        f"{n}/{len(seen)})" for n in range(1, len(seen) + 1)
+    ]
+    document = next(row for row in documents if row["component_id"] == component)
+    files = [row["evidence"]["file"] for row in document["threats"]]
+    assert files == sorted(files)
+
+
+def test_a_failed_component_stops_the_jobs_inside_other_components(tmp_path):
+    scope, _, jobs, _ = _remaining_files(tmp_path, 0)
+    started = []
+
+    def job(view):
+        # The failure of the first component is known before this job asks to start.
+        view.halts[0].wait(5)
+        view.execute(
+            role="r",
+            selector="inner",
+            instructions="",
+            context={},
+            schema={},
+            allowed_sources=frozenset(),
+            validate=None,
+        )
+        started.append("inner")
+
+    def analyze(position, component, view):
+        if position == 1:
+            raise ExchangeError("first component failed")
+        controller._assessment_review_batches(view, [job, job])
+
+    with pytest.raises(ExchangeError, match="first component failed"):
+        controller._assessment_components_concurrently(jobs, ["a", "b"], analyze)
+    assert started == []
+
+
+def test_a_failure_inside_a_component_is_raised_and_not_the_stops_it_causes(tmp_path):
+    scope, _, jobs, _ = _remaining_files(tmp_path, 0)
+
+    def fail(view):
+        raise ExchangeError("inner job failed")
+
+    def analyze(position, component, view):
+        if position == 1:
+            controller._assessment_review_batches(view, [fail, lambda inner: None])
+        else:
+            # The second component only learns of the failure once the first has returned.
+            view.halts[0].wait(5)
+            view.execute(
+                role="r",
+                selector="after",
+                instructions="",
+                context={},
+                schema={},
+                allowed_sources=frozenset(),
+                validate=None,
+            )
+
+    with pytest.raises(ExchangeError, match="inner job failed"):
+        controller._assessment_components_concurrently(jobs, ["a", "b"], analyze)
 
 
 def test_files_without_a_lead_stop_at_the_reserve_for_later_work_and_are_named(tmp_path):

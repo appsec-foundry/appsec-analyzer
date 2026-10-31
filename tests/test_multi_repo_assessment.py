@@ -1922,6 +1922,7 @@ def test_verification_findings_of_their_own_get_their_components_evidence_review
 
     class Jobs:
         budget = SimpleNamespace(max_parallel=2, workers=2)
+        halts = ()
 
         def view(self):
             return View()

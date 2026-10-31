@@ -510,6 +510,10 @@ def test_job_counts_tell_reused_from_run_jobs_per_view_and_in_total(scope):
         assert len(dispatched) == 3
         assert (reused.reused, reused.ran, ran.reused, ran.ran) == (1, 0, 0, 1)
         assert jobs.job_counts() == (1, 1)
+        # A view that ran jobs in views of its own does not count as fully reused.
+        jobs.join(reused)
+        jobs.join(ran)
+        assert (jobs.reused, jobs.ran) == (1, 1)
         # Adopted into this run's jobs, the reused receipt still counts as accepted.
         assert jobs.has_accepted("recon_scanner", "kept")
 

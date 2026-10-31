@@ -2263,28 +2263,37 @@ def _assessment_stride(
                 reviewers.append((selector, review_batch))
             return reviewers
 
-        parts = []
-        for index, (target_batch, preload) in enumerate(target_batches, 1):
+        jobs_done, jobs_done_lock = [], threading.Lock()
+
+        def lead_batch(job_view, index, target_batch, preload):
             selector = (
                 "stride:" + component["id"] + (f":{index}/{len(target_batches)}" if len(target_batches) > 1 else "")
             )
-            first = index == 1
             job_context = {**context, "investigation_targets": target_batch}
             if len(target_batches) > 1:
                 job_context["survey_jobs"] = {"job": index, "of": len(target_batches)}
-            parts.append(
-                survey(
-                    jobs,
-                    selector,
-                    "stride:" + component["id"],
-                    job_context,
-                    target_batch,
-                    [*preload, *(key for key in context_preload if first and key not in preload)],
-                    job_allowed,
-                )
+            part = survey(
+                job_view,
+                selector,
+                "stride:" + component["id"],
+                job_context,
+                target_batch,
+                [*preload, *(key for key in context_preload if index == 1 and key not in preload)],
+                job_allowed,
             )
-            # Per-component progress: components run concurrently (MR-16).
-            progress(f"Finished survey job: {label(component)} ({index}/{len(target_batches)})")
+            # Per-component progress: components run concurrently (MR-16). It counts finished
+            # jobs, because the jobs after the first finish in any order.
+            with jobs_done_lock:
+                jobs_done.append(index)
+                progress(f"Finished survey job: {label(component)} ({len(jobs_done)}/{len(target_batches)})")
+            return part
+
+        lead_workers = [
+            lambda job_view, index=index, batch=batch, preload=preload: lead_batch(job_view, index, batch, preload)
+            for index, (batch, preload) in enumerate(target_batches, 1)
+        ]
+        # The first job fills the host's prompt cache; the others read it side by side.
+        parts = [lead_workers[0](jobs), *_assessment_review_batches(jobs, lead_workers[1:])]
         for part, (target_batch, _) in zip(parts, target_batches, strict=True):
             note_undecided(jobs, part, target_batch)
         survey_parts = parts
@@ -2511,6 +2520,8 @@ def _assessment_components_concurrently(jobs, components, analyze):
     component order, as do the returned results. The first failure admits no
     further job; running calls finish, so their receipts and accounting stay
     resumable, and that failure is raised once every component has stopped.
+    A pool inside a component stops with the pools around it. Its own failure
+    reaches them only when it returns, so no job they cancel can come first.
     """
     import threading
     from concurrent.futures import ThreadPoolExecutor
@@ -2519,7 +2530,7 @@ def _assessment_components_concurrently(jobs, components, analyze):
     failures = []
     views = [jobs.view() for _ in components]
     for view in views:
-        view.halt = halt
+        view.halts = (*jobs.halts, halt)
 
     def run(position, component, view):
         try:
