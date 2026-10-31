@@ -1855,6 +1855,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_budget_ceilings.py::test_measured_ceilings_never_reach_into_the_report_reserve
+      - tests/test_assessment_budget_ceilings.py::test_a_call_stopped_at_its_measured_ceiling_is_repeated_once_with_the_full_one
       - tests/test_console_cost_display.py::test_billing_defaults_and_explicit_override
       - tests/test_console_cost_display.py::test_direct_api_host_keeps_default_cost_display
       - tests/test_console_cost_display.py::test_public_flag_reaches_structured_request_without_changing_configuration

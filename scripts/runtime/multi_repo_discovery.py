@@ -319,6 +319,10 @@ class DiscoveryBudget:
         """The most model calls that may run at once, or None for no limit; a call over it waits for a running one."""
         return None
 
+    def call_allowance(self) -> float:
+        """The ceiling the next call asks for."""
+        return self.call_usd
+
     def remaining_seconds(self) -> int:
         remaining = math.floor(self.deadline - time.monotonic())
         if remaining < 1:
@@ -329,6 +333,7 @@ class DiscoveryBudget:
         timeouts = 0
         failures = 0
         self._local.rate_failures = 0
+        self._local.measured = self._local.full_ceiling = False
         # A retry gets the caller's time that is left, not the full limit again.
         deadline = time.monotonic() + timeout_s
         left = timeout_s
@@ -346,8 +351,17 @@ class DiscoveryBudget:
                         self.remaining_seconds()
                         self._lock.wait(1.0)
                     self.call_seconds()
-                    if self.calls >= self.call_limit() or not self.request_more_budget(should_stop):
+                    # A measured ceiling says what the role usually costs, not what the budget holds.
+                    repeat = self._local.measured and self._paid_retries() < MAX_PAID_RETRIES
+                    if repeat:
+                        self._local.measured, self._local.full_ceiling = False, True
+                        self.retries.append({"reason": "measured_ceiling", "usd": self._local.reserved, "paid": True})
+                    elif self.calls >= self.call_limit() or not self.request_more_budget(should_stop):
                         raise
+                if repeat and self.on_retry is not None:
+                    self.on_retry(
+                        "model call stopped at its measured cost ceiling; repeating it once with the full one"
+                    )
             except AdmissionTimeout:
                 raise
             except HostTimeout:
@@ -449,16 +463,19 @@ class DiscoveryBudget:
                     ceiling = None
                     break
                 # MR-16: while other calls run, wait for one to settle instead
-                # of starting below the full ceiling; running reservations are
-                # already part of `spent_usd`.
-                if self.available_usd() < self.call_usd and self._inflight:
+                # of starting below the call's allowance; running reservations
+                # are already part of `spent_usd`.
+                allowance = self.call_allowance()
+                available = self.available_usd()
+                if available < allowance and self._inflight:
                     self.remaining_seconds()
                     self._lock.wait(1.0)
                     continue
                 # Only full assessments may ask the operator for a new spending
                 # limit. Admission stays locked and all earlier calls are settled.
-                ceiling = math.floor(min(self.call_usd, self.available_usd()) * 100 + 1e-9) / 100
+                ceiling = math.floor(min(allowance, available) * 100 + 1e-9) / 100
                 if ceiling >= MIN_CALL_USD:
+                    self._local.measured = allowance < min(self.call_usd, available)
                     break
                 self.call_seconds()  # More money cannot repair an expired time limit.
                 if self.request_more_budget(should_stop):

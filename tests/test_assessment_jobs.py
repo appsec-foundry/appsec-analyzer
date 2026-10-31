@@ -771,11 +771,11 @@ def test_one_expensive_batch_does_not_reserve_its_cost_for_every_pending_batch(t
         jobs.budget.accepted("stride:done", "stride_analyzer", usd, 1)
     jobs.budget.accepted("review:done", "architecture_analyst", 0.1, 1)
     jobs.budget.spent_usd = 3.0
-    # 10 pending batches at 1.5 x the USD 0.30 average plus the USD 2 report
-    # leave USD 0.50; doubling the USD 0.60 outlier would reserve USD 14.
+    # 10 pending batches at 1.5 x the USD 0.30 average plus the USD 1.20 report
+    # leave USD 1.30; doubling the USD 0.60 outlier would reserve USD 13.20.
     assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "accepted"}
     assert host.calls == 1 and jobs.gaps == []
-    jobs.budget.spent_usd = 3.45
+    jobs.budget.spent_usd = 4.25
     assert jobs.execute(**{**kwargs, "selector": "two"}, on_failure=lambda reason: {"result": "not reviewed"}) == {
         "result": "not reviewed"
     }
@@ -792,14 +792,14 @@ def test_a_cold_optional_role_needs_the_run_average_above_the_full_report_reserv
     assert jobs.execute(**{**kwargs, "role": "threat_merger"}, **optional) == {"result": "not reviewed"}
     for usd in (0.2, 0.3):
         jobs.budget.accepted("stride:done", "stride_analyzer", usd, 1)
-    # The report keeps its full USD 2 reserve; the USD 0.30 above it is less
-    # than 1.5 x the USD 0.25 that accepted jobs cost on average.
-    jobs.budget.spent_usd = 17.70
+    # The report now reserves twice the largest survey job, USD 0.60; the USD 0.30
+    # above it is less than 1.5 x the USD 0.25 that accepted jobs cost on average.
+    jobs.budget.spent_usd = 19.10
     assert jobs.execute(**{**kwargs, "role": "threat_merger", "selector": "two"}, **optional) == {
         "result": "not reviewed"
     }
     assert host.calls == 0 and len(jobs.gaps) == 2
-    jobs.budget.spent_usd = 17.29
+    jobs.budget.spent_usd = 18.90
     assert jobs.execute(**{**kwargs, "role": "threat_merger", "selector": "three"}, **optional) == {
         "result": "accepted"
     }
