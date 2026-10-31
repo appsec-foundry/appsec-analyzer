@@ -13,7 +13,7 @@ import bisect
 import json
 import posixpath
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -30,6 +30,7 @@ MAX_PYTHON_NODES = 20_000
 MAX_HELPERS = 32
 MAX_HELPER_DEPTH = 3
 MAX_HELPER_BODY = 4096
+MAX_DELEGATED_HELPERS = 64
 _JS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
 _METADATA = {
     ".md",
@@ -48,6 +49,7 @@ _EXECUTION_KEY = re.compile(
     re.MULTILINE,
 )
 _STRINGS = re.compile(r"""'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*""")
+_JS_TEMPLATES = re.compile(r"`(?:[^`\\]|\\[\s\S])*`")
 _READ = re.compile(r"\b(?P<module>[A-Za-z_$][\w$]*)\.(?P<method>readFileSync|readFile)\s*\(")
 _CALLBACK = re.compile(
     r"\b(?P<app>[A-Za-z_$][\w$]*)\.(?:get|post|put|patch|delete|all)\s*\(\s*"
@@ -369,14 +371,21 @@ def _js_passive(text: str, read, end: int, module: str, syntax: str, handlers: l
     return False
 
 
-def _js_reads(file: str, text: str) -> tuple[list[tuple[str, int, int]], bool]:
-    fs, promises = _bindings(text, "fs"), _bindings(text, "fs/promises")
-    paths = _bindings(text, "path")
-    reads, ambiguous = [], False
+def _js_reads(file: str, text: str, *, proven=(), bodies=()) -> tuple[list[tuple[str, int, int]], bool]:
+    """Parse local reads beside already-proven delegated read bodies."""
     calls = list(_READ.finditer(text))
     handlers = list(_CALLBACK.finditer(text))
     if len(calls) > MAX_READS or len(handlers) > 64:
         return [], True
+    if bodies:
+        characters = list(text)
+        for start, end in bodies:
+            characters[start:end] = ["\n" if char == "\n" else " " for char in characters[start:end]]
+        text = "".join(characters)
+        calls = list(_READ.finditer(text))
+    fs, promises = _bindings(text, "fs"), _bindings(text, "fs/promises")
+    paths = _bindings(text, "path")
+    reads, ambiguous = list(proven), False
     intervals = [(match.start(), call_end(text, match.end() - 1)) for match in calls]
     syntax = code_only(text)
     ends = _handler_ends(syntax, handlers)
@@ -630,12 +639,290 @@ def _module_references(file: str, text: str, sources: Mapping[str, str]) -> set[
     return found
 
 
+_JS_IDENTIFIER = r"[A-Za-z_$][\w$]*"
+_DELEGATED_FUNCTION = re.compile(
+    rf"(?m)^[ \t]*(?P<export>export\s+)?function\s+(?P<name>{_JS_IDENTIFIER})\s*\(\s*\)"
+    r"\s*(?::\s*string(?:\[\])?)?\s*(?P<brace>\{)"
+)
+_NAMED_JS_IMPORT = re.compile(r"\bimport\s*\{(?P<names>[^{}]+)\}\s*from\s*(['\"])(?P<module>[^'\"\n]+)\2")
+
+
+def _reference_literals(file, text):
+    """Stream quoted and constant-template references without buffering source-sized match lists."""
+    for literal in _STRINGS.finditer(text):
+        yield literal, _literal(literal.group())
+    if Path(file).suffix.lower() in _JS:
+        for template in _JS_TEMPLATES.finditer(text):
+            yield template, _js_string(template.group(), {})
+
+
+def _js_text_call(expression, pattern):
+    match = re.match(pattern, expression)
+    if match is None:
+        return None
+    end = call_end(expression, match.end() - 1)
+    syntax = code_only(expression[:end])
+    if syntax.count("(") != syntax.count(")"):
+        return None
+    return match, _split_args(expression[match.end() : end - 1]), end
+
+
+def _js_delegated_read(expression, file, fs, paths, values=None):
+    parsed = _js_text_call(expression, rf"(?P<module>{_JS_IDENTIFIER})\.readFileSync\s*\(")
+    if parsed is None:
+        return None
+    match, args, end = parsed
+    if expression[end:].strip() or match["module"] not in fs or len(args) != 2:
+        return None
+    if _literal(args[1]) not in {"utf8", "utf-8"}:
+        return None
+    return _js_path(args[0], file, paths, values)
+
+
+def _js_delegated_targets(expression, file, text, sources, directory_safe):
+    fs, paths = _bindings(text, "fs"), _bindings(text, "path")
+    target = _js_delegated_read(expression, file, fs, paths)
+    if target is not None:
+        return [target]
+    parsed = _js_text_call(expression, rf"(?P<module>{_JS_IDENTIFIER})\.readdirSync\s*\(")
+    if parsed is None:
+        return None
+    match, args, end = parsed
+    if match["module"] not in fs or len(args) != 1:
+        return None
+    folder = _js_path(args[0], file, paths)
+    mapping = _js_text_call(expression[end:], r"\.map\s*\(")
+    if folder is None or mapping is None or not directory_safe:
+        return None
+    _, args, last = mapping
+    if expression[end + last :].strip() or len(args) != 1:
+        return None
+    arrow = re.fullmatch(
+        rf"\s*(?:\(\s*(?P<paren>{_JS_IDENTIFIER})\s*\)|(?P<name>{_JS_IDENTIFIER}))\s*=>\s*(?P<read>[\s\S]+)", args[0]
+    )
+    if arrow is None:
+        return None
+    name = arrow["paren"] or arrow["name"]
+    if name in fs | paths | {"URL", "__dirname"}:
+        return None
+    children = [target for target in sources if posixpath.dirname(target) == folder]
+    if not children or len(children) > MAX_READS:
+        return None
+    if any(
+        _js_delegated_read(arrow["read"], file, fs, paths, {name: posixpath.basename(target)}) != target
+        for target in children
+    ):
+        return None
+    return children
+
+
+def _js_delegated_helpers(file, text, syntax, sources, directory_safe):
+    """Only complete zero-argument functions returning text, optionally through a private cache."""
+    if _handler_ends(syntax, []) is None:
+        return []
+    found = []
+    for number, match in enumerate(_DELEGATED_FUNCTION.finditer(text)):
+        if number >= MAX_HELPERS:
+            return []
+        if syntax[match.start() : match.end()].strip() == "":
+            continue
+        if syntax.count("{", 0, match.start()) != syntax.count("}", 0, match.start()):
+            continue
+        if len(match["name"]) > MAX_HELPER_BODY:
+            continue
+        start, end, depth = match.end(), match.end(), 1
+        while end < min(len(text), start + MAX_HELPER_BODY) and depth:
+            depth += (syntax[end] == "{") - (syntax[end] == "}")
+            end += 1
+        if depth:
+            continue
+        body = text[start : end - 1]
+        returned = re.fullmatch(r"\s*return[ \t]+(?P<expression>[^\r\n][\s\S]*?);?\s*", body)
+        cache_span = None
+        if returned is None:
+            cached = re.fullmatch(
+                rf"\s*if\s*\(\s*(?P<cache>{_JS_IDENTIFIER})\s*===\s*null\s*\)\s*\{{\s*"
+                r"(?P=cache)\s*=\s*(?P<expression>[\s\S]+?);?\s*\}\s*return[ \t]+(?P=cache)\s*;?\s*",
+                body,
+            )
+            if cached is None:
+                continue
+            name = cached["cache"]
+            declarations = list(
+                re.finditer(
+                    rf"(?m)^[ \t]*let\s+{re.escape(name)}(?:\s*:\s*string(?:\[\])?\s*\|\s*null)?\s*=\s*null\s*;?[ \t]*(?:\n|$)",
+                    text,
+                )
+            )
+            if len(declarations) != 1:
+                continue
+            cache_span = declarations[0].span()
+            if not syntax[cache_span[0] : cache_span[1]].strip():
+                continue
+            if syntax.count("{", 0, cache_span[0]) != syntax.count("}", 0, cache_span[0]):
+                continue
+            if any(
+                not (cache_span[0] <= use.start() < cache_span[1] or start <= use.start() < end)
+                for use in re.finditer(rf"(?<![\w$]){re.escape(name)}(?![\w$])", syntax)
+            ):
+                continue
+            returned = cached
+        raw_expression = returned["expression"]
+        expression = raw_expression.rstrip().rstrip(";").strip()
+        expression_start = start + returned.start("expression") + len(raw_expression) - len(raw_expression.lstrip())
+        selected = _js_delegated_targets(expression, file, text, sources, directory_safe)
+        if not selected:
+            continue
+        found.append(
+            {
+                "name": match["name"],
+                "exported": bool(match["export"]),
+                "name_span": match.span("name"),
+                "body_span": (start, end - 1),
+                "read_span": (expression_start, expression_start + len(expression)),
+                "targets": selected,
+            }
+        )
+    return found
+
+
+def _js_delegated_reads(sources, entries=()):
+    """Collect explicit read/call evidence after corpus limits, without relaxing global uncertainty."""
+    texts = {file: without_comments(source, python=file.endswith(".py")) for file, source in sources.items()}
+    syntaxes = {file: code_only(text) for file, text in texts.items()}
+    # A directory reader adds native array mapping to the proof. Keep it
+    # unresolved on customization indicators, including computed properties.
+    directory_safe = not any(
+        re.search(r"\b(?:Array|Object|Reflect|__proto__|prototype)\b|\[|\.map\s*=", syntax)
+        for syntax in syntaxes.values()
+    )
+    proposed = []
+    for file, text in texts.items():
+        if posixpath.splitext(file)[1].lower() in _JS and file not in entries:
+            proposed.extend(
+                (file, candidate)
+                for candidate in _js_delegated_helpers(file, text, syntaxes[file], texts, directory_safe)
+            )
+            if len(proposed) > MAX_DELEGATED_HELPERS:
+                return {}, {}
+    if not proposed:
+        return {}, {}
+    helper_files = {file for file, _ in proposed}
+    references = defaultdict(list)
+    for file, text in texts.items():
+        targets = _module_references(file, text, sources) & helper_files
+        for literal, value in _reference_literals(file, text):
+            if literal.group().startswith("`") and "${" in literal.group():
+                if not any(
+                    candidate_file == file
+                    and candidate["read_span"][0] <= literal.start()
+                    and literal.end() <= candidate["read_span"][1]
+                    for candidate_file, candidate in proposed
+                ):
+                    return {}, {}
+                continue
+            if value is None and "\\" in literal.group():
+                # Unsupported string escapes may conceal a module path.
+                return {}, {}
+            if value is None:
+                continue
+            for folder in {"", posixpath.dirname(file)}:
+                path = _relative(folder, value)
+                if path:
+                    targets.update(candidate for candidate in js_module_candidates(path) if candidate in helper_files)
+        for target in targets:
+            references[target].append(file)
+    accepted, hidden = defaultdict(list), defaultdict(list)
+    for file, candidate in proposed:
+        name = candidate["name"]
+        consumers = [(file, name, [candidate["name_span"]])]
+        valid = True
+        for other in references[file]:
+            imports = []
+            for imported in _NAMED_JS_IMPORT.finditer(texts[other]):
+                if not imported["module"].startswith(".") or syntaxes[other][imported.start()].isspace():
+                    continue
+                path = _relative(posixpath.dirname(other), imported["module"])
+                if path and file in js_module_candidates(path):
+                    imports.append(imported)
+            if not candidate["exported"] or not imports:
+                valid = False
+                break
+            # Every reference to the exporting module must be one of these
+            # named imports; namespace imports and side loads can escape it.
+            import_spans = [match.span() for match in imports]
+            for literal, value in _reference_literals(other, texts[other]):
+                paths = (_relative(folder, value) for folder in {"", posixpath.dirname(other)}) if value else ()
+                if any(path and file in js_module_candidates(path) for path in paths) and not any(
+                    start <= literal.start() < end for start, end in import_spans
+                ):
+                    valid = False
+                    break
+            if not valid:
+                break
+            for imported in imports:
+                for specifier in _split_args(imported["names"]):
+                    specifier = re.fullmatch(
+                        rf"\s*(?P<name>{_JS_IDENTIFIER})(?:\s+as\s+(?P<alias>{_JS_IDENTIFIER}))?\s*", specifier
+                    )
+                    if specifier is None:
+                        valid = False
+                        break
+                    if specifier["name"] == name:
+                        alias = specifier["alias"] or name
+                        if len(alias) > MAX_HELPER_BODY or len(consumers) >= MAX_READS + 1:
+                            valid = False
+                            break
+                        consumers.append((other, alias, [imported.span()]))
+                if not valid:
+                    break
+            if not valid:
+                break
+        call_sites = []
+        for consumer, alias, allowed in consumers:
+            text = texts[consumer]
+            syntax = syntaxes[consumer]
+            handlers = list(_CALLBACK.finditer(text))
+            ends = _handler_ends(syntax, handlers)
+            if ends is None:
+                valid = False
+                break
+            for called in re.finditer(rf"(?<![\w$]){re.escape(alias)}\s*\(\s*\)", text):
+                if syntax[called.start()].isspace() or any(start <= called.start() < stop for start, stop in allowed):
+                    continue
+                if len(call_sites) >= MAX_READS or not _js_passive(
+                    text, called, called.end(), alias, syntax, handlers, ends
+                ):
+                    valid = False
+                    break
+                allowed.append(called.span())
+                call_sites.append((consumer, *called.span()))
+            if any(
+                not any(start <= use.start() < stop for start, stop in allowed)
+                for use in re.finditer(rf"(?<![\w$]){re.escape(alias)}(?![\w$])", syntax)
+            ):
+                valid = False
+            if not valid:
+                break
+        if not valid or not call_sites:
+            continue
+        hidden[file].append(candidate["body_span"])
+        first, last = candidate["read_span"]
+        for target in candidate["targets"]:
+            accepted[file].append((target, first, last))
+            for consumer, first_call, last_call in call_sites:
+                accepted[consumer].append((target, first_call, last_call))
+    return dict(accepted), dict(hidden)
+
+
 def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complete: bool = True) -> dict[str, dict]:
     """Classify observed use as runtime, text-data or unknown; runtime always wins."""
     roles = {file: _role("unknown", "No complete text-only use was established") for file in sources}
     sizes = [len(text.encode()) for text in sources.values()]
     if len(sources) > MAX_FILES or sum(sizes) > MAX_BYTES or any(size > MAX_FILE_BYTES for size in sizes):
         return roles
+    entries = tuple(entries)
+    delegated, bodies = _js_delegated_reads(sources, entries=entries) if complete else ({}, {})
     runtime = {file: _role("runtime", "Declared program entry", file) for file in entries if file in sources}
     reads: dict[str, list[dict]] = {}
     accepted: dict[str, list[tuple[int, int]]] = {}
@@ -667,6 +954,9 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
             runtime[target] = _role("runtime", "Referenced as a program module", file)
             ambiguous |= Path(target).suffix.lower() in _METADATA
         if suffix in _JS:
+            # Identifier escapes are outside this lexer's binding model;
+            # they must not hide an escaped helper, cache or other use.
+            ambiguous |= bool(re.search(r"\\u", code_only(text)))
             ambiguous |= bool(
                 re.search(
                     r"\b(?:eval|Function|compileFunction|runInContext|runInNewContext|runInThisContext)\s*\(",
@@ -674,7 +964,13 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
                 )
             )
             for load in re.finditer(r"\b(?:require|import)\s*\(", text):
-                if not text[load.end() :].lstrip().startswith(("'", '"')):
+                start = re.compile(r"\s*").match(text, load.end()).end()
+                literal = _STRINGS.match(text, start)
+                if (
+                    literal is None
+                    or _literal(literal.group()) is None
+                    or re.compile(r"\s*\)").match(text, literal.end()) is None
+                ):
                     ambiguous = True
             ambiguous |= bool(re.search(r"\b(?:require\.context|import\.meta\.glob|process\.chdir)\b", text))
             ambiguous |= bool(
@@ -687,7 +983,7 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
                 not re.match(r"\s*\(\s*['\"]", text[match.end() :])
                 for match in re.finditer(r"\brequire\b", code_only(text))
             )
-            found, unknown = _js_reads(file, text)
+            found, unknown = _js_reads(file, text, proven=delegated.get(file, ()), bodies=bodies.get(file, ()))
         elif suffix == ".py":
             ambiguous |= any(
                 posixpath.join(folder, candidate) in sources
@@ -709,6 +1005,12 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
         else:
             found, unknown = [], False
         ambiguous |= unknown
+        if suffix in _JS:
+            for template in _JS_TEMPLATES.finditer(text):
+                if "${" in template.group() and not any(
+                    start <= template.start() and template.end() <= end for _, start, end in found
+                ):
+                    ambiguous = True
         # Reads whose complete use could not be traced may feed another
         # loader. This also covers destructured fs calls and top-level reads.
         for read in re.finditer(
@@ -727,11 +1029,10 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
         for file, text in texts.items():
             intervals = sorted(accepted.get(file, []))
             starts = [start for start, _ in intervals]
-            for literal in _STRINGS.finditer(text):
+            for literal, value in _reference_literals(file, text):
                 index = bisect.bisect_right(starts, literal.start()) - 1
                 if index >= 0 and literal.start() < intervals[index][1]:
                     continue
-                value = _literal(literal.group())
                 if value is not None:
                     unexplained.update(
                         ref for ref in (_relative("", value), _relative(posixpath.dirname(file), value)) if ref

@@ -149,6 +149,7 @@ GROUPS = {
         repo_scan
         route_inventory
         source_usage
+        source_usage_delegated
         scan_excludes
         secret_scan
         source_auth_scanner
@@ -5281,9 +5282,11 @@ SOURCE_TESTS = {
         threat_fixture
         assessment_posture
         source_usage
+        source_usage_delegated
     """),
     "scripts/analyzers/source_usage.py": _tests("""
         source_usage
+        source_usage_delegated
         route_inventory
         case_candidates
         case_postchecks

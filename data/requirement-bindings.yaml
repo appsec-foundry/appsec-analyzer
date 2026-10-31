@@ -601,6 +601,44 @@ requirements:
       - tests/test_source_usage.py::test_escaping_source_link_is_never_read
       - tests/test_source_usage.py::test_analysis_limits_keep_candidates
       - tests/test_source_usage.py::test_flask_route_extraction_has_the_same_text_file_rule
+      - tests/test_source_usage_delegated.py::test_fixed_delegated_text_is_recognized
+      - tests/test_source_usage_delegated.py::test_literal_import_alias_is_traced
+      - tests/test_source_usage_delegated.py::test_executable_reference_still_wins
+      - tests/test_source_usage_delegated.py::test_unknown_loader_in_another_file_stays_global
+      - tests/test_source_usage_delegated.py::test_additional_consumer_or_module_escape_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_cache_escape_or_write_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_non_json_consumer_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_unresolved_reader_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_incomplete_corpus_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_exporting_entry_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_declared_target_entry_wins
+      - tests/test_source_usage_delegated.py::test_customized_directory_mapping_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_directory_limit_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_proof_limit_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_declared_entries_generator_is_retained
+      - tests/test_source_usage_delegated.py::test_cache_declaration_inside_a_string_is_not_a_binding
+      - tests/test_source_usage_delegated.py::test_unknown_consumer_in_another_importer_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_an_unsupported_import_form_in_another_file_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_unsupported_named_import_specifier_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_source_bounds_are_applied_before_proving
+      - tests/test_source_usage_delegated.py::test_directory_callback_cannot_shadow_standard_bindings
+      - tests/test_source_usage_delegated.py::test_cache_evidence_names_the_read_and_the_json_consumer
+      - tests/test_source_usage_delegated.py::test_delegated_bodies_do_not_hide_reads_from_the_file_limit
+      - tests/test_source_usage_delegated.py::test_parallel_classification_keeps_proofs_local
+      - tests/test_source_usage_delegated.py::test_delegated_reads_preserve_scanner_sites_and_all_sources
+      - tests/test_source_usage_delegated.py::test_directory_examples_reduce_jobs_and_imported_programs_remain
+      - tests/test_source_usage_delegated.py::test_long_binding_names_retain_candidates
+      - tests/test_source_usage_delegated.py::test_import_bindings_are_bounded_even_when_unused
+      - tests/test_source_usage_delegated.py::test_dollar_import_names_keep_unknown_consumers
+      - tests/test_source_usage_delegated.py::test_dollar_cache_names_cannot_escape
+      - tests/test_source_usage_delegated.py::test_dollar_helper_names_cannot_escape
+      - tests/test_source_usage_delegated.py::test_dollar_import_names_still_trace_known_json_use
+      - tests/test_source_usage_delegated.py::test_encoded_or_indirect_module_consumers_keep_candidates
+      - tests/test_source_usage_delegated.py::test_encoded_cache_reference_cannot_escape
+      - tests/test_source_usage_delegated.py::test_unicode_escape_in_plain_json_text_is_not_a_loader
+      - tests/test_source_usage_delegated.py::test_encoded_export_also_keeps_a_private_helper_candidate
+      - tests/test_source_usage_delegated.py::test_template_execution_also_keeps_a_private_helper_candidate
+      - tests/test_source_usage_delegated.py::test_indirect_module_reference_beside_a_named_import_keeps_candidate
       - tests/test_case_candidates.py::test_route_facts_select_the_candidates_of_each_case
       - tests/test_case_candidates.py::test_the_cap_keeps_scanner_hits_and_counts_the_rest
       - tests/test_case_candidates.py::test_rule_candidates_stay_in_their_component_and_repository
