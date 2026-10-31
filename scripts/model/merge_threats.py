@@ -3583,6 +3583,44 @@ def _combine_texts(threats: list[dict], combine) -> None:
         }
 
 
+def _unique_verification(findings: list[dict]) -> list[dict]:
+    """Fold identical verification scopes before paying for their evidence review.
+
+    A shared line alone is insufficient: component, complete route set and
+    mechanism trace must agree. Unknown routes never bridge named routes.
+    Keep all verification IDs so item outcomes still refer to their finding.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    for position, finding in enumerate(findings):
+        identity = _evidence_identity_key({"evidence": _primary_evidence(finding), "cwe": finding.get("cwe")})
+        key = (
+            identity if identity is not None else ("unresolved", position),
+            _component_of(finding),
+            tuple(sorted(set(finding.get("route_ids") or []))),
+            json.dumps(finding.get("mechanism_trace"), sort_keys=True),
+            bool(finding.get("post_check_confirmed", False)),
+        )
+        groups.setdefault(key, []).append(finding)
+    result = []
+    for members in groups.values():
+        if len(members) == 1:
+            result.append(members[0])
+            continue
+        if not _can_merge_boundary_refs(members):
+            result.extend(members)
+            continue
+        survivor = min(members, key=lambda row: _risk_rank(row.get("risk")))
+        representative = _verification_id(survivor)
+        confirmed = all(row.get("post_check_confirmed", False) for row in members)
+        _merge_member_metadata(survivor, members, systemic=False)
+        _union_remediation_steps(survivor, members)
+        ids = survivor["verification"]["finding_ids"]
+        survivor["verification"]["finding_ids"] = [representative, *(value for value in ids if value != representative)]
+        survivor["post_check_confirmed"] = confirmed
+        result.append(survivor)
+    return result
+
+
 def _join_verification(threats: list[dict], verification: list[dict], review=None) -> list[dict]:
     """Make each verification finding part of the survey or scanner finding it repeats (REQ-040).
 
@@ -3606,6 +3644,11 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
     remaining verification findings.
     """
     threats = list(threats)
+    verification_order = {
+        finding_id: position
+        for position, finding in enumerate(verification)
+        for finding_id in finding.get("verification", {}).get("finding_ids", [])
+    }
     index: dict[tuple, list[int]] = {}
     for position, threat in enumerate(threats):
         if is_refuted(threat):
@@ -3620,7 +3663,7 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
         return bool(first and second and not first & second)
 
     alone, unreviewed = [], []
-    for finding in verification:
+    for finding in _unique_verification(verification):
         confirmed = finding.pop("post_check_confirmed", False)
         key = _evidence_identity_key({"evidence": _primary_evidence(finding), "cwe": finding.get("cwe")})
         partners = [p for p in index.get(key, []) if key is not None and not apart(threats[p], finding)]
@@ -3660,7 +3703,12 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
         if decision.get("verdict") == "refuted":
             reason = " ".join(str(decision.get("reason") or "").split())[:300]
             finding["evidence_review_contradicted"] = {"reason": reason or "The source contradicts the finding."}
-    return threats + alone
+    result = threats + alone
+    for finding in result:
+        block = finding.get("verification")
+        if block:
+            block["finding_ids"].sort(key=lambda value: verification_order.get(value, len(verification_order)))
+    return result
 
 
 def _verification_id(finding: dict) -> str:

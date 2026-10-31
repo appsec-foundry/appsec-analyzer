@@ -590,6 +590,86 @@ def test_no_evidence_review_without_a_verification_finding_of_its_own(tmp_path):
     assert received == []
 
 
+@pytest.mark.parametrize("verdict", ["verified", "refuted", "ambiguous", None])
+def test_duplicate_verification_findings_share_one_review_and_keep_every_item_link(tmp_path, verdict):
+    review, received = _decided(verdict)
+    merged, _ = _verification(
+        tmp_path,
+        _elsewhere,
+        lambda f: (
+            _elsewhere(f),
+            f.update(risk="High", likelihood="High", impact="High", test_case_ids=["TC-INPUT-02"]),
+        ),
+        review_verification=review,
+    )
+    assert received == [["TCF-002"]]  # Review the highest-risk claim.
+    one, two = _held(merged, "TCF-001"), _held(merged, "TCF-002")
+    assert one is two and one["risk"] == "High"
+    assert set(one["verification"]["test_case_ids"]) == {"TC-INPUT-01", "TC-INPUT-02"}
+    assert {i["source_ref"] for i in one["instances"]} == {"TCF-001", "TCF-002"}
+    assert one["evidence_check"] == ("verified" if verdict == "verified" else "ambiguous")
+    assert ("evidence_review_contradicted" in one) == (verdict == "refuted")
+
+
+@pytest.mark.parametrize("routes", [(["one"], ["two"]), ([], ["two"]), (["one"], ["one", "two"])])
+def test_verification_reviews_keep_different_or_unknown_route_scopes_separate(tmp_path, routes):
+    review, received = _decided("verified")
+    merged, _ = _verification(
+        tmp_path,
+        lambda f: (_elsewhere(f), f.update(route_ids=routes[0])),
+        lambda f: (_elsewhere(f), f.update(route_ids=routes[1])),
+        review_verification=review,
+    )
+    assert received == [["TCF-001", "TCF-002"]]
+    assert _held(merged, "TCF-001") is not _held(merged, "TCF-002")
+
+
+def test_a_partial_postcheck_does_not_confirm_an_unreviewed_duplicate(tmp_path):
+    review, received = _decided("refuted")
+    merged, _ = _verification(
+        tmp_path,
+        lambda f: (_elsewhere(f), f.update(post_check_confirmed=True)),
+        _elsewhere,
+        review_verification=review,
+    )
+    assert received == [["TCF-002"]]
+    assert _held(merged, "TCF-001") is not _held(merged, "TCF-002")
+    assert _held(merged, "TCF-001")["evidence_basis"] == "pointer-resolved"
+    assert _held(merged, "TCF-002")["evidence_check"] == "ambiguous"
+
+
+def test_fully_postchecked_duplicates_keep_every_link_without_another_review(tmp_path):
+    review, received = _decided("verified")
+    change = lambda f: (_elsewhere(f), f.update(post_check_confirmed=True))
+    merged, _ = _verification(tmp_path, change, change, review_verification=review)
+    assert received == []
+    assert _held(merged, "TCF-001") is _held(merged, "TCF-002")
+    assert _held(merged, "TCF-001")["evidence_basis"] == "pointer-resolved"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda row: row.update(component_id="other"),
+        lambda row: row.update(evidence={"file": "repo-other/server.ts", "line": 5}),
+        lambda row: row.update(cwe="CWE-79"),
+        lambda row: row.update(mechanism_trace={"sink": {"file": "other.ts", "line": 2}}),
+    ],
+)
+def test_verification_deduplication_preserves_different_components_sources_and_mechanisms(change):
+    from model.merge_threats import _unique_verification
+
+    one = {
+        "component_id": "api",
+        "evidence": {"file": "repo-one/server.ts", "line": 5},
+        "cwe": "CWE-639",
+        "route_ids": ["R-001"],
+    }
+    two = copy.deepcopy(one)
+    change(two)
+    assert _unique_verification([one, two]) == [one, two]
+
+
 def test_a_refuted_verification_finding_stays_in_the_valid_model(tmp_path):
     """REQ-040: the reader sees the finding the review refuted, with the review's reason, in a valid model."""
     review, _ = _decided("refuted")

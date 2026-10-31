@@ -388,6 +388,101 @@ def test_batches_keep_each_location_in_one_job_and_give_the_first_job_every_test
             cc.batches(precheck, limit=limit)
 
 
+def test_batches_keep_later_catalog_locations_beside_their_source_file():
+    def at(name, file, line):
+        return {**_at(name, line), "anchor": {"file": file, "line": line}}
+
+    precheck = {
+        "TC-AUTHZ-01": [at("a", "a.js", 1), at("b", "b.js", 1)],
+        "TC-AUTHZ-02": [at("c", "a.js", 2), at("d", "b.js", 2)],
+    }
+    jobs = cc.batches(precheck, limit=2)
+    assert len(jobs) == 2
+    assert [{row["anchor"]["file"] for rows in job.values() for row in rows} for job in jobs] == [{"a.js"}, {"b.js"}]
+    assert {row["candidate_id"] for job in jobs for rows in job.values() for row in rows} == {
+        row["candidate_id"] for rows in precheck.values() for row in rows
+    }
+
+
+def test_batches_group_a_shared_model_without_combining_route_candidates():
+    rows = [{**_at(f"m{line}", line), "route_id": f"R-{line:03d}"} for line in range(1, 5)]
+    facts = {"routes": {row["route_id"]: {"data_model": [f"models/{line % 2}.js", 1]} for line, row in enumerate(rows)}}
+    jobs = cc.batches({"TC-AUTHZ-01": rows}, limit=2, facts=facts)
+    assert [[row["candidate_id"] for row in job["TC-AUTHZ-01"]] for job in jobs] == [
+        [rows[0]["candidate_id"], rows[2]["candidate_id"]],
+        [rows[1]["candidate_id"], rows[3]["candidate_id"]],
+    ]
+
+
+def test_source_locality_never_pushes_scanner_leads_behind_unflagged_code():
+    first = {**_at("a", 1), "anchor": {"file": "a.js", "line": 1}}
+    hit = {**_at("z", 1), "anchor": {"file": "z.js", "line": 1}, "rule_ids": ["AUTHZ-001"]}
+    suspect = {**_at("m", 1), "anchor": {"file": "m.js", "line": 1}, "route_id": "R-001"}
+    jobs = cc.batches(
+        {"TC-AUTHZ-01": [first, suspect, hit]},
+        limit=1,
+        facts={"routes": {"R-001": {"missing_authz_suspect": True}}},
+    )
+    assert [job["TC-AUTHZ-01"][0]["candidate_id"] for job in jobs] == [
+        hit["candidate_id"],
+        suspect["candidate_id"],
+        first["candidate_id"],
+    ]
+
+
+@pytest.mark.parametrize("scanner_lead", [False, True])
+def test_source_locality_never_adds_a_job_to_pack_the_same_locations(scanner_lead):
+    # Catalog order packs sizes 1+3 and 2+2. File order packs 3, 2+1, 2,
+    # which would add a third job without changing the work.
+    def at(case, file):
+        row = {**_at(case + file, 1), "anchor": {"file": file, "line": 1}}
+        if scanner_lead and file == "d.js":
+            row["rule_ids"] = ["AUTHZ-001"]
+        return row
+
+    precheck = {
+        "TC-01": [at("1", file) for file in ["c.js", "a.js", "b.js", "d.js"]],
+        "TC-02": [at("2", file) for file in ["a.js", "b.js", "d.js"]],
+        "TC-03": [at("3", "a.js")],
+        "TC-GOAL": [],
+    }
+    before = json.dumps(precheck, sort_keys=True)
+    jobs = cc.batches(precheck, limit=4)
+    assert len(jobs) == 2
+    assert set(jobs[0]) == set(precheck)
+    assert "TC-GOAL" not in jobs[1]
+    assert sorted((case, row["candidate_id"]) for job in jobs for case, rows in job.items() for row in rows) == sorted(
+        (case, row["candidate_id"]) for case, rows in precheck.items() for row in rows
+    )
+    located = {}
+    for index, job in enumerate(jobs):
+        for rows in job.values():
+            for row in rows:
+                file = row["anchor"]["file"]
+                assert located.setdefault(file, index) == index
+    if scanner_lead:
+        assert any(row.get("rule_ids") for rows in jobs[0].values() for row in rows)
+    assert json.dumps(precheck, sort_keys=True) == before
+
+
+def test_overlapping_preload_windows_keep_each_authorized_line_once():
+    from orchestrator.assessment_test_cases import _coalesce_preload
+    from runtime.assessment_host import MAX_SLICE_LINES
+
+    windows = [
+        ("repo-one", "a.js", 10, 80),
+        ("repo-one", "a.js", 30, 60),
+        ("repo-one", "a.js", 81, 500),
+        ("repo-two", "a.js", 1, 2),
+        ("repo-one", "a.js", 600, 601),
+    ]
+    expected = {(rid, path, line) for rid, path, start, end in windows for line in range(start, end + 1)}
+    combined = _coalesce_preload(windows)
+    lines = [(rid, path, line) for rid, path, start, end in combined for line in range(start, end + 1)]
+    assert set(lines) == expected and len(lines) == len(set(lines))
+    assert all(end - start + 1 <= MAX_SLICE_LINES for _rid, _path, start, end in combined)
+
+
 def test_rule_candidates_stay_in_their_component_and_repository(catalog, shop):
     facts, _, _ = shop
     threats = [
@@ -487,9 +582,14 @@ def test_generator_calls_add_the_routes_the_inventory_misses(generated):
     rows = {(row["method"], row["path"]): row for row in facts["routes"].values() if row["generated"]}
     crud = [("GET", ""), ("POST", ""), ("GET", "/:id"), ("PUT", "/:id"), ("DELETE", "/:id")]
     expected = {(method, f"/api/{name}s{suffix}") for name in ("User", "Product", "Item") for method, suffix in crud}
-    # The registered delete stays the inventory's route; the limited call adds only its list and patch.
-    expected = expected - {("DELETE", "/api/Products/:id")} | {("GET", "/api/Logs"), ("PATCH", "/api/Logs/:id")}
+    # Explicit methods, including route-chain methods, retain the inventory's
+    # IDs and anchors. The generator adds only the methods it does not list.
+    registered = {(row["method"], row["path"]) for row in inventory["routes"]}
+    expected = expected - registered | {("GET", "/api/Logs"), ("PATCH", "/api/Logs/:id")}
     assert set(rows) == expected
+    all_routes = [(row["method"], row["path"]) for row in facts["routes"].values()]
+    assert len(all_routes) == len(set(all_routes))
+    assert set(all_routes) == expected | registered
     last = max(int(row["route_id"][2:]) for row in inventory["routes"])
     assert sorted(int(row["route_id"][2:]) for row in rows.values()) == list(range(last + 1, last + 1 + len(rows)))
     for (method, path), row in rows.items():
@@ -634,7 +734,8 @@ def test_generated_routes_name_their_guards_and_data_model(tmp_path, style):
     order = [f"models/order.{ext}", 1]
     # The guard-only registration stays the inventory's route and learns the model the generator serves there.
     listing = rows["GET", "/api/Orders"]
-    assert not listing["generated"] and listing["data_model"] == order and listing["guards"] == []
+    assert not listing["generated"] and listing["data_model"] == order
+    assert listing["guards"] == [[f"lib/guards.{ext}", 1, 4]]
     # A generated route lists the guards of the registrations that run for it, and its data model.
     for method in ("GET", "PUT", "DELETE"):
         row = rows[method, "/api/Orders/:id"]
@@ -671,6 +772,33 @@ def test_a_route_chain_gives_each_generated_route_the_guards_of_its_own_method(t
     assert starts["PUT", "/api/Orders/:id"] == [("lib/guards.ts", 5)]
     assert starts["DELETE", "/api/Orders/:id"] == []
     assert starts["GET", "/api/Orders"] == []
+
+
+def test_a_guard_registered_after_a_generator_does_not_protect_its_routes(tmp_path):
+    files = {
+        "server.js": "const finale = require('finale-rest')\n"
+        "const { authenticate } = require('./auth')\n"
+        "finale.resource({ endpoints: ['/api/Orders', '/api/Orders/:id'] })\n"
+        "app.use('/api/Orders', authenticate)\n",
+        "auth.js": FILES["lib/auth.js"],
+    }
+    root = write_repo(tmp_path, files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(files)})
+    generated = [row for row in facts["routes"].values() if row["generated"]]
+    assert generated and all(row["guards"] == [] and row["chain"] == [["server.js", 3, 3]] for row in generated)
+
+
+@pytest.mark.parametrize("execute", [False, True])
+def test_quoted_generator_calls_are_candidates_only_when_execution_is_uncertain(tmp_path, execute):
+    files = {
+        "server.js": "const finale = require('finale-rest')\n"
+        "const example = \"finale.resource({ endpoints: ['/example'] })\"\n"
+        "finale.resource({ endpoints: ['/actual'] })\n" + ("eval(example)\n" if execute else ""),
+    }
+    root = write_repo(tmp_path, files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(files)})
+    paths = {row["path"] for row in facts["routes"].values()}
+    assert "/actual" in paths and ("/example" in paths) == execute
 
 
 def test_a_string_model_option_names_no_data_model(generated):
@@ -710,7 +838,7 @@ def test_verification_preloads_a_generated_routes_guard_and_data_model(tmp_path,
     # Guard and model come before the candidate's own window, so a full packet still carries them;
     # the direct imports that fill leftover room would serve them only after it.
     window = order.index((f"server.{ext}", 1))
-    assert order.index((guard, 5)) < window
+    assert next(index for index, key in enumerate(preload) if key[1] == guard and key[2] <= 5 <= key[3]) < window
     if allowed_model:
         assert order.index((model, 1)) < window
     else:
@@ -754,6 +882,38 @@ def test_the_data_models_most_candidates_need_come_first_in_the_preload(tmp_path
     window = order.index((f"server.{ext}", 1))
     assert order.index((f"models/order.{ext}", 1)) < window
     assert (f"models/note.{ext}", 2) not in order[:window]
+
+
+@pytest.mark.parametrize("readable_guard", [True, False])
+def test_a_candidate_inside_a_handler_preloads_its_reaching_routes_guard(tmp_path, readable_guard):
+    from orchestrator import assessment_test_cases as pilot
+    from runtime.assessment_host import MAX_CONTEXT_BYTES
+
+    facts, ext, scope, rid, envelope, architecture, component = _served_job(tmp_path)
+    route = next(row for row in facts["routes"].values() if row["guards"])
+    guard = route["guards"][0]
+    model = f"models/order.{ext}"
+    precheck = {
+        "TC-AUTHZ-01": [
+            {
+                "candidate_id": "pc-" + "a" * 16,
+                "origin": "pre-check",
+                "anchor": {"file": model, "line": 1},
+                "reached_by": [route["route_id"]],
+            }
+        ]
+    }
+    if not readable_guard:
+        envelope = {**envelope, "job_allowed": envelope["job_allowed"] - {(rid, guard[0])}}
+    windows = pilot._preload(
+        scope, {"existing_controls": []}, precheck, rid, facts, envelope, architecture, [component], MAX_CONTEXT_BYTES
+    )
+    positions = [index for index, key in enumerate(windows) if key[1] == guard[0] and key[2] <= guard[1] <= key[3]]
+    if readable_guard:
+        assert positions and positions[0] < next(index for index, key in enumerate(windows) if key[1] == model)
+    else:
+        assert not positions
+    assert all((key[0], key[1]) in envelope["job_allowed"] for key in windows)
 
 
 @pytest.mark.parametrize("readable", [True, False])

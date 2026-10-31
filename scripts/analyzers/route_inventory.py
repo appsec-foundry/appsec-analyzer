@@ -64,6 +64,7 @@ from typing import Iterable
 from shared._path_guard import is_safe_to_read
 
 from analyzers.handler_resolver import HandlerResolver
+from analyzers.source_usage import classify_paths
 
 try:
     import yaml  # noqa: F401  (kept for parity with sibling scripts; not used here yet)
@@ -759,6 +760,30 @@ def _mask_comments(text: str, line_comment: str) -> str:
     return _COMMENT_RES[line_comment].sub(blank, text)
 
 
+def _javascript_syntax(text: str) -> str:
+    """Offsets of JS code, excluding literal examples while retaining uncertain execution.
+
+    Keep interpolated templates and files mentioning string execution for
+    review. This is lexical classification, never an import-reachability test
+    or a reason to discard a source file from the assessment.
+    """
+    text = _mask_comments(text, "//")
+    if (
+        "${" in text
+        or re.search(r"(?:^|[=(:,;!?&|{}])\s*/(?![/*])", text)
+        or re.search(
+            r"\b(?:eval|Function|execScript|compileFunction|runInContext|runInNewContext|runInThisContext)\b", text
+        )
+    ):
+        return text
+
+    def blank(match):
+        token = match.group(0)
+        return token if token.startswith("`") and "${" in token else _NOT_NEWLINE_RE.sub(" ", token)
+
+    return _COMMENT_RES["//"].sub(blank, text)
+
+
 def _scan_auth_text(text: str) -> tuple[str, str]:
     text = _strip_literals(text)
     authn = "middleware_present" if _AUTHN_PATTERNS.search(text) else "unknown"
@@ -854,6 +879,7 @@ def _with_spread_guards(scope: str, text: str) -> str:
 def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
     out: list[RouteCandidate] = []
     text = _mask_comments("".join(lines), "//")
+    syntax = _javascript_syntax(text)
     lines = text.splitlines(keepends=True)
 
     nestjs = bool(re.search(r"@(Controller|Module|Injectable)\s*\(", text)) and bool(_JS_DECORATOR_RE.search(text))
@@ -874,16 +900,19 @@ def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
 
     pathless_guards = []
     for use in _JS_PATHLESS_USE_RE.finditer(text):
+        if syntax[use.start()].isspace():
+            continue
         scope = _call_scope(text, use.start(), use.start("open"), len(text), "//")
         signals = _scan_auth_text(_with_spread_guards(scope, text))
         if signals != ("unknown", "unknown"):
             pathless_guards.append((use.start(), use.group("obj"), signals))
 
-    verbs = list(_JS_ROUTE_RE.finditer(text))
+    verbs = [match for match in _JS_ROUTE_RE.finditer(text) if not syntax[match.start()].isspace()]
     registrations = sorted(
         verbs + _terminal_mounts(text, verbs) + _dynamic_registrations(text) + _chained_registrations(text),
         key=lambda match: match.start(),
     )
+    registrations = [match for match in registrations if not syntax[match.start()].isspace()]
     for index, m in enumerate(registrations):
         method = (m.group("method") if "method" in m.re.groupindex else "all").upper()
         route = m.group("path")
@@ -895,6 +924,8 @@ def _extract_javascript(path: Path, lines: list[str]) -> list[RouteCandidate]:
         guard_lines: list[int] = []
         # Prefix and exact guards belong only to this object and earlier registrations.
         for mount in _MOUNT_HEAD_RE.finditer(text, 0, m.start()):
+            if syntax[mount.start()].isspace():
+                continue
             if mount.group("obj") != m.group("obj"):
                 continue
             prefixes, exact = set(), set()
@@ -1264,9 +1295,15 @@ def _collect_routes(
     repo_root: Path,
     all_routes: list[RouteCandidate],
     frameworks_seen: set[str],
+    usage: dict | None = None,
 ) -> None:
     """Extract routes and guarded mounts from every source file."""
-    for src in _walk_sources(repo_root):
+    sources = list(_walk_sources(repo_root))
+    if usage is None:
+        usage = classify_paths(repo_root, sources)
+    for src in sources:
+        if usage.get(src.relative_to(repo_root).as_posix(), {}).get("kind") == "text-data":
+            continue
         try:
             lines = src.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
         except OSError:
@@ -1459,7 +1496,7 @@ def _join_paths(prefix: str, path: str) -> str:
 
 
 def _compose_js_routers(
-    repo_root: Path, routes: list[RouteCandidate], resolver: HandlerResolver
+    repo_root: Path, routes: list[RouteCandidate], resolver: HandlerResolver, *, text_files: set[str] | None = None
 ) -> list[RouteCandidate]:
     """Give routes of mounted Express/Koa routers their full path and their mounts' guards.
 
@@ -1477,6 +1514,8 @@ def _compose_js_routers(
         if src.suffix.lower() not in _JS_EXTS:
             continue
         rel = src.relative_to(repo_root).as_posix()
+        if rel in (text_files or ()):
+            continue
         for mount in resolver.js_router_mounts(rel):
             target = (mount["target_file"], mount["target_obj"])
             incoming.setdefault(target, []).append(((rel, mount["obj"]), mount))
@@ -1607,16 +1646,23 @@ def build_inventory(repo_root: Path) -> dict:
     all_routes: list[RouteCandidate] = []
     frameworks_seen: set[str] = set()
     unsupported: list[str] = []
+    usage = classify_paths(repo_root, _walk_sources(repo_root))
 
     _collect_routes(
         repo_root,
         all_routes,
         frameworks_seen,
+        usage,
     )
 
     # Apply prefix guards + compute the missing-auth advisory flag.
     resolver = HandlerResolver(repo_root)
-    all_routes = _compose_js_routers(repo_root, all_routes, resolver)
+    all_routes = _compose_js_routers(
+        repo_root,
+        all_routes,
+        resolver,
+        text_files={file for file, role in usage.items() if role["kind"] == "text-data"},
+    )
     for r in all_routes:
         _lift_auth_signals(r, resolver)
         _flag_route(r, llm_sdk_declared)

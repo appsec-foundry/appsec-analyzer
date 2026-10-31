@@ -45,7 +45,8 @@ from analyzers import authz_confirm
 from analyzers.capability_signals import _TEST_PATH_RE
 from analyzers.egress_clients import scan as egress_scan
 from analyzers.handler_resolver import HandlerResolver
-from analyzers.route_inventory import _PATH_PARAM_RE, _is_excluded, route_authenticated
+from analyzers.route_inventory import _PATH_PARAM_RE, _is_excluded, _javascript_syntax, route_authenticated
+from analyzers.source_usage import classify_paths
 from jsonschema import Draft202012Validator
 from shared._path_guard import is_safe_to_read
 from shared._source_lex import without_comments
@@ -385,6 +386,8 @@ def route_facts(
     root = Path(repo_root).resolve()
     files = _admitted_files(root)
     admitted = set(files)
+    usage = classify_paths(root, (root / file for file in files))
+    text_files = {file for file, role in usage.items() if role["kind"] == "text-data"}
     rules_at: dict[tuple[str, int], set[str]] = {}
     for hit in _scanner_hits(scanner_findings):
         rules_at.setdefault((hit["file"], hit["line"]), set()).add(hit["rule_id"])
@@ -393,6 +396,8 @@ def route_facts(
     rows = inventory.get("routes") if isinstance(inventory, Mapping) else inventory
     for row in rows or []:
         if not _usable_route(row) or row["route_id"] in routes or _TEST_PATH_RE.search(row["handler_file"]):
+            continue
+        if usage.get(row["handler_file"], {}).get("kind") == "text-data":
             continue
         # The comment-blanked handler code authz_confirm judges, and the
         # (file, first line, last line) of every resolved chain element.
@@ -434,7 +439,7 @@ def route_facts(
             "data_model": None,
             "guards": [],
         }
-    routes.update(_generated_routes(root, files, routes, rows, rules_at, resolver))
+    routes.update(_generated_routes(root, files, routes, rows, rules_at, resolver, text_files=text_files))
     signals, sites = _code_facts(root, files)
     owners = None if components is None else _component_routes(components, routes, admitted)
     for cid, shown in (architecture or {}).items():
@@ -589,12 +594,17 @@ def starting_candidates(
     return {"candidates": candidates, "overflow": len(ordered) - len(candidates)}
 
 
-def batches(precheck: Mapping[str, list[dict]], limit: int | None = None) -> list[dict[str, list[dict]]]:
+def batches(
+    precheck: Mapping[str, list[dict]], limit: int | None = None, *, facts: Mapping[str, Any] | None = None
+) -> list[dict[str, list[dict]]]:
     """The model jobs of one component and aspect: per job, each test case's share of ``precheck``.
 
     ``precheck`` maps each test case ID to its starting candidates. All
-    candidates of one location go to the same job, in the order the test
-    cases first name the locations, and a job takes whole locations up to
+    candidates of one location go to the same job. Locations are ordered by
+    priority, source file and, when facts are available, their shared model and handler
+    sources, so catalog order does not scatter one file across jobs. If this
+    needs more jobs than packing the original location order, keep that packing
+    and schedule jobs with scanner leads and flagged routes first. A job takes whole locations up to
     ``limit`` candidates, ``MAX_CANDIDATES`` by default; a location alone may
     exceed it, and a last job under a quarter of it joins the job before. The
     first job lists every test case, also one without a
@@ -608,21 +618,58 @@ def batches(precheck: Mapping[str, list[dict]], limit: int | None = None) -> lis
     for case_id, rows in precheck.items():
         for row in rows:
             locations.setdefault((row["anchor"]["file"], row["anchor"]["line"]), []).append((case_id, row))
-    jobs: list[dict[str, list[dict]]] = [{case_id: [] for case_id in precheck}]
-    sizes = [0]
-    for location in locations.values():
-        if sizes[-1] and sizes[-1] + len(location) > limit:
-            jobs.append({})
-            sizes.append(0)
-        for case_id, row in location:
-            jobs[-1].setdefault(case_id, []).append(row)
-        sizes[-1] += len(location)
-    # Every job costs its full context, so a small remainder joins the job before it.
-    if len(jobs) > 1 and sizes[-1] < limit / 4:
-        for case_id, rows in jobs.pop().items():
-            jobs[-1].setdefault(case_id, []).extend(rows)
+
+    def locality(item):
+        (file, line), rows = item
+        models, handlers = set(), set()
+        priority = 2
+        for _, row in rows:
+            route = ((facts or {}).get("routes") or {}).get(row.get("route_id"), {})
+            flagged = (
+                route.get("missing_auth_suspect")
+                or route.get("missing_authz_suspect")
+                or route.get("authn_signal") == "absent"
+                or route.get("authn_handler_signal") == "decode_only"
+            )
+            priority = min(priority, 0 if row.get("rule_ids") else 1 if flagged else 2)
+            if route.get("data_model"):
+                models.add(tuple(route["data_model"]))
+            handlers.update(path for path, _start, _end in route.get("chain", []) if path != file)
+        return priority, file, tuple(sorted(models)), tuple(sorted(handlers)), line
+
+    def pack(ordered):
+        jobs: list[dict[str, list[dict]]] = [{}]
+        sizes = [0]
+        for location in ordered:
+            if sizes[-1] and sizes[-1] + len(location) > limit:
+                jobs.append({})
+                sizes.append(0)
+            for case_id, row in location:
+                jobs[-1].setdefault(case_id, []).append(row)
+            sizes[-1] += len(location)
+        # Every job costs its full context, so a small remainder joins the job before it.
+        if len(jobs) > 1 and sizes[-1] < limit / 4:
+            for case_id, rows in jobs.pop().items():
+                jobs[-1].setdefault(case_id, []).extend(rows)
+        return jobs
+
+    priorities = {anchor: locality((anchor, rows))[0] for anchor, rows in locations.items()}
+    jobs = pack(rows for _, rows in sorted(locations.items(), key=locality))
+    original = pack(locations.values())
+    if len(jobs) > len(original):
+        jobs = original
+        jobs.sort(
+            key=lambda job: min(
+                priorities[row["anchor"]["file"], row["anchor"]["line"]] for rows in job.values() for row in rows
+            )
+        )
     # Test cases keep their catalog order in every job.
-    return [{case_id: job[case_id] for case_id in precheck if case_id in job} for job in jobs]
+    # The first job explores every applicable item, including goal items with
+    # no pre-check; moving a packed job must not move those empty items away.
+    return [
+        {case_id: job.get(case_id, []) for case_id in precheck if index == 0 or case_id in job}
+        for index, job in enumerate(jobs)
+    ]
 
 
 def _route_entry(route_id: str, facts: Mapping[str, Any]) -> dict:
@@ -846,6 +893,8 @@ def _generated_routes(
     rows: Any,
     rules_at: Mapping[tuple[str, int], set[str]],
     resolver: HandlerResolver,
+    *,
+    text_files: set[str] | None = None,
 ) -> dict[str, dict]:
     """Rows for the routes that generator calls register and no inventory row lists, under new route IDs.
 
@@ -867,10 +916,17 @@ def _generated_routes(
     calls = 0
     for rel in files:
         suffix = Path(rel).suffix.lower()
-        if suffix not in _GENERATOR_EXTS or _TEST_PATH_RE.search(rel):
+        if suffix not in _GENERATOR_EXTS or _TEST_PATH_RE.search(rel) or rel in (text_files or ()):
             continue
         code = _code(root / rel, suffix)
-        names = {name for match in _GENERATOR_IMPORT_RE.finditer(code) for name in match.groups() if name}
+        syntax = _javascript_syntax(code)
+        names = {
+            name
+            for match in _GENERATOR_IMPORT_RE.finditer(code)
+            if not syntax[match.start()].isspace()
+            for name in match.groups()
+            if name
+        }
         if not names:
             continue
         newlines = [match.start() for match in re.finditer("\n", code)]
@@ -881,6 +937,8 @@ def _generated_routes(
         sites: dict[str, list | None] = {}
         call_re = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\s*\.\s*resource\s*\(\s*\{")
         for call in call_re.finditer(code):
+            if syntax[call.start()].isspace():
+                continue
             calls += 1
             if calls > _MAX_GENERATOR_CALLS:
                 return generated
@@ -897,21 +955,10 @@ def _generated_routes(
                     site = resolver.definition_site(rel, name)
                     sites[name] = list(site) if site and site[0] in admitted else None
                 model = None if name is None else sites[name]
-                row = known.get((rel, method, path))
-                if row is not None:
-                    if span not in row["chain"]:
-                        row["chain"] = sorted([*row["chain"], span])
-                    if row["data_model"] is None:
-                        row["data_model"] = model
-                    continue
-                if len(generated) == _MAX_GENERATED_ROUTES or number >= _MAX_ROUTE_NUMBER:
-                    return generated
-                number += 1
-                route_id = f"R-{number:03d}"
                 runs = [
                     (first, last, registered)
                     for first, last, verb, registered in registrations
-                    if _runs_for(verb, registered, method, path)
+                    if first <= line and _runs_for(verb, registered, method, path)
                 ][:_MAX_CHAIN_SPANS]
                 for first, _last, registered in runs:
                     if (first, registered, method) not in guarded:
@@ -920,6 +967,25 @@ def _generated_routes(
                             for site in resolver.registration_middleware(rel, first, registered, method)
                             if site[0] in admitted
                         ]
+                chain = [span, *([rel, first, last] for first, last, _ in runs)]
+                guards = list(
+                    dict.fromkeys(
+                        tuple(site) for first, _last, registered in runs for site in guarded[first, registered, method]
+                    )
+                )
+                row = known.get((rel, method, path))
+                if row is not None:
+                    row["chain"] = sorted(set(map(tuple, [*row["chain"], *chain])))
+                    row["chain"] = [list(item) for item in row["chain"]]
+                    row["guards"] = [list(site) for site in dict.fromkeys([*map(tuple, row["guards"]), *guards])]
+                    if row["data_model"] is None:
+                        row["data_model"] = model
+                    row["reads_data"] = row["reads_data"] or method == "GET"
+                    continue
+                if len(generated) == _MAX_GENERATED_ROUTES or number >= _MAX_ROUTE_NUMBER:
+                    return generated
+                number += 1
+                route_id = f"R-{number:03d}"
                 generated[route_id] = known[(rel, method, path)] = {
                     "route_id": route_id,
                     "method": method,
@@ -942,18 +1008,11 @@ def _generated_routes(
                     "ownership_predicate": False,
                     # A generated read returns records of its data model.
                     "reads_data": method == "GET",
-                    "chain": sorted([span, *([rel, first, last] for first, last, _ in runs)]),
+                    "chain": sorted(chain),
                     "scanner_rules": sorted(rules_at.get((rel, line), ())),
                     "generated": True,
                     "data_model": model,
-                    "guards": [
-                        list(site)
-                        for site in dict.fromkeys(
-                            tuple(site)
-                            for first, _last, registered in runs
-                            for site in guarded[first, registered, method]
-                        )
-                    ],
+                    "guards": [list(site) for site in guards],
                 }
     return generated
 
@@ -1081,8 +1140,9 @@ def _registrations(code: str, newlines: list[int]) -> list[tuple[int, int, str, 
     """``(first line, last line, verb, path)`` of each registration with a literal path; a route chain spans its calls."""
     lines = code.split("\n")
     found = []
+    syntax = _javascript_syntax(code)
     for match in _REGISTRATION_RE.finditer(code):
-        if _after_line_comment(code, newlines, match.start()):
+        if _after_line_comment(code, newlines, match.start()) or syntax[match.start()].isspace():
             continue
         first = bisect.bisect_left(newlines, match.start()) + 1
         last = first
