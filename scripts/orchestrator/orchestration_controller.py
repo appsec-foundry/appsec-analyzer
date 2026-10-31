@@ -3955,7 +3955,7 @@ def _excluded_paths(scope, reason: str) -> list[str]:
 def _unanalysed_source(scope, workspace: Path) -> list[dict[str, Any]]:
     """REQ-003: the source that reached no analysis, by reason, for the report's coverage gaps."""
     rows = []
-    for reason in ("oversized", "non-utf8-text"):
+    for reason in ("oversized", "non-utf8-text", "unreadable"):
         excluded = _excluded_paths(scope, reason)
         if excluded:
             rows.append({"reason": reason, "files": len(excluded), "examples": excluded[:10]})
@@ -3964,6 +3964,20 @@ def _unanalysed_source(scope, workspace: Path) -> list[dict[str, Any]]:
     if unparsed:
         rows.append({"reason": "unparsed-config", "files": unparsed["file_count"], "examples": unparsed["files"][:10]})
     return rows
+
+
+def _record_failed_steps(model_path: Path, receipts: list[str]) -> None:
+    """REQ-003: name the post-processing steps that failed in the report, not only in the console."""
+    from shared._atomic_io import atomic_write_text
+
+    steps = sorted({r.split(":", 1)[0] for r in receipts if r.endswith(BEST_EFFORT_FAILURE)})
+    if not steps:
+        return
+    model = yaml.safe_load(model_path.read_text(encoding="utf-8"))
+    rows = [row for row in model["meta"].get("unanalysed_source") or [] if row["reason"] != "failed-step"]
+    rows.append({"reason": "failed-step", "files": len(steps), "examples": steps[:10]})
+    model["meta"]["unanalysed_source"] = rows
+    atomic_write_text(model_path, yaml.safe_dump(model, sort_keys=False, allow_unicode=True))
 
 
 def _assessment_invocation(argv: list[str]) -> str:
@@ -4208,6 +4222,7 @@ def _assessment_render(
         atomic_write_text(model_path, yaml.safe_dump(model, sort_keys=False, allow_unicode=True))
         _run_script("validators/validate_intermediate.py", ["threat_model_output", str(model_path)])
         _enrich_and_gate_yaml(workspace, {**cfg, "repo_root": str(root)}, receipts)
+        _record_failed_steps(model_path, receipts)
         return model
 
     # Abuse matching binds its steps to the ranked findings, so the model is
@@ -4549,7 +4564,11 @@ def assess_repositories(
     labels = sorted(row["label"] for row in scope.inventory()["repositories"])
     warnings: list[str] = []
     infos: list[str] = []
-    for reason, description in (("oversized", "over 1 MiB"), ("non-utf8-text", "not in UTF-8")):
+    for reason, description in (
+        ("oversized", "over 1 MiB"),
+        ("non-utf8-text", "not in UTF-8"),
+        ("unreadable", "without read permission"),
+    ):
         excluded = _excluded_paths(scope, reason)
         if excluded:
             # MR-10: a text file is excluded, never silently.

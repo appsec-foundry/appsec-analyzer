@@ -744,13 +744,14 @@ def test_snapshot_keeps_line_numbers_after_multiline_masking(tmp_path):
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads files whatever their mode")
-def test_an_unreadable_source_file_is_named_in_the_admission_error(tmp_path):
+def test_an_unreadable_source_file_is_excluded_and_named_not_fatal(tmp_path):
     root = repository(tmp_path / "service")
     locked = root / "locked.txt"
     locked.write_text("data\n")
     locked.chmod(0)
     try:
-        with pytest.raises(scope.ScopeError, match=r"locked\.txt is not readable"):
-            scope.admit([str(root)], str(tmp_path / "out"), minimum=1)
+        view = scope.admit([str(root)], str(tmp_path / "out"), minimum=1).repositories[0]
     finally:
         locked.chmod(0o644)
+    assert {"path": "locked.txt", "reason": "unreadable"} in view.exclusions
+    assert "app.py" in view.files and "locked.txt" not in view.files
