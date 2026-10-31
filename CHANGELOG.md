@@ -28,6 +28,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- `assess` keeps running jobs side by side near its spending limit. A running call used to hold USD 2 of the limit although calls cost a fraction of that, so a USD 20 run fell back to one call at a time from about USD 14. Calls now hold what their kind of job has cost in this run, and the report reserves twice the largest survey job instead of a flat USD 2, which also avoids budget questions a run does not need. The limit stays hard, and a call stopped at the lower amount is repeated once with the full one.
+- The `assess` console says what each method and step did: an `Evidence` line counts confirmed, unclear, and refuted findings; the `Merge` line says what rules, the merge review, and verification combined; an `All findings` line counts what each method found alone; and the finalization shows one line per report section and step instead of one changing line.
 - The closing summary of `assess` names the cache reads and writes beside the token total, so the total no longer reads as tokens the model processed anew. Hosts that report no cache figures keep the plain total.
 - `appsec-analyzer update` and the update that `review` offers for a result of a newer Analyzer show the installed version before they ask and the newly installed version afterwards, as release version or commit and date, so you can see which version you run.
 - When the repository's `docs/security` still holds a finished assessment from an earlier release, `assess` starts without it instead of stopping, and names it at the end of the run. Only `--migrate-legacy` imports it, and only before the first run into the destination. `--ignore-legacy` is still accepted but no longer needed.

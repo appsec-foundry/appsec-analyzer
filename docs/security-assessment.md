@@ -87,7 +87,7 @@ Use `standard` as a starting point, also for business logic analysis. `thorough`
 
 For `claude` and `codex`, the spending limit for `assess` is USD 20 by default. Change it with `--budget USD`; `--hard-budget` is an alias. The CLI prints the selected limit before it starts. The controller reserves the cost of completion work before optional model calls, and it records an unavailable cost as a conservative charge.
 
-Control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run up to four jobs in parallel by default. The default is three when the number of components divides by three, and two on Codex and Copilot subscriptions. Set `max_parallel` in a scan profile or pass `--max-parallel N` (1 to 16). The CLI value wins and applies as given. The run header shows the value, and the time reserve uses it.
+Control analysis, trust-boundary review, the survey, verification, and abuse-case checks each run up to four jobs in parallel by default. The default is three when the number of components divides by three, and two on Codex and Copilot subscriptions. Set `max_parallel` in a scan profile or pass `--max-parallel N` (1 to 16). The CLI value wins and applies as given. The run header shows the value, and the time reserve uses it. Near the spending limit, calls reserve what their kind of job has cost in this run instead of the full per-call amount, so jobs keep running side by side. The limit itself stays fixed.
 
 For the OpenAI API, use `--profile codex` with `--assessment-depth`. The profile supplies the connection, model, reasoning, and output cap for that depth, so `--host` is not needed. Claude role overrides do not apply. Older `--host` and depth-profile calls still work; see [model selection](model-selection.md).
 

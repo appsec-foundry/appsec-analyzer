@@ -850,10 +850,12 @@ def render(
     workspace = Path(workspace)
     # Settle the mandatory renderer first so the summary can use its actual
     # unspent allowance instead of being skipped against a cold-role reserve.
-    progress("Stage 2: Security Architecture")
+    sections = 3 if requirements_gate.catalog_declares_requirements(workspace) else 2
+    progress(f"Stage 2: Security Architecture (1/{sections})")
     receipts = [_security_architecture(jobs, workspace, instructions)]
-    progress("Stage 2: Management Summary")
+    progress(f"Stage 2: Management Summary (2/{sections})")
     receipts.append(_management_summary(jobs, workspace, instructions))
-    progress("Stage 2: Requirements Compliance")
+    if sections == 3:
+        progress("Stage 2: Requirements Compliance (3/3)")
     receipts.append(_requirements_compliance(jobs, workspace, instructions))
     return receipts

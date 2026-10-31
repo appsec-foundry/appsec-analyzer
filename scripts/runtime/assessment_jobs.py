@@ -48,6 +48,12 @@ FINALIZATION_SECONDS = 120
 # which leaves room for corrections without multiplying one outlier across
 # every pending batch.
 COST_HEADROOM = 1.5
+# The lowest ceiling a call gets from its role's measurement. No call cost more than USD 0.42 in the two
+# Juice Shop runs of 2026-10-31, where a flat USD 2 per running call left one call running above USD 14.
+MIN_MEASURED_CALL_USD = 0.5
+# The report reserves this many times the largest survey job once a survey job is accepted: Run 1667's
+# largest was USD 0.56 and the report USD 0.57, one correction included, against a flat USD 2.
+REPORT_SURVEY_JOBS = 2
 REPORT_JOB = "stage2:security-architecture"
 SUMMARY_JOB = "stage2:management-summary"
 
@@ -127,6 +133,8 @@ class AssessmentBudget(DiscoveryBudget):
         self.init_retries()
         self.required = {}
         self.observed = {}
+        # The most one accepted job of each role cost; it bounds the role's calls near the limit.
+        self.largest_job = {}
         self.reserve_completion = False
         self.on_budget_increase = None
         # Controller-set shares of optional work, {group: (usd, calls)}. They
@@ -211,6 +219,7 @@ class AssessmentBudget(DiscoveryBudget):
             # Subscription completion reserves use calls and time only.
             estimate = 0.0 if self.subscription else usd
             self.observed[role] = (cost + estimate, jobs + 1, max(duration, seconds or 0.0))
+            self.largest_job[role] = max(self.largest_job.get(role, 0.0), estimate)
             if group in self.required:
                 planned_role, count = self.required[group]
                 self.plan_required(group, planned_role, count - 1)
@@ -243,6 +252,29 @@ class AssessmentBudget(DiscoveryBudget):
         allowance = 0.0 if self.subscription else (max(0.05, COST_HEADROOM * cost / jobs) if cost else self.call_usd)
         return allowance, 2 * seconds if seconds else MAX_CALL_SECONDS
 
+    def call_allowance(self):
+        """The ceiling of the next call: the full one while it fits every free worker, else what the role measured.
+
+        A running call holds its ceiling in `spent_usd`, so a flat ceiling far above what calls cost stops
+        the run's parallelism long before the money ends. A role without an accepted job keeps the full
+        ceiling, and an API host's worst case stays the lower bound. Every ceiling is still reserved in
+        full and enforced by the host; a call stopped at a measured one is repeated once (`invoke`).
+        """
+        _group, role, _optional = getattr(self._local, "job", (None, None, False))
+        largest = self.largest_job.get(role)
+        if not largest or getattr(self._local, "full_ceiling", False):
+            return self.call_usd
+        if self.available_usd() >= max(1, self.workers - self._inflight) * self.call_usd:
+            return self.call_usd
+        return min(self.call_usd, max(self.call_floor_usd, MIN_MEASURED_CALL_USD, COST_HEADROOM * largest))
+
+    def _report_usd(self, role, usd):
+        """What the report reserves: its own measurement, else what the survey's jobs say about the run's size."""
+        surveyed = self.largest_job.get("stride_analyzer")
+        if self.observed.get(role, (0.0, 0, 0.0))[1] or not surveyed:
+            return usd
+        return min(usd, max(MIN_MEASURED_CALL_USD, REPORT_SURVEY_JOBS * surveyed))
+
     def _optional_usd(self, role):
         """What an optional job of ``role`` must find above the reserves before it starts."""
         if self.observed.get(role, (0.0, 0, 0.0))[0]:
@@ -265,7 +297,7 @@ class AssessmentBudget(DiscoveryBudget):
             if key == group or (not optional and key != REPORT_JOB):
                 continue
             usd, seconds = self._estimate(role)
-            dollars += count * usd
+            dollars += count * (self._report_usd(role, usd) if key == REPORT_JOB else usd)
             if role == "stride_analyzer":
                 parallel_count += count
                 parallel = max(parallel, seconds)

@@ -523,6 +523,17 @@ def method_lines(threats, aspects, catalog) -> list[str]:
     return lines
 
 
+def method_total_line(threats, *, verified: bool) -> str:
+    """How many of the report's findings one method found alone and how many several found together."""
+    methods = [set(row.get("found_by") or []) for row in threats]
+    alone = Counter(next(iter(found)) for found in methods if len(found) == 1)
+    parts = [f"{sum(1 for found in methods if len(found) > 1)} by several methods"]
+    if verified:
+        parts.append(f"{alone['verification']} only by Verify")
+    parts += [f"{alone['survey']} only by the survey", f"{alone['scanners']} only by the scanners"]
+    return "All findings · " + " · ".join(parts)
+
+
 def aspect_cwes(catalog, aspect: str) -> set[str]:
     """The CWEs of an aspect's catalog verification items."""
     return {cwe for case in catalog["test_cases"] if case["aspect"] == aspect for cwe in case["cwe"]}
