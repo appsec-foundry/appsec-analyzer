@@ -166,6 +166,8 @@ For a single repository, accept repeatable `--abuse-case-file` selections throug
 
 Explain each finding in developer language: affected location, attack mechanism, harm, and required change. Provide prioritized, system-specific mitigations; urgent actions need concrete steps and verification criteria. State every unresolved decision explicitly.
 
+List the threat overview by risk: a threat with a higher risk never stands below one with a lower risk, and among equal risks the one whose most severe findings weigh more comes first. The same findings always give the same order, whatever a model answered. A threat keeps one number in the overview table, Figure 2, and the attack path list.
+
 ## REQ-013: Make the report easy to follow
 
 Provide a readable report with consistent finding references, legible architecture diagrams, and detailed catalogs for omitted connections. Show evidenced build-time risks separately, using a table when needed. Highlight up to three unresolved business, design, or deployment decisions and list any further ones with the supporting detail. Do not delegate finding verification to the reader.

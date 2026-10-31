@@ -74,7 +74,7 @@ def test_unused_automatic_roles_never_reappear_in_report_or_diagram(prefix, tmp_
     for index, actor in enumerate(data["actors"], 1):
         actor["id"] = f"{prefix}-{index}"
     data["threats"][0]["actor_ids"] = []
-    ctx = SimpleNamespace(yaml_data=data, output_dir=tmp_path)
+    ctx = SimpleNamespace(yaml_data=data, output_dir=tmp_path, triage={}, severity_for_ref=lambda ref: "")
     assert composer._render_identified_actors(ctx, None, {}) == ""
     assert scenarios_from_attack_paths(data, paths(), TAXONOMY) == scenarios_from_attack_paths(
         model(), paths(), TAXONOMY

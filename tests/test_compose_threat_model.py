@@ -631,6 +631,97 @@ def test_attack_paths_table_uses_the_register_severity(tmp_path: Path, monkeypat
     assert "high" in (rows[0]["risk_cell"] or "").strip().lower(), rows[0]["risk_cell"]
 
 
+def _threat_order_context(tmp_path: Path, risks: dict[str, str], scores: dict[str, int] | None = None):
+    """A report context with one finding per id at the given risk and ranking score."""
+    out = tmp_path / "out"
+    (out / ".fragments").mkdir(parents=True, exist_ok=True)
+    ranked = [{"id": finding, "score": score} for finding, score in (scores or {}).items()]
+    return compose.RenderContext(
+        output_dir=out,
+        contract={},
+        yaml_data={"threats": [{"id": finding, "title": finding, "risk": risk} for finding, risk in risks.items()]},
+        triage={"ranking": {"views": {"top_findings": {"findings_ranked": ranked}}}},
+        fragments_dir=out / ".fragments",
+    )
+
+
+def _threat_order(ctx, paths: list[tuple[str, list[str]]]) -> list[str]:
+    data = {"attack_paths": [{"class": cls, "findings": findings} for cls, findings in paths]}
+    compose._sort_attack_paths(ctx, data, compose._load_attack_class_taxonomy())
+    return [path["class"] for path in data["attack_paths"]]
+
+
+def test_a_higher_risk_never_stands_below_a_lower_one(tmp_path: Path) -> None:
+    """REQ-012: a Critical threat outranks a High one although the taxonomy lists it later."""
+    ctx = _threat_order_context(tmp_path, {"T-001": "High", "T-002": "Critical", "T-003": "Medium"})
+    paths = [("supply-chain", ["T-003"]), ("auth-bypass", ["T-001"]), ("privilege-escalation", ["T-002"])]
+    assert _threat_order(ctx, paths) == ["privilege-escalation", "auth-bypass", "supply-chain"]
+
+
+def test_equal_risks_rank_by_their_three_heaviest_findings(tmp_path: Path) -> None:
+    """REQ-012: breadth counts among equal risks, but many light findings cannot outweigh three heavy ones."""
+    risks = {f"T-{number:03d}": "High" for number in range(1, 9)}
+    scores = {"T-001": 600, "T-002": 100, "T-003": 500, "T-004": 400, "T-005": 300}
+    scores |= {"T-006": 200, "T-007": 200, "T-008": 200}
+    ctx = _threat_order_context(tmp_path, risks, scores)
+    assert _threat_order(
+        ctx,
+        [("injection", ["T-001", "T-002"]), ("privilege-escalation", ["T-003", "T-004", "T-005"])],
+    ) == ["privilege-escalation", "injection"]
+    # Five findings weigh no more than their heaviest three: 600 against 600, so the taxonomy decides.
+    assert _threat_order(
+        ctx,
+        [("auth-bypass", ["T-002", "T-006", "T-007", "T-008"]), ("injection", ["T-001"])],
+    ) == ["injection", "auth-bypass"]
+
+
+def test_the_same_findings_give_the_same_order_whatever_a_model_authored(tmp_path: Path) -> None:
+    """REQ-012: the order of the fragment carries no meaning, and without a ranking the taxonomy breaks ties."""
+    ctx = _threat_order_context(tmp_path, {"T-001": "Critical", "T-002": "Critical", "T-003": "High"})
+    paths = [("injection", ["T-001"]), ("remote-code-execution", ["T-002"]), ("auth-bypass", ["T-003"])]
+    assert _threat_order(ctx, paths) == _threat_order(ctx, list(reversed(paths)))
+    assert _threat_order(ctx, paths) == ["injection", "remote-code-execution", "auth-bypass"]
+
+
+def test_a_path_without_a_known_finding_comes_last(tmp_path: Path) -> None:
+    ctx = _threat_order_context(tmp_path, {"T-001": "Medium"})
+    assert _threat_order(ctx, [("injection", ["T-999"]), ("supply-chain", ["T-001"])]) == ["supply-chain", "injection"]
+
+
+def test_every_consumer_numbers_the_sorted_paths(tmp_path: Path, monkeypatch) -> None:
+    """REQ-012: the numbers come from one sorted list, so the table cannot disagree with Figure 2 or the list."""
+    ctx = _threat_order_context(tmp_path, {"T-001": "High", "T-002": "Critical"})
+    authored = [
+        {"class": "auth-bypass", "findings": ["T-001"]},
+        {"class": "privilege-escalation", "findings": ["T-002"]},
+    ]
+    monkeypatch.setattr(compose, "_load_attack_paths_fragment_impl", lambda *args: {"attack_paths": authored})
+    taxonomy = compose._load_attack_class_taxonomy()
+    loaded = compose._load_attack_paths_fragment(ctx, taxonomy, ctx.yaml_data["threats"])
+    assert [path["class"] for path in loaded["attack_paths"]] == ["privilege-escalation", "auth-bypass"]
+    rows = compose._compute_top_threats_rows(ctx)
+    assert [row["num_cell"] for row in rows] == [
+        '<a id="path-privilege-escalation"></a>①',
+        '<a id="path-auth-bypass"></a>②',
+    ]
+    assert "critical" in rows[0]["risk_cell"].lower() and "high" in rows[1]["risk_cell"].lower()
+
+
+def test_a_gap_filled_class_no_longer_changes_the_order(tmp_path: Path) -> None:
+    """The order once fell back to the taxonomy only when a class had to be added to the model's list."""
+    threats = [
+        {"id": "T-001", "title": "SQL injection", "cwe": "CWE-89", "risk": "High"},
+        {"id": "T-002", "title": "Open redirect", "cwe": "CWE-352", "risk": "Critical"},
+    ]
+    ctx = _threat_order_context(tmp_path, {})
+    ctx.yaml_data["threats"] = threats
+    taxonomy = compose._load_attack_class_taxonomy()
+    data = {"attack_paths": [{"class": "injection", "findings": ["T-001"], "actor": "internet-anon"}]}
+    compose._reconcile_attack_path_membership(data, taxonomy, threats, ctx)
+    compose._sort_attack_paths(ctx, data, taxonomy)
+    assert [path["class"] for path in data["attack_paths"]] == ["cross-site-request-forgery", "injection"]
+
+
 def test_components_table_scope_column_marks_out_of_scope(tmp_path: Path) -> None:
     """§2.3 gains a Scope column when meta.component_selection excluded some
     components — each row marked Analyzed / Out of scope for completeness."""

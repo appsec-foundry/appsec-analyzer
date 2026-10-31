@@ -2108,7 +2108,14 @@ def test_report_composer_publishes_compact_annotations_without_fallback(tmp_path
             "title": "A medium-severity finding must remain in the register, not the node annotations",
         }
     )
-    context = SimpleNamespace(yaml_data=model, output_dir=tmp_path, figure_basename="report.figure1.svg", warnings=[])
+    context = SimpleNamespace(
+        yaml_data=model,
+        output_dir=tmp_path,
+        figure_basename="report.figure1.svg",
+        warnings=[],
+        triage={},
+        severity_for_ref=lambda ref: "",
+    )
     markdown = composer._render_figure1_svg(context, paths, taxonomy)
     svg = (tmp_path / "report.figure1.svg").read_text()
     assert context.warnings == []
@@ -2545,7 +2552,14 @@ def test_composer_keeps_dfd_for_opposing_routes(tmp_path, prefix):
     )
     model["threats"] = [{"id": "F-001", "component": f"{prefix}-2", "risk": "High", "stride": "Tampering"}]
     paths = {"attack_paths": [{"class": "tampering", "actor": "internet-anon", "findings": ["F-001"]}]}
-    context = SimpleNamespace(yaml_data=model, output_dir=tmp_path, figure_basename="review.figure1.svg", warnings=[])
+    context = SimpleNamespace(
+        yaml_data=model,
+        output_dir=tmp_path,
+        figure_basename="review.figure1.svg",
+        warnings=[],
+        triage={},
+        severity_for_ref=lambda ref: "",
+    )
     markdown = composer._render_figure1_svg(context, paths, {})
     assert context.warnings == []
     assert "review.figure1-detail.svg" not in markdown

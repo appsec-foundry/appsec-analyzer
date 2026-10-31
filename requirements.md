@@ -42,7 +42,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-011:** **Look for misuse of business features.** Teams can choose abuse cases for the analysis to examine. The results show which cases are confirmed, unproven, mitigated, unresolved, inapplicable, or unchecked.
 
-- **REQ-012:** **Explain what to fix.** Findings describe how an attack could work, what damage it could do, and what developers need to change. Recommendations address this system and show what to tackle first. Urgent fixes include concrete steps and a way to check the result.
+- **REQ-012:** **Explain what to fix.** Findings describe how an attack could work, what damage it could do, and what developers need to change. Recommendations address this system and show what to tackle first. The report's threat overview lists the most severe threats first. Urgent fixes include concrete steps and a way to check the result.
 
 - **REQ-013:** **Make the report easy to follow.** Architecture diagrams are readable, and finding references stay consistent throughout the report. Supporting detail is easy to find, and the most important open decisions are highlighted without hiding the rest. The report does not leave finding verification to the reader.
 

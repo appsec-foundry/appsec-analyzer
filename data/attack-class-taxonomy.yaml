@@ -18,14 +18,14 @@
 # `injection` BEFORE `remote-code-execution` because some CWEs (CWE-94
 # Code Injection) are listed in both.
 #
-# Extension contract: additive only. New classes go at the end with the
-# next available glyph slot — do not renumber existing entries.
+# Extension contract: additive only. New classes go at the end.
 
 schema_version: 1
 
 # The fixed glyph sequence. Length = max number of classes the renderer
-# will emit. Position-based: classes are emitted in `classes` list order,
-# so the first non-empty class gets ①, the second gets ②, …
+# will emit. Position-based: the renderer orders the non-empty classes by
+# risk (REQ-012), so the most severe gets ①, the next ②, … The `classes`
+# list order only settles a tie.
 glyph_sequence: ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧"]
 
 classes:

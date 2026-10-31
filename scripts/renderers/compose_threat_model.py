@@ -3004,11 +3004,60 @@ def _load_attack_paths_fragment(ctx: RenderContext, taxonomy: dict, threats: lis
     validation / reconciliation, then drops victim-targeting paths when the
     product has no client tier (see
     :func:`_drop_victim_paths_without_client_tier`) so every downstream
-    consumer sees the same filtered set.
+    consumer sees the same filtered set, in the order that numbers it.
     """
     data = _load_attack_paths_fragment_impl(ctx, taxonomy, threats)
     _drop_victim_paths_without_client_tier(ctx, data)
+    _sort_attack_paths(ctx, data, taxonomy)
     return data
+
+
+# REQ-012: how many of a path's heaviest findings decide between paths of equal risk. Several, so a broad
+# weakness outranks one finding of the same weight; few, so many light findings cannot outweigh it.
+PATH_ORDER_FINDINGS = 3
+
+
+def _path_finding(threats: dict[str, dict[str, Any]], fid: str) -> tuple[str, dict[str, Any]]:
+    """Return (visible F-NNN, threat dict) for a fragment finding id."""
+    key = (fid or "").strip().upper()
+    m = re.match(r"^[TF]-(\d+)$", key)
+    digits = m.group(1) if m else None
+    t = {}
+    if digits:
+        t = threats.get(f"T-{digits}") or threats.get(f"F-{digits}") or {}
+    if not t:
+        t = threats.get(key, {})
+    visible = f"F-{digits}" if digits else key
+    return visible, t
+
+
+def _member_severity(ctx: RenderContext, t: dict[str, Any]) -> str:
+    """A path member's severity, through the resolver of the register's per-finding dots."""
+    ref = (t.get("t_id") or t.get("id") or "").strip()
+    return (ctx.severity_for_ref(ref) or t.get("risk") or t.get("severity") or "").strip()
+
+
+def _sort_attack_paths(ctx: RenderContext, data: dict, taxonomy: dict) -> None:
+    """Order the paths by risk, because every consumer numbers them by position (REQ-012).
+
+    A higher risk comes first. Equal risks compare the ranking scores of their heaviest findings, and
+    the taxonomy settles the rest, so the same findings always give the same order, whatever order a
+    model wrote and whether a class had to be added to it.
+    """
+    threats = _threat_lookup(ctx)
+    ranked = (ctx.triage.get("ranking") or {}).get("views", {}).get("top_findings", {}).get("findings_ranked") or []
+    scores = {_path_finding(threats, row.get("id") or "")[0]: row.get("score") or 0 for row in ranked}
+    classes = [cls.get("id") for cls in taxonomy.get("classes") or [] if isinstance(cls, dict)]
+
+    def rank(path: dict) -> tuple[int, float, int]:
+        members = dict(_path_finding(threats, fid) for fid in path.get("findings") or [])
+        members = {visible: t for visible, t in members.items() if t}
+        risk = min((_severity_rank(_member_severity(ctx, t)) for t in members.values()), default=99)
+        weights = sorted((scores.get(visible, 0) for visible in members), reverse=True)
+        cls = path.get("class")
+        return risk, -sum(weights[:PATH_ORDER_FINDINGS]), classes.index(cls) if cls in classes else len(classes)
+
+    data["attack_paths"] = sorted(data.get("attack_paths") or [], key=rank)
 
 
 def _load_attack_paths_fragment_impl(ctx: RenderContext, taxonomy: dict, threats: list[dict]) -> dict:
@@ -3274,7 +3323,7 @@ def _reconcile_attack_path_membership(data: dict, taxonomy: dict, threats: list[
     if not appended:
         if merged_any:
             # Findings were merged into existing paths but no new class added —
-            # persist the merge log and return without re-sorting.
+            # persist the merge log and return.
             try:
                 log_path = ctx.output_dir / ".reconcile-log.json"
                 existing_log: dict = {}
@@ -3292,22 +3341,7 @@ def _reconcile_attack_path_membership(data: dict, taxonomy: dict, threats: list[
                 pass
         return
 
-    # Re-sort attack_paths per taxonomy declaration order so ① ② … stays
-    # deterministic across runs.
-    taxonomy_order = [
-        (cls.get("id") or "").strip()
-        for cls in (taxonomy.get("classes") or [])
-        if isinstance(cls, dict) and cls.get("id")
-    ]
-    combined = list(data.get("attack_paths") or []) + appended
-    data["attack_paths"] = sorted(
-        combined,
-        key=lambda ap: (
-            taxonomy_order.index((ap.get("class") or "").strip())
-            if (ap.get("class") or "").strip() in taxonomy_order
-            else 999
-        ),
-    )
+    data["attack_paths"] = list(data.get("attack_paths") or []) + appended
 
     try:
         log_path = ctx.output_dir / ".reconcile-log.json"
@@ -9702,19 +9736,6 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
                 return c_id, c.get("name") or c_id
         return "C-00", raw
 
-    def lookup_threat(fid: str) -> tuple[str, dict[str, Any]]:
-        """Return (visible F-NNN, threat dict) for a fragment finding id."""
-        key = (fid or "").strip().upper()
-        m = re.match(r"^[TF]-(\d+)$", key)
-        digits = m.group(1) if m else None
-        t = {}
-        if digits:
-            t = threats.get(f"T-{digits}") or threats.get(f"F-{digits}") or {}
-        if not t:
-            t = threats.get(key, {})
-        visible = f"F-{digits}" if digits else key
-        return visible, t
-
     rows: list[dict[str, Any]] = []
     for idx, ap in enumerate(paths):
         if idx >= len(glyphs):
@@ -9731,7 +9752,7 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
         member_threats: list[dict[str, Any]] = []
         seen_fids: set[str] = set()
         for fid in ap.get("findings") or []:
-            visible, t = lookup_threat(fid)
+            visible, t = _path_finding(threats, fid)
             if not visible or visible in seen_fids:
                 continue
             seen_fids.add(visible)
@@ -9785,13 +9806,9 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
         # Risk = max severity across member findings — read through the same
         # canonical resolver as the per-finding dots above, so the path's own
         # rating can never contradict the findings it is aggregating.
-        def _member_severity(t: dict[str, Any]) -> str:
-            ref = (t.get("t_id") or t.get("id") or "").strip()
-            return (ctx.severity_for_ref(ref) or t.get("risk") or t.get("severity") or "").strip()
-
         if member_threats:
-            top_t = min(member_threats, key=lambda t: _severity_rank(_member_severity(t)))
-            risk_word = _member_severity(top_t)
+            top_t = min(member_threats, key=lambda t: _severity_rank(_member_severity(ctx, t)))
+            risk_word = _member_severity(ctx, top_t)
         else:
             risk_word = ""
         risk_emoji = _TOP_THREATS_SEVERITY_EMOJI.get(risk_word.lower(), "")

@@ -1037,6 +1037,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_compose_threat_model.py::test_a_higher_risk_never_stands_below_a_lower_one
+      - tests/test_compose_threat_model.py::test_equal_risks_rank_by_their_three_heaviest_findings
+      - tests/test_compose_threat_model.py::test_the_same_findings_give_the_same_order_whatever_a_model_authored
+      - tests/test_compose_threat_model.py::test_every_consumer_numbers_the_sorted_paths
       - tests/test_architect_review_runtime.py::test_final_gate_rejects_lost_corrections_and_clears_old_success
       - tests/test_validate_mitigation_quality.py::test_urgent_fix_requires_steps_and_verification
       - tests/test_render_abuse_cases.py::test_review_task_and_unconfirmed_fix_are_not_chain_blockers
