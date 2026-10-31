@@ -412,6 +412,102 @@ def test_metadata_loading_references_still_keep_route_candidates(metadata, conte
     assert roles["assets/sample.js"]["kind"] == "unknown"
 
 
+@pytest.mark.parametrize(
+    "metadata,content",
+    [
+        ("compose.yaml", "services:\n  orders:\n    command: node assets/sample.js\n"),
+        ("config.json", '{"command":"node assets/sample.js"}'),
+        ("pyproject.toml", '[project.scripts]\nserve = "assets.sample:main"\n'),
+        ("README.md", "Run `node assets/sample.js` to start the application.\n"),
+        ("config.yaml", "command: node $ENTRY\n"),
+    ],
+)
+def test_inventory_and_verification_keep_routes_named_by_metadata(tmp_path, metadata, content):
+    _write(tmp_path, {**_sources(), metadata: content})
+    inventory = build_inventory(tmp_path)
+    assert {row["path"] for row in inventory["routes"]} == {"/source", "/orders/:id"}
+    facts = cc.route_facts(tmp_path, inventory, [], components={"api": list(_sources())})
+    assert {row["path"] for row in facts["routes"].values()} == {"/source", "/orders/:id"}
+    assert set(_sources()) <= set(facts["files"])
+    case = {"id": "authn", "starting_points": {"facts": ["route_inventory.authn_signal"]}, "applies_when": []}
+    assert len(cc.starting_candidates(case, "api", facts, [])["candidates"]) == 2
+
+
+@pytest.mark.parametrize("failure", ["unreadable", "oversize"])
+def test_incomplete_inventory_metadata_keeps_routes(tmp_path, monkeypatch, failure):
+    from analyzers import route_inventory as ri
+
+    _write(tmp_path, {**_sources(), "config.yaml": "command: node assets/sample.js\n"})
+    metadata = tmp_path / "config.yaml"
+    if failure == "oversize":
+        monkeypatch.setattr(su, "MAX_FILE_BYTES", 1024)
+        metadata.write_text(" " * 1025)
+        # Source extraction's blob filter must not silently drop use evidence.
+        monkeypatch.setattr(ri, "_scan_is_oversize", lambda path: path == metadata)
+    else:
+        original_open = Path.open
+
+        def open_file(path, *args, **kwargs):
+            if path == metadata:
+                raise OSError("unreadable metadata")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", open_file)
+    assert {row["path"] for row in build_inventory(tmp_path)["routes"]} == {"/source", "/orders/:id"}
+
+
+def test_flask_inventory_keeps_configured_program(tmp_path):
+    _write(
+        tmp_path,
+        {
+            "server.py": PY_SERVER,
+            "assets/sample.py": PY_SAMPLE,
+            "compose.yaml": "command: python -m assets.sample\n",
+        },
+    )
+    assert {row["path"] for row in build_inventory(tmp_path)["routes"]} == {"/source", "/orders/<id>"}
+
+
+@pytest.mark.parametrize(
+    "specifier",
+    [
+        "absolute",
+        "file-url",
+        "#routes",
+        "./assets/sample.js?reload",
+        "./assets/sample.js#version",
+        "./assets/%73ample.js",
+        "./not-admitted.js",
+    ],
+)
+@pytest.mark.parametrize(
+    "form",
+    [
+        "import {path}\n",
+        "import({path})\n",
+        "require({path})\n",
+        "export * from {path}\n",
+        "import {{route}} from {path}\n",
+        "import {{\n  route\n}} from {path}\n",
+        "export {{\n  route\n}} from {path}\n",
+    ],
+)
+def test_unresolved_local_module_loads_keep_routes(tmp_path, specifier, form):
+    target = tmp_path / "assets/sample.js"
+    value = str(target) if specifier == "absolute" else target.as_uri() if specifier == "file-url" else specifier
+    sources = {**_sources(), "loader.mjs": form.format(path=json.dumps(value))}
+    if specifier == "#routes":
+        sources["package.json"] = json.dumps({"imports": {"#routes": "./assets/sample.js"}})
+    paths = _write(tmp_path, sources)
+    # The route inventory's code-only caller must also retain package aliases.
+    code_paths = [path for path in paths if path.suffix in {".mjs", ".js"}]
+    assert su.classify_paths(tmp_path, code_paths)["assets/sample.js"]["kind"] == "unknown"
+    inventory = build_inventory(tmp_path)
+    assert {row["path"] for row in inventory["routes"]} == {"/source", "/orders/:id"}
+    facts = cc.route_facts(tmp_path, inventory, [])
+    assert {row["path"] for row in facts["routes"].values()} == {"/source", "/orders/:id"}
+
+
 @pytest.mark.parametrize("loader", ["README.md", "loader.txt", "config.json"])
 def test_metadata_names_do_not_hide_declared_or_imported_programs(loader):
     sources = {**_sources(), loader: "custom_loader(variable)\n"}

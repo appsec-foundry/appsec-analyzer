@@ -593,6 +593,10 @@ requirements:
       - tests/test_source_usage.py::test_generated_routes_in_a_text_file_are_not_reintroduced
       - tests/test_source_usage.py::test_metadata_does_not_resurrect_routes_from_a_text_file
       - tests/test_source_usage.py::test_metadata_loading_references_still_keep_route_candidates
+      - tests/test_source_usage.py::test_inventory_and_verification_keep_routes_named_by_metadata
+      - tests/test_source_usage.py::test_incomplete_inventory_metadata_keeps_routes
+      - tests/test_source_usage.py::test_flask_inventory_keeps_configured_program
+      - tests/test_source_usage.py::test_unresolved_local_module_loads_keep_routes
       - tests/test_source_usage.py::test_metadata_names_do_not_hide_declared_or_imported_programs
       - tests/test_source_usage.py::test_a_shebang_in_a_document_keeps_execution_uncertain
       - tests/test_source_usage.py::test_metadata_python_module_launch_keeps_the_program_candidate

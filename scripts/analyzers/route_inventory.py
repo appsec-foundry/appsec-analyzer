@@ -64,7 +64,7 @@ from typing import Iterable
 from shared._path_guard import is_safe_to_read
 
 from analyzers.handler_resolver import HandlerResolver
-from analyzers.source_usage import classify_paths
+from analyzers.source_usage import METADATA_EXTS, classify_paths
 
 try:
     import yaml  # noqa: F401  (kept for parity with sibling scripts; not used here yet)
@@ -133,7 +133,8 @@ def _is_excluded(rel: str) -> bool:
     )
 
 
-def _walk_sources(repo_root: Path) -> Iterable[Path]:
+def _walk_sources(repo_root: Path, *, usage_evidence: bool = False) -> Iterable[Path]:
+    """Include metadata for use classification, without extracting routes from it."""
     for dirpath, dirnames, filenames in os.walk(repo_root):
         rel_dir = str(Path(dirpath).relative_to(repo_root)).replace("\\", "/")
         dirnames[:] = [d for d in dirnames if not _is_excluded(f"{rel_dir}/{d}" if rel_dir != "." else d)]
@@ -142,10 +143,12 @@ def _walk_sources(repo_root: Path) -> Iterable[Path]:
             if _is_excluded(rel):
                 continue
             p = Path(dirpath) / name
-            if p.suffix.lower() not in _SOURCE_EXTS:
+            if p.suffix.lower() not in _SOURCE_EXTS and not (usage_evidence and p.suffix.lower() in METADATA_EXTS):
                 continue
             # Central per-file byte cap: skip oversize blobs (not real source).
-            if _scan_is_oversize is not None and _scan_is_oversize(p):
+            # Use evidence has its own bounded reads: omitted evidence must
+            # produce an incomplete classification rather than remove routes.
+            if not usage_evidence and _scan_is_oversize is not None and _scan_is_oversize(p):
                 continue
             if is_safe_to_read(p, repo_root):
                 yield p
@@ -1300,7 +1303,7 @@ def _collect_routes(
     """Extract routes and guarded mounts from every source file."""
     sources = list(_walk_sources(repo_root))
     if usage is None:
-        usage = classify_paths(repo_root, sources)
+        usage = classify_paths(repo_root, _walk_sources(repo_root, usage_evidence=True))
     for src in sources:
         if usage.get(src.relative_to(repo_root).as_posix(), {}).get("kind") == "text-data":
             continue
@@ -1646,7 +1649,7 @@ def build_inventory(repo_root: Path) -> dict:
     all_routes: list[RouteCandidate] = []
     frameworks_seen: set[str] = set()
     unsupported: list[str] = []
-    usage = classify_paths(repo_root, _walk_sources(repo_root))
+    usage = classify_paths(repo_root, _walk_sources(repo_root, usage_evidence=True))
 
     _collect_routes(
         repo_root,

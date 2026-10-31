@@ -487,6 +487,8 @@ def test_exclude_fallback_and_source_walker_filters(tmp_path: Path, monkeypatch)
 
     files = [p.relative_to(tmp_path).as_posix() for p in ri._walk_sources(tmp_path)]
     assert files == ["src/app.ts"]
+    evidence = {p.relative_to(tmp_path).as_posix() for p in ri._walk_sources(tmp_path, usage_evidence=True)}
+    assert evidence == {"src/app.ts", "src/notes.txt"}
 
 
 def test_read_lines_and_extract_file_handle_empty_and_unsupported_files(tmp_path: Path) -> None:
@@ -527,7 +529,7 @@ def test_build_inventory_tolerates_unreadable_source_and_dedupes_routes(tmp_path
     src = tmp_path / "app.ts"
     src.write_text("app.get('/x', h);\n", encoding="utf-8")
 
-    def fake_walk(_repo_root):
+    def fake_walk(_repo_root, *, usage_evidence=False):
         return iter([src])
 
     duplicate = ri.RouteCandidate(

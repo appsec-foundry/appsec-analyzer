@@ -63,6 +63,8 @@ For JavaScript and TypeScript helpers with literal arguments, the classifier fol
 
 Markdown, plain text, JSON, YAML and TOML contribute file-reference evidence without counting as unsupported program languages. Their presence alone does not invalidate a recognized text use. Module imports, program entries, shebangs and uncertain configured execution retain route candidates. References include unquoted configuration paths. All metadata stays admitted to the other analyses.
 
+The route inventory includes this metadata in use classification under the same repository exclusions and bounded reads, while route extraction still visits program files only. Unreadable or oversized evidence retains route candidates. Absolute JavaScript module paths, URL specifiers other than `node:` built-ins, encoded paths, URL queries or fragments, and `#` package-import aliases remain unresolved and prevent text-only classification. Relative module references must resolve within the selected sources too.
+
 | Part | Responsibility |
 | --- | --- |
 | Verification catalog | [data/test-cases.yaml](data/test-cases.yaml) defines the checks. [schemas/test-cases.schema.yaml](schemas/test-cases.schema.yaml) validates the catalog. |

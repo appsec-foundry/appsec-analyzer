@@ -252,6 +252,8 @@ In JavaScript and TypeScript, this includes short local helper chains that retur
 
 README files and common JSON, YAML or TOML configuration do not prevent this classification merely by being present. Their file references still count as evidence of other uses, including unquoted launch paths. Grouping candidates by source locality falls back to the previous packing when it would add jobs for the same candidates.
 
+The route inventory includes these documentation and configuration files when checking source use. If it cannot read them within its limits, it keeps the route candidates. Absolute JavaScript import paths, URL imports other than `node:` built-ins, encoded paths, URL queries or fragments, and package aliases beginning with `#` also keep candidates because their targets remain unresolved. Relative imports must resolve within the selected sources too.
+
 You choose the verified aspects per depth in a scan profile, and an organization can set its own defaults in an organization profile. Analyzer starts from the shipped file, applies the organization profile, and then the scan profile. There is no command-line option for it.
 
 To check every route's authentication and data protection as well at standard depth, and authorization already at quick depth, add this to a scan profile:

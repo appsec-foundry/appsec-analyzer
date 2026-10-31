@@ -32,7 +32,7 @@ MAX_HELPER_DEPTH = 3
 MAX_HELPER_BODY = 4096
 MAX_DELEGATED_HELPERS = 64
 _JS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
-_METADATA = {
+METADATA_EXTS = {
     ".md",
     ".markdown",
     ".rst",
@@ -50,6 +50,11 @@ _EXECUTION_KEY = re.compile(
 )
 _STRINGS = re.compile(r"""'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*""")
 _JS_TEMPLATES = re.compile(r"`(?:[^`\\]|\\[\s\S])*`")
+_JS_MODULE_REFERENCE = re.compile(
+    # The source literal follows `from` even when imported/exported names
+    # span several lines; no scan across the declaration is needed.
+    r"\b(?:import\s*(?:\(\s*)?|from\s*|require\s*\(\s*)['\"]([^'\"\n]+)['\"]"
+)
 _READ = re.compile(r"\b(?P<module>[A-Za-z_$][\w$]*)\.(?P<method>readFileSync|readFile)\s*\(")
 _CALLBACK = re.compile(
     r"\b(?P<app>[A-Za-z_$][\w$]*)\.(?:get|post|put|patch|delete|all)\s*\(\s*"
@@ -603,8 +608,7 @@ def _module_references(file: str, text: str, sources: Mapping[str, str]) -> set[
     found = set(direct_imports(file, text, lambda candidate: candidate in sources))
     folder = posixpath.dirname(file)
     if Path(file).suffix.lower() in _JS:
-        pattern = r"\b(?:import\s*(?:\(\s*)?|(?:import|export)\s+[^;\n]*?\bfrom\s*|require\s*\(\s*)['\"]([^'\"]+)['\"]"
-        for match in re.finditer(pattern, text):
+        for match in _JS_MODULE_REFERENCE.finditer(text):
             if match[1].startswith("."):
                 base = _relative(folder, match[1])
                 if base:
@@ -930,7 +934,7 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
     ambiguous = not complete
     for file, source in sources.items():
         suffix = Path(file).suffix.lower()
-        if suffix in _METADATA and file not in runtime:
+        if suffix in METADATA_EXTS and file not in runtime:
             # Metadata is reference evidence, not an unsupported language.
             # Keep launch paths (including unquoted YAML/TOML values) below;
             # uncertain configured execution still leaves candidates open.
@@ -952,8 +956,23 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
         ambiguous |= suffix not in _JS | {".py", ".graphql", ".gql", ".graphqls"}
         for target in _module_references(file, text, sources):
             runtime[target] = _role("runtime", "Referenced as a program module", file)
-            ambiguous |= Path(target).suffix.lower() in _METADATA
+            ambiguous |= Path(target).suffix.lower() in METADATA_EXTS
         if suffix in _JS:
+            # Absolute paths, URLs and package-import aliases can execute
+            # selected files but are outside the relative resolver. Do not
+            # mistake a literal, unresolved load for proof of text-only use.
+            for match in _JS_MODULE_REFERENCE.finditer(text):
+                specifier = match[1]
+                ambiguous |= (
+                    specifier.startswith("/")
+                    or any(char in specifier for char in "\\%?#")
+                    or (":" in specifier and not specifier.startswith("node:"))
+                )
+                if specifier.startswith("."):
+                    base = _relative(posixpath.dirname(file), specifier)
+                    ambiguous |= base is None or not any(
+                        candidate in sources for candidate in js_module_candidates(base)
+                    )
             # Identifier escapes are outside this lexer's binding model;
             # they must not hide an escaped helper, cache or other use.
             ambiguous |= bool(re.search(r"\\u", code_only(text)))
@@ -1037,7 +1056,7 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
                     unexplained.update(
                         ref for ref in (_relative("", value), _relative(posixpath.dirname(file), value)) if ref
                     )
-            if Path(file).suffix.lower() in _METADATA:
+            if Path(file).suffix.lower() in METADATA_EXTS:
                 for token in _PATH_TOKEN.finditer(text):
                     for ref in (_relative("", token.group()), _relative(posixpath.dirname(file), token.group())):
                         if ref:
