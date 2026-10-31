@@ -466,6 +466,8 @@ requirements:
       - schemas/test-cases.schema.yaml
       - scripts/model/case_outcomes.py
       - scripts/model/case_candidates.py
+      - scripts/analyzers/route_inventory.py
+      - scripts/analyzers/source_usage.py
       - scripts/model/case_postchecks.py
       - scripts/contexts/case_analysis.py
       - scripts/runtime/assessment_jobs.py
@@ -558,6 +560,85 @@ requirements:
       - tests/test_case_candidates.py::test_a_signal_mentioned_only_in_comments_or_test_files_does_not_apply
       - tests/test_case_candidates.py::test_object_routes_and_scanner_hits_form_one_candidate_per_location
       - tests/test_case_candidates.py::test_candidate_ids_are_stable_and_distinct_per_case_and_component
+      - tests/test_case_candidates.py::test_batches_keep_later_catalog_locations_beside_their_source_file
+      - tests/test_case_candidates.py::test_batches_group_a_shared_model_without_combining_route_candidates
+      - tests/test_case_candidates.py::test_source_locality_never_pushes_scanner_leads_behind_unflagged_code
+      - tests/test_case_candidates.py::test_source_locality_never_adds_a_job_to_pack_the_same_locations
+      - tests/test_case_candidates.py::test_overlapping_preload_windows_keep_each_authorized_line_once
+      - tests/test_case_candidates.py::test_a_candidate_inside_a_handler_preloads_its_reaching_routes_guard
+      - tests/test_case_candidates.py::test_a_route_chain_gives_each_generated_route_the_guards_of_its_own_method
+      - tests/test_case_candidates.py::test_a_guard_registered_after_a_generator_does_not_protect_its_routes
+      - tests/test_case_candidates.py::test_quoted_generator_calls_are_candidates_only_when_execution_is_uncertain
+      - tests/test_route_inventory.py::test_route_shaped_literal_examples_are_not_live_registrations
+      - tests/test_route_inventory.py::test_a_quoted_guard_never_protects_an_actual_route
+      - tests/test_route_inventory.py::test_potentially_executed_string_routes_remain_candidates
+      - tests/test_route_inventory.py::test_tutorial_directory_names_do_not_exclude_executable_routes
+      - tests/test_source_usage.py::test_role_follows_text_use_instead_of_directory_names
+      - tests/test_source_usage.py::test_recognized_standard_javascript_text_reads
+      - tests/test_source_usage.py::test_local_text_helpers_resolve_literal_arguments_and_composed_paths
+      - tests/test_source_usage.py::test_bounded_helper_chain_keeps_the_read_and_call_evidence
+      - tests/test_source_usage.py::test_constant_composed_paths_are_text_reads
+      - tests/test_source_usage.py::test_escaped_helpers_or_unknown_consumers_keep_route_candidates
+      - tests/test_source_usage.py::test_unknown_or_invalid_helper_arguments_keep_candidates
+      - tests/test_source_usage.py::test_helpers_with_untraced_execution_are_unknown
+      - tests/test_source_usage.py::test_helper_limits_leave_routes_eligible
+      - tests/test_source_usage.py::test_non_javascript_constant_forms_do_not_establish_text_use
+      - tests/test_source_usage.py::test_helper_classification_removes_only_route_candidates
+      - tests/test_source_usage.py::test_text_helpers_keep_many_source_files_without_planning_their_example_routes
+      - tests/test_source_usage.py::test_module_reference_takes_precedence_over_text_use
+      - tests/test_source_usage.py::test_text_used_outside_plain_json_is_unknown
+      - tests/test_source_usage.py::test_ambiguous_loading_or_bindings_keep_candidate
+      - tests/test_source_usage.py::test_python_text_use_and_runtime_import
+      - tests/test_source_usage.py::test_inventory_and_verification_drop_false_routes_but_retain_other_analysis
+      - tests/test_source_usage.py::test_generated_routes_in_a_text_file_are_not_reintroduced
+      - tests/test_source_usage.py::test_metadata_does_not_resurrect_routes_from_a_text_file
+      - tests/test_source_usage.py::test_metadata_loading_references_still_keep_route_candidates
+      - tests/test_source_usage.py::test_metadata_names_do_not_hide_declared_or_imported_programs
+      - tests/test_source_usage.py::test_a_shebang_in_a_document_keeps_execution_uncertain
+      - tests/test_source_usage.py::test_metadata_python_module_launch_keeps_the_program_candidate
+      - tests/test_source_usage.py::test_long_metadata_whitespace_does_not_invalidate_text_use
+      - tests/test_source_usage.py::test_uncertain_loader_in_another_file_keeps_candidate
+      - tests/test_source_usage.py::test_escaping_source_link_is_never_read
+      - tests/test_source_usage.py::test_analysis_limits_keep_candidates
+      - tests/test_source_usage.py::test_flask_route_extraction_has_the_same_text_file_rule
+      - tests/test_source_usage_delegated.py::test_fixed_delegated_text_is_recognized
+      - tests/test_source_usage_delegated.py::test_literal_import_alias_is_traced
+      - tests/test_source_usage_delegated.py::test_executable_reference_still_wins
+      - tests/test_source_usage_delegated.py::test_unknown_loader_in_another_file_stays_global
+      - tests/test_source_usage_delegated.py::test_additional_consumer_or_module_escape_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_cache_escape_or_write_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_non_json_consumer_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_unresolved_reader_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_incomplete_corpus_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_exporting_entry_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_declared_target_entry_wins
+      - tests/test_source_usage_delegated.py::test_customized_directory_mapping_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_directory_limit_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_proof_limit_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_declared_entries_generator_is_retained
+      - tests/test_source_usage_delegated.py::test_cache_declaration_inside_a_string_is_not_a_binding
+      - tests/test_source_usage_delegated.py::test_unknown_consumer_in_another_importer_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_an_unsupported_import_form_in_another_file_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_unsupported_named_import_specifier_keeps_candidate
+      - tests/test_source_usage_delegated.py::test_source_bounds_are_applied_before_proving
+      - tests/test_source_usage_delegated.py::test_directory_callback_cannot_shadow_standard_bindings
+      - tests/test_source_usage_delegated.py::test_cache_evidence_names_the_read_and_the_json_consumer
+      - tests/test_source_usage_delegated.py::test_delegated_bodies_do_not_hide_reads_from_the_file_limit
+      - tests/test_source_usage_delegated.py::test_parallel_classification_keeps_proofs_local
+      - tests/test_source_usage_delegated.py::test_delegated_reads_preserve_scanner_sites_and_all_sources
+      - tests/test_source_usage_delegated.py::test_directory_examples_reduce_jobs_and_imported_programs_remain
+      - tests/test_source_usage_delegated.py::test_long_binding_names_retain_candidates
+      - tests/test_source_usage_delegated.py::test_import_bindings_are_bounded_even_when_unused
+      - tests/test_source_usage_delegated.py::test_dollar_import_names_keep_unknown_consumers
+      - tests/test_source_usage_delegated.py::test_dollar_cache_names_cannot_escape
+      - tests/test_source_usage_delegated.py::test_dollar_helper_names_cannot_escape
+      - tests/test_source_usage_delegated.py::test_dollar_import_names_still_trace_known_json_use
+      - tests/test_source_usage_delegated.py::test_encoded_or_indirect_module_consumers_keep_candidates
+      - tests/test_source_usage_delegated.py::test_encoded_cache_reference_cannot_escape
+      - tests/test_source_usage_delegated.py::test_unicode_escape_in_plain_json_text_is_not_a_loader
+      - tests/test_source_usage_delegated.py::test_encoded_export_also_keeps_a_private_helper_candidate
+      - tests/test_source_usage_delegated.py::test_template_execution_also_keeps_a_private_helper_candidate
+      - tests/test_source_usage_delegated.py::test_indirect_module_reference_beside_a_named_import_keeps_candidate
       - tests/test_case_candidates.py::test_route_facts_select_the_candidates_of_each_case
       - tests/test_case_candidates.py::test_the_cap_keeps_scanner_hits_and_counts_the_rest
       - tests/test_case_candidates.py::test_rule_candidates_stay_in_their_component_and_repository
@@ -647,6 +728,11 @@ requirements:
       - tests/test_multi_repo_builder.py::test_a_verification_finding_of_its_own_passes_the_evidence_review
       - tests/test_multi_repo_builder.py::test_only_unchecked_verification_findings_of_their_own_are_reviewed
       - tests/test_multi_repo_builder.py::test_no_evidence_review_without_a_verification_finding_of_its_own
+      - tests/test_multi_repo_builder.py::test_duplicate_verification_findings_share_one_review_and_keep_every_item_link
+      - tests/test_multi_repo_builder.py::test_verification_reviews_keep_different_or_unknown_route_scopes_separate
+      - tests/test_multi_repo_builder.py::test_a_partial_postcheck_does_not_confirm_an_unreviewed_duplicate
+      - tests/test_multi_repo_builder.py::test_fully_postchecked_duplicates_keep_every_link_without_another_review
+      - tests/test_multi_repo_builder.py::test_verification_deduplication_preserves_different_components_sources_and_mechanisms
       - tests/test_multi_repo_builder.py::test_a_refuted_verification_finding_stays_in_the_valid_model
       - tests/test_multi_repo_assessment.py::test_verification_findings_of_their_own_get_their_components_evidence_review
       - tests/test_case_outcomes.py::test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_every_finding

@@ -29,7 +29,7 @@ from collections import Counter
 from contexts import case_analysis
 from contexts import multi_repo_analysis as analysis
 from model import case_candidates, case_outcomes
-from runtime.assessment_host import MAX_PRELOAD_WINDOWS, preload_room
+from runtime.assessment_host import MAX_PRELOAD_WINDOWS, MAX_SLICE_LINES, preload_room
 from shared.assessment_sources import source_rows
 
 from orchestrator import assessment_workspace as ws
@@ -114,7 +114,7 @@ def plan_pilot(scope, architecture, scanned, test_cases, *, progress) -> dict:
                     )
                 entry["precheck"] = {}
             if entry["precheck"]:
-                entry["jobs"] = case_candidates.batches(entry["precheck"])
+                entry["jobs"] = case_candidates.batches(entry["precheck"], facts=facts[rid])
             entries.append(entry)
     work = [(entry, number) for entry in entries if entry["precheck"] for number in range(1, len(entry["jobs"]) + 1)]
     worked = sorted({entry["aspect"] for entry, _ in work}, key=aspects.index)
@@ -729,6 +729,7 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
             if key == row.get("route_id"):
                 guards += [{"repository_id": rid, "file": path, "line": start} for path, start, _ in spans]
             elif reached:
+                guards += [{"repository_id": rid, "file": path, "line": start} for path, start, _ in spans]
                 middleware += [[rid, path, start, end] for path, start, end in spans]
                 lines_before = [*lines_before, reached["handler_line"]]
             registered += [[rid, reached.get("handler_file"), line] for line in lines_before]
@@ -758,15 +759,43 @@ def _preload(scope, context, precheck, rid, facts, envelope, architecture, compo
             )
             if key not in served
         ]
-    return analysis.supporting_preload(
-        scope,
-        targets,
-        served,
-        envelope["job_allowed"],
-        context=context,
-        component_sources=analysis.source_selection(components),
-        max_context_bytes=limit,
+        served = _coalesce_preload(served)
+    return _coalesce_preload(
+        analysis.supporting_preload(
+            scope,
+            targets,
+            served,
+            envelope["job_allowed"],
+            context=context,
+            component_sources=analysis.source_selection(components),
+            max_context_bytes=limit,
+        )
     )
+
+
+def _coalesce_preload(windows) -> list[tuple]:
+    """Serve each selected source line once, preserving source order and bounds.
+
+    Overlapping guard, model and handler windows describe the same captured
+    bytes. Merge only overlapping or adjacent intervals, never unread gaps.
+    """
+    files: dict[tuple, list[tuple]] = {}
+    for rid, path, start, end in windows:
+        files.setdefault((rid, path), []).append((start, end))
+    result = []
+    for (rid, path), spans in files.items():
+        merged: list[list[int]] = []
+        for start, end in sorted(spans):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        for start, end in merged:
+            result.extend(
+                (rid, path, first, min(end, first + MAX_SLICE_LINES - 1))
+                for first in range(start, end + 1, MAX_SLICE_LINES)
+            )
+    return result
 
 
 def _finding(finding: dict, finding_id: str, component_id: str, aspect: str, cases: dict) -> dict:

@@ -220,6 +220,8 @@ The survey and verification work independently. Verification starts from routes 
 
 Findings reported only by verification receive an evidence review during consolidation. It uses one or more calls per affected component, with the evidence-review model and the same source that verification used.
 
+Repeated verification findings share one evidence review when they identify the same component, code location, weakness family, routes and mechanism. The report retains every linked verification item and finding ID. Findings with different routes or traces stay separate. Automatically confirmed findings stay separate from unconfirmed ones, so they neither need another review nor confirm an unreviewed finding.
+
 A separate merge-review call writes a combined title, scenario, and remediation from the findings and their locations. It receives no source files. If the call fails, does not fit the budget, or omits a location, Analyzer keeps the text of the most severe part and lists every part’s remediation.
 
 Findings on neighboring lines stay separate, as do findings about different routes registered on one line. The same weakness can therefore appear twice if methods cite different lines or unrelated CWE families. A refuted survey or scanner finding never absorbs a verification finding.
@@ -243,6 +245,12 @@ Before the survey, Analyzer names the components selected for verification. Befo
 Jobs that do not fit the remaining budget do not run. Their locations stay undecidable, and the summary and the report mark the aspect incomplete. Progress separates Scanners, Survey, and Verify. It shows each component once verification finishes, with its duration unless reused, and any jobs without a result.
 
 ### Configure verification
+
+Analyzer avoids server-route checks for source files it recognizes as text read into a JSON response. This currently covers simple module-relative reads in Express and Flask handlers. Imports and program entry points keep the file eligible for route checks, as do dynamic loading and cases the analysis cannot resolve. File and directory names alone do not exclude code. These files remain available to scanners and source review. This reduces unnecessary route candidates in supported cases; it does not establish that a file can never execute or guarantee lower model costs.
+
+In JavaScript and TypeScript, this includes short local helper chains that return UTF-8 file text, with literal file-name arguments and simple string-built paths. Helpers without arguments can also be imported by name and keep text in a private cache. A flat directory read can supply several text files when the directory and each read are module-relative and every observed consumer returns the result as JSON. Other import forms, recursive directory walks, keyed caches and paths that depend on the working directory remain unresolved. Unclear loaders, launch commands or untraced expressions inside JavaScript template strings anywhere in the selected sources still keep the route candidates.
+
+README files and common JSON, YAML or TOML configuration do not prevent this classification merely by being present. Their file references still count as evidence of other uses, including unquoted launch paths. Grouping candidates by source locality falls back to the previous packing when it would add jobs for the same candidates.
 
 You choose the verified aspects per depth in a scan profile, and an organization can set its own defaults in an organization profile. Analyzer starts from the shipped file, applies the organization profile, and then the scan profile. There is no command-line option for it.
 

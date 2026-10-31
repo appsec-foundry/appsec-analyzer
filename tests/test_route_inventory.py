@@ -723,6 +723,43 @@ def test_a_url_inside_a_string_does_not_start_a_comment(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    "example",
+    [
+        "const example = \"app.get('/example', handler)\";\n",
+        "const example = `\napp.post('/example', handler)\n`;\n",
+        "const example = \"app.route('/example').get(handler)\";\n",
+    ],
+)
+def test_route_shaped_literal_examples_are_not_live_registrations(tmp_path: Path, example: str):
+    (tmp_path / "server.js").write_text(example + "app.get('/actual', handler)\n")
+    assert [(r["method"], r["path"]) for r in _run(tmp_path)["routes"]] == [("GET", "/actual")]
+
+
+def test_a_quoted_guard_never_protects_an_actual_route(tmp_path: Path):
+    (tmp_path / "server.js").write_text(
+        "const express = require('express'); const app = express()\n"
+        "const requireAuth = require('express-jwt')({secret: process.env.KEY})\n"
+        "const example = \"app.use('/private', requireAuth)\"\n"
+        "app.get('/private/data', (req,res) => res.json({value: 1}))\n"
+    )
+    (row,) = _run(tmp_path)["routes"]
+    assert row["authn_signal"] not in {"present", "middleware_present"}
+    assert row.get("guard_lines", []) == []
+
+
+@pytest.mark.parametrize("execution", ["eval(example)", "new Function(example)()", "vm.runInNewContext(example)"])
+def test_potentially_executed_string_routes_remain_candidates(tmp_path: Path, execution: str):
+    (tmp_path / "server.js").write_text("const example = \"app.get('/dynamic', handler)\";\n" + execution)
+    assert any(row["path"] == "/dynamic" for row in _run(tmp_path)["routes"])
+
+
+def test_tutorial_directory_names_do_not_exclude_executable_routes(tmp_path: Path):
+    (tmp_path / "tutorials").mkdir()
+    (tmp_path / "tutorials/server.js").write_text("app.get('/actual', handler)\n")
+    assert any(row["path"] == "/actual" for row in _run(tmp_path)["routes"])
+
+
+@pytest.mark.parametrize(
     ("mount", "field"),
     [
         ("app.use('/api/items', rateLimit({ windowMs: 60000, max: f(10) }), requireAuth)\n", "authn_signal"),
