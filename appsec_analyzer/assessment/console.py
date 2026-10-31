@@ -444,6 +444,7 @@ class _AssessmentConsole:
         ("Finished survey job", "Threat analysis"),
         ("Independently verifying evidence", "Threat analysis"),
         ("Analyzed component", "Threat analysis"),
+        ("Evidence · ", "Threat analysis"),
         ("Remaining files · ", "Threat analysis"),
         ("Reviewing merge candidates", "Consolidation"),
         ("Reviewing the evidence of verification findings", "Consolidation"),
@@ -622,6 +623,8 @@ class _AssessmentConsole:
         # Start times and durations of the threat analysis steps, Survey and Verify.
         self.steps: dict[str, float] = {}
         self.step_times: dict[str, float] = {}
+        # The finalization's running step: its name, its start and the corrections counted before it.
+        self.final_step: tuple[str, float, int] | None = None
         # The threat analysis method of the current lines, and the components each method took from the earlier run.
         self.method = ""
         self.method_reused: Counter = Counter()
@@ -1517,6 +1520,18 @@ class _AssessmentConsole:
             head, *detail = text[len(prefix) :].split("\n")
             self.record("·", "\n".join([f"{head} · {_duration(now - self.started)}", *detail]), now)
             return
+        if prefix == "Evidence · ":
+            # It reviews survey findings and scanner hits, so it is a line of neither method.
+            method, self.method = self.method, "Evidence"
+            self.record("·", text[len(prefix) :], now)
+            self.method = method
+            return
+        if prefix in self.FINAL_STEPS:
+            shown = self.FINAL_STEPS[prefix]
+            if prefix == "Stage 2:":
+                counter = f"{position[1]}/{position[2]} " if position else ""
+                shown = f"{shown} {counter}{self._POSITION.sub('', text[len(prefix) :]).strip()}"
+            self._final_step(shown, now)
         if prefix in self.STATED:
             if prefix == "Remaining files · ":
                 # They run after verification, but they belong to the survey.
@@ -1561,6 +1576,27 @@ class _AssessmentConsole:
 
     # Steps of a component analyzed concurrently with others (MR-16): its
     # start, each finished survey job, its evidence review and its end.
+    # The finalization's steps and their names on the console; a step without a name is too short for a line.
+    FINAL_STEPS = {
+        "Synthesizing cross-finding": "Root causes",
+        "Updating the assessment model": "",
+        "Rendering the report": "",
+        "Stage 2:": "Report",
+        "Running the quality gates": "Quality checks",
+        "Publishing": "",
+    }
+
+    def _final_step(self, name: str, now: float) -> None:
+        """End the finalization's running step with its line, then start ``name``."""
+        with _AssessmentConsole._lock:
+            corrected = sum(self.corrections.values())
+            if self.final_step:
+                step, started, before = self.final_step
+                note = f" · {_count_noun(corrected - before, 'answer')} corrected" if corrected > before else ""
+                self.record("✓", f"{step} · {_duration(now - started)}{note}", now)
+            self.final_step = (name, now, corrected) if name else None
+            self.current = name
+
     UNIT_STEPS = (
         "Surveying component",
         "Finished survey job",
@@ -1707,6 +1743,7 @@ class _AssessmentConsole:
     def close(self, now: float | None = None) -> None:
         if self.phase:
             now = self.clock() if now is None else now
+            self._final_step("", now)
             produced = [_duration(now - self.started)]
             produced.extend(f"{step} {_duration(seconds)}" for step, seconds in self.step_times.items())
             coverage = self.review_coverage.get(self.phase, {})

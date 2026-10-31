@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -633,6 +634,7 @@ def test_default_console_writes_every_line_in_one_column_grid():
         # MR-17: a successful correction is counted on the done line, its reason only under --verbose.
         ("5/8 Threat analysis", "done", "~42%", "7m", "~10m", "4m30s · 2 components · 1 answer corrected (survey 1)"),
         ("8/8 Finalization", "start", "~62%", "7m", "~4m", FINAL),
+        ("8/8 Finalization", "✓", "~62%", "7m", "~4m", "Report Management Summary · 30s"),
         ("8/8 Finalization", "done", "100%", "7m", "", "30s"),
     ]
     # No model-call detail or crossing hash in the default view.
@@ -858,6 +860,135 @@ def test_phase_results_and_skipped_phases_shape_the_done_lines():
     ]
     assert noticed == ["Controls", "Finalization"]
     assert not any(console.RESULT in line for line in lines)
+
+
+def test_the_finalization_names_each_step_when_it_ends():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.plan_phases(abuse_cases=False)
+    console.step("Synthesizing cross-finding root causes")
+    clock.tick(6)
+    # Short deterministic steps end the step before them and get no line of their own.
+    console.step("Updating the assessment model")
+    console.step("Rendering the report")
+    clock.tick(2)
+    console.step("Stage 2: Security Architecture (1/2)")
+    clock.tick(100)
+    console.call("answer rejected, asking for a correction: placeholder", "secarch_renderer")
+    clock.tick(70)
+    console.step("Stage 2: Management Summary (2/2)")
+    clock.tick(16)
+    console.step("Running the quality gates")
+    clock.tick(8)
+    console.step(console.RESULT + "Finalization: report published")
+    console.step("Publishing the security assessment")
+    clock.tick(1)
+    console.close()
+    assert [(row[1], row[5]) for row in _rows(lines)] == [
+        ("start", FINAL),
+        ("✓", "Root causes · 6s"),
+        ("✓", "Report 1/2 Security Architecture · 2m50s · 1 answer corrected"),
+        ("✓", "Report 2/2 Management Summary · 16s"),
+        ("✓", "Quality checks · 8s"),
+        ("done", "3m23s · 2 report sections · report published · 1 answer corrected (security architecture 1)"),
+    ]
+
+
+def test_the_finalization_shows_the_running_step_on_the_live_line():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.step("Synthesizing cross-finding root causes")
+    assert console.current == "Root causes"
+    console.step("Stage 2: Security Architecture (1/2)")
+    assert console.current == "report section 1/2 · Security Architecture"
+    console.step("Running the quality gates")
+    assert console.current == "Quality checks"
+
+
+def test_the_evidence_review_gets_its_own_line_after_the_survey():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.step("Surveying component: API (1/1)")
+    clock.tick(5)
+    console.step("Analyzed component: API · 3 findings (1/1)")
+    console.step("Survey done · 3 findings")
+    console.step("Evidence · 5 checked · 3 confirmed · 1 unclear · 1 refuted (1 scanner hit)")
+    assert [row[5] for row in _rows(lines)][-2:] == [
+        "Survey    done · 1 component · 3 findings · 5s",
+        "Evidence  5 checked · 3 confirmed · 1 unclear · 1 refuted (1 scanner hit)",
+    ]
+    assert console.method == "Survey"
+
+
+def test_the_evidence_line_counts_each_verdict_and_says_where_the_refuted_came_from():
+    documents = [{"threats": [{"local_id": "s-1"}, {"local_id": "s-2"}]}, {"threats": []}]
+    reviews = [
+        {
+            "decisions": [
+                {"local_id": "s-1", "verdict": "verified"},
+                {"local_id": "s-2", "verdict": "refuted"},
+                {"local_id": "deterministic-scan-001", "verdict": "refuted"},
+            ]
+        },
+        {
+            "decisions": [
+                {"local_id": "deterministic-scan-002", "verdict": "ambiguous"},
+                {"local_id": "deterministic-scan-003", "verdict": "refuted"},
+            ]
+        },
+    ]
+    assert controller._evidence_line(documents, reviews) == (
+        "Evidence · 5 checked · 1 confirmed · 1 unclear · 3 refuted (2 scanner hits, 1 survey finding)"
+    )
+    reviews[0]["decisions"] = reviews[0]["decisions"][:1]
+    reviews[1]["decisions"] = reviews[1]["decisions"][:1]
+    assert controller._evidence_line(documents, reviews) == "Evidence · 2 checked · 1 confirmed · 1 unclear · 0 refuted"
+    assert controller._evidence_line(documents, [{"decisions": []}, {"decisions": []}]) == ""
+
+
+def test_the_merge_detail_splits_what_was_combined_by_its_cause():
+    threats = [
+        {"found_by": ["verification"], "verification": {"finding_ids": ["TCF-1"]}},
+        {"found_by": ["survey", "verification"], "verification": {"finding_ids": ["TCF-2", "TCF-3"]}},
+        {"found_by": ["survey"]},
+    ]
+    review = Counter(groups=4, combined=2, reduced=3)
+    assert controller._merge_detail(10, threats, review, verified=True) == (
+        "7 combined · 2 by rules · 3 by merge review (2 of 4 groups) · 2 Verify joined"
+    )
+    # Without verification or a merge review their parts say nothing, and without a merge there is no line.
+    assert controller._merge_detail(3, threats[2:], Counter(), verified=False) == "2 combined · 2 by rules"
+    assert controller._merge_detail(1, threats[2:], Counter(), verified=False) == ""
+
+
+def test_a_run_says_what_the_evidence_review_the_merge_and_the_report_did(tmp_path, monkeypatch):
+    said = []
+    _assess(tmp_path, monkeypatch, ("solo",), progress=said.append)
+    (evidence,) = [text for text in said if text.startswith("Evidence · ")]
+    (merge,) = [text for text in said if text.startswith("Merge · ")]
+    (total,) = [text for text in said if text.startswith("All findings · ")]
+    assert " checked · " in evidence and said.index(evidence) < said.index(merge) < said.index(total)
+    assert [text for text in said if text.startswith("Stage 2: ")] == [
+        "Stage 2: Security Architecture (1/2)",
+        "Stage 2: Management Summary (2/2)",
+    ]
+
+
+def test_the_consolidation_counts_refuted_findings_and_the_hits_they_hold(tmp_path):
+    rows = [
+        {"evidence_basis": "refuted", "instance_count": 14},
+        {"evidence_basis": "refuted"},
+        {"evidence_basis": "verified"},
+        {"evidence_basis": "verified"},
+    ]
+    (tmp_path / ".threats-merged.json").write_text(json.dumps({"threats": rows}))
+    said = []
+    model = {"threats": [{"found_by": ["survey"]}, {"found_by": ["scanners", "survey"]}]}
+    controller._consolidation_result(said.append, tmp_path, model, {})
+    assert said == [
+        "All findings · 1 by several methods · 1 only by the survey · 0 only by the scanners",
+        controller._AssessmentConsole.RESULT + "Consolidation: 2 of 4 findings in the report · 2 refuted (15 hits)",
+    ]
 
 
 def test_count_noun_inflects_regular_and_y_plurals():
@@ -2955,7 +3086,7 @@ def test_budget_stop_keeps_accepted_candidates_in_a_separate_incomplete_report(t
         return value
 
     def progress(message):
-        if message == "Stage 2: Security Architecture":
+        if message.startswith("Stage 2: Security Architecture"):
             budgets[0].deadline = time.monotonic() + FINALIZATION_SECONDS - 1
 
     monkeypatch.setattr(controller, "_assessment_budget", budget)

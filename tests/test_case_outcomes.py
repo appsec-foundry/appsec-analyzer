@@ -813,6 +813,26 @@ def test_the_consolidation_counts_each_aspect_as_the_report_combines_the_methods
     ]
 
 
+def test_the_method_total_counts_each_report_finding_once():
+    from orchestrator import assessment_test_cases
+
+    threats = [
+        {"found_by": ["verification"]},
+        {"found_by": ["verification"]},
+        {"found_by": ["survey"]},
+        {"found_by": ["scanners"]},
+        {"found_by": ["survey", "verification"]},
+        {"found_by": ["scanners", "survey", "verification"]},
+    ]
+    assert assessment_test_cases.method_total_line(threats, verified=True) == (
+        "All findings · 2 by several methods · 2 only by Verify · 1 only by the survey · 1 only by the scanners"
+    )
+    # A run without verification has nothing to say about it.
+    assert assessment_test_cases.method_total_line(threats[2:4], verified=False) == (
+        "All findings · 0 by several methods · 1 only by the survey · 1 only by the scanners"
+    )
+
+
 def test_the_survey_line_counts_its_findings_and_those_the_evidence_review_refuted():
     from orchestrator import assessment_test_cases
 

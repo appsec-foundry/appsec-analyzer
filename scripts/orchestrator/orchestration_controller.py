@@ -2429,10 +2429,12 @@ def _assessment_stride(
         for position in {item[0] for item in deferred}:
             reviews[position - 1]["decisions"] = [row for part in evidence_parts[position] for row in part["decisions"]]
     scope.verify_unchanged()
+    # With verification to follow, the survey is its own step and says what it found (REQ-040).
+    if envelopes is not None and planned["work"]:
+        progress(assessment_test_cases.survey_line(documents, reviews))
+    if evidence := _evidence_line(documents, reviews):
+        progress(evidence)
     if envelopes is not None:
-        # With verification to follow, the survey is its own step and says what it found (REQ-040).
-        if planned["work"]:
-            progress(assessment_test_cases.survey_line(documents, reviews))
         pilot.update(
             assessment_test_cases.run_pilot(
                 scope,
@@ -2479,6 +2481,18 @@ def _assessment_stride(
     verified = {}
     for row in (pilot or {}).get("findings") or []:
         verified.setdefault(row["component_id"], []).append(row)
+    merge_review = Counter()
+
+    def review_groups(verdict, groups):
+        decisions = _assessment_merge_review(jobs, verdict, groups, progress=progress)
+        combining = [row for row in decisions if row["action"] in ("merge", "consolidate")]
+        merge_review.update(
+            groups=len(groups),
+            combined=len({row["group_id"] for row in combining}),
+            reduced=sum(len(row["member_indices"]) - 1 for row in combining),
+        )
+        return decisions
+
     merged = merge_assessment(
         scope,
         components,
@@ -2488,18 +2502,64 @@ def _assessment_stride(
         scanner_threats=scanned,
         verification_threats=verified,
         started_at=started_at,
-        review_groups=lambda verdict, groups: _assessment_merge_review(jobs, verdict, groups, progress=progress),
+        review_groups=review_groups,
         combine_texts=lambda requests: _assessment_finding_combination(jobs, requests, progress=progress),
         review_verification=lambda ids: _assessment_verification_review(
             jobs, analysis, scope, components, envelopes, verified, ids, label=label, progress=progress
         ),
     )
+    findings = sum(len(rows) for rows in verified.values())
     sources = [_count_noun(surveyed, "survey finding"), _count_noun(hits, "scanner hit")]
     if verified:
-        sources.append(_count_noun(sum(len(rows) for rows in verified.values()), "verification finding"))
+        sources.append(_count_noun(findings, "verification finding"))
     combined = ", ".join(sources[:-1]) + " and " + sources[-1]
-    progress(f"Merge · {combined} merged into {len(merged['threats'])}")
+    detail = _merge_detail(surveyed + hits + findings, merged["threats"], merge_review, verified=bool(verified))
+    progress(f"Merge · {combined} merged into {len(merged['threats'])}" + (f"\n{detail}" if detail else ""))
     return documents, reviews, merged
+
+
+def _evidence_line(documents, reviews) -> str:
+    """What the evidence review decided on survey findings and scanner hits; "" when it decided nothing."""
+    verdicts, scanner, survey = Counter(), 0, 0
+    for document, review in zip(documents, reviews, strict=True):
+        surveyed = {threat.get("local_id") for threat in document["threats"]}
+        for row in review["decisions"]:
+            verdicts[row["verdict"]] += 1
+            if row["verdict"] == "refuted":
+                survey += row["local_id"] in surveyed
+                scanner += row["local_id"] not in surveyed
+    if not verdicts:
+        return ""
+    sources = [_count_noun(scanner, "scanner hit")] if scanner else []
+    sources += [_count_noun(survey, "survey finding")] if survey else []
+    refuted = f"{verdicts['refuted']} refuted" + (f" ({', '.join(sources)})" if sources else "")
+    return (
+        f"Evidence · {sum(verdicts.values())} checked · {verdicts['verified']} confirmed · "
+        f"{verdicts['ambiguous']} unclear · {refuted}"
+    )
+
+
+def _merge_detail(before: int, threats: list[dict], review: Counter, *, verified: bool) -> str:
+    """How the merge came from ``before`` inputs to ``threats``; "" when it combined nothing.
+
+    The deterministic chain counts nothing itself, so its share is what the merge review and the
+    joined verification findings do not explain.
+    """
+    combined = before - len(threats)
+    if combined <= 0:
+        return ""
+    joined = sum(
+        len(row["verification"]["finding_ids"])
+        for row in threats
+        if row.get("verification") and set(row["found_by"]) != {"verification"}
+    )
+    parts = [f"{combined} combined", f"{combined - review['reduced'] - joined} by rules"]
+    if review["groups"]:
+        groups = f"{review['combined']} of {_count_noun(review['groups'], 'group')}"
+        parts.append(f"{review['reduced']} by merge review ({groups})")
+    if verified:
+        parts.append(f"{joined} Verify joined")
+    return " · ".join(parts)
 
 
 def _assessment_review_batches(jobs, reviewers):
@@ -4059,31 +4119,36 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
 
 
 def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> None:
-    """Say per verified aspect how the methods relate, and end the phase with what the model kept.
+    """Say how the methods relate, per verified aspect and in total, and end the phase with what the model kept.
 
     The model leaves out refuted findings and those below the register's severity floor; the merged
-    intermediate keeps both, so the difference names them. Abuse verification may add findings later.
+    intermediate keeps both, so the difference names them. A refuted finding can hold several scanner
+    hits, which the evidence line counted one by one. Abuse verification may add findings later.
     """
     from shared._finding_state import is_refuted
 
+    from orchestrator import assessment_test_cases
+
+    threats = model.get("threats") or []
     merged = json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")).get("threats") or []
-    reported = len(model.get("threats") or [])
+    reported = len(threats)
     refuted = sum(1 for threat in merged if is_refuted(threat))
+    hits = sum(threat.get("instance_count") or 1 for threat in merged if is_refuted(threat))
     parts = [f"{reported} of {_count_noun(len(merged), 'finding')} in the report"]
     if refuted:
-        parts.append(f"{refuted} refuted")
+        parts.append(f"{refuted} refuted" + (f" ({hits} hits)" if hits > refuted else ""))
     if (below := len(merged) - refuted - reported) > 0:
         parts.append(f"{below} below the severity floor")
     if cfg.get("test_cases"):
         from model.case_outcomes import load_catalog
 
-        from orchestrator import assessment_test_cases
-
         aspects = [
             aspect for aspect in cfg["test_cases"]["aspects"] if aspect in assessment_test_cases.INVESTIGATED_ASPECTS
         ]
-        for line in assessment_test_cases.method_lines(model.get("threats") or [], aspects, load_catalog()):
+        for line in assessment_test_cases.method_lines(threats, aspects, load_catalog()):
             progress(line)
+    if threats:
+        progress(assessment_test_cases.method_total_line(threats, verified=bool(cfg.get("test_cases"))))
     _phase_result(progress, "Consolidation", " · ".join(parts))
 
 
