@@ -50,7 +50,15 @@ Do not exclude remaining failing modules or reduce coverage thresholds to make t
 
 ## Coverage and Codecov
 
-The [coverage workflow](.github/workflows/coverage.yml) runs on pull requests, pushes to `main`, and manual dispatch. It uses Python 3.12 and runs the full offline pytest suite, including the slower controller tests. Live host tests stay disabled, and no provider credentials are supplied. Existing test failures and collection errors fail the test job; adding Codecov does not establish that the suite passes.
+The [coverage workflow](.github/workflows/coverage.yml) runs on pull requests, pushes to `main`, and manual dispatch. It uses Python 3.12 and runs the full offline pytest suite, including the slower controller tests, on four parallel workers. Live host tests stay disabled, and no provider credentials are supplied. Existing test failures and collection errors fail the test job; adding Codecov does not establish that the suite passes.
+
+Pull requests run the suite without coverage, because measuring makes it about three times slower. Pushes to `main` and manual dispatch measure coverage and upload the report. A pull request therefore gets no Codecov report.
+
+To run the pull request check locally, with four workers if `pytest-xdist` is installed:
+
+```sh
+make test-ci PYTEST_ARGS="-n 4"
+```
 
 To run the same coverage checks locally after setting up the development environment:
 

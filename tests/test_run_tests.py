@@ -905,7 +905,8 @@ def test_ci_coverage_keeps_credentials_out_of_test_execution(ci_coverage_workflo
     assert tests["env"]["APPSEC_LIVE_HOST"] == "0"
     upload = workflow["jobs"]["codecov"]
     assert upload["needs"] == "tests"
-    assert "github.event.pull_request.head.repo.full_name == github.repository" in upload["if"]
+    assert "github.event_name != 'pull_request'" in upload["if"]
+    assert "pull_request.head.repo" not in upload["if"]
     assert "github.actor != 'dependabot[bot]'" in upload["if"]
     assert "github.ref == 'refs/heads/main'" in upload["if"]
     for job in workflow["jobs"].values():
@@ -987,6 +988,51 @@ def test_ci_coverage_make_preserves_test_and_engine_failures(tmp_path, test_stat
         assert f"Error {expected_status}" in result.stderr
     else:
         assert result.returncode == 0, result.stderr
+
+
+def test_pull_requests_run_the_suite_without_coverage_and_publish_no_report(ci_coverage_workflow):
+    steps = ci_coverage_workflow["jobs"]["tests"]["steps"]
+    on_pull_request = [step for step in steps if "github.event_name == 'pull_request'" in step.get("if", "")]
+    other_events = [step for step in steps if "github.event_name != 'pull_request'" in step.get("if", "")]
+    assert [step["run"] for step in on_pull_request] == ['make test-ci PYTHON=python PYTEST_ARGS="-n 4"']
+    assert any(step.get("run", "").startswith("make coverage-ci") for step in other_events)
+    assert any(step.get("uses", "").startswith("actions/upload-artifact@") for step in other_events)
+    assert not any("coverage" in step.get("run", "") for step in on_pull_request)
+    assert all(
+        "github.event_name != 'pull_request'" in step["if"]
+        for step in steps
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+    )
+
+
+@pytest.mark.parametrize("status", [0, 1, 5])
+def test_ci_test_target_runs_all_tests_without_coverage_and_keeps_the_status(tmp_path, status):
+    executable = tmp_path / "python"
+    log = tmp_path / "calls.jsonl"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "assert os.environ['APPSEC_LIVE_HOST'] == '0'\n"
+        "with open(os.environ['CI_TEST_LOG'], 'a') as output:\n"
+        "    output.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "sys.exit(int(os.environ['CI_TEST_STATUS']))\n"
+    )
+    executable.chmod(0o700)
+    result = subprocess.run(
+        ["make", "--no-print-directory", "test-ci", f"PYTHON={executable}", "PYTEST_ARGS=-n 4"],
+        cwd=runner.ROOT,
+        env={"PATH": os.defpath, "CI_TEST_LOG": str(log), "CI_TEST_STATUS": str(status), "APPSEC_LIVE_HOST": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert len(calls) == 1
+    assert calls[0][:3] == ["-m", "pytest", "tests"]
+    assert "--continue-on-collection-errors" in calls[0]
+    assert calls[0][-2:] == ["-n", "4"]
+    assert not any(argument.startswith("--cov") for argument in calls[0])
+    assert (result.returncode == 0) == (status == 0)
 
 
 def test_ci_coverage_scope_and_floor():

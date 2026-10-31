@@ -862,6 +862,8 @@ def test_every_coloured_line_closes_its_colour(monkeypatch):
 def test_live_line_appears_only_on_a_terminal(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("FORCE_COLOR", raising=False)
+    # The live line is cut to the terminal width; xdist workers would otherwise report 80 columns.
+    monkeypatch.setenv("COLUMNS", "120")
     off_tty = _render(_stride_run())
     assert "\r" not in off_tty
     assert not any(ch in off_tty for ch in rp._SPINNER)
