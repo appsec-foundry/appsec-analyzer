@@ -122,14 +122,15 @@ properties:
         type: array
         description: >-
           Source that reached no analysis, by reason, with at most ten example paths: files over the
-          size limit, text not in UTF-8, and configuration a structured check could not parse;
+          size limit, text not in UTF-8, files without read permission, configuration a structured check could not
+          parse, and post-processing steps that failed (examples are then script names);
           rendered in §1 Scope as a coverage gap.
         items:
           type: object
           additionalProperties: false
           required: [reason, files, examples]
           properties:
-            reason: {enum: [oversized, non-utf8-text, unparsed-config]}
+            reason: {enum: [oversized, non-utf8-text, unreadable, unparsed-config, failed-step]}
             files: {type: integer, minimum: 1}
             examples:
               type: array

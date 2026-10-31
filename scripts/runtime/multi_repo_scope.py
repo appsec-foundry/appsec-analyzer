@@ -269,6 +269,10 @@ class OversizedText(ScopeError):
     """An oversized text file, such as a lockfile or a generated bundle (MR-10)."""
 
 
+class UnreadableSource(ScopeError):
+    """A file the process may not read; it is excluded and named, not skipped silently."""
+
+
 def _undecodable_reason(data: bytes) -> str:
     """Why bytes that are not UTF-8 stay out: other text is a coverage gap, binary data is not source."""
     if data.startswith(_WIDE_TEXT_MARKS) or not _CONTROL_BYTES.search(data):
@@ -325,7 +329,9 @@ def _read(root: Path, relative: str) -> bytes:
             raise ScopeError("Source changed during capture")
         return bytes(result)
     except PermissionError:
-        raise ScopeError(f"Source file {relative} is not readable (permission denied); fix its permissions") from None
+        raise UnreadableSource(
+            f"Source file {relative} is not readable (permission denied); fix its permissions"
+        ) from None
     except OSError:
         raise ScopeError("Source cannot be read without following links") from None
     finally:
@@ -487,6 +493,9 @@ def _capture(root: Path, repository_id: str, remaining: int, output: PurePosixPa
             continue
         except OversizedText:
             exclusions.append({"path": path, "reason": "oversized"})
+            continue
+        except UnreadableSource:
+            exclusions.append({"path": path, "reason": "unreadable"})
             continue
         remaining -= len(data)
         if remaining < 0:

@@ -422,6 +422,11 @@ def _components_by_repository(components: list, sources: list | None) -> list[tu
 _UNANALYSED_REASONS = {
     "oversized": ("file over 1 MiB", "files over 1 MiB"),
     "non-utf8-text": ("text file not in UTF-8", "text files not in UTF-8"),
+    "unreadable": ("file without read permission", "files without read permission"),
+    "failed-step": (
+        "post-processing step that failed, so the report lacks its checks",
+        "post-processing steps that failed, so the report lacks their checks",
+    ),
     "unparsed-config": (
         "configuration file that could not be parsed, so its resource checks did not run",
         "configuration files that could not be parsed, so their resource checks did not run",

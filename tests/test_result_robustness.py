@@ -196,3 +196,32 @@ def test_a_missing_lockfile_counts_only_where_the_repository_has_a_manifest(tmp_
     assert status == "not_applicable" and not findings
     status, findings = _lockfile_result(tmp_path / "with", with_manifest=True)
     assert status == "violated" and len(findings) == 1
+
+
+def test_failed_post_processing_steps_are_named_in_the_report_meta(tmp_path):
+    import yaml
+    from orchestrator import orchestration_controller as controller
+
+    path = tmp_path / "threat-model.yaml"
+    path.write_text(
+        yaml.safe_dump({"meta": {"unanalysed_source": [{"reason": "oversized", "files": 1, "examples": ["a"]}]}})
+    )
+    receipts = [
+        f"model/b.py: {controller.BEST_EFFORT_FAILURE}",
+        "other receipt",
+        f"model/a.py: {controller.BEST_EFFORT_FAILURE}",
+    ]
+    controller._record_failed_steps(path, receipts)
+    controller._record_failed_steps(path, receipts)
+    rows = yaml.safe_load(path.read_text())["meta"]["unanalysed_source"]
+    assert rows == [
+        {"reason": "oversized", "files": 1, "examples": ["a"]},
+        {"reason": "failed-step", "files": 2, "examples": ["model/a.py", "model/b.py"]},
+    ]
+    from renderers import pregenerate_fragments as fragments
+
+    clause = fragments._unanalysed_clause(rows[1])
+    assert "2 post-processing steps that failed" in clause and "`model/a.py`" in clause
+    assert "1 file without read permission (`x`)" in fragments._unanalysed_clause(
+        {"reason": "unreadable", "files": 1, "examples": ["x"]}
+    )
