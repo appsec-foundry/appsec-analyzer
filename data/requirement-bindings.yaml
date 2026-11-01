@@ -2314,6 +2314,7 @@ requirements:
       - tests/test_oscal_catalog_e2e.py::test_the_model_gets_no_guidance_no_withdrawn_control_and_no_unmasked_secret
       - tests/test_oscal_catalog_e2e.py::test_the_report_names_the_catalog_and_lists_the_open_controls
       - tests/test_oscal_catalog_e2e.py::test_a_selected_part_of_the_catalog_without_failures_passes_the_gate
+      - tests/test_oscal_catalog_e2e.py::test_the_yaml_form_is_the_same_catalog_and_audits_the_same
       - tests/test_oscal_catalog_e2e.py::test_a_profile_is_refused_before_any_model_call
       - tests/test_oscal_catalog_e2e.py::test_assess_carries_the_catalog_into_the_published_assessment
 

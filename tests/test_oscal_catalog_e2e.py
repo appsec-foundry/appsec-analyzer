@@ -27,6 +27,7 @@ from tests.test_controller_e2e import FAKE_CLAUDE, _assert_published, _headless,
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "examples" / "brennholt-appsec-catalog.oscal.json"
+CATALOG_YAML = CATALOG.with_suffix(".yaml")
 FIXTURE = ROOT / "tests" / "fixtures" / "e2e" / "synthetic-repo"
 VERDICTS = ROOT / "tests" / "fixtures" / "e2e" / "oracle" / "brennholt-audit-verdicts.json"
 TITLE = "Brennholt Logistik Application Security Standard"
@@ -218,6 +219,16 @@ def test_a_selected_part_of_the_catalog_without_failures_passes_the_gate(tmp_pat
     assert result.returncode == 0, result.stderr[-2000:]
     assert json.loads(result.stdout)["gate"] == "pass"
     assert {key: row["status"] for key, row in _rows(output).items()} == {"iam-4": "PASS", "iam-4.1": "UNVERIFIABLE"}
+
+
+def test_the_yaml_form_is_the_same_catalog_and_audits_the_same(tmp_path, full_audit):
+    assert yaml.safe_load(CATALOG_YAML.read_text()) == json.loads(CATALOG.read_text())
+    result, output, _ = _audit(tmp_path, "--gate", catalog=CATALOG_YAML)
+    assert result.returncode == 1, result.stderr[-2000:]
+    assert _rows(output) == _rows(full_audit[1])
+    provenance = json.loads((output / ".requirements-audit.json").read_text())["provenance"]
+    assert provenance["catalog_sha256"] == hashlib.sha256(CATALOG_YAML.read_bytes()).hexdigest()
+    assert provenance["catalog_format"]["format"] == "oscal-catalog"
 
 
 def test_a_profile_is_refused_before_any_model_call(tmp_path):

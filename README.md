@@ -334,6 +334,30 @@ appsec-analyzer audit-requirements --repo /path/to/project \
   --host claude-cli --md
 ```
 
+#### Use requirements from a wiki or website
+
+[Requirement Harvester](https://github.com/appsec-foundry/appsec-tools/tree/main/requirement-harvester) reads security requirements from websites and wikis without model calls. It writes them to a YAML file in OSCAL, a standard format for security controls. Analyzer reads this file directly.
+
+```sh
+# Collect the requirements into the file set in output.catalog of the configuration
+requirement-harvester run --config /path/to/harvester.yaml
+
+# Audit a repository against them (model calls)
+mkdir /path/to/audit
+appsec-analyzer audit-requirements --repo /path/to/project \
+  --requirements /path/to/requirements.oscal.yaml \
+  --output /path/to/audit --host claude-cli --md
+```
+
+`assess`, `authnz-review`, and `analyze-threats` accept the same file with `--requirements`. See the [catalog limits](docs/security-requirements-audit-skill.md#catalog-formats).
+
+Analyzer does not use all the data the Harvester collects:
+
+- Reports show a generated ID, not your own ID.
+- Every requirement counts as `MUST`, so `--gate` also blocks on a violated `SHOULD` requirement.
+- Reports do not link to the source page.
+- The model does not see applicability, context, exceptions, or guidance. If a requirement applies only to some systems, say so in its text.
+
 ### `export`: other report formats
 
 `export` writes a finished assessment to other formats. The destination must be a new directory outside any Git checkout. See [Reports and exports](#reports-and-exports) and [export prerequisites and limits](docs/security-assessment.md#exports-and-compatibility).

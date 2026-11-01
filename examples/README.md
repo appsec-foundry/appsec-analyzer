@@ -24,7 +24,7 @@ The demonstration catalog draws on OWASP ASVS 5.0.0, the OWASP Top 10:2025, and 
 
 For `audit-requirements --requirements`, select the combined catalog or the requirements-only YAML. A blueprint-only file has no requirements to grade and cannot run an independent audit. The [Requirements Harvester](../docs/harvester.md) guide describes catalog preparation and optional specification exports.
 
-[`brennholt-appsec-catalog.oscal.json`](brennholt-appsec-catalog.oscal.json) is a separate example: the application security standard of a fictional company as an OSCAL catalog. Its controls match the deliberate weaknesses in `tests/fixtures/e2e/synthetic-repo`, and `tests/test_oscal_catalog_e2e.py` runs it through `audit-requirements` and `assess` without model calls.
+[`brennholt-appsec-catalog.oscal.yaml`](brennholt-appsec-catalog.oscal.yaml) and [`brennholt-appsec-catalog.oscal.json`](brennholt-appsec-catalog.oscal.json) are a separate example: the application security standard of a fictional company as an OSCAL catalog, with the same content in both formats. Its controls match the deliberate weaknesses in `tests/fixtures/e2e/synthetic-repo`, and `tests/test_oscal_catalog_e2e.py` runs it through `audit-requirements` and `assess` without model calls.
 
 ## Requirements audit report
 
