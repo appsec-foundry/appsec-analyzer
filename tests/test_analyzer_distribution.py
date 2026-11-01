@@ -171,6 +171,53 @@ def test_reused_build_drops_retired_resources_and_keeps_guide_links(tmp_path: Pa
         env={**os.environ, "PIP_CONFIG_FILE": os.devnull, "PIP_NO_INPUT": "1"},
     )
     assert result.returncode == 0, result.stderr
+    # Exercise the installed adapter, not imports from the checkout. This must
+    # catch a stale packaged decoder even when source-tree tests are green.
+    codex_probe = """
+import json
+import sys
+from pathlib import Path
+import appsec_analyzer
+from appsec_analyzer import codex_cli
+from appsec_analyzer.codex_schema import CodexSchema
+from jsonschema import Draft202012Validator
+from runtime.analyst_host import TransportError
+from runtime.assessment_diagnostics import failure_fields
+package = Path(sys.argv[1]) / 'appsec_analyzer'
+assert Path(appsec_analyzer.__file__).resolve().is_relative_to(package.resolve())
+schema = {'type': 'object', 'properties': {'id': {'type': 'string', 'pattern': '^id-[0-9]+$'}},
+          'required': ['id'], 'additionalProperties': False}
+wire = CodexSchema(schema)
+assert not Draft202012Validator(wire.schema).is_valid({'payload': {'id': 'invalid'}})
+def answer(value):
+    return b'\\n'.join(json.dumps(e).encode() for e in [
+        {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps({'payload': {'id': value}})}},
+        {'type': 'turn.completed', 'usage': {'input_tokens': 10, 'cached_input_tokens': 6, 'output_tokens': 5}},
+    ])
+host = codex_cli.CodexCliTransport(Path(sys.argv[2]), 'gpt-6.1-sol', 'medium', {'executable': 'unused', 'features': {}})
+codex_cli._run = lambda *a, **k: (0, answer('id-1'), b'')
+reply = host.invoke('trusted', 'synthetic', schema, 5, lambda: False)
+assert reply.payload == {'id': 'id-1'} and reply.usd is None
+assert reply.usage[host.model] == {'input': 4, 'output': 5, 'cache_read': 6}
+codex_cli._run = lambda *a, **k: (0, answer('PRIVATE_INVALID_VALUE'), b'')
+try:
+    host.invoke('trusted', 'synthetic', schema, 5, lambda: False)
+except TransportError as error:
+    fields = failure_fields(error)
+    assert fields['response_issue'] == {'kind': 'schema', 'rule': 'pattern', 'path': '/payload/id'}
+    assert 'PRIVATE' not in json.dumps(fields)
+else:
+    raise AssertionError('invalid model payload accepted')
+"""
+    probe = subprocess.run(
+        [sys.executable, "-c", codex_probe, str(installed), str(tmp_path)],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(installed)},
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert probe.returncode == 0, probe.stderr
     result = subprocess.run(
         [str(installed / "bin/appsec-analyzer"), "score", str(score_repo), "--json"],
         cwd=tmp_path,

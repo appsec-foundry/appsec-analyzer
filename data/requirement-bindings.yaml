@@ -1483,6 +1483,7 @@ requirements:
       - appsec_analyzer/review.py
       - appsec_analyzer/saved_assessment.py
       - appsec_analyzer/update.py
+      - appsec_analyzer/version_info.py
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
@@ -1494,6 +1495,7 @@ requirements:
       - specs/changes/enter-confirms-update-command/proposal.md
     coverage: partial
     guards:
+      - tests/test_version_info.py::test_installed_version_ignores_checkout_and_pythonpath_packages
       - tests/test_public_update_cli.py::test_yes_or_enter_upgrades_the_pipx_installation_and_names_the_source
       - tests/test_public_update_cli.py::test_anything_but_yes_or_enter_installs_nothing
       - tests/test_public_update_cli.py::test_nothing_is_asked_or_installed_when_it_must_not_be
@@ -1807,6 +1809,8 @@ requirements:
   REQ-019:
     applies_to:
       - appsec_analyzer/engine.py
+      - appsec_analyzer/version_info.py
+      - appsec_analyzer/assessment/console.py
       - appsec_analyzer/organization.py
       - schemas/assessment-job-receipt.schema.json
       - schemas/scan-profile.schema.yaml
@@ -1829,6 +1833,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_version_info.py::test_assessment_header_names_the_same_build_as_version
       - tests/test_module_boundaries.py::test_assessment_identity_includes_application_implementation
       - tests/test_module_boundaries.py::test_application_identity_rejects_links
       - tests/test_assessment_state.py::test_subscription_state_resume_and_monetary_tampering

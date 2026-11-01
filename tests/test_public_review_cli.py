@@ -222,7 +222,7 @@ def _update_setup(
     calls = []
 
     def run(argv, **kwargs):
-        if argv[1:] == ["-m", "appsec_analyzer", "--version"]:
+        if argv[1:] == ["-I", "-m", "appsec_analyzer", "--version"]:
             # The new installation reports its version in a process of its own.
             return subprocess.CompletedProcess(argv, 0 if after else 1, stdout=f"appsec-analyzer {after}\n")
         calls.append(argv)

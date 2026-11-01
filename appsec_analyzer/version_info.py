@@ -99,7 +99,7 @@ def installed_version() -> str | None:
     """
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "appsec_analyzer", "--version"],
+            [sys.executable, "-I", "-m", "appsec_analyzer", "--version"],
             capture_output=True,
             text=True,
             timeout=VERSION_TIMEOUT,

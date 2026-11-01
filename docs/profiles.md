@@ -60,6 +60,8 @@ Do not pass `--budget` or `--hard-budget` with `codex-cli`. They are rejected, a
 
 If a Codex answer fails structured validation, diagnostics name the failed rule and its field path without retaining the answer or source text. Invalid or ambiguous answers still stop the run. Resume can retry compatible unfinished work, but cannot guarantee that a repeated answer will be valid.
 
+After a local Analyzer fix, check the build shown at assessment startup or by `appsec-analyzer --version`. A checkout merge does not update an installed copy; [reinstall from the checkout](../README.md#install) before retrying with that fix.
+
 Codex CLI sends selected source excerpts, context, and intermediate answers to OpenAI. Analyzer runs it in fresh private working directories with model tools and repository and user agent configuration disabled, and requests temporary sessions. It does not read or copy authentication tokens. It removes API-key environment variables and forces ChatGPT authentication, with no API fallback. Incompatible managed Codex settings stop the run. Your account or workspace governs provider-side data handling. Temporary local sessions do not guarantee provider retention.
 
 If login expires, run `codex login` again. If your allowance is exhausted, wait for it to reset or manage it in ChatGPT, then rerun the original command with the same `--output` and `--resume`. Resume keeps the original call limit and deadline while they hold. If the deadline has expired, or you changed the limits, `--resume` starts a new run with your limits; compatible accepted jobs are reused and their call counts are retained. If the original call limit is exhausted, raise it in the command. Never use `--rebuild` merely to retry a quota error.

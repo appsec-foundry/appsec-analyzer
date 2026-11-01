@@ -21,7 +21,7 @@ def _setup(monkeypatch, *, answer="y", returncode=0, source=SOURCE, after="9f8e7
     calls = []
 
     def run(argv, **kwargs):
-        if argv[1:] == ["-m", "appsec_analyzer", "--version"]:
+        if argv[1:] == ["-I", "-m", "appsec_analyzer", "--version"]:
             # The new installation reports its version in a process of its own.
             if after is None:
                 return subprocess.CompletedProcess(argv, 1, stdout="")

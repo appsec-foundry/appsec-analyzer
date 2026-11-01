@@ -117,6 +117,66 @@ def test_a_checkout_without_stamp_is_read_from_git(tmp_path, monkeypatch):
     assert version_info.describe().endswith(" (2026-03-04)")
 
 
+@pytest.mark.parametrize("coloured", [False, True])
+def test_assessment_header_names_the_same_build_as_version(tmp_path, monkeypatch, coloured):
+    from renderers.term_style import ANSI_RE, Style
+
+    from appsec_analyzer.assessment.console import _AssessmentConsole
+
+    _stamp(tmp_path, monkeypatch, _info())
+    lines = []
+    console = _AssessmentConsole(False, write=lines.append, live=False)
+    console.st = Style(coloured)
+    console.columns = lambda: 160
+    console.facts("appsec-analyzer — assessment", [("Repository", "/source")])
+    text = ANSI_RE.sub("", "\n".join(lines))
+    assert version_info.describe() in text
+    assert "v0.1.0a0" not in text
+
+
+def test_installed_version_ignores_checkout_and_pythonpath_packages(tmp_path):
+    import venv
+
+    environment = tmp_path / "environment"
+    venv.EnvBuilder(with_pip=False).create(environment)
+    python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    probe = subprocess.run(
+        [str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=15,
+    )
+    package = Path(probe.stdout.strip()) / "appsec_analyzer"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "__main__.py").write_text("print('appsec-analyzer installed-build')\n")
+    shutil.copy2(ROOT / "appsec_analyzer/version_info.py", package / "version_info.py")
+    marker = tmp_path / "untrusted-code-ran"
+    shadows = [tmp_path / "checkout", tmp_path / "pythonpath"]
+    for shadow in shadows:
+        fake = shadow / "appsec_analyzer"
+        fake.mkdir(parents=True)
+        (fake / "__init__.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        (fake / "__main__.py").write_text("print('appsec-analyzer shadow-build')\n")
+    result = subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "from appsec_analyzer.version_info import installed_version; print(installed_version())",
+        ],
+        cwd=shadows[0],
+        env={**os.environ, "PYTHONPATH": str(shadows[1])},
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "installed-build"
+    assert not marker.exists()
+
+
 def test_built_package_reports_the_stamp_or_that_the_commit_is_unknown(tmp_path):
     source = tmp_path / "source"
     shutil.copytree(

@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from appsec_analyzer.engine import initialize
+from appsec_analyzer.version_info import describe
 
 initialize()
-from renderers.term_style import ANSI_RE, SPINNER, Style, logo, plugin_version
+from renderers.term_style import ANSI_RE, SPINNER, Style, logo
 
 ASSESS_PAUSED_EXIT = 3
 
@@ -1380,27 +1381,27 @@ class _AssessmentConsole:
             custom = CASE_GROUPS[2:] if "organization" in sources or "user-supplied" in sources else ()
             self.case_groups = [*built_in, *custom]
         if title:
+            version = describe()
             self.write("")
             if st.enabled:
                 # The terminal gets the logo; its last line carries the title's mode.
-                version = plugin_version()
                 mode = title.partition(" — ")[2] or title
                 with _AssessmentConsole._lock:
                     self.clear_status()
-                    for line in logo(st, f"v{version} · {mode}" if version else mode, self.columns() - 1):
+                    for line in logo(st, f"{version} · {mode}", self.columns() - 1):
                         self._out(line)
                 self.write("")
             elif self.wraps():
                 # The title carries the header's one time stamp; under --width it
                 # wraps instead of being cut at the panel edge.
                 first, *rest = textwrap.wrap(
-                    f"▶ {title}", self.columns() - 1 - 10, subsequent_indent="  ", break_on_hyphens=False
+                    f"▶ {title} · {version}", self.columns() - 1 - 10, subsequent_indent="  ", break_on_hyphens=False
                 )
                 self.write(first)
                 for line in rest:
                     self._unstamped(" " * 10 + line)
             else:
-                self.write(f"▶ {title}")
+                self.write(f"▶ {title} · {version}")
         width = max([11, *(len(key) for key, _ in rows)])
         # Facts share the title's moment, so they carry no time stamp of their
         # own. On a terminal a long value wraps flush under its own column

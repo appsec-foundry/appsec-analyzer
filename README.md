@@ -125,6 +125,7 @@ To switch the source, run `pipx install --force` with the new source.
 ### Version
 
 - `appsec-analyzer --version` prints the release version. A build counts as a release when its commit has a tag like `v0.2.0`. Other builds print the commit and its date.
+- The assessment start message shows the same build version, including in plain terminal output.
 - A modified checkout adds `+local changes`. A build without Git data prints `commit unknown`.
 - `appsec-analyzer version` prints the engine and interface versions as JSON.
 
@@ -157,6 +158,8 @@ With pipx:
 - pipx installs the checkout as it is, including uncommitted changes, and keeps it as the source.
 - To update, change the checkout, for example with `git pull`, and run `appsec-analyzer update`. It reinstalls from the checkout instead of GitHub.
 - To return to the GitHub version, run `pipx install --force git+https://github.com/appsec-foundry/appsec-analyzer.git`.
+
+Pulling or merging changes in a checkout does not update an installed copy. Before retrying a local fix, compare `appsec-analyzer --version` with `python3 -m appsec_analyzer --version` run in that checkout. Reinstall from the checkout if the installed version is older. The update command's version check reads the installation even when you run it inside a checkout.
 
 [Local release preparation](docs/local-release-preparation.md) explains how to build a wheel.
 
