@@ -302,6 +302,16 @@ def mark_reviewed(threats: list[dict[str, Any]], results: list[dict[str, Any]]) 
     return relabelled
 
 
+def reviewed_scope(threats: list[dict[str, Any]], workspace: Path) -> list[dict[str, Any]]:
+    """The findings the evidence review can have confirmed.
+
+    The review also covered findings below the register's severity floor. They left the model, so
+    without the merged intermediate an outcome that holds one of them would stay on model review only.
+    """
+    merged = _read_json(workspace / ".threats-merged.json") or {}
+    return [*threats, *(merged.get("threats") or [])]
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))

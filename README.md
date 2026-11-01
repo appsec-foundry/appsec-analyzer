@@ -95,7 +95,7 @@ To convert a finished assessment later, use [`export`](#export-other-report-form
 
 `score` and `scan-sources` send no source to a model. They still need network access when you pass a Git URL.
 
-Analyzed repositories are untrusted input: their content cannot authorize tools or select provider credentials. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive. See the [security policy](SECURITY.md).
+Analyzed repositories are untrusted input: their content cannot authorize tools or select provider credentials. Reports show HTML from a repository or a model as text, and opening a report requests nothing from other hosts. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive. See the [security policy](SECURITY.md).
 
 ## Install
 

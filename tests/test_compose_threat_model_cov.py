@@ -720,18 +720,6 @@ class TestFmtSeconds_v2:
         assert compose._fmt_seconds(125) == "2m 05s"
 
 
-class TestFormatGeneratedTimestamp_v2:
-    def test_iso_z(self):
-        out = compose._format_generated_timestamp("2026-05-17T05:31:44Z")
-        assert out == "2026-05-17 05:31 UTC"
-
-    def test_blank(self):
-        assert compose._format_generated_timestamp("") == "—"
-
-    def test_non_iso_passthrough(self):
-        assert compose._format_generated_timestamp("not a date") == "not a date"
-
-
 class TestTruncateWithEllipsis_v2:
     def test_non_string(self):
         assert compose._truncate_with_ellipsis(None, 10) == ""
@@ -1526,21 +1514,6 @@ class TestCategoryCountBySeverity:
 # ---------------------------------------------------------------------------
 
 
-class TestFormatGeneratedTimestamp:
-    def test_non_string(self):
-        assert compose._format_generated_timestamp(None) == "—"
-        # whitespace string is truthy → returned verbatim per `raw or "—"`.
-        assert compose._format_generated_timestamp("   ") == "   "
-
-    def test_iso_z(self):
-        out = compose._format_generated_timestamp("2026-05-17T05:31:44Z")
-        assert "2026-05-17" in out
-        assert "UTC" in out
-
-    def test_unparseable_passthrough(self):
-        assert compose._format_generated_timestamp("not-a-date") == "not-a-date"
-
-
 class TestTruncateWithEllipsis:
     def test_short(self):
         assert compose._truncate_with_ellipsis("hi", 10) == "hi"
@@ -2159,15 +2132,13 @@ class TestJinjaFilters:
         out = f([{"ref": "T-005", "label": "fix"}])
         assert "F-005" in out and "fix" in out
 
-    def test_format_strengths_mitigates(self, tmp_path):
+    def test_format_open_gaps(self, tmp_path):
         env, _ = self._env(tmp_path)
-        f = env.filters["format_strengths_mitigates"]
+        f = env.filters["format_open_gaps"]
         assert f([]) == "—"
         out = f([{"ref": "T-001", "label": "L" * 80}])
-        assert "F-001" in out and "…" in out
-        # overflow marker
-        out2 = f([{"_overflow": True, "label": "+3 more"}])
-        assert "_+3 more_" in out2
+        assert "F-001" in out and "L" * 80 in out
+        assert out.startswith("1 finding remains open:")
         # bare string
         out3 = f(["F-002"])
         assert "F-002" in out3

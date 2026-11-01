@@ -9,7 +9,7 @@ Used by `appsec-architect-reviewer` Check 14 (and indirectly by the threat-rende
 | Code | Rule | Severity on violation |
 |---|---|---|
 | `sec7_v2_heading_set` | H3 heading set and order match the 13 v2 required subsections. | error |
-| `sec7_v2_overview_table` | §6.1 contains `Control category \| Verdict \| Main reason` and no finding-ID/control-ID columns. | warning |
+| `sec7_v2_overview_table` | §6.1 contains `Control category \| Verdict \| Findings \| Weakest controls` and no finding-ID/control-ID columns. | warning |
 | `sec7_v2_control_links` | Every `**Controls covered:**` link text in §6.2-§6.12 has a matching H4 heading in the same section. | error |
 | `sec7_v2_h4_labels` | Every H4 subcontrol contains `**Security assessment**` and `**Relevant findings**`. | error |
 | `section7_h4_status` | Every H4 subcontrol opens with a `**Status:** <icon> <word> — <clause>` verdict badge (directly under the heading, before the intro). The badge gives the reader the verdict at a glance and, for the two red verdicts, the FIX-vs-ADD signal. | warning |

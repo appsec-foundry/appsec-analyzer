@@ -6,9 +6,9 @@ Two regressions surfaced by the systematic REF comparison after P1+P2+P3:
     the threat register) because:
       (a) the STRIDE merger does not currently populate the yaml's
           ``attack_surface[].linked_threats`` field, and
-      (b) ``_attack_surface_notes`` preferred the existing ``notes``
-          string and dropped the linked-threats fallback whenever notes
-          was non-empty.
+      (b) the Notes cell preferred the existing ``notes`` string and
+          dropped the linked-threats fallback whenever notes was
+          non-empty.
 
     §Operational Strengths Mitigates — column was empty / suppressed
     because the yaml's ``security_controls[].mitigates_findings`` field
@@ -19,8 +19,7 @@ P4 introduces two heuristics:
     1. ``_derive_attack_surface_links`` — score-based path-vs-threat
        matching (verbatim path mention, path-token hits, evidence-file
        basename normalisation). Auto-fills ``linked_threats`` per entry
-       when the yaml has none. ``_attack_surface_notes`` then combines
-       the linked-threats list and the notes text.
+       when the yaml has none.
 
     2. ``_derive_control_mitigates`` — domain → CWE membership match.
        The control's ``domain`` field maps to a curated CWE set; threats
@@ -183,40 +182,6 @@ class TestDeriveAttackSurfaceLinks:
         assert pregen._derive_attack_surface_links(entry, []) == []
 
 
-class TestAttackSurfaceNotesCombination:
-    """When both notes and linked_threats are populated, both are rendered."""
-
-    def test_notes_only_returns_notes(self):
-        result = pregen._attack_surface_notes({"notes": "SQL injection"})
-        assert result == "SQL injection"
-
-    def test_linked_threats_only_returns_links(self):
-        # P4 visible-label normalisation: T-NNN → F-NNN (anchor stays valid
-        # via the dual-anchor emission in _render_threat_register).
-        result = pregen._attack_surface_notes({"linked_threats": ["T-001", "T-002"]})
-        assert result == "[F-001](#f-001)<br/>[F-002](#f-002)"
-
-    def test_both_combines_links_then_notes(self):
-        """The new P4 behaviour — pre-fix this returned only notes."""
-        entry = {"notes": "SQL injection via email", "linked_threats": ["T-002"]}
-        result = pregen._attack_surface_notes(entry)
-        # Visible label normalised T-NNN → F-NNN.
-        assert "[F-002](#f-002)" in result
-        assert "SQL injection via email" in result
-        # Linked threats first, then notes — joined by <br/>.
-        assert result == "[F-002](#f-002)<br/>SQL injection via email"
-
-    def test_empty_returns_empty_string(self):
-        assert pregen._attack_surface_notes({}) == ""
-
-    def test_falls_back_to_threats_when_linked_threats_absent(self):
-        # Legacy schema used `threats` not `linked_threats`.
-        # Visible label normalised T-005 → F-005.
-        entry = {"threats": ["T-005"]}
-        result = pregen._attack_surface_notes(entry)
-        assert result == "[F-005](#f-005)"
-
-
 class TestGenAttackSurfaceAutoLinks:
     """End-to-end: gen_attack_surface enriches entries before rendering."""
 
@@ -240,8 +205,7 @@ class TestGenAttackSurfaceAutoLinks:
         }
         rendered = pregen.gen_attack_surface(yaml_data)
         # Visible label normalised T-NNN → F-NNN.
-        assert "[F-002](#f-002)" in rendered
-        assert "SQL injection via email body parameter" in rendered  # notes preserved
+        assert '<a href="#f-002">F-002</a>' in rendered
 
     def test_explicit_linked_threats_respected(self, tmp_path: Path):
         """When yaml already has linked_threats, the heuristic does NOT
@@ -264,10 +228,9 @@ class TestGenAttackSurfaceAutoLinks:
         }
         rendered = pregen.gen_attack_surface(yaml_data)
         # Explicit T-009 from yaml is normalised to F-009 visible label.
-        assert "[F-009](#f-009)" in rendered
+        assert '<a href="#f-009">F-009</a>' in rendered
         # Heuristic must NOT overwrite the explicit value.
-        assert "[F-002](#f-002)" not in rendered
-        assert "[T-002](#t-002)" not in rendered  # legacy form also absent
+        assert "F-002" not in rendered and "T-002" not in rendered
 
 
 # ---------------------------------------------------------------------------

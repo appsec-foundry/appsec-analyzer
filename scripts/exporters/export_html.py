@@ -58,6 +58,7 @@ try:
         INSTALL_HINTS,
         _inject_table_colgroups,
         check_tool,
+        keep_known_markup,
         light_images,
         md_to_html,
         mmdc_failure_hints,
@@ -75,6 +76,7 @@ except ImportError:
         INSTALL_HINTS,
         _inject_table_colgroups,
         check_tool,
+        keep_known_markup,
         light_images,
         md_to_html,
         mmdc_failure_hints,
@@ -183,6 +185,8 @@ def export_html(
     md_text = input_md.read_text(encoding="utf-8")
     # The standalone page embeds the light figures, matching its light stylesheet.
     md_text = light_images(rewrite_vscode_links(md_text))
+    # The browser runs what reaches it, so a report composed before the filter gets it here.
+    md_text = keep_known_markup(md_text)
     md_text = _expand_architecture_detail(md_text, input_md.parent)
 
     with tempfile.TemporaryDirectory(prefix="export-html-") as tmp:

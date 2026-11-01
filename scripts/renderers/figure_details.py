@@ -28,6 +28,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 from renderers._severity_rollup import register_severity, register_threats, risk_distribution_counts
+from renderers.compact_tables import fixed_table
 from renderers.compose_services import Port, Service, service_at
 from renderers.figure1_dfd import GREEN as F1_GREEN
 from renderers.figure1_dfd import INK, MUTED, NAVY, ORANGE, RED, YELLOW, _affected_components
@@ -52,7 +53,6 @@ EFF = {  # schemas/fragments/security-controls.schema.json effectiveness enum
     "Adequate": (GREEN_BG, GREEN, 1),
 }
 EFF_DOT = {"Unsafe": "🔴", "Missing": "🔴", "Weak": "🟠", "Partial": "🟡", "Adequate": "🟢"}
-SEV_DOT = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}
 EFF_TEXT = {  # same definitions as the schema
     "Unsafe": "relied upon but defeated or trivially bypassable — fix it",
     "Missing": "never built — add it",
@@ -76,6 +76,9 @@ DOMAINS = [  # classified by control name and domain text; model domain strings 
 SYSTEM_WIDE = "__system__"
 
 
+# How many findings a component's row names, and the share of its findings that makes a folder its focus.
+TOP_FINDINGS = 3
+FOCUS_SHARE = 0.6
 DETAIL_TABLE_MARKER = "<!-- detail-table -->"  # QA and the §2.3 table injector keep the table that follows
 
 
@@ -300,14 +303,16 @@ class Model:
         self.affected: dict[str, Counter] = defaultdict(Counter)
         self.owned: Counter = Counter()
         self.findings: list[dict] = []
+        self.component_findings: dict[str, list[tuple[str, str, set[str]]]] = defaultdict(list)
         for t in register_threats(yaml_data):
             sev = register_severity(t)
-            for cid in _affected_components(t):
-                self.affected[cid][sev] += 1
-            self.owned[t.get("component")] += 1
             m = re.match(r"^[FT]-(\d+)$", str(t.get("id") or ""))
             ev = t.get("evidence") if isinstance(t.get("evidence"), list) else []
             files = {str(e.get("file")) for e in ev if isinstance(e, dict) and e.get("file")}
+            for cid in _affected_components(t):
+                self.affected[cid][sev] += 1
+                self.component_findings[cid].append((f"F-{m.group(1)}" if m else str(t.get("id") or "?"), sev, files))
+            self.owned[t.get("component")] += 1
             lines = {(str(e.get("file")), e.get("line")) for e in ev if isinstance(e, dict) and e.get("file")}
             self.findings.append(
                 {
@@ -451,7 +456,7 @@ def _control_targets(m: Model, control: dict) -> set[str]:
     return targets
 
 
-def controls_table(m: Model, number: int) -> DetailFigure | None:
+def controls_table(m: Model, number: int, scores: dict[str, float] | None = None) -> DetailFigure | None:
     """Per component: how it is reached, what it handles, the threats on it and the worst effectiveness
     of the controls evidenced on it, per control domain — a Markdown table beside the §2.3 component table."""
     if not m.comps or not m.controls:
@@ -499,82 +504,99 @@ def controls_table(m: Model, number: int) -> DetailFigure | None:
         )
     take += "."
 
-    pub = {m.svc_comp.get(svc.name) for svc in m.services if any(not p.loopback_only for p in svc.ports)}
-    rank = ["Public", "Internal", "Confidential", "Restricted"]
-
-    def inbound_cell(cid) -> str:
-        auth = _auth_counts(inbound.get(cid, []))
-        # One line per class, not per scheme: four schemes used to print
-        # "1 authenticated" four times. The schemes are named once instead.
-        schemes = sorted(k for k in auth if k not in ("none", "unknown"))
-        n_auth = sum(auth[k] for k in schemes)
-        parts = [f"{auth['none']} unauthenticated"] if auth.get("none") else []
-        if auth.get("unknown"):
-            parts.append(f"{auth['unknown']} authentication unknown")
-        if n_auth:
-            parts.append(f"{n_auth} authenticated ({', '.join(schemes)})")
-        if cid in pub:
-            parts.append("host port published")
-        return "<br/>".join(parts) or "none modeled"
-
-    def data_cell(c) -> str:
-        classes = [
-            str(f["data_classification"])
-            for f in m.flows
-            if c["id"] in (f.get("from"), f.get("to")) and f.get("data_classification")
-        ]
-        top_cls = max(classes, key=lambda k: rank.index(k) if k in rank else -1) if classes else ""
-        sens = sorted(
-            {str(d.get("category")) for d in c.get("sensitive_data") or [] if isinstance(d, dict) and d.get("category")}
-        )
-        return md_cell(" · ".join(v for v in (top_cls, ", ".join(sens)) if v)) or "–"
-
-    def threats_cell(cid) -> str:
-        aff = m.affected.get(cid, Counter())
-        total = sum(aff.values())
-        if not total:
-            return "none"
-        return f"{total} ({' · '.join(f'{SEV_DOT[s]} {aff[s]}' for s in SEV if aff.get(s))})"
-
-    def controls_cell(cid) -> str:
+    def controls_lines(cid) -> list[str]:
+        """The domains by worst rating. Only 🔴 and 🟠 stand here when there are any; §6 has the lower ratings."""
         by_eff: dict[str, list[str]] = defaultdict(list)
         for dom, _ in DOMAINS:
-            cs = cmap.get(cid, {}).get(dom, [])
-            if cs:
-                label = dom.replace("\n", " ")
-                by_eff[worst[cid][dom] or "Unrated"].append(f"{label} ({len(cs)})" if len(cs) > 1 else label)
+            if cmap.get(cid, {}).get(dom, []):
+                by_eff[worst[cid][dom] or "Unrated"].append(dom.replace("\n", " "))
         order = sorted(by_eff, key=lambda e: -EFF.get(e, ("", "", 0))[2])
-        return "<br/>".join(f"{EFF_DOT.get(e, '⚪')} {md_cell(e)}: {', '.join(by_eff[e])}" for e in order) or "–"
+        lines = [f"{EFF_DOT.get(e, '⚪')} {md_cell(e)}: {', '.join(by_eff[e])}" for e in order]
+        return [line for line in lines if line[:1] in "🔴🟠"] or lines
 
-    rows = [
-        "| Component | Inbound flows | Data handled | Threats | Controls: worst effectiveness per domain |",
-        "|---|---|---|---|---|",
-    ]
-    for c in m.comps:
+    def top_findings(cid) -> list[str]:
+        """Every Critical, filled up to three by the next worst; the run's ranking orders equal severities."""
+        order = list(SEV)
+        ranked = sorted(
+            m.component_findings.get(cid, []),
+            key=lambda row: (
+                order.index(row[1]) if row[1] in order else len(order),
+                -(scores or {}).get(row[0], 0),
+                row[0],
+            ),
+        )
+        critical = [fid for fid, sev, _ in ranked if sev == "Critical"]
+        return critical if len(critical) >= TOP_FINDINGS else [fid for fid, _, _ in ranked[:TOP_FINDINGS]]
+
+    def overview_cell(cid) -> str:
+        lines = controls_lines(cid)
+        if top := top_findings(cid):
+            ids = " · ".join(f'<span style="white-space:nowrap">[{fid}](#{fid.lower()})</span>' for fid in top)
+            lines.append(f"Top findings: {ids}")
+        return "<br/>".join(lines) or "–"
+
+    def component_cell(c) -> str:
         cid = c["id"]
+        anchors = [m.cnum[cid].lower(), *([str(cid).lower()] if str(cid).lower() != m.cnum[cid].lower() else [])]
         depth = f" ({m.scope[cid]})" if m.scope[cid] and m.scope[cid] != "Analyzed" else ""
-        name = f"[{m.cnum[cid]}](#{m.cnum[cid].lower()}) · {md_cell(m.name[cid])}{depth}"
-        rows.append(f"| {name} | {inbound_cell(cid)} | {data_cell(c)} | {threats_cell(cid)} | {controls_cell(cid)} |")
+        marks = "".join(f'<a id="{anchor}"></a>' for anchor in anchors)
+        lines = [f"{marks}**{m.cnum[cid]} · {md_cell(m.name[cid])}**{depth}"]
+        folder = _focus_folder([path for _, _, files in m.component_findings.get(cid, []) for path in files])
+        if folder:
+            lines.append(f"Mostly in `{folder}`")
+        return "<br/>".join(lines)
+
+    def count_cells(cid) -> list[str]:
+        aff = m.affected.get(cid, Counter())
+        return [str(aff[s]) if aff.get(s) else "–" for s in ("Critical", "High", "Medium")]
+
+    def weight(c) -> tuple[int, int, int]:
+        aff = m.affected.get(c["id"], Counter())
+        return -aff.get("Critical", 0), -aff.get("High", 0), -aff.get("Medium", 0)
+
+    rows = [[component_cell(c), *count_cells(c["id"]), overview_cell(c["id"])] for c in sorted(m.comps, key=weight)]
     if cmap.get(SYSTEM_WIDE):
-        rows.append(f"| System-wide: evidence not tied to one component | – | – | – | {controls_cell(SYSTEM_WIDE)} |")
+        rows.append(["System-wide: evidence not tied to one component", "–", "–", "–", overview_cell(SYSTEM_WIDE)])
+    # Raw HTML, because the label passes would add a title to every linked ID in a Markdown table.
+    table = fixed_table(("Component", "🔴", "🟠", "🟡", "Weakest controls and top findings"), rows, (43, 7, 7, 7, 36))
     key = " · ".join(f"{EFF_DOT[e]} **{e}**: {EFF_TEXT[e]}" for e in EFF)
     note = (
-        f"*{key}. A control counts for the component whose paths hold its implementation evidence; "
-        "a domain without an evidenced control is not listed; (n) counts the controls behind a rating. "
-        "Threat counts use the Figure 1 attribution; §6 holds the full assessment.*"
+        f"*{key}. A control counts for the component whose paths hold its implementation evidence. "
+        "A finding counts for every component it affects, so the columns can add up to more than the register. "
+        "§6 holds the full assessment.*"
     )
     title = "Component Exposure and Control Coverage"
-    return DetailFigure("2.3", number, title, take, markdown="\n".join([DETAIL_TABLE_MARKER, *rows, "", note]))
+    return DetailFigure("2.3", number, title, take, markdown="\n".join([DETAIL_TABLE_MARKER, table, "", note]))
+
+
+def _focus_folder(files: list[str]) -> str:
+    """The folder that holds most of a component's findings, or nothing when they are spread out."""
+    prefix, current = "", [path for path in files if path]
+    while current:
+        tops = Counter(path.split("/")[0] for path in current if "/" in path)
+        if not tops:
+            break
+        name, count = tops.most_common(1)[0]
+        if count / len(current) < FOCUS_SHARE:
+            break
+        prefix += name + "/"
+        current = [path[len(name) + 1 :] for path in current if path.startswith(name + "/")]
+    return prefix
 
 
 # ================================================================ entry point
-def build_detail_figures(yaml_data: dict, inventory: dict | None, first_number: int = 3) -> dict[str, DetailFigure]:
+def build_detail_figures(
+    yaml_data: dict,
+    inventory: dict | None,
+    first_number: int = 3,
+    scores: dict[str, float] | None = None,
+) -> dict[str, DetailFigure]:
     """§2 subsection → detail view; SVG figures are numbered consecutively in section order, tables take no
-    number, and missing inputs leave a subsection out."""
+    number, and missing inputs leave a subsection out. ``scores`` ranks findings of equal severity."""
     m = Model(yaml_data, inventory)
     out: dict[str, DetailFigure] = {}
     number = first_number
-    for build in (lambda n: controls_table(m, n),):
+    for build in (lambda n: controls_table(m, n, scores),):
         fig = build(number)
         if fig is not None:
             out[fig.key] = fig

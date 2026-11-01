@@ -16,5 +16,9 @@
 {%- for r in rows %}
 | {{ r.num_cell }} | {{ r.description_cell }} | {{ r.findings_cell }} | {{ r.risk_cell }} | {{ r.fix_cell }} |
 {%- endfor %}
+{%- if other_threats %}
+
+{{ other_threats }}
+{%- endif %}
 
 _STRIDE: S spoofing · T tampering · R repudiation · I information disclosure · D denial of service · E elevation of privilege. Risk, findings, components, impact and Fix are derived deterministically; only the one-line weakness description is authored._

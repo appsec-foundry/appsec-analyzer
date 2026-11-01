@@ -38,8 +38,14 @@
 
 _Append-only history of assessment runs. Most recent first._
 
-| Version | Date | Mode | Depth | Reasoning | Baseline → Current | Δ Threats | Code | Note |
-|---------|------|------|-------|-----------|--------------------|-----------|------|------|
+{#- A column without a value in any run says nothing, so a first run has neither of these two. -#}
+{%- set columns = namespace(sha=false, code=false) -%}
+{%- for entry in changelog -%}
+{%-   if entry.baseline_sha or entry.previous_date -%}{%- set columns.sha = true -%}{%- endif -%}
+{%-   if entry.changed_files or entry.changed_lines -%}{%- set columns.code = true -%}{%- endif -%}
+{%- endfor %}
+| Version | Date | Scan | Model |{% if columns.sha %} Baseline → Current |{% endif %} Δ Threats |{% if columns.code %} Code |{% endif %} Note |
+|---------|------|------|-------|{% if columns.sha %}--------------------|{% endif %}-----------|{% if columns.code %}------|{% endif %}------|
 {% for entry in changelog %}
 {%- set run_no        = (changelog | length) - loop.index0 -%}
 {%- set prior_run     = run_no - 1 -%}
@@ -116,9 +122,9 @@ _Append-only history of assessment runs. Most recent first._
     length, so the visible numbers stay correct even with rows hidden, and the
     first-scan date is always retained. ≤10 runs render in full. -#}
 {%- if (loop.length <= 10) or (loop.index0 < 5) or loop.last -%}
-| v{{ run_no }} | {{ date }} | {{ mode }} | {{ depth }} | {{ reasoning }} | {{ sha_cell }} | {{ delta_cell }} | {{ code_cell }} | {{ note or '—' }} |
+| v{{ run_no }} | {{ date }} | {{ mode }} · {{ depth }} | {{ reasoning }} |{% if columns.sha %} {{ sha_cell }} |{% endif %} {{ delta_cell }} |{% if columns.code %} {{ code_cell }} |{% endif %} {{ note or '—' }} |
 {% elif loop.index0 == 5 -%}
-| ⋯ | _v2–v{{ loop.length - 5 }} ({{ loop.length - 6 }} older run{{ 's' if (loop.length - 6) != 1 else '' }}) collapsed_ | — | — | — | — | — | — | _full history in `threat-model.yaml`_ |
+| ⋯ | _v2–v{{ loop.length - 5 }} ({{ loop.length - 6 }} older run{{ 's' if (loop.length - 6) != 1 else '' }}) collapsed_ | — | — |{% if columns.sha %} — |{% endif %} — |{% if columns.code %} — |{% endif %} _full history in `threat-model.yaml`_ |
 {% endif -%}
 {% endfor %}
 {#- Detail block for the LATEST entry. Rendered when the latest run has a

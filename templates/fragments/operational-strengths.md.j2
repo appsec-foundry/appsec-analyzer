@@ -21,8 +21,10 @@
       rows         — list of {label, what_in_place, effectiveness,
                      effectiveness_note, mitigates} where `what_in_place` is a
                      `<br/>`-joined compact list of the cluster's constituent
-                     controls and `effectiveness_note` is the SUBSTANTIVE gap text
-                     (empty for generic fillers) merged into the Effectiveness cell.
+                     controls, `mitigates` holds the findings that remain open,
+                     and `effectiveness_note` is the SUBSTANTIVE gap text (empty
+                     for generic fillers). The note stands beside the rating only
+                     when no row has an Open gaps cell to carry that information.
       overrides    — { intentionally_vulnerable_or_deficient, bottom_line }
       overflow_count — extra controls beyond the rendered cluster set (0 normally)
       show_intro / show_mitigates / section7_present — booleans
@@ -39,10 +41,10 @@ Operational controls rated Adequate or Partial — grouped into broad clusters (
 Operational controls rated Adequate or Partial — grouped into broad clusters. Clusters demoted to Weak by open Critical/High findings are excluded here.
 {%- endif %}
 {% endif %}
-| Strength | What's in Place | Effectiveness{% if show_mitigates %} | Mitigates{% endif %} |
+| Strength | What's in Place | Effectiveness{% if show_mitigates %} | Open gaps{% endif %} |
 |---|---|---{% if show_mitigates %}|---{% endif %}|
 {%- for r in rows %}
-| **{{ r.label }}** | {{ r.what_in_place }} | {{ effectiveness_badge(r.effectiveness) }}{% if r.effectiveness_note %} — {{ r.effectiveness_note }}{% endif %}{% if show_mitigates %} | {{ r.mitigates | format_strengths_mitigates if r.mitigates else '—' }}{% endif %} |
+| **{{ r.label }}** | {{ r.what_in_place }} | {{ effectiveness_badge(r.effectiveness) }}{% if r.effectiveness_note and not show_mitigates %} — {{ r.effectiveness_note }}{% endif %}{% if show_mitigates %} | {{ r.mitigates | format_open_gaps if r.mitigates else '—' }}{% endif %} |
 {%- endfor %}
 
 {% if overflow_count > 0 -%}

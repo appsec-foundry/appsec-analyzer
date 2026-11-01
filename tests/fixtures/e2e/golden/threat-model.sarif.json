@@ -5,7 +5,7 @@
     {
       "tool": {
         "driver": {
-          "name": "appsec-advisor",
+          "name": "appsec-analyzer",
           "version": "0.4.0-beta",
           "semanticVersion": "0.4.0-beta",
           "rules": [

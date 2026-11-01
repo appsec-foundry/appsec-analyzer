@@ -14,6 +14,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from analyzers import serving_units
 from contexts.reconcile_multi_repo_architecture import SCHEMA, reconcile, validate_discovery
@@ -288,6 +289,7 @@ class DiscoveryBudget:
         # What hosts reported per finished call, summed by (job group, role, model id). A call without a
         # report (failed, stopped, or a host that reports none) is only in `calls` and `spent_usd`.
         self.ledger: dict[tuple[str | None, str | None, str], dict[str, float]] = {}
+        self.call_time: dict[str | None, float] = {}
         # What this session's settled calls were charged per job group, failed and stopped calls included.
         self.charged: dict[str | None, float] = {}
         self._local = threading.local()
@@ -574,19 +576,20 @@ class DiscoveryBudget:
             if cost is not None:
                 self.failed = True
                 raise TransportError("Subscription host returned unexpected monetary accounting")
-            self._record_usage(reply.usage)
+            self._record_usage(reply.usage, time.monotonic() - admitted_at)
             return reply
         if type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
             self._settle(ceiling, None)
             raise TransportError("Model call cost is unavailable")
         self._settle(ceiling, cost)
-        self._record_usage(reply.usage)
+        self._record_usage(reply.usage, time.monotonic() - admitted_at)
         return reply
 
-    def _record_usage(self, usage: dict[str, dict[str, float]] | None) -> None:
+    def _record_usage(self, usage: dict[str, dict[str, float]] | None, seconds: float = 0.0) -> None:
         """Add a finished call's reported usage to the ledger under the calling job's group and role."""
         group, role, _optional = getattr(self._local, "job", (None, None, False))
         with self._lock:
+            self.call_time[role] = self.call_time.get(role, 0.0) + seconds
             for model, counters in (usage or {}).items():
                 row = self.ledger.setdefault((group, role, model), {"calls": 0})
                 row["calls"] += 1
@@ -620,6 +623,24 @@ class DiscoveryBudget:
             "unitemised_calls": max(0, calls - itemised),
             "unitemised_usd": None if self.subscription or spent is None else max(0.0, spent - usd),
         }
+
+    def role_usage(self) -> dict[str, dict[str, Any]]:
+        """Model time of finished calls and reported counters per model, for each role.
+
+        A job's duration also counts its waiting, so only this time says how long the models worked.
+        """
+        report: dict[str, dict[str, Any]] = {}
+        with self._lock:
+            for role, seconds in self.call_time.items():
+                if role is not None:
+                    report[role] = {"seconds": seconds, "models": {}}
+            for (_group, role, model), row in self.ledger.items():
+                if role is None:
+                    continue
+                total = report.setdefault(role, {"seconds": 0.0, "models": {}})["models"].setdefault(model, {})
+                for key, value in row.items():
+                    total[key] = total.get(key, 0) + value
+        return report
 
     def usage_of(self, *groups: str) -> dict[str, float]:
         """Summed reported counters of the jobs whose group is one of ``groups`` or starts with ``<group>:``."""

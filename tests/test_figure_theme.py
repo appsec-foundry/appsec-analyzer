@@ -4,8 +4,8 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from renderers.compose_threat_model import _escape_html_payloads_in_prose
 from renderers.figure_theme import dark_basename, dark_svg, light_images, stash_figures, themed_image
+from renderers.report_markup import keep_known_markup
 
 FIXTURE = Path(__file__).parent / "fixtures" / "run_invariants" / "juice-shop-thorough" / "threat-model.figure1.svg"
 GITHUB_DARK = "#0d1117"
@@ -105,11 +105,11 @@ def test_stashed_figures_survive_prose_passes_but_forged_or_payload_markup_does_
 
     stashed, restore = stash_figures(report)
     assert local not in stashed and remote in stashed
-    out = restore(_escape_html_payloads_in_prose(stashed).replace(" — ", " - "))
+    out = restore(keep_known_markup(stashed).replace(" — ", " - "))
 
     assert local in out
-    assert "`<img src=x onerror=alert(1)>`" in out
-    assert '`<img src="https://evil.example/l.svg" alt="x">`' in out
+    assert "&lt;img src=x onerror=alert(1)&gt;" in out
+    assert '&lt;img src="https://evil.example/l.svg" alt="x"&gt;' in out
     assert "\x00FIGURE7\x00" in out  # only tokens issued by this stash are restored
 
 

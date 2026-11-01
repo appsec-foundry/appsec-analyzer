@@ -65,6 +65,7 @@ if not __package__:
 
 import argparse
 import collections
+import html
 import json
 import re
 import subprocess
@@ -75,7 +76,7 @@ from typing import Any, Iterable
 import yaml
 from contexts.load_business_context import RUN_ONLY_NAME
 from shared._boundary_interface import is_internal_interface
-from shared._finding_locator import strip_trailing_locator
+from shared._finding_locator import strip_trailing_locator, title_without_locator
 from shared.artifact_names import MODEL
 
 from renderers._severity_rollup import (
@@ -91,6 +92,7 @@ from renderers._severity_rollup import (
     verdict_ranked_ids,
     verdict_severity,
 )
+from renderers.compact_tables import badge, fixed_table, fold, id_list
 from renderers.component_labels import component_names, crossing_text
 
 # Sibling module — deterministic §3 walkthrough renderer. Imported here
@@ -1096,9 +1098,8 @@ _DETAIL_FIGURE_INTROS = {
         "component are in Figure 1."
     ),
     "2.3": (
-        "How each component is reached, what it handles, how many threats hit it, and how effective the controls "
-        "evidenced on it are. The component table below holds source paths and linked threats per `C-NN`; "
-        "per-finding evidence is in [§8 Findings Register](#8-findings-register)."
+        "How many findings hit each component, which of its controls are weakest, and which findings matter most. "
+        "Evidence is in the [§8 Findings Register](#8-findings-register)."
     ),
 }
 
@@ -2205,54 +2206,58 @@ def _data_flow_edges(yaml_data: dict, components: list[dict]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _proportional_separator(*widths: int) -> str:
-    """Build a GFM table separator row whose dash-runs encode RELATIVE column
-    widths. GitHub ignores the run length (all columns content-sized), but
-    Pandoc — the converter that produces the HTML/PDF deliverable — turns the
-    relative dash lengths into explicit `<col style="width:N%">` so wide,
-    link-stacked columns (Linked Threats / Notes) stop getting squished next
-    to a long Description column (2026-05-30 user request)."""
-    return "|" + "|".join("-" * max(3, w) for w in widths) + "|"
+# The rating is assumed from the code, so the report must not present it as an organization's classification.
+_ASSUMED_SENSITIVITY = {"Restricted": "High", "Confidential": "Medium", "Internal": "Low", "Public": "Low"}
 
 
 def gen_assets(yaml_data: dict) -> str:
     """## 4. Assets — single | Asset | table per contract."""
     assets = yaml_data.get("assets") or []
     lines = ["## 4. Assets", ""]
-    lines.append(
-        "Information assets and the classification level that drives the "
-        "Confidentiality / Integrity / Availability targets used in [§8 Findings Register](#8-findings-register) risk scoring."
-    )
+    lines.append("What needs protecting, how sensitive it is, and which findings are tied to it.")
     lines.append("")
     if not assets:
         lines.append(f"_No assets enumerated in {MODEL}._")
         lines.append("")
         return "\n".join(lines).rstrip() + "\n"
 
-    # Sort rows by data-classification severity (2026-05-31 user request) so the
-    # most-sensitive assets lead the table, regardless of A-NNN allocation order.
-    # Stable within a class — preserves the yaml/ID order for ties.
-    assets = sorted(assets, key=lambda a: _classification_rank(a.get("classification")))
+    # The worst finding decides the order; among equals the more sensitive asset comes
+    # first, and the sort is stable, so ties keep the yaml order.
+    severity = {
+        _to_canonical_finding_label(str(t.get("id") or t.get("t_id"))): register_severity(t)
+        for t in yaml_data.get("threats") or []
+        if isinstance(t, dict)
+    }
+    titles = {
+        _to_canonical_finding_label(str(t.get("id") or t.get("t_id"))): title_without_locator(t.get("title") or "")
+        for t in yaml_data.get("threats") or []
+        if isinstance(t, dict)
+    }
 
-    # Check whether any asset has linked_threats to decide if the column is needed
-    any_linked = any(a.get("linked_threats") for a in assets)
+    def linked(asset: dict) -> list[str]:
+        return [_to_canonical_finding_label(t) for t in asset.get("linked_threats") or []]
+
+    def weight(asset: dict) -> tuple[int, ...]:
+        tally = collections.Counter(severity.get(ref) for ref in linked(asset))
+        return (-tally["Critical"], -tally["High"], -tally["Medium"], _classification_rank(asset.get("classification")))
+
+    def findings_cell(asset: dict) -> str:
+        """Critical and High as linked IDs; Medium and lower collapse with their titles."""
+        refs = sorted(linked(asset))
+        heavy = [ref for ref in refs if severity.get(ref) in ("Critical", "High")]
+        light = [ref for ref in refs if ref not in heavy]
+        ids = id_list((badge(severity.get(ref)), f"[{ref}](#{ref.lower()})") for ref in heavy)
+        collapsed = fold(
+            [f"{badge(severity.get(ref))} [{ref}](#{ref.lower()}) — {titles.get(ref, '')}" for ref in light]
+        )
+        return "<br/>".join(part for part in (ids, collapsed) if part) or "No finding linked"
+
     # No ID column: the A-NNN ids are an internal yaml key with no in-document
     # cross-reference (nothing links to `#a-NNN`), so they are omitted from the
     # rendered table per the agent-prompt layout. compose's _drop_asset_id_column
-    # also strips a stray ID column from LLM-authored fragments, so the table
-    # shape is 4-col (or 3-col without Linked Threats) everywhere.
-    if any_linked:
-        lines.append("| Asset | Classification | Description | Linked Threats |")
-        # Linked Threats ships `·`-joined BARE `[F-NNN](#f-nnn)` chips here;
-        # compose's `_enrich_linked_id_cells` rewrites them to the canonical
-        # `[F-NNN](#f-nnn) — title` stacked form (2026-06-02 user request —
-        # supersedes the earlier bare-chip-only preference). Emitting bare IDs
-        # keeps the short-title as a single source of truth in compose.
-        lines.append(_proportional_separator(22, 13, 43, 22))
-    else:
-        lines.append("| Asset | Classification | Description |")
-        lines.append(_proportional_separator(20, 20, 60))
-    for idx, a in enumerate(assets, start=1):
+    # also strips a stray ID column from LLM-authored fragments.
+    rows = []
+    for idx, a in enumerate(sorted(assets, key=weight), start=1):
         # Auto-assign A-NNN deterministically when the yaml-writer omitted
         # the id field (LLM schema-drift: some orchestrator runs produce
         # assets with name/classification/description but no id) so the name
@@ -2260,16 +2265,16 @@ def gen_assets(yaml_data: dict) -> str:
         # rendered column.
         aid = a.get("id") or f"A-{idx:03d}"
         name = a.get("name", aid)
-        clazz = a.get("classification", "_n/a_")
+        level = _ASSUMED_SENSITIVITY.get(str(a.get("classification")), a.get("classification", "_n/a_"))
         desc = (a.get("description") or "").replace("\n", " ").strip()
-        if any_linked:
-            lt = [_to_canonical_finding_label(t) for t in (a.get("linked_threats") or [])]
-            # `·`-joined bare chips; compose's `_enrich_linked_id_cells` adds
-            # the `— title` labels (2026-06-02 user request).
-            lt_cell = " · ".join(f"[{t}](#{t.lower()})" for t in lt) if lt else "—"
-            lines.append(f"| {name} | {clazz} | {desc} | {lt_cell} |")
-        else:
-            lines.append(f"| {name} | {clazz} | {desc} |")
+        rows.append([f"**{name}**<br/>{desc}" if desc else f"**{name}**", str(level), findings_cell(a)])
+    # Raw HTML, because the ID lists keep their severity grouping only outside the Markdown label passes.
+    lines.append(fixed_table(("Asset", "Sensitivity (assumed)", "Findings"), rows, (46, 16, 38)))
+    lines.append("")
+    lines.append(
+        "*Sensitivity is assumed from the code, not set by your organization. No finding linked means that no "
+        "finding is tied to this asset yet. It does not mean the asset is safe.*"
+    )
     lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -2279,28 +2284,6 @@ def gen_assets(yaml_data: dict) -> str:
 # ---------------------------------------------------------------------------
 
 _HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "WS", "ALL", "GRAPHQL"}
-
-
-def _wrappable_route(route: str) -> str:
-    """Insert zero-width break opportunities (U+200B) after URL separators so a
-    long route wraps at sensible points inside its monospace table cell instead
-    of forcing the Route column unreadably wide (user report 2026-06:
-    `/this/page/is/hidden/behind/an/incredibly/high/paywall/…` blew the table
-    out and crushed the more-important Findings column).
-
-    ZWSP is invisible and a valid soft-wrap point in `white-space: normal` /
-    `pre-wrap` — i.e. markdown previews, GFM, and the PDF/HTML export (whose
-    print.css sets `td code{overflow-wrap:anywhere}`). Short routes are left
-    untouched. The visible characters are unchanged; only break hints are added.
-    """
-    if len(route) <= 28:
-        return route
-    out: list[str] = []
-    for ch in route:
-        out.append(ch)
-        if ch in "/.-_=&?:":
-            out.append("\u200b")  # ZWSP soft-wrap point
-    return "".join(out)
 
 
 def _attack_surface_route(entry: dict) -> str:
@@ -2374,66 +2357,21 @@ def _reader_route_notes(notes: str) -> str:
     return "; ".join(parts)
 
 
-def _attack_surface_notes(entry: dict) -> str:
-    """Render the Notes column.
-
-    P4 update: when both ``notes`` and ``linked_threats`` are populated, emit
-    BOTH — linked_threats first (clickable, downstream-linkified to
-    ``[F-NNN](#f-nnn) — Title``), notes after on a separate line as
-    supplementary context. Pre-P4 the function preferred ``notes`` and
-    silently dropped the linked-threats column whenever notes was non-empty,
-    which left §5 cells as plain text without finding back-references.
-
-    When ``linked_threats`` is empty (the common case in current production
-    yamls — the STRIDE merger doesn't yet populate the field), the caller's
-    auto-derive heuristic in ``_derive_attack_surface_links`` populates it
-    before this function runs. The fallback chain stays intact for legacy
-    inputs.
-
-    Visible IDs are normalised to F-NNN via ``_to_canonical_finding_label``.
-    """
-    if not isinstance(entry, dict):
-        return ""
-    notes = _reader_route_notes((entry.get("notes") or "").replace("\n", " ").strip())
-    threats = entry.get("threats") or entry.get("linked_threats") or []
-    threats = [_to_canonical_finding_label(t) for t in threats if isinstance(t, str)]
-
-    # Strip redundant `(T-NNN)` / `(F-NNN)` parentheticals from notes when the
-    # same threat is already represented in linked_threats — the linkified
-    # head line above already cites it; a plain-text parenthetical produces
-    # duplicate refs (`[F-013](#f-013) — Title<br/>Raw SQL … (T-013)`). The
-    # author-prompt guidance forbids ID tokens in `notes` (see
-    # the canonical architecture artifact schema) but legacy yamls and
-    # LLM drift still leak them through. This is the deterministic rendering
-    # safeguard.
-    if notes and threats:
-        threat_digits = {re.sub(r"^[TF]-", "", t).zfill(3) for t in threats}
-        notes = (
-            re.sub(
-                r"\s*[—–-]?\s*\(\s*[TF]-(\d+)\s*\)",
-                lambda m: "" if m.group(1).zfill(3) in threat_digits else m.group(0),
-                notes,
-            )
-            .rstrip(" ,;:—–-")
-            .strip()
-        )
-
-    if threats and notes:
-        linkified = "<br/>".join(f"[{t}](#{t.lower()})" for t in threats)
-        return f"{linkified}<br/>{notes}"
-    if notes:
-        return notes
-    if threats:
-        return "<br/>".join(f"[{t}](#{t.lower()})" for t in threats)
-    return ""
-
-
 # ---------------------------------------------------------------------------
 # P4 — Auto-derive linked_threats for attack-surface entries (heuristic)
 # ---------------------------------------------------------------------------
 
 _PATH_PARAM_RE = re.compile(r"/?:[a-zA-Z][a-zA-Z0-9_]*")
 _PATH_TOKEN_SPLIT = re.compile(r"[/_\-:]")
+# Words any finding text can hold. Three of them once made a paywall route Critical.
+_UNSPECIFIC_PATH_WORDS = frozenset(
+    {
+        "rest", "api", "http", "https", "that", "this", "these", "those", "with", "from", "into", "onto", "over",
+        "under", "behind", "about", "after", "before", "have", "been", "being", "could", "would", "should", "will",
+        "must", "only", "also", "than", "then", "them", "they", "their", "there", "here", "when", "where", "which",
+        "what", "while", "some", "such", "very", "more", "most", "many", "much", "each", "both", "high", "page",
+    }
+)  # fmt: skip
 _NORMALIZE_NON_ALNUM = re.compile(r"[^a-z0-9]")
 _FILE_EXT_STRIP = re.compile(r"\.(?:ts|js|jsx|tsx|py|rb|go|java|cs|kt|swift)$", re.IGNORECASE)
 
@@ -2507,9 +2445,7 @@ def _score_threat_path_match(threat: dict, raw_path: str) -> int:
         score += 5
 
     path_tokens = [
-        tok
-        for tok in _PATH_TOKEN_SPLIT.split(raw_path.lower())
-        if len(tok) >= 4 and tok not in {"rest", "api", "http", "https"}
+        tok for tok in _PATH_TOKEN_SPLIT.split(raw_path.lower()) if len(tok) >= 4 and tok not in _UNSPECIFIC_PATH_WORDS
     ]
     for tok in path_tokens:
         if tok in full_text:
@@ -2667,6 +2603,72 @@ def _relevance_chip(entry: dict) -> str:
     return "⚑ Review: " + ", ".join(labels)
 
 
+# Longer paths would break the layout, so their middle gives way and a tooltip keeps the whole path.
+_MAX_ROUTE_LENGTH = 60
+
+
+def _surface_route(route: str) -> str:
+    """Keep both ends of a long path visible; a table cell offers break points after each slash."""
+    if len(route) <= _MAX_ROUTE_LENGTH:
+        return f"`{route}`"
+    parts = route.split("/")
+    short = "/".join(parts[:4]) + "/…/" + "/".join(parts[-3:])
+    return f'<code title="{html.escape(route)}">{html.escape(short).replace("/", "/<wbr>")}</code>'
+
+
+def _surface_tables(entries: list, entry_rank, severity_of, threat_by_id: dict) -> list[str]:
+    """One row per set of findings, because routes with the same findings repeat them otherwise.
+
+    Methods of one path stand together. Entry points without Critical or High findings collapse below
+    the table, unless no entry point has any.
+    """
+    groups: dict[tuple, dict[str, list[str]]] = {}
+    for entry in entries:
+        refs = [r for r in (entry.get("linked_threats") or entry.get("threats") or []) if isinstance(r, str)]
+        found = tuple(
+            (_to_canonical_finding_label(ref), severity_of(threat_by_id.get(ref.strip().upper()) or {})) for ref in refs
+        )
+        note = _surface_note(entry, entry_rank)
+        routes = groups.setdefault((found, note), {})
+        methods = routes.setdefault(_attack_surface_route(entry), [])
+        if _attack_surface_method(entry) not in methods:
+            methods.append(_attack_surface_method(entry))
+
+    def weight(key: tuple) -> tuple[int, int, int]:
+        tally = collections.Counter(severity for _, severity in key[0])
+        return -tally["Critical"], -tally["High"], -tally["Medium"]
+
+    def row(key: tuple) -> list[str]:
+        found, note = key
+        where = "<br/>".join(f"{' · '.join(methods)} {_surface_route(route)}" for route, methods in groups[key].items())
+        ids = id_list((badge(severity), f"[{fid}](#{fid.lower()})") for fid, severity in found)
+        return [where, "<br/>".join(part for part in (ids, note) if part) or "–"]
+
+    def table(keys: list[tuple]) -> str:
+        return fixed_table(("Entry point", "Findings"), [row(key) for key in keys], (62, 38))
+
+    ranked = sorted(groups, key=weight)
+    heavy = [key for key in ranked if weight(key)[:2] != (0, 0)]
+    light = [key for key in ranked if key not in heavy]
+    if not heavy:
+        heavy, light = light, []
+    lines = [table(heavy)] if heavy else []
+    if light:
+        count = sum(len(groups[key]) for key in light)
+        lines += ["", f"<details><summary>{count} more entry points without Critical or High findings</summary>"]
+        lines += [table(light), "</details>"]
+    return lines
+
+
+def _surface_note(entry: dict, entry_rank) -> str:
+    """Why a row without a finding is listed, in words that let rows with the same reason share a line."""
+    chip = _relevance_chip(entry) if entry_rank(entry) < 0 else ""
+    if chip:
+        return chip
+    notes = _reader_route_notes(str(entry.get("notes") or "").replace("\n", " ").strip())
+    return "Public by design" if "Public by design" in notes else ""
+
+
 def gen_attack_surface(yaml_data: dict) -> str:
     """## 5. Attack Surface — required ### 5.1 + ### 5.2 sub-sections."""
     surface = yaml_data.get("attack_surface") or {}
@@ -2705,7 +2707,6 @@ def gen_attack_surface(yaml_data: dict) -> str:
     # per entry. Severity hierarchy follows the standard 4-tier mapping;
     # the highest severity across an entry's linked_threats wins.
     _sev_rank = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Info": 0, "Unknown": 0}
-    _sev_emoji = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}
     threat_by_id = {
         (t.get("t_id") or t.get("id") or "").upper(): t for t in (yaml_data.get("threats") or []) if isinstance(t, dict)
     }
@@ -2718,23 +2719,6 @@ def gen_attack_surface(yaml_data: dict) -> str:
         the Risk column contradict the dot in its own row.
         """
         return register_severity(threat) or str(threat.get("impact") or "").strip().title()
-
-    def _entry_risk(entry: dict) -> str:
-        """Highest severity across the entry's linked threats. `—` when none."""
-        worst_name = ""
-        worst_rank = -1
-        for ref in entry.get("linked_threats") or entry.get("threats") or []:
-            if not isinstance(ref, str):
-                continue
-            sev = _displayed_severity(threat_by_id.get(ref.strip().upper()) or {})
-            rank = _sev_rank.get(sev, -1)
-            if rank > worst_rank:
-                worst_rank = rank
-                worst_name = sev
-        if not worst_name:
-            return "—"
-        emoji = _sev_emoji.get(worst_name, "")
-        return f"{emoji} {worst_name}".strip()
 
     def _entry_rank(entry: dict) -> int:
         """Numeric highest-severity rank across linked threats (for sorting)."""
@@ -2764,12 +2748,8 @@ def gen_attack_surface(yaml_data: dict) -> str:
 
     lines = ["## 5. Attack Surface", ""]
     lines.append(
-        "Network-reachable entry points classified by authentication requirement. "
-        "Each row links to the threat(s) referenced in its **Notes** column. The "
-        "**Risk** column reflects the highest-severity linked finding. Entry points "
-        "with no linked finding are still listed when they sit on a sensitive surface "
-        "(authentication, registration, management) or look like a missing-auth/authz "
-        "suspect — marked **⚑ Review** in Notes."
+        "Network-reachable entry points by authentication requirement. Routes with the same findings share a "
+        "row, worst first. Entry points without Critical or High findings are collapsed."
     )
     lines.append("")
 
@@ -2803,23 +2783,7 @@ def gen_attack_surface(yaml_data: dict) -> str:
         collapse = len(bucket_entries) > _SURFACE_ROW_CAP and len(keep) < len(bucket_entries)
         shown = keep if collapse else bucket_entries
 
-        if shown:
-            lines.append("| Method | Route | Risk | Notes |")
-            # Narrow Method/Risk; give Route some room and Notes (stacked finding
-            # links + prose) the widest allocation so it reads cleanly.
-            lines.append(_proportional_separator(7, 24, 9, 44))
-            for entry in shown:
-                method = _attack_surface_method(entry)
-                route = _attack_surface_route(entry)
-                risk_lbl = _entry_risk(entry)
-                notes = _attack_surface_notes(entry)
-                # For a finding-free row, append the review chip so the reader
-                # knows WHY a row with no linked finding is listed.
-                if _entry_rank(entry) < 0:
-                    chip = _relevance_chip(entry)
-                    if chip:
-                        notes = f"{notes}<br/>_{chip}_" if notes else f"_{chip}_"
-                lines.append(f"| {method} | `{_wrappable_route(route)}` | {risk_lbl} | {notes} |")
+        lines.extend(_surface_tables(shown, _entry_rank, _displayed_severity, threat_by_id))
 
         omitted = len(bucket_entries) - len(shown)
         if omitted > 0:
@@ -3058,7 +3022,7 @@ _V2_SUBSECTIONS: tuple[tuple[str, str, str], ...] = (
     # compatibility with older composer logic; current v2 emits every section.
     (
         "6.1 Security Control Overview",
-        "Overview matrix: Control category, Verdict, Main reason. No control IDs and no finding-ID columns.",
+        "Overview matrix: Control category, Verdict, Findings, Weakest controls. No control IDs and no finding-ID columns.",
         "a",
     ),
     (
@@ -4306,7 +4270,6 @@ _AUTH_INV_EFFECTIVENESS_BADGE = {
     "missing": "🔴 Missing",
 }
 _AUTH_INV_EFFECTIVENESS_RANK = {"adequate": 0, "partial": 1, "weak": 2, "unsafe": 3, "missing": 3}
-_AUTH_INV_RISK_BADGE = {"critical": "🔴 Critical", "high": "🟠 High", "medium": "🟡 Medium", "low": "🟢 Low"}
 _AUTH_INV_RISK_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
 
 
@@ -4317,20 +4280,9 @@ def _auth_mech_finding_sort_key(threat: dict) -> tuple[int, int]:
     return (-_AUTH_INV_RISK_RANK.get(sev, 0), int(m.group(1)) if m else 10**6)
 
 
-def _auth_mech_finding_link(threat: dict) -> str | None:
-    raw = (threat.get("id") or threat.get("t_id") or "").strip()
-    m = re.search(r"(\d+)$", raw)
-    if not m:
-        return None
-    n = int(m.group(1))
-    # Carry the finding TITLE, not a bare ID — the §6.2 inventory is a table,
-    # so compose's prose-linkifier never enriches it, leaving "leer betitelt"
-    # links (2026-06-02 user report). Per the no-bare-ID rule every F-ref must
-    # show a short title. Use the finding's own title (already concise:
-    # "<weakness> via <surface>").
-    title = (threat.get("title") or "").strip()
-    link = f"[F-{n:03d}](#f-{n:03d})"
-    return f"{link} — {title}" if title else link
+def _auth_mech_finding_id(threat: dict) -> str | None:
+    m = re.search(r"(\d+)$", (threat.get("id") or threat.get("t_id") or "").strip())
+    return f"F-{int(m.group(1)):03d}" if m else None
 
 
 def _build_auth_mechanism_inventory(yaml_data: dict) -> list[str]:
@@ -4344,13 +4296,18 @@ def _build_auth_mechanism_inventory(yaml_data: dict) -> list[str]:
         return f"{c.get('control') or c.get('name') or ''} {c.get('domain') or ''}".lower()
 
     def _threat_blob(t: dict) -> str:
-        return f"{t.get('title') or ''} {t.get('cwe') or ''}".lower()
+        # The title without its file: `register` must not match registerWebsocketEvents.ts.
+        return f"{title_without_locator(t.get('title') or '')} {t.get('cwe') or ''}".lower()
+
+    def _names_mechanism(t: dict, keywords: list[str]) -> bool:
+        blob = _threat_blob(t)
+        return any(re.search(rf"\b{re.escape(k)}\b", blob) for k in keywords)
 
     rows: list[tuple] = []
     absent: list[str] = []
     for spec in _AUTH_MECHANISM_SPECS:
         m_ctrls = [c for c in controls if any(k in _ctrl_blob(c) for k in spec["control_kw"])]
-        m_threats = [t for t in threats if any(k in _threat_blob(t) for k in spec["threat_kw"])]
+        m_threats = [t for t in threats if _names_mechanism(t, spec["threat_kw"])]
         meta_present = bool(spec.get("meta_flag") and meta.get(spec["meta_flag"]))
         if not (m_ctrls or m_threats or meta_present):
             absent.append(spec["name"])
@@ -4369,43 +4326,29 @@ def _build_auth_mechanism_inventory(yaml_data: dict) -> list[str]:
                 key=lambda r: _AUTH_INV_RISK_RANK.get(r, -1),
                 default="",
             )
-            status = _AUTH_INV_RISK_BADGE.get(worst_r, "⚠️ At risk")
+            # No control matches, so this is no control status: a finding's severity would read as one.
+            status = badge(worst_r) + " At risk" if badge(worst_r) else "⚠️ At risk"
         if not status:
             status = "✅ Present"
-        seen: set[str] = set()
-        flinks: list[str] = []
-        # Worst first — the cell is capped at 6 links, so id order both reads
-        # as an unsorted mix of severity circles and can hide a Critical
-        # behind six lower-severity findings.
-        for t in sorted(m_threats, key=_auth_mech_finding_sort_key):
-            lk = _auth_mech_finding_link(t)
-            if lk and lk not in seen:
-                seen.add(lk)
-                flinks.append(lk)
-        findings = "<br/>".join(flinks[:6]) if flinks else "—"
+        ordered = sorted(m_threats, key=_auth_mech_finding_sort_key)
+        ids = dict.fromkeys(_auth_mech_finding_id(t) for t in ordered if _auth_mech_finding_id(t))
+        severity = {_auth_mech_finding_id(t): register_severity(t) for t in ordered}
+        findings = id_list((badge(severity[f]), f"[{f}](#{f.lower()})") for f in ids) or "–"
         sec = spec["section"]
-        assessed = f"[§{sec}](#{_v2_slug(_AUTH_INV_SECTION_TITLES.get(sec, sec))})"
-        rows.append((spec["name"], status, assessed, findings))
+        name = f"[{spec['name']}](#{_v2_slug(_AUTH_INV_SECTION_TITLES.get(sec, sec))})"
+        cell = f'<span style="white-space:nowrap">{status}</span>'
+        rows.append(("🔴🟠🟡🟢✅⚠".find(status[0]) % 9, -len(ids), name, cell, findings))
 
     if not rows:
         return []
+    rows.sort(key=lambda row: row[:2])
 
-    sec73 = _v2_slug(_AUTH_INV_SECTION_TITLES["6.3"])
-    sec79 = _v2_slug(_AUTH_INV_SECTION_TITLES["6.9"])
     out: list[str] = []
     out.append("<!-- §6.2 AUTH-MECHANISMS-FROZEN — deterministic inventory, pregenerator-owned. DO NOT EDIT. -->")
-    out.append(
-        "**Authentication mechanisms (at a glance).** Every authentication mechanism "
-        "detected on the application, its effective status, where it is assessed, and its "
-        "linked findings. Controls are catalogued by domain, so JWT/session handling is "
-        f"assessed under [§6.3 Session and Token Controls](#{sec73}) and password hashing "
-        f"under [§6.9 Cryptography Secrets and Data Protection](#{sec79})."
-    )
+    out.append("**Authentication mechanisms.** Each name links to the section that assesses it.")
     out.append("")
-    out.append("| Mechanism | Status | Assessed in | Findings |")
-    out.append("|---|---|---|---|")
-    for name, status, assessed, findings in rows:
-        out.append(f"| {name} | {status} | {assessed} | {findings} |")
+    # Raw HTML: the §6 label passes would turn findings into weaknesses, which once hid a Critical.
+    out.append(fixed_table(("Mechanism", "Status", "Findings"), [row[2:] for row in rows], (40, 16, 44)))
     out.append("")
     if absent:
         out.append("_Also checked, not detected on this codebase: " + ", ".join(absent) + "._")
@@ -4502,16 +4445,15 @@ def gen_security_architecture_v2(yaml_data: dict, depth: str = "standard") -> st
         "that decides what you have to do about a finding:"
     )
     lines.append("")
-    lines.append("| Status | Meaning | What it asks of you |")
+    lines.append("| Status | Meaning | What to do |")
     lines.append("|---|---|---|")
-    lines.append("| 🟢 Adequate | Control is present and sound | Nothing — keep it |")
-    lines.append("| 🟡 Partial | Present, but with meaningful gaps | Close the gap |")
-    lines.append("| 🟠 Weak | Present, but has exploitable gaps | Strengthen it |")
     lines.append(
-        "| 🔴 Unsafe | **Present and relied upon, but defeated / trivially bypassable** | **Fix the existing control** |"
+        "| 🔴 Unsafe | Present and relied upon, but defeated or trivially bypassable | Fix the existing control |"
     )
-    lines.append("| 🔴 Missing | **Control was never built** | **Add the control** |")
-    lines.append("| — | Not applicable to this codebase | — |")
+    lines.append("| 🔴 Missing | Control was never built | Add the control |")
+    lines.append("| 🟠 Weak | Present, but has exploitable gaps | Strengthen it |")
+    lines.append("| 🟡 Partial | Present, but with meaningful gaps | Close the gap |")
+    lines.append("| 🟢 Adequate | Control is present and sound | Nothing, keep it |")
     lines.append("")
     lines.append(
         'So "🔴 Unsafe" on a control category does *not* mean the control is '
@@ -4533,8 +4475,9 @@ def gen_security_architecture_v2(yaml_data: dict, depth: str = "standard") -> st
     # active) to verify the block survived round-trips.
     lines.append("<!-- §6.1 MECHANICAL-FROZEN — DO NOT EDIT (overview table is pregenerator-owned) -->")
     lines.append("")
-    lines.append("| Control category | Verdict | Main reason |")
-    lines.append("|---|---|---|")
+    lines.append("| Control category | Verdict | Findings | Weakest controls |")
+    lines.append("|---|---|---|---|")
+    overview: list[tuple[tuple[int, int], str]] = []
     for h in overview_rows:
         matched_controls = _v2_controls_for_heading(controls, h)
         routed = threats_by_section.get(h) or []
@@ -4551,68 +4494,28 @@ def gen_security_architecture_v2(yaml_data: dict, depth: str = "standard") -> st
         elif matched_controls:
             verdict = "🟢 Adequate"
         else:
-            verdict = "—"
-        # M5.2 (2026-05) — Main reason cell is a single narrative clause built
-        # from CANONICAL CONTROL NAMES (architectural-controls.yaml) and the
-        # routed finding count. The cell MUST NOT contain `lib@version`
-        # strings, payload phrases (`alg:none`, `noent:true`,
-        # `bypassSecurityTrustHtml`), or function-call literals — those
-        # belong in the §6.X prose, not in the overview row. The renderer
-        # prompt repeats this rule under "No code in finding titles, Top-
-        # Findings cells, or §6.1 Main reason cells".
-        n_controls = len(matched_controls)
-        n_routed = len(routed)
-        control_names = [(c.get("name") or c.get("control") or "").strip() for c in matched_controls]
-        control_names = [n for n in control_names if n][:2]  # at most 2 examples
-        example_clause = f" (e.g. {', '.join(control_names)})" if control_names else ""
-        if verdict.startswith("🔴 Unsafe"):
-            if n_routed:
-                reason = (
-                    f"{n_routed} {'finding' if n_routed == 1 else 'findings'}; "
-                    f"catalogued controls are present but defeated{example_clause}."
-                )
-            else:
-                reason = f"Catalogued controls are present but defeated{example_clause}."
-        elif verdict.startswith("🔴 Missing"):
-            # Distinguish "controls ARE catalogued but every one is rated
-            # Missing (absent / never built)" from "the category has no
-            # catalogued control at all" — the old text said "no controls
-            # catalogued" in BOTH cases, which read as an empty catalog even
-            # when several required controls were listed as Missing
-            # (2026-06-02: §6.1 showed it on every category).
-            if n_controls:
-                lead = f"{n_routed} {'finding' if n_routed == 1 else 'findings'}; " if n_routed else ""
-                reason = f"{lead}required controls not in place{example_clause}."
-                if not lead:
-                    reason = reason[0].upper() + reason[1:]
-            else:
-                reason = (
-                    f"{n_routed} {'finding' if n_routed == 1 else 'findings'}; no controls catalogued for this category."
-                    if n_routed
-                    else "No controls catalogued for this category."
-                )
-        elif verdict.startswith("🟠 Weak"):
-            if n_controls:
-                reason = f"{n_routed} {'finding' if n_routed == 1 else 'findings'}; catalogued controls are weak{example_clause}."
-            else:
-                reason = (
-                    f"{n_routed} {'finding' if n_routed == 1 else 'findings'}; no compensating controls catalogued."
-                )
-        elif verdict.startswith("🟡 Partial"):
-            reason = (
-                f"{n_routed} {'finding' if n_routed == 1 else 'findings'}; "
-                f"{n_controls} partial {'control' if n_controls == 1 else 'controls'}{example_clause} leave gaps."
-            )
-        elif verdict.startswith("🟢 Adequate"):
-            reason = (
-                f"{n_controls} adequate {'control' if n_controls == 1 else 'controls'}{example_clause}; "
-                f"no findings in this category."
-            )
-        else:
-            reason = "No controls or findings in this category."
+            # A category with neither controls nor findings has nothing to say.
+            continue
+        # The weakest names only: sentences that repeat the verdict tell the
+        # reader nothing. Canonical control names (architectural-controls.yaml),
+        # so no `lib@version` strings, payload phrases, or function-call literals
+        # reach the overview row; those belong in the §6.X prose.
+        ranked_controls = sorted(
+            matched_controls,
+            key=lambda c: -_AUTH_INV_EFFECTIVENESS_RANK.get((c.get("effectiveness") or "").lower(), -1),
+        )
+        control_names = [(c.get("name") or c.get("control") or "").strip() for c in ranked_controls]
+        weakest = ", ".join([n for n in control_names if n][:2]) or "None catalogued"
         # Link text carries the section number (e.g. "6.2 Identity and
         # Authentication Controls") so the overview reads as a numbered map.
-        lines.append(f"| [{h}](#{_v2_slug(h)}) | {verdict} | {reason} |")
+        overview.append(
+            (
+                ("🔴🟠🟡🟢".index(verdict[0]), -len(routed)),
+                f"| [{h}](#{_v2_slug(h)}) | {verdict} | {len(routed) or '–'} | {weakest} |",
+            )
+        )
+    # The verdict rates the control, so a category with many findings can stand below one with few.
+    lines.extend(row for _, row in sorted(overview, key=lambda item: item[0]))
     lines.append("")
     lines.append("<!-- §6.1 MECHANICAL-FROZEN END -->")
     lines.append("")

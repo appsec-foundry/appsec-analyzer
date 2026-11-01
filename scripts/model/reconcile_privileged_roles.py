@@ -136,7 +136,7 @@ def reconcile(repo_root: Path, components: list[dict], document: dict, resolved:
             "name": "Admin",
             "kind": "legitimate-role",
             "access": "internet-priv-user",
-            "description": "Application role with elevated rights, evidenced by its access check.",
+            "description": "Application role with elevated rights.",
             "evidence": evidence,
         }
     )

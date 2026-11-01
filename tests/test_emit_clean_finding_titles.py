@@ -341,3 +341,11 @@ def test_a_clause_with_an_article_is_the_object_and_stays():
     assert clean_weakness("User keeps using a withdrawn right") == "User keeps using a withdrawn right"
     assert clean_weakness("Account takeover via XSS") == "Account takeover"
     assert clean_weakness("Code execution using notevil") == "Code execution"
+
+
+def test_clean_weakness_leaves_no_dangling_words_when_files_go():
+    from model.emit_clean_finding_titles import clean_weakness
+
+    title = "Systemic IDOR: missing ownership checks in routes/payment.ts:41 and routes/basketItems.ts:68"
+    assert clean_weakness(title) == "Systemic IDOR: missing ownership checks"
+    assert clean_weakness("Weak hash in a.ts, b.ts or c.ts") == "Weak hash"

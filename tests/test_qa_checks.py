@@ -4017,7 +4017,7 @@ _AS_GFM = (
 def test_attack_surface_tables_to_html_converts_and_pins_widths():
     out, count = qa._attack_surface_tables_to_html(f"### 5.1 Unauthenticated\n\n{_AS_GFM}\n_footer._\n")
     assert count == 1
-    assert '<table style="table-layout:fixed;width:100%">' in out
+    assert '<table style="table-layout:fixed;width:100%;max-width:1240px">' in out
     # Shared colgroup pins identical widths.
     assert "".join(f'<col width="{w}" style="width:{w}">' for w in qa._AS_COL_WIDTHS) in out
     # Cell markdown is pre-rendered to HTML (markdown-it won't parse it inside <table>).
@@ -4051,9 +4051,9 @@ def test_attack_surface_tables_to_html_leaves_other_tables_alone():
 
 
 _ASSET_GFM = (
-    "| Asset | Classification | Description | Linked Threats |\n"
-    "|------|------|------|------|\n"
-    "| User Credentials | Restricted | User email and `MD5`-hashed<br/>passwords stored in SQLite. | "
+    "| Asset | Sensitivity (assumed) | Findings |\n"
+    "|------|------|------|\n"
+    "| **User Credentials**<br/>User email and `MD5`-hashed passwords stored in SQLite. | High | "
     "🔴 [F-006](#f-006) — SQL Injection<br/>🟠 [F-013](#f-013) — Weak Hash |\n"
 )
 
@@ -4061,14 +4061,13 @@ _ASSET_GFM = (
 def test_asset_table_converts_and_reflows_description():
     out, count = qa._attack_surface_tables_to_html(f"## 4. Assets\n\n{_ASSET_GFM}\n")
     assert count == 1
-    assert '<table style="table-layout:fixed;width:100%">' in out
+    assert '<table style="table-layout:fixed;width:100%;max-width:1240px">' in out
     assert "".join(f'<col width="{w}" style="width:{w}">' for w in qa._ASSET_COL_WIDTHS) in out
     # No ID column any more (dropped deterministically in compose).
     assert "A-001" not in out
-    # Description (prose col) has its soft-wrap <br/> stripped → reflows clean.
-    desc_cell = out.split("<td>User email and", 1)[1].split("</td>", 1)[0]
-    assert "<br/>" not in desc_cell and "<code>MD5</code>" in desc_cell
-    # Linked-Threats (link-stack col) KEEPS its <br/> between findings.
+    # The description stands under the name in one cell.
+    assert "<strong>User Credentials</strong><br/>User email and <code>MD5</code>" in out
+    # Findings (link-stack col) KEEPS its <br/> between findings.
     assert '<a href="#f-006">F-006</a> — SQL Injection<br/>' in out
     assert '<a href="#f-013">F-013</a> — Weak Hash' in out
 
@@ -4254,7 +4253,7 @@ def test_operational_strengths_table_converts_keeping_structural_breaks():
         "Container Security | ✅ Adequate |\n"
     )
     out, count = qa._attack_surface_tables_to_html(f"### Operational Strengths\n\n{gfm}\n")
-    assert count == 1 and '<table style="table-layout:fixed;width:100%">' in out
+    assert count == 1 and '<table style="table-layout:fixed;width:100%;max-width:1240px">' in out
     # Italic description rendered to <em> (markdown-it won't parse `_..._` inside
     # a raw <table>), and the STRUCTURAL <br/> (description + each implementation)
     # preserved.

@@ -2998,6 +2998,8 @@ def _render(
         )
         c.add("</g>")
     # nodes
+    # An actor ID tells actors apart, so a single one says nothing.
+    several_codes = sum(1 for n in nodes.values() if n.get("actor_code")) > 1
     for n in sorted(nodes.values(), key=lambda n: n["order"]):
         x, y, w, h = n["x"], n["y"], n["w"], n["h"]
         if n["kind"] == "ext":
@@ -3013,7 +3015,7 @@ def _render(
                 tx = x + 32
             else:
                 tx = x + 12
-            label = (n["actor_code"] + " · " if n.get("actor_code") else "") + n["name"]
+            label = (n["actor_code"] + " · " if n.get("actor_code") and several_codes else "") + n["name"]
             label_lines = _wrap(label, w - (tx - x) - 8, 10)[:2]
             for i, line in enumerate(label_lines):
                 c.text(tx, y + 19 + i * 12, line, size=10, anchor="start", weight="bold", fill=col)

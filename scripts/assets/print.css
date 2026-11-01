@@ -327,7 +327,7 @@ nav.toc a {
     background: #f5f6f8;        /* gutter around the "page" */
   }
   body {
-    max-width: 860px;          /* readable measure instead of full-bleed */
+    max-width: 1240px;         /* room for the tables; running text keeps its measure below */
     margin: 2.5rem auto;
     padding: 3rem 3.5rem;
     background: #ffffff;
@@ -335,6 +335,9 @@ nav.toc a {
     border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
   }
+  p, li, blockquote, h1, h2, h3, h4 { max-width: 860px; }
+  td p, td li, th p { max-width: none; }
+  details > summary { cursor: pointer; color: #555; }
 
   /* The cover wrapper is a print device — on screen it must not reserve a full
    * A4 height (huge blank first screen) or force a page break. Render it as a

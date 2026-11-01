@@ -707,6 +707,60 @@ def test_every_consumer_numbers_the_sorted_paths(tmp_path: Path, monkeypatch) ->
     assert "critical" in rows[0]["risk_cell"].lower() and "high" in rows[1]["risk_cell"].lower()
 
 
+def test_the_overview_keeps_only_critical_and_high_threats_when_any_exists(tmp_path: Path, monkeypatch) -> None:
+    """REQ-012: every consumer reads the one focused list, so numbers and counts cannot disagree."""
+    ctx = _threat_order_context(tmp_path, {"T-001": "High", "T-002": "Medium", "T-003": "Critical", "T-004": "Low"})
+    authored = [
+        {"class": "supply-chain", "findings": ["T-002", "T-004"]},
+        {"class": "auth-bypass", "findings": ["T-001"]},
+        {"class": "privilege-escalation", "findings": ["T-003", "T-002"]},
+    ]
+    monkeypatch.setattr(compose, "_load_attack_paths_fragment_impl", lambda *args: {"attack_paths": authored})
+    taxonomy = compose._load_attack_class_taxonomy()
+    loaded = compose._load_attack_paths_fragment(ctx, taxonomy, ctx.yaml_data["threats"])
+    assert [path["class"] for path in loaded["attack_paths"]] == ["privilege-escalation", "auth-bypass"]
+    assert [path["class"] for path in loaded["other_attack_paths"]] == ["supply-chain"]
+    assert len(compose._compute_top_threats_rows(ctx)) == 2
+    line = compose._other_threats_line(ctx)
+    assert line.startswith("**Further threats without Critical or High findings:** ")
+    assert "(🟡 1 · 🟢 1)" in line and "[§8 Findings Register](#8-findings-register)" in line
+
+
+def test_the_overview_shows_all_threats_without_critical_or_high_findings(tmp_path: Path, monkeypatch) -> None:
+    """REQ-012: a report with only lighter findings still has an overview."""
+    ctx = _threat_order_context(tmp_path, {"T-001": "Medium", "T-002": "Low"})
+    authored = [{"class": "auth-bypass", "findings": ["T-001"]}, {"class": "supply-chain", "findings": ["T-002"]}]
+    monkeypatch.setattr(compose, "_load_attack_paths_fragment_impl", lambda *args: {"attack_paths": authored})
+    loaded = compose._load_attack_paths_fragment(ctx, compose._load_attack_class_taxonomy(), ctx.yaml_data["threats"])
+    assert len(loaded["attack_paths"]) == 2
+    assert "other_attack_paths" not in loaded
+    assert compose._other_threats_line(ctx) == ""
+
+
+def test_threat_findings_stand_under_their_component_worst_first() -> None:
+    """The name stands once, and a component with the worst finding leads even with fewer findings."""
+    line = '<span style="white-space:nowrap">{}&nbsp;[{}](#{})</span> — title'
+    entries = [
+        (line.format("🟠", "F-002", "f-002"), "C-01", "Api"),
+        (line.format("🟠", "F-003", "f-003"), "C-01", "Api"),
+        (line.format("🔴", "F-001", "f-001"), "C-02", "Auth"),
+    ]
+    parts = compose._threat_findings_cell(entries).split("<br/>")
+    assert parts[0] == "**→ [C-02](#c-02) Auth**" and "F-001" in parts[1]
+    assert parts[2] == "**→ [C-01](#c-01) Api**" and "F-002" in parts[3] and "F-003" in parts[4]
+
+
+def test_medium_findings_collapse_but_critical_and_high_never_do() -> None:
+    line = '<span style="white-space:nowrap">{}&nbsp;[{}](#{})</span> — title'
+    entries = [(line.format("🟠", f"F-{n:03d}", f"f-{n:03d}"), "C-01", "Api") for n in range(1, 5)]
+    entries += [(line.format("🟡", f"F-{n:03d}", f"f-{n:03d}"), "C-01", "Api") for n in range(5, 8)]
+    cell = compose._threat_findings_cell(entries)
+    visible, collapsed = cell.split("<details>")
+    assert all(f"F-{n:03d}" in visible for n in range(1, 5))
+    assert all(f"F-{n:03d}" in collapsed for n in range(5, 8))
+    assert "<summary>3 Medium</summary>" in collapsed and "→ [C-01](#c-01)" in collapsed
+
+
 def test_a_gap_filled_class_no_longer_changes_the_order(tmp_path: Path) -> None:
     """The order once fell back to the taxonomy only when a class had to be added to the model's list."""
     threats = [
@@ -807,7 +861,8 @@ def test_components_table_keeps_the_generator_detail_table(tmp_path: Path) -> No
     md = f"### 2.3 Components\n\nIntro.\n\n{kept}\n**Key takeaway:** x\n\n{stray}\n## 3. Next\n"
     out = compose._inject_components_table(ctx, md)
     assert kept in out and "stray" not in out
-    assert out.index(kept) < out.index("| ID | Name | Type |") < out.index("## 3. Next")
+    # The generator's table anchors the components itself, so no second table repeats them.
+    assert "| ID | Name | Type |" not in out
     assert compose._inject_components_table(ctx, out) == out
 
 
@@ -1644,8 +1699,8 @@ def test_actor_inventory_discloses_findings_missing_from_displayed_counts(tmp_pa
     people = [{"kind": "attacker", "slug": "internet-anon", "name": "Internet attacker", "scenarios": []}]
     result = compose._render_actor_inventory(ctx, people)
     assert "🟠 1" in result
-    assert "2 findings are not represented in the actor counts (1 Critical, 1 High)" in result
-    assert "does not establish inaccessibility" in result
+    assert "2 findings (1 Critical, 1 High) have no assigned actor" in result
+    assert "does not mean they are out of reach" in result
     model["threats"] = model["threats"][:1]
     assert "not represented" not in compose._render_actor_inventory(ctx, people)
 
@@ -1663,11 +1718,11 @@ def test_assumption_cell_states_a_verdict_derived_from_the_links(tmp_path: Path)
         {"id": "T-003", "component": "C-02"},
     ]
     rendered = _catalog(tmp_path, rows, threats, ["C-01", "C-02", "C-03"])
-    assert "Gap evidenced:" in rendered and "[F-001](#f-001)" in rendered
-    assert "2 related findings; relevance to this crossing remains unverified." in rendered
-    assert "control effectiveness is not established" in rendered
+    assert "**Gap:**" in rendered and "[F-001](#f-001)" in rendered
+    assert "**Unverified:** 2 related findings" in rendered
+    assert "control not confirmed" in rendered
     unconfirmed_row = next(line for line in rendered.splitlines() if "2 related findings" in line)
-    assert "remains unverified" in compose._split_table_row(unconfirmed_row)[3]
+    assert "**Unverified:**" in compose._split_table_row(unconfirmed_row)[3]
 
 
 def test_verdict_matches_the_shared_state_helper(tmp_path: Path) -> None:
@@ -1728,8 +1783,8 @@ def test_verdict_ignores_a_linker_whose_evidence_did_not_survive(tmp_path: Path)
         }
     ]
     rendered = _catalog(tmp_path, rows, threats, ["C-01"])
-    assert "Gap evidenced:" not in rendered
-    assert "1 related finding; relevance to this crossing remains unverified." in rendered
+    assert "**Gap:**" not in rendered
+    assert "**Unverified:** 1 related finding" in rendered
 
 
 def test_unconfirmed_verdict_counts_folded_in_components(tmp_path: Path) -> None:
@@ -1743,7 +1798,7 @@ def test_unconfirmed_verdict_counts_folded_in_components(tmp_path: Path) -> None
     rows = [{**_canonical_boundary(1), "covers_components": ["C-01", "C-02"]}]
     threats = [{"id": "T-001", "component": "C-02"}]
     rendered = _catalog(tmp_path, rows, threats, ["C-01", "C-02"])
-    assert "1 related finding; relevance to this crossing remains unverified." in rendered
+    assert "**Unverified:** 1 related finding" in rendered
 
 
 def test_covered_components_never_include_the_crossings_own_source(tmp_path: Path) -> None:
@@ -1798,7 +1853,7 @@ def test_trust_boundary_catalog_escapes_untrusted_text_and_discloses_overflow(tm
     # Every row is `detected` → no Source column; the footnote states it once.
     assert "| Source |" not in rendered
     assert "source evidence and provenance are retained in `security-assessment.yaml`" in rendered
-    assert "control effectiveness is not established" in rendered
+    assert "control not confirmed" in rendered
     assert "raw risk" not in rendered
 
 
@@ -1821,12 +1876,12 @@ def test_trust_boundary_cell_states_each_fact_once(tmp_path: Path) -> None:
     rendered = compose._render_trust_boundary_catalog(ctx, None, {})
     # The name's head is the crossing — kept because its qualifier is what tells
     # two rows over the same component pair apart. Emitted once, bolded.
-    assert "external → C-01 admin API" in rendered
-    assert rendered.count("external → C-01") == 1
+    assert "External → C-01 admin API" in rendered
+    assert rendered.count("External → C-01") == 1
     # The mechanism is the enforcement point, stated once, WITHOUT the italic
     # wrapper (a later pass backticks the identifiers inside it, and markdown
     # emphasis around a code span does not survive the HTML conversion).
-    assert "Control: security.isAuthorized() expressJwt middleware in server.ts" in rendered
+    assert "| security.isAuthorized() expressJwt middleware in server.ts |" in rendered
     assert "_enforced at:" not in rendered
     # The name's mechanism tail is NOT restated next to the enforcement point.
     assert "expressJwt on /admin routes" not in rendered
@@ -1836,7 +1891,7 @@ def test_trust_boundary_cell_states_each_fact_once(tmp_path: Path) -> None:
     # Counted per cell, not per row: the crossing cell owns exactly one stacked
     # line (the control). The assumption cell legitimately carries a second, its
     # derived verdict.
-    crossing_cell = next(line for line in rendered.splitlines() if line.startswith("| <a id=")).split(" | ")[1]
+    crossing_cell = next(line for line in rendered.splitlines() if line.startswith("| <a id=")).split(" | ")[0]
     assert crossing_cell.count("<br>") == 1
 
 
@@ -1872,9 +1927,9 @@ def test_trust_boundary_cell_never_synthesizes_a_missing_enforcement_point(tmp_p
     assert "Express static file serving" not in rendered
     assert "Sequelize ORM query construction" not in rendered
     assert "expressJwt on /admin routes" not in rendered
-    assert rendered.count("Control: not identified") == 2
+    assert rendered.count("| Not identified |") == 2
     # A row that HAS one still shows it, and no row emits a dangling label.
-    assert "Control: security.isAuthorized() expressJwt middleware in server.ts" in rendered
+    assert "| security.isAuthorized() expressJwt middleware in server.ts |" in rendered
     for line in rendered.splitlines():
         if '<a id="tb-' in line:
             assert "Control: |" not in line.replace("  ", " ")
@@ -1954,11 +2009,11 @@ def test_trust_boundary_catalog_exposure_and_review_labels(tmp_path: Path) -> No
         fragments_dir=tmp_path,
     )
     rendered = compose._render_trust_boundary_catalog(ctx, None, {})
-    assert "| ID | Crossing | Required condition | Findings / open question |" in rendered
+    assert "| Crossing | Required condition | Control | Status and findings |" in rendered
     assert "Endpoints: unresolved" in rendered and "Crossing: inferred" in rendered
     assert "C-01 → external" in rendered and "C-01 → C-02" in rendered
     assert "Exposure" not in rendered and "**Broken**" not in rendered
-    assert rendered.count("control effectiveness is not established") == 5
+    assert rendered.count("control not confirmed") == 5
 
 
 def test_trust_boundary_exposure_ignores_linked_finding_count(tmp_path: Path) -> None:
@@ -2020,12 +2075,12 @@ def test_trust_boundary_constant_provenance_confidence_and_status_are_collapsed(
         fragments_dir=tmp_path,
     )
     rendered = compose._render_trust_boundary_catalog(ctx, None, {})
-    header = next(line for line in rendered.splitlines() if line.startswith("| ID |"))
+    header = next(line for line in rendered.splitlines() if line.startswith("| Crossing |"))
     # No Source column, and the Kind header does not name a status it no longer shows.
-    assert header == "| ID | Crossing | Required condition | Findings / open question |"
+    assert header == "| Crossing | Required condition | Control | Status and findings |"
     assert "detected" not in header
-    body = rendered.split("| ID |", 1)[1].split("\n_Exposure", 1)[0]
-    assert "confirmed" not in body and "resolved" not in body
+    body = rendered.split("| Crossing |", 1)[1].split("\n_Exposure", 1)[0]
+    assert "Crossing: confirmed" not in body and "Endpoints:" not in body
     assert "source evidence and provenance are retained in `security-assessment.yaml`" in rendered
     assert all(row["confidence"] == "confirmed" and row["sources"] == ["detected"] for row in rows)
     assert "`detected`" not in rendered
@@ -2046,8 +2101,8 @@ def test_trust_boundary_varying_provenance_is_retained_in_the_model(tmp_path: Pa
         fragments_dir=tmp_path,
     )
     rendered = compose._render_trust_boundary_catalog(ctx, None, {})
-    header = next(line for line in rendered.splitlines() if line.startswith("| ID |"))
-    assert header.endswith("| Required condition | Findings / open question |")
+    header = next(line for line in rendered.splitlines() if line.startswith("| Crossing |"))
+    assert header.endswith("| Control | Status and findings |")
     assert "| Source |" not in rendered
     assert "source evidence and provenance are retained in `security-assessment.yaml`" in rendered
     assert [row["sources"] for row in rows] == [["detected"], ["repo-declared"]]
@@ -2103,7 +2158,7 @@ def test_trust_boundary_cells_emit_no_raw_markdown_emphasis_markers(tmp_path: Pa
     )
     rendered = compose._render_trust_boundary_catalog(ctx, None, {})
     row_line = next(line for line in rendered.splitlines() if '<a id="tb-1">' in line)
-    header = next(line for line in rendered.splitlines() if line.startswith("| ID |"))
+    header = next(line for line in rendered.splitlines() if line.startswith("| Crossing |"))
     separator = "|" + "---|" * (header.count("|") - 1)
     converted, count = qa._attack_surface_tables_to_html(f"{header}\n{separator}\n{row_line}\n")
     assert count == 1
@@ -2933,7 +2988,7 @@ def test_remediation_priorities_keep_a_root_cause_without_any_fix(tmp_path: Path
     row = next(r for r in _remediation_rows(rendered) if '<a href="#w-001">W-001</a>' in r)
     assert "<em>→ pin every reference to an immutable digest</em>" in row
     # No measure: the cells hold the placeholder dash (prose-normalised to "-").
-    assert row.endswith("<td>-</td><td>-</td></tr>")
+    assert row.endswith('>-</td><td style="white-space:nowrap">-</td></tr>')
 
 
 @pytest.mark.parametrize(
@@ -2983,7 +3038,9 @@ def test_remediation_priorities_rank_a_cause_by_its_worst_finding(tmp_path: Path
     assert w2 < w1
     assert '<a href="#m-002">M-002</a>' in rows[w2]
     assert ">M-004</a>" not in _remediation_slice(rendered)
-    assert rows[w1].endswith(">-</td><td>-</td><td>-</td></tr>")
+    assert rows[w1].endswith(
+        '>-</td><td style="overflow-wrap:break-word">-</td><td style="white-space:nowrap">-</td></tr>'
+    )
 
 
 def test_remediation_priorities_without_p1_or_p2_show_the_best_present_tier(tmp_path: Path) -> None:
@@ -3192,8 +3249,9 @@ def test_changelog_table_windows_long_history_keeping_first_and_last_five(tmp_pa
         assert f"| v{v} |" not in section  # middle collapsed
     assert "v2–v7 (6 older runs) collapsed" in section
     assert "full history in `threat-model.yaml`" in section
-    # Every rendered row is a well-formed 9-column table row.
-    assert all(r.count("|") == 10 for r in rows)
+    # Every rendered row has the columns of the header, whichever of them this history fills.
+    header = next(line for line in section.splitlines() if line.startswith("| Version"))
+    assert all(r.count("|") == header.count("|") for r in rows)
 
 
 def test_changelog_v1_initial_assessment_has_no_delta_bullets(tmp_path: Path) -> None:
@@ -3497,13 +3555,24 @@ def test_changelog_truncates_overly_long_note_prose(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_a_first_run_changelog_has_no_empty_columns(tmp_path: Path) -> None:
+    """A column without a value in any run says nothing, so the form stays one table for every run count."""
+    import jinja2
+
+    template = jinja2.Environment(loader=jinja2.FileSystemLoader(compose.TEMPLATES_DIR))
+    entry = {"date": "2026-10-31", "mode": "full", "assessment_depth": "standard", "reasoning_model": "sonnet"}
+    table = template.get_template("changelog-table.md.j2").render(changelog=[{**entry, "threat_count": 119}])
+    assert "| Version | Date | Scan | Model | Δ Threats | Note |" in table
+    assert "| v1 | 2026-10-31 | full · standard | sonnet | 119 total | — |" in table
+
+
 def test_changelog_table_is_default(tmp_path: Path) -> None:
     """Without explicit `render_style`, the changelog renders as a table."""
     out = _prepare_output_dir(tmp_path)
     rendered, _ = compose.render(CONTRACT, out)
     section = _extract_changelog_section(rendered)
-    # Header row of the table.
-    assert "| Version | Date | Mode | Depth | Reasoning | Baseline → Current | Δ Threats | Code | Note |" in section
+    # Header row of the table: mode and depth share a column.
+    assert "| Version | Date | Scan | Model | Δ Threats | Note |" in section
     # No per-version H3 (that is the legacy bullets style).
     assert "### v1" not in section
 
@@ -3568,10 +3637,10 @@ def test_changelog_table_renders_one_row_per_version(tmp_path: Path) -> None:
     # Run numbers are POSITIONAL (newest = highest), not the entry's schema
     # version field. The incremental row has a git baseline so it shows the
     # +A/~C/-R delta.
-    assert "| v2 | 2026-04-23 | incremental | - | - | `cb6fb8a` → `a1b2c3d` | +2 / ~1 / -1 | 7 files | - |" in section
+    assert "| v2 | 2026-04-23 | incremental · - | - | `cb6fb8a` → `a1b2c3d` | +2 / ~1 / -1 | 7 files | - |" in section
     # v1 row: from-scratch full snapshot (no baseline) → honest count, not a
     # fake "+N added"; initial marker; mode=full.
-    assert "| v1 | 2026-04-19 | full | - | - | _(initial)_ | 0 total | - | Initial assessment |" in section
+    assert "| v1 | 2026-04-19 | full · - | - | _(initial)_ | 0 total | - | Initial assessment |" in section
     # Newest first.
     assert section.index("| v2 |") < section.index("| v1 |")
 
@@ -7254,7 +7323,7 @@ def test_boundary_evidence_cell_links_only_findings_that_reference_the_crossing(
     cell = compose._split_table_row(next(line for line in rendered.splitlines() if line.startswith('| <a id="tb-1"')))[
         3
     ]
-    assert "Gap evidenced:" in cell
+    assert "**Gap:**" in cell
     assert "[F-001](#f-001)" in cell and "[F-002](#f-002)" in cell
     assert "F-003" not in cell and "F-004" not in cell
 
@@ -7282,7 +7351,7 @@ def test_unattributable_link_is_labelled_not_left_bare(tmp_path: Path) -> None:
     links_cell = next(
         line for line in _catalog(tmp_path, rows, threats, ["C-01"]).splitlines() if line.startswith('| <a id="tb-1"')
     ).split(" | ")[3]
-    assert "_Unattributed_<br>" in links_cell
+    assert "_Not tied to one control_<br>" in links_cell
     assert "[F-009](#f-009)" in links_cell
 
 
@@ -7337,7 +7406,7 @@ def test_in_process_crossing_renders_the_data_interpretation_condition(tmp_path:
         }
     ]
     rendered = _catalog(tmp_path, [row], threats, ["C-01", "C-02"])
-    assert "Gap evidenced:" in rendered
+    assert "**Gap:**" in rendered
     assert "_Query construction_<br>🔴 [F-004](#f-004)" in rendered
 
 

@@ -93,11 +93,12 @@ from contexts.prepare_trust_boundary_context import (
     boundary_legs,
     finding_leg_candidates,
 )
+from model.build_posture_verdict import build_posture_verdict as _build_posture_verdict  # P4: systemic verdict
 
 # P1: single-source weakness-class map, shared with model/merge_threats.py.
 # `_MULTI_MATCH_WARNED` is re-exported so existing call sites/tests keep
 # mutating the shared warned-CWE set.
-from model.build_posture_verdict import build_posture_verdict as _build_posture_verdict  # P4: systemic verdict
+from model.case_outcomes import NOTHING_EXAMINED_REASON
 from model.reclassify_components import (  # phantom-component backstop (see _resolve_phantom_component)
     _build_matcher as _rc_build_matcher,
 )
@@ -150,6 +151,18 @@ import renderers._severity_rollup as _severity_rollup
 import renderers.inline_code_formatter as _inline_code_formatter
 import renderers.team_questions as _team_questions
 from renderers.actor_presentation import attacker_display, inventory_actors
+from renderers.compact_tables import (
+    MAX_TABLE_WIDTH,
+    badge,
+    badge_of,
+    fixed_table,
+    fold,
+    id_list,
+    severity_tally,
+    spanned_table,
+    split_visible,
+    token_count,
+)
 from renderers.component_labels import component_names, endpoint_label
 from renderers.pregenerate_fragments import _TIER_HINTS as _pregen_tier_hints
 from renderers.pregenerate_fragments import _classify_tier as _pregen_classify_tier
@@ -157,6 +170,7 @@ from renderers.pregenerate_fragments import assessment_intro as _pregen_assessme
 from renderers.pregenerate_fragments import component_coverage as _pregen_component_coverage
 from renderers.pregenerate_fragments import gen_architecture_diagrams
 from renderers.pregenerate_fragments import method_and_limits as _pregen_method_and_limits
+from renderers.report_markup import keep_known_markup
 
 try:
     import jsonschema
@@ -898,38 +912,27 @@ def _build_jinja_env(ctx: RenderContext) -> jinja2.Environment:
         ]
         return "<br/>".join(parts)
 
-    def format_strengths_mitigates(items: list[dict[str, Any]] | list[str]) -> str:
+    def format_open_gaps(items: list[dict[str, Any]] | list[str]) -> str:
         if not items:
-            # The renderer decides whether to emit the Mitigates column at
-            # all (see `_render_operational_strengths`); when the column is
-            # present but a single row has no mapped findings, emit a bare
-            # dash rather than a hard-coded explanatory sentence — repeated
-            # across rows the sentence becomes table noise that hides the
-            # real per-row content.
+            # The renderer decides whether to emit the Open gaps column at all
+            # (see `_render_operational_strengths`); when the column is present
+            # but a single row has no mapped findings, emit a bare dash rather
+            # than a hard-coded explanatory sentence — repeated across rows the
+            # sentence becomes table noise that hides the real per-row content.
             return "—"
         parts = []
         for it in items:
             if isinstance(it, dict):
-                # Cluster-mode overflow marker: render as italic plain text
-                # so the reader knows the list was capped without thinking
-                # it is a missing link.
-                if it.get("_overflow"):
-                    label = (it.get("label") or "").strip()
-                    if label:
-                        parts.append(f"_{label}_")
-                    continue
                 ref = _normalize_finding_label(it.get("ref") or it.get("id", ""))
                 label = (it.get("label") or "").strip()
-                # Trim long titles to keep cluster-mode Mitigates cells
-                # readable — full titles live in §8.
-                if label and len(label) > 60:
-                    label = label[:57].rstrip(" ,;") + "…"
                 # Route through linkify_with_label so the locator is normalised
                 # (stripped from the curated label, re-appended backticked).
                 parts.append(ctx.linkify_with_label(ref, label_override=label or None))
             else:
                 parts.append(ctx.linkify_with_label(str(it)))
-        return "<br/>".join(parts)
+        shown, rest = split_visible(parts)
+        # Medium findings do not lower the rating, so this line says what is open, not why it was rated so.
+        return "<br/>".join([severity_tally(parts), *shown, *([fold(rest)] if rest else [])])
 
     env.filters["linkify_refs"] = linkify_refs
     env.filters["format_id_list"] = format_id_list
@@ -940,7 +943,7 @@ def _build_jinja_env(ctx: RenderContext) -> jinja2.Environment:
     env.filters["format_weakness_components"] = format_weakness_components
     env.filters["format_component_list"] = format_component_list
     env.filters["format_mitigation_addresses"] = format_mitigation_addresses
-    env.filters["format_strengths_mitigates"] = format_strengths_mitigates
+    env.filters["format_open_gaps"] = format_open_gaps
     env.filters["bullet_list"] = bullet_list
     env.globals["pluralize"] = pluralize
 
@@ -3009,6 +3012,7 @@ def _load_attack_paths_fragment(ctx: RenderContext, taxonomy: dict, threats: lis
     data = _load_attack_paths_fragment_impl(ctx, taxonomy, threats)
     _drop_victim_paths_without_client_tier(ctx, data)
     _sort_attack_paths(ctx, data, taxonomy)
+    _focus_attack_paths(ctx, data)
     return data
 
 
@@ -3050,14 +3054,42 @@ def _sort_attack_paths(ctx: RenderContext, data: dict, taxonomy: dict) -> None:
     classes = [cls.get("id") for cls in taxonomy.get("classes") or [] if isinstance(cls, dict)]
 
     def rank(path: dict) -> tuple[int, float, int]:
-        members = dict(_path_finding(threats, fid) for fid in path.get("findings") or [])
-        members = {visible: t for visible, t in members.items() if t}
-        risk = min((_severity_rank(_member_severity(ctx, t)) for t in members.values()), default=99)
+        members = _path_members(threats, path)
         weights = sorted((scores.get(visible, 0) for visible in members), reverse=True)
         cls = path.get("class")
-        return risk, -sum(weights[:PATH_ORDER_FINDINGS]), classes.index(cls) if cls in classes else len(classes)
+        return (
+            _path_risk(ctx, members),
+            -sum(weights[:PATH_ORDER_FINDINGS]),
+            classes.index(cls) if cls in classes else len(classes),
+        )
 
     data["attack_paths"] = sorted(data.get("attack_paths") or [], key=rank)
+
+
+def _path_members(threats: dict[str, dict[str, Any]], path: dict) -> dict[str, dict[str, Any]]:
+    """The known findings of a path by visible ID."""
+    members = dict(_path_finding(threats, fid) for fid in path.get("findings") or [])
+    return {visible: t for visible, t in members.items() if t}
+
+
+def _path_risk(ctx: RenderContext, members: dict[str, dict[str, Any]]) -> int:
+    """The severity rank of a path's worst finding; a path without known findings ranks last."""
+    return min((_severity_rank(_member_severity(ctx, t)) for t in members.values()), default=99)
+
+
+def _focus_attack_paths(ctx: RenderContext, data: dict) -> None:
+    """Keep only the paths with a Critical or High finding, when any has one (REQ-012).
+
+    The rule sits here because the table, the figures, the path list, and every count read this one
+    list, so they cannot disagree. The others stay in ``other_attack_paths`` for the line below the table.
+    """
+    threats = _threat_lookup(ctx)
+    paths = data.get("attack_paths") or []
+    high = _severity_rank("High")
+    heavy = [path for path in paths if _path_risk(ctx, _path_members(threats, path)) <= high]
+    if heavy and len(heavy) < len(paths):
+        data["attack_paths"] = heavy
+        data["other_attack_paths"] = [path for path in paths if path not in heavy]
 
 
 def _load_attack_paths_fragment_impl(ctx: RenderContext, taxonomy: dict, threats: list[dict]) -> dict:
@@ -4833,25 +4865,23 @@ def _build_strength_clusters(
             if name and name not in impls:
                 impls.append(name)
 
-        # ---- Mitigates: addressed threats - bypassed ones ---------------
-        # Pre-2026-05 this used the (often-empty) `mitigates_findings[]`
-        # field on each control. We now derive it from the threat catalogue
-        # directly: any addressed threat that is NOT in the open H/C
-        # bypass list is, by negation, currently held by this strength.
-        # That is a stronger statement than the YAML field because it
-        # cross-checks against §8 instead of relying on the analyst to
-        # populate a back-link.
-        bypass_set = {(t.get("id") or t.get("t_id") or "") for t in (addressed_critical + addressed_high)}
-        mitigates: list[dict] = []
-        for t in addressed_for_cap:
+        # ---- Open gaps: every open finding in the cluster's remit --------
+        # These findings remain open, so they are gaps of the strength and
+        # never threats it holds. No cap: Critical and High always stay visible.
+        open_gaps: list[dict] = []
+        seen_gaps: set[str] = set()
+        ranked_gaps = sorted(
+            addressed_critical + addressed_high + addressed_for_cap,
+            key=lambda t: (
+                _severity_rank(t.get("risk") or t.get("severity") or ""),
+                t.get("id") or t.get("t_id") or "",
+            ),
+        )
+        for t in ranked_gaps:
             tid = (t.get("id") or t.get("t_id") or "").strip()
-            if not tid or tid in bypass_set:
-                continue
-            mitigates.append({"ref": tid, "label": (t.get("title") or "").strip()})
-        # Cap the displayed list at 5 names; if more are addressed, append
-        # a "+N more" suffix so the cell stays scannable.
-        mit_overflow = max(0, len(mitigates) - 5)
-        mitigates = mitigates[:5]
+            if tid and tid not in seen_gaps:
+                seen_gaps.add(tid)
+                open_gaps.append({"ref": tid, "label": (t.get("title") or "").strip()})
 
         # ---- Gap: derive from the bypass list ---------------------------
         if addressed_critical or addressed_high:
@@ -4891,7 +4921,7 @@ def _build_strength_clusters(
                 "untested rather than confirmed."
             )
         elif eff == "partial":
-            gap = "Coverage incomplete — see §7 control assessment."
+            gap = "Coverage incomplete — see §6 control assessment."
         else:
             gap = "—"
 
@@ -4910,8 +4940,7 @@ def _build_strength_clusters(
                 "members": non_missing,
                 "effectiveness": eff,
                 "implementations": impls,
-                "mitigates": mitigates,
-                "mitigates_overflow": mit_overflow,
+                "mitigates": open_gaps,
                 "gap": gap,
                 "open_critical_count": len(addressed_critical),
                 "open_high_count": len(addressed_high),
@@ -6216,8 +6245,13 @@ def _render_detail_figures(ctx: RenderContext) -> dict:
     try:
         from renderers.figure_details import build_detail_figures
 
+        ranked = (ctx.triage.get("ranking") or {}).get("views", {}).get("top_findings", {}).get("findings_ranked") or []
+        threats = _threat_lookup(ctx)
         figures = build_detail_figures(
-            ctx.yaml_data, _load_deployment_inventory(ctx), first_number=_DETAIL_FIGURE_NUMBERS[0]
+            ctx.yaml_data,
+            _load_deployment_inventory(ctx),
+            first_number=_DETAIL_FIGURE_NUMBERS[0],
+            scores={_path_finding(threats, row.get("id") or "")[0]: row.get("score") or 0 for row in ranked},
         )
         embed = bool(getattr(ctx, "embed_figures", False)) or bool(
             _read_skill_config(ctx.output_dir).get("embed_figures")
@@ -7944,10 +7978,9 @@ def _compute_top_findings_rows(ctx: RenderContext) -> tuple[list[dict[str, Any]]
 
 
 _REMEDIATION_HEADERS = ("Root cause → lasting fix", "Do first", "Resolves", "Effort")
-_REMEDIATION_COL_WIDTHS = ("34%", "46%", "12%", "8%")
+_REMEDIATION_COL_WIDTHS = ("30%", "28%", "33%", "9%")
 _REMEDIATION_FIXES_PER_CAUSE = 3
 _REMEDIATION_MIN_ROWS = 5
-_REMEDIATION_RESOLVES_SHOWN = 3
 
 
 def _finding_key(ref: str) -> str:
@@ -8101,7 +8134,8 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
             if w is not None and not any(_cause_of(m, [w]) for m in enriched):
                 return "<em>No separate measure; the lasting fix applies.</em>"
             return "—"
-        cell = _md(ctx.linkify_with_label(r["id"]))
+        # Resolves shows the finding, so a measure title need not repeat its ID.
+        cell = _md(re.sub(r"\s*\(\[?F-\d+\]?(?:\(#f-\d+\))?\)", "", ctx.linkify_with_label(r["id"])))
         if r["business_note"]:
             cell += f"<br/><em>{html.escape(r['business_note'], quote=False)}</em>"
         return cell
@@ -8109,11 +8143,8 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
     def _resolves_cell(r: dict[str, Any] | None) -> str:
         if r is None:
             return "—"
-        keys = r["finding_keys"]
-        refs = [_md(ctx.linkify_with_label(k, compact=True)) for k in keys[:_REMEDIATION_RESOLVES_SHOWN]]
-        if len(keys) > _REMEDIATION_RESOLVES_SHOWN:
-            refs.append(f"+{len(keys) - _REMEDIATION_RESOLVES_SHOWN} more")
-        return "<br/>".join(refs)
+        shown, rest = split_visible(_md(ctx.linkify_with_label(k)) for k in r["finding_keys"])
+        return "<br/>".join(shown + ([fold(rest)] if rest else []))
 
     wrap = ' style="overflow-wrap:break-word"'
     rows_html: list[str] = []
@@ -8126,7 +8157,8 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
                 shown_ids.add(r["id"])
             effort = html.escape(str(r["effort"]), quote=False) if r else "—"
             cells = (cause if i == 0 else "") + (
-                f"<td{wrap}>{_fix_cell(r, w)}</td><td>{_resolves_cell(r)}</td><td>{effort}</td>"
+                f"<td{wrap}>{_fix_cell(r, w)}</td><td{wrap}>{_resolves_cell(r)}</td>"
+                f'<td style="white-space:nowrap">{effort}</td>'
             )
             rows_html.append(f"<tr>{cells}</tr>")
 
@@ -8146,7 +8178,7 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
             "The highest-priority recorded measures. Details in the [§10 Mitigation Register](#10-mitigation-register)."
         )
     out.append("")
-    out.append('<table style="table-layout:fixed;width:100%">')
+    out.append(f'<table style="table-layout:fixed;width:100%;max-width:{MAX_TABLE_WIDTH}">')
     out.append(
         "<colgroup>" + "".join(f'<col width="{w}" style="width:{w}">' for w in _REMEDIATION_COL_WIDTHS) + "</colgroup>"
     )
@@ -8372,11 +8404,7 @@ def _render_operational_strengths(ctx: RenderContext, env: jinja2.Environment, s
                 what_lines.append(line)
             what_in_place = "<br/>".join(what_lines) if what_lines else "—"
             gap = cl.get("gap") or _GAP_BY_EFFECTIVENESS.get(eff, _GAP_FALLBACK)
-            # Mitigates with overflow indicator.
             mit_list = list(cl.get("mitigates") or [])
-            mit_overflow = cl.get("mitigates_overflow", 0)
-            if mit_overflow > 0:
-                mit_list.append({"ref": None, "label": f"+{mit_overflow} more", "_overflow": True})
             rendered_rows.append(
                 {
                     "label": cl["label"],
@@ -9681,6 +9709,7 @@ _FINDING_LOCATION_RE = re.compile(
 )
 
 _TOP_THREATS_SEVERITY_EMOJI = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+_SEVERITY_BADGE_ORDER = {mark: rank for rank, mark in enumerate("🔴🟠🟡🟢⚪")}
 
 
 def _strip_finding_location(title: str) -> str:
@@ -9688,6 +9717,53 @@ def _strip_finding_location(title: str) -> str:
     t = (title or "").strip()
     stripped = _FINDING_LOCATION_RE.sub("", t).strip()
     return stripped or t
+
+
+def _threat_findings_cell(entries: list[tuple[str, str, str]]) -> str:
+    """A threat's findings under their components, for (finding line, component ID, component name).
+
+    The component with the worst finding comes first, among equals the one with more findings, and a
+    component's name stands once instead of behind every finding. Medium and lower may collapse.
+    """
+    owner = {line: component for line, component, _ in entries}
+    names = {component: name for _, component, name in entries}
+    shown, rest = split_visible(line for line, _, _ in entries)
+    groups: dict[str, list[str]] = {}
+    for line in shown:
+        groups.setdefault(owner[line], []).append(line)
+
+    def place(group: tuple[str, list[str]]) -> tuple[int, int]:
+        return min(_SEVERITY_BADGE_ORDER.get(badge_of(line), 9) for line in group[1]), -len(group[1])
+
+    lines: list[str] = []
+    for component, members in sorted(groups.items(), key=place):
+        name = f" {names[component]}" if names[component] else ""
+        lines.append(f"**→ [{component}](#{component.lower()}){name}**")
+        lines.extend(members)
+    collapsed = [f"{line} → [{owner[line]}](#{owner[line].lower()})" for line in rest]
+    return "<br/>".join(lines + ([fold(collapsed)] if collapsed else []))
+
+
+def _other_threats_line(ctx: RenderContext) -> str:
+    """Name the threats the overview leaves out, with their finding counts (REQ-012)."""
+    taxonomy = _load_attack_class_taxonomy()
+    class_meta = {c.get("id"): c for c in taxonomy.get("classes", []) if isinstance(c, dict)}
+    threats = _threat_lookup(ctx)
+    others = _load_attack_paths_fragment(ctx, taxonomy, list(threats.values())).get("other_attack_paths") or []
+    parts = []
+    for path in others:
+        meta = class_meta.get(path.get("class"), {})
+        name = meta.get("threat_label") or meta.get("label") or path.get("class")
+        count = Counter(badge(_member_severity(ctx, t)) for t in _path_members(threats, path).values())
+        tally = " · ".join(f"{mark} {count[mark]}" for mark in sorted(count, key=_SEVERITY_BADGE_ORDER.get) if mark)
+        parts.append(f"{name} ({tally})" if tally else name)
+    if not parts:
+        return ""
+    return (
+        "**Further threats without Critical or High findings:** "
+        + " · ".join(parts)
+        + ". Their findings are in the [§8 Findings Register](#8-findings-register)."
+    )
 
 
 def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
@@ -9748,7 +9824,7 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
         stride = meta.get("stride") or ""
         description = (ap.get("description") or meta.get("description") or "").strip()
 
-        finding_cells: list[str] = []
+        finding_entries: list[tuple[str, str, str]] = []
         member_threats: list[dict[str, Any]] = []
         seen_fids: set[str] = set()
         for fid in ap.get("findings") or []:
@@ -9790,17 +9866,14 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
             f_prefix = f"{f_emoji}&nbsp;" if f_emoji else ""
             # No leading `•` bullet — each finding sits on its own line (joined
             # by <br/> below); a bullet inside a table cell reads as clutter
-            # (user request 2026-06). Keep the id+dot and the `→ component`
-            # link non-breaking so an F-NNN / C-NN id never wraps mid-token;
-            # the title between them still wraps on normal spaces.
-            # Component link carries its NAME (not a bare ID) — consistent with
-            # §2.3. The `→ [C-NN]` stays non-breaking; the name
-            # sits OUTSIDE the span so it wraps with the rest of the cell.
-            _c_suffix = f"&nbsp;{_c_name}" if _c_name and _c_name != c_anchor else ""
-            finding_cells.append(
-                f'<span style="white-space:nowrap">{f_prefix}[{visible}](#{visible.lower()})</span>'
-                f" — {short} "
-                f'<span style="white-space:nowrap">→&nbsp;[{c_anchor}](#{c_anchor.lower()})</span>{_c_suffix}'
+            # (user request 2026-06). Keep the id+dot non-breaking so an F-NNN
+            # id never wraps mid-token; the title still wraps on normal spaces.
+            finding_entries.append(
+                (
+                    f'<span style="white-space:nowrap">{f_prefix}[{visible}](#{visible.lower()})</span> — {short}',
+                    c_anchor,
+                    _c_name if _c_name and _c_name != c_anchor else "",
+                )
             )
 
         # Risk = max severity across member findings — read through the same
@@ -9862,7 +9935,7 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
                 "description_cell": (
                     f"**{title}** _({stride})_<br/>{description}" if stride else f"**{title}**<br/>{description}"
                 ),
-                "findings_cell": "<br/>".join(finding_cells) if finding_cells else "—",
+                "findings_cell": _threat_findings_cell(finding_entries) or "—",
                 "risk_cell": (
                     f"{risk_emoji} **{risk_word}**<br/>{impact_str}".strip() if risk_word else (impact_str or "—")
                 ),
@@ -9875,7 +9948,7 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
 def _render_top_threats(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
     rows = _compute_top_threats_rows(ctx)
     tpl = env.get_template(section.get("template", "top-threats.md.j2"))
-    return tpl.render(rows=rows).rstrip() + "\n"
+    return tpl.render(rows=rows, other_threats=_other_threats_line(ctx)).rstrip() + "\n"
 
 
 _MS_SEV_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -10731,6 +10804,9 @@ def _inject_components_table(ctx: RenderContext, md: str) -> str:
         return table_re.sub("", body)
 
     cleaned_body = _strip_first_table(section_body).rstrip() + "\n"
+    # The generator's overview names and anchors each component, so a second table would only repeat it.
+    if "<!-- detail-table -->" in cleaned_body:
+        return md[: m.end()] + "\n" + cleaned_body.strip() + "\n\n" + md[section_end:]
 
     # M3.3 / D1.5 — Optional `Runtime` column when ANY component carries a
     # populated `runtime` field. The column is hidden entirely when nothing
@@ -11302,12 +11378,11 @@ def _section7_inline_findings_id_only(ctx: RenderContext, md: str) -> str:
             continue
         if _bullet_re.match(line):
             continue  # Relevant-findings bullet — keep the title.
-        if line.lstrip().startswith("|"):
+        if line.lstrip().startswith(("|", "<")):
             # §7 TABLE rows (e.g. the §7.2 Authentication-mechanisms inventory
-            # 'Findings' column) are summary tables, not prose — their finding
-            # links are meant to carry a short title (the no-bare-ID rule). The
-            # ID-only reduction targets repetitive PROSE references only, so it
-            # must not strip titles from table cells (2026-06-02 'leer betitelt').
+            # 'Findings' column) are summary tables, not prose — the ID-only
+            # reduction targets repetitive PROSE references only. Raw HTML rows
+            # are not Markdown either, so a link built here would stay literal.
             continue
         # 1. Strip the known-label suffix from any already-linked finding ref.
         if "](#f-" in line or "](#t-" in line:
@@ -11612,9 +11687,9 @@ def _wrap_segment_words(seg: str, width: int) -> str:
 # Keep in sync with qa_checks `_FIXED_LAYOUT_SPECS`.
 _FIXED_LAYOUT_TABLE_HEADERS = frozenset(
     {
-        ("ID", "Crossing", "Required condition", "Findings / open question"),
+        ("Crossing", "Required condition", "Control", "Status and findings"),
         ("Method", "Route", "Risk", "Notes"),
-        ("Asset", "Classification", "Description", "Linked Threats"),
+        ("Asset", "Sensitivity (assumed)", "Findings"),
         # Trust Boundaries (2026-07-31): a column whose every row says the same
         # thing is dropped — the Source column when all rows share one
         # provenance, the "/ status" half of the Kind header when every row is
@@ -11633,7 +11708,7 @@ _FIXED_LAYOUT_TABLE_HEADERS = frozenset(
         # cell; Mitigates shown only when populated. Both the 3-col (no Mitigates)
         # and 4-col (with Mitigates) forms become fixed-layout HTML.
         ("Strength", "What's in Place", "Effectiveness"),
-        ("Strength", "What's in Place", "Effectiveness", "Mitigates"),
+        ("Strength", "What's in Place", "Effectiveness", "Open gaps"),
         # §7b Requirements Compliance (2026-08-27): both prose columns were
         # broken at 44 chars while the Evidence cell still held a bare `T-NNN`,
         # so the finding link the QA autofix built afterwards ended up wrapped
@@ -12622,79 +12697,6 @@ _DOT_TLD_KNOWN_NAMES: frozenset[str] = frozenset(
 )
 
 
-# ---------------------------------------------------------------------------
-# _escape_html_payloads_in_prose — wrap unescaped attacker-payload HTML tags
-# in inline backticks so the rendered HTML/PDF report does not interpret
-# them as live `<script>` / `<img onerror=…>` / `<svg onload=…>` elements.
-# Without this pass, prose like `q=<script>...</script>` ships RAW into the
-# final document; pandoc / weasyprint then emit literal <script> elements
-# that browsers execute. The threat report becomes its own XSS sink.
-#
-# Scope:
-#   * Match every bare opening, closing, or self-closing form of the
-#     dangerous-tag set below.
-#   * Wrap each match in `` ` … ` `` so it renders as inline code.
-#
-# Forbidden zones (never rewritten):
-#   * Fenced code blocks (``` ... ```)
-#   * <details>...</details> blocks (Story Card collapsible code snippets)
-#   * <pre>...</pre> and inline <code>...</code>
-#   * Existing inline backtick spans (`...`) so the pass is idempotent
-#   * HTML attribute values (`href="..."`, `id="..."`) — defensive: the only
-#     tag in our document that uses these is the legitimate `<a id="t-NNN">`
-#     anchor declaration, which is not in the dangerous-tag set anyway.
-# ---------------------------------------------------------------------------
-_DANGEROUS_HTML_TAG_RE = re.compile(
-    # `code` included: Stage-1 prose occasionally writes a bare placeholder
-    # like `#{<code>}` with no closing `</code>`. An unclosed inline `<code>`
-    # element bleeds its formatting across the entire remainder of the
-    # rendered document (the "everything is italic from §3.6 on" report).
-    # Balanced `<code>…</code>` pairs are pulled into PROTECTED_RE below
-    # first, so only the unbalanced/bare form reaches this substitution.
-    r"</?(?:script|iframe|svg|object|embed|form|style|link|meta|code)\b[^>]*/?>"
-    r"|<img\b[^>]*onerror\s*=[^>]*>"
-    r"|<img\b[^>]*/?>"  # bare <img …> — payload context only since legit <img> never appears in our prose
-    r"|<[A-Za-z][\w]*\s+(?:onerror|onload|onclick|onmouseover)\s*=[^>]*/?>",
-    re.IGNORECASE,
-)
-
-
-def _escape_html_payloads_in_prose(md: str) -> str:
-    """Wrap unescaped `<script>` / `<img onerror=…>` / similar payload tags
-    in inline backticks so the rendered HTML/PDF report cannot execute them.
-
-    Idempotent: tags already inside `` `…` ``, fenced code blocks,
-    <details>/<pre>/<code> spans are skipped.
-    """
-    if not md:
-        return md
-    # Split into protected and unprotected chunks. Protected chunks are
-    # passed through verbatim; unprotected chunks get the tag wrap.
-    PROTECTED_RE = re.compile(
-        r"(```[^\n]*\n.*?\n```"  # fenced code
-        r"|<details\b.*?</details>"  # Story Card code blocks
-        r"|<pre\b.*?</pre>"  # raw <pre>
-        r"|<code\b.*?</code>"  # raw <code>
-        r"|`[^`\n]+`)",  # inline code span
-        flags=re.DOTALL,
-    )
-    out_chunks: list[str] = []
-    for chunk in PROTECTED_RE.split(md):
-        if not chunk:
-            continue
-        if (
-            chunk.startswith("```")
-            or chunk.startswith("<details")
-            or chunk.startswith("<pre")
-            or chunk.startswith("<code")
-            or (chunk.startswith("`") and chunk.endswith("`"))
-        ):
-            out_chunks.append(chunk)
-            continue
-        out_chunks.append(_DANGEROUS_HTML_TAG_RE.sub(lambda m: f"`{m.group(0)}`", chunk))
-    return "".join(out_chunks)
-
-
 def _escape_dot_tld_identifiers(md: str) -> str:
     """Wrap word.xx patterns in backticks when xx is 2-4 chars (TLD-length)
     to prevent markdown renderers from auto-linking them as bare URLs.
@@ -12832,14 +12834,14 @@ def _linkify_bare_refs_in_prose(ctx: RenderContext, md: str) -> str:
                 # Heading — do not expand refs.
                 in_assets_tbl = False
                 continue
-            # §4 Assets guard — its Linked Threats cells ship COMPACT bare
-            # `[F-NNN](#f-nnn)` chips on purpose (narrow ID column). Detect the
-            # table header (Asset + Classification) and skip its body rows so
-            # the `(title)` parens form is NOT appended here.
+            # §4 Assets guard — its Findings cells ship COMPACT bare
+            # `[F-NNN](#f-nnn)` chips on purpose. Detect the table header (Asset
+            # + Sensitivity) and skip its body rows so the `(title)` parens form
+            # is NOT appended here.
             _strip = line.lstrip()
             if _strip.startswith("|"):
                 _cells = {c.strip().lower() for c in _strip.strip("|").split("|")}
-                if "asset" in _cells and "classification" in _cells:
+                if "asset" in _cells and "sensitivity (assumed)" in _cells:
                     in_assets_tbl = True
                 if in_assets_tbl:
                     continue
@@ -13500,24 +13502,25 @@ def _mask_secrets(md: str) -> tuple[str, list[str]]:
 
 
 def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
-    """Render Appendix: Run Statistics in the reference-canonical shape.
+    """Render Appendix: Run Statistics: what no other part of the report says.
 
-    Layout (matches the 2026-04-17 reference, §Appendix — Run Statistics):
+    Layout:
 
         ## Appendix: Run Statistics
 
         | Field | Value |
         |-------|-------|
-        | Invocation           | `<INVOCATION_ARGS>` |
-        | Generated            | <ISO8601> |
-        | Mode                 | <full/incremental/rebuild> |
-        | Assessment depth     | <quick/standard/thorough> |
+        | Command              | `appsec-analyzer assess <flags>` |
+        | Code                 | `<commit>` on `<branch>` |
         | Business context     | `<file>` — applies to <N> finding(s)   (conditional — only when declared) |
-        | Analyzer version     | <semver> (analysis v<N>) |
-        | Orchestrator model   | <model-id> |
-        | Repository           | <path> |
-        | Output               | <path> |
-        | Total duration       | <Xm YYs> |
+        | Duration             | <Xm YYs> |
+        | Model time           | <Xm YYs> across parallel calls |
+
+        ### Per-Stage Breakdown
+        | Stage | Model | Calls | Tokens | Cost (≈ USD) | Model time |
+
+        ### Tokens by model
+        | Model | Calls | Uncached | Cache write | Cache read | Output | Cost (≈ USD) |
 
         ### Per-Phase Duration Breakdown
         | Phase | Description | Agent (Model) | Duration |
@@ -13527,53 +13530,20 @@ def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment,
 
         ### Agent Dispatch Log
         | Agent | Model | Role | Phases |
-
-        ### Tokens & Cost        (conditional — only when captured)
-        bullets + scope warning blockquote
     """
     meta = ctx.yaml_data.get("meta") or {}
     stats = meta.get("run_statistics") or {}
     agents_yaml = stats.get("agents") or []
-    tokens = stats.get("tokens") or {}
-    cost = stats.get("cost") or {}
 
     invocation = meta.get("invocation") or "(not recorded)"
-    # Generated timestamp - keep the canonical ISO8601 value in the YAML
-    # but render a human-readable form ("2026-05-17 05:31 UTC") in the
-    # appendix. Falls back to the raw value if the YAML didn't store an
-    # ISO8601 string.
-    generated_raw = meta.get("generated") or ""
-    generated = _format_generated_timestamp(generated_raw) if generated_raw else "—"
-    mode = meta.get("mode") or "—"
-    depth = meta.get("assessment_depth") or "standard"
-    plugin_v, analysis_v = _run_analyzer_versions(meta)
-    # `meta.model` carries the STRIDE model (already shown under "Reasoning
-    # models"), not the session model, so only an explicit orchestrator row counts.
-    orch_model = next(
-        (a.get("model") for a in agents_yaml if (a.get("role") or "").lower().startswith("orchestrator")), None
-    )
-    # M3.3 — fall back to .skill-config.json when meta lacks repo/output paths.
-    # The orchestrator does not currently emit `meta.repository_root` /
-    # `meta.output_dir`; the skill-layer config has them. Without this
-    # fallback the appendix shows "—" for paths that the user actually knows.
     skill_cfg = _read_skill_config(ctx.output_dir)
-    repo = meta.get("repository_root") or skill_cfg.get("repo_root") or "—"
-    # The temporary checkout of a directory without Git is gone when the report is read.
-    sources = meta.get("source_repositories") or []
-    if any(row.get("without_git") for row in sources):
-        repo = ", ".join(
-            row["label"] + (" (directory without Git)" if row.get("without_git") else "") for row in sources
-        )
-    out_dir = meta.get("output_dir") or skill_cfg.get("output_dir") or "—"
     # M3.3 — derive total duration from per-stage stats when meta lacks it.
     stage_rows = _read_stage_stats(ctx.output_dir)
 
     # Two DISTINCT quantities — never conflate them into one "duration":
-    #   * wall clock    = real elapsed the user waited (net of machine standby)
-    #   * agent compute = Σ per-stage duration_ms, which folds PARALLEL Stage-1
-    #     dispatches serially and therefore OVERSTATES wall (juice-shop: ~98m
-    #     compute vs ~83m wall). Labelling that sum "Total analysis duration"
-    #     made the duration estimator look broken when it was actually correct.
+    #   * duration   = real elapsed the user waited (net of machine standby)
+    #   * model time = Σ per-stage duration_ms, the time models worked; parallel
+    #     calls can add up to more than the duration.
     compute_secs: int | None = None
     if stage_rows:
         ms_sum = sum(r.get("duration_ms", 0) for r in stage_rows)
@@ -13605,19 +13575,17 @@ def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment,
     lines.append("|-------|-------|")
     # Exact invocation: meta first (survives runtime cleanup), skill-config
     # fallback (older runs / when meta lacks it). Shows the precise flags
-    # (depth, reasoning tier, per-stage overrides, --stride-cap, …).
+    # (depth, reasoning tier, per-stage overrides, --stride-cap, …). What the
+    # Changelog and the title line state is not repeated here, and local paths
+    # stay out of a report that travels.
     invocation_cell = (
         invocation if invocation != "(not recorded)" else (skill_cfg.get("invocation_args") or "(not recorded)")
     )
-    inv_prefix = (
-        "/appsec-advisor:appsec-analyzer "
-        if (invocation_cell != "(not recorded)" and not invocation_cell.startswith("/"))
-        else ""
-    )
-    lines.append(f"| Invocation | `{inv_prefix}{invocation_cell}` |")
-    lines.append(f"| Generated | {generated} |")
-    lines.append(f"| Mode | {mode} |")
-    lines.append(f"| Assessment depth | {depth} |")
+    if invocation_cell != "(not recorded)":
+        invocation_cell = f"appsec-analyzer assess {invocation_cell}".strip()
+    lines.append(f"| Command | `{invocation_cell}` |")
+    if code := _examined_code(meta):
+        lines.append(f"| Code | {code} |")
     # Opt-in --stride-cap N transparency: disclose the per-category STRIDE cap so
     # a capped report is never mistaken for a full-depth one. Omitted when absent.
     stride_cap = meta.get("stride_per_category_cap")
@@ -13635,70 +13603,21 @@ def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment,
         bc_findings = sum(1 for t in (ctx.yaml_data.get("threats") or []) if t.get("business_context_basis"))
         bc_reach = f"applies to {bc_findings} finding(s)" if bc_findings else "mapped to no component"
         lines.append(f"| Business context | `{bc_source}` — {bc_reach} |")
-    plugin_cell = f"{plugin_v}" + (f" (analysis v{analysis_v})" if analysis_v else "")
-    lines.append(f"| Analyzer version | {plugin_cell or '—'} |")
-    if orch_model:
-        lines.append(f"| Orchestrator model | {orch_model} |")
-    # Per-stage reasoning models. Surfaces per-stage overrides (e.g.
-    # APPSEC_TRIAGE_MODEL=opus while STRIDE stays sonnet) that the tier name
-    # alone hides, so a mixed-tier run is honestly disclosed. meta first,
-    # skill-config fallback (meta omits these on older runs).
-    _stride_m = meta.get("stride_model") or skill_cfg.get("stride_model")
-    _triage_m = meta.get("triage_model") or skill_cfg.get("triage_model")
-    _merger_m = meta.get("merger_model") or skill_cfg.get("merger_model")
-    if _stride_m or _triage_m or _merger_m:
-        _tier = meta.get("reasoning_model") or skill_cfg.get("reasoning_model")
-        _tier_prefix = f"{_tier} — " if _tier else ""
-        lines.append(
-            f"| Reasoning models | {_tier_prefix}STRIDE {_stride_m or '—'}, "
-            f"triage {_triage_m or '—'}, merger {_merger_m or '—'} |"
-        )
-    lines.append(f"| Repository | {repo} |")
-    lines.append(f"| Output directory | {out_dir} |")
     # Show wall and compute separately. When only one is known, emit just that
     # one; when both equal (degenerate single-dispatch runs) the rows still read
-    # correctly. Never present the inflated compute sum as elapsed duration.
+    # correctly. Never present the compute sum as elapsed duration.
     if wall_secs:
-        lines.append(f"| Wall clock (active) | {_dur(wall_secs)} |")
+        lines.append(f"| Duration | {_dur(wall_secs)} |")
     if compute_secs:
-        lines.append(f"| Agent compute (Σ parallel dispatches) | {_dur(compute_secs)} |")
+        lines.append(f"| Model time | {_dur(compute_secs)} across parallel calls |")
     if not wall_secs and not compute_secs:
-        lines.append("| Total analysis duration | — |")
+        lines.append("| Duration | — |")
     lines.append("")
 
     # --- Per-Stage Breakdown (M3.3) ----------------------------------------
-    # Reads `.stage-stats.jsonl` written by `runtime/record_stage_stats.py`. The
-    # skill calls the helper after each Stage Agent dispatch returns, with
-    # values extracted from the Agent tool's <usage> block. When the file
-    # is absent (older runs, dry-run, partial failure), the section is
-    # omitted entirely — no empty skeleton.
-    if stage_rows:
-        lines.append("### Per-Stage Breakdown")
-        lines.append("")
-        lines.append("| Stage | Description | Agent | Model | Duration | Tool calls | Tokens |")
-        lines.append("|-------|-------------|-------|-------|----------|------------|--------|")
-        total_ms = 0
-        total_tools = 0
-        total_tokens = 0
-        for r in sorted(stage_rows, key=lambda d: d.get("stage", 0)):
-            ms = r.get("duration_ms", 0)
-            tools = r.get("tool_uses", 0)
-            toks = r.get("tokens", 0)
-            total_ms += ms
-            total_tools += tools
-            total_tokens += toks
-            dur = _fmt_ms(ms)
-            # A grouped stage row lists several agents ("a:x,a:y"); strip the
-            # namespace from each instead of keeping only the last one.
-            agent = ", ".join(a.split(":")[-1] for a in (r.get("agent") or "—").split(","))
-            lines.append(
-                f"| {r.get('stage', '—')} | {r.get('name', '—')} | {agent} | "
-                f"{r.get('model', '—')} | {dur} | {tools:,} | {toks:,} |"
-            )
-        lines.append(
-            f"| **Total** | — | — | — | **{_fmt_ms(total_ms)}** | **{total_tools:,}** | **{total_tokens:,}** |"
-        )
-        lines.append("")
+    # Reads `.stage-stats.jsonl`. When the file is absent (older runs, dry-run,
+    # partial failure), the section is omitted entirely — no empty skeleton.
+    lines += _stage_tables(stage_rows)
 
     # --- Per-Phase Duration Breakdown --------------------------------------
     # Omitted when the log carries no phase pairs (the compact runtime logs
@@ -13741,29 +13660,6 @@ def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment,
             lines.append(
                 f"| {a.get('name', '—')} | {a.get('model', '—')} | {a.get('role', '—')} | {a.get('phases', '—')} |"
             )
-        lines.append("")
-
-    # --- Tokens & Cost ------------------------------------------------------
-    if tokens or cost:
-        lines.append("### Tokens & Cost")
-        lines.append("")
-        if tokens:
-            lines.append(
-                f"- **Tokens:** input={tokens.get('input', '—')} · "
-                f"output={tokens.get('output', '—')} · "
-                f"cache_read={tokens.get('cache_read', '—')} · "
-                f"cache_write={tokens.get('cache_write', '—')} · "
-                f"total={tokens.get('total', '—')}"
-            )
-        if cost:
-            lines.append(f"- **Billing:** {cost.get('billing', '—')}")
-            if cost.get("cache_savings_pct") is not None:
-                lines.append(f"- **Cache savings:** {cost.get('cache_savings_pct')}%")
-        lines.append("")
-        lines.append(
-            "> ⚠ **Scope:** host session only — sub-agent token spend "
-            "is not captured by Claude Code's hook infrastructure."
-        )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -13838,6 +13734,128 @@ def _agent_dispatch_rows(ctx: RenderContext, agents_yaml: list[dict]) -> list[di
 # reader saw the component in two tiers at once. One implementation, imported.
 _COMPONENT_TIER_HINTS = _pregen_tier_hints
 _classify_component_tier = _pregen_classify_tier
+
+
+def _examined_code(meta: dict) -> str:
+    """Which code the run examined, never a local path: a temporary checkout is gone when the report is read."""
+    sources = meta.get("source_repositories") or []
+    git = meta.get("git") or {}
+
+    def state(row: dict) -> str:
+        if row.get("without_git"):
+            return "directory without Git"
+        head = f"`{str(row.get('head'))[:9]}`" if row.get("head") else "unknown commit"
+        return head + (" with local changes" if row.get("dirty") else "")
+
+    if len(sources) > 1 or any(row.get("without_git") for row in sources):
+        return ", ".join(f"{row.get('label')}: {state(row)}" for row in sources)
+    source = sources[0] if sources else {"head": git.get("commit_sha")}
+    if not source.get("head"):
+        return ""
+    return state(source) + (f" on `{git['branch']}`" if git.get("branch") else "")
+
+
+def _stage_tables(stage_rows: list[dict]) -> list[str]:
+    """The run's cost by stage and by model; a column stays out when no stage has a value for it.
+
+    Tokens and costs appear only as recorded: an unknown amount is left unknown, never shown as zero.
+    """
+    if not stage_rows:
+        return []
+    stages: dict[str, dict] = {}
+    for row in sorted(stage_rows, key=lambda d: d.get("stage", 0)):
+        name = str(row.get("name") or "—").split(":", 1)[0]
+        stage = stages.setdefault(name, {"ms": 0, "calls": [], "tokens": [], "usd": [], "models": []})
+        stage["ms"] += row.get("duration_ms", 0)
+        stage["calls"].append(row.get("calls"))
+        stage["tokens"].append(row.get("tokens") or None)
+        stage["usd"].append(row.get("usd"))
+        stage["models"].extend(row.get("models") or {})
+
+    def total(values: list) -> int | float | None:
+        """A sum only when every part is known, because a partial sum would read as the whole."""
+        return None if any(value is None for value in values) else sum(values)
+
+    models = {model for stage in stages.values() for model in stage["models"]}
+    columns: list[tuple[str, Callable[[dict], str], str]] = [("Stage", lambda s: s["name"], "---")]
+    if len(models) > 1:
+        columns.append(("Model", lambda s: ", ".join(dict.fromkeys(s["models"])), "---"))
+    all_rows = [dict(stage, name=name) for name, stage in stages.items()]
+    if any(total(s["calls"]) is not None for s in all_rows):
+        columns.append(("Calls", lambda s: str(total(s["calls"]) if total(s["calls"]) is not None else "–"), "--:"))
+    if any(total(s["tokens"]) for s in all_rows):
+        columns.append(("Tokens", lambda s: token_count(total(s["tokens"])), "--:"))
+    if any(total(s["usd"]) is not None for s in all_rows):
+        columns.append(("Cost (≈ USD)", lambda s: _usd(total(s["usd"])), "--:"))
+    columns.append(("Model time", lambda s: _fmt_ms(s["ms"]), "--:"))
+    summed = {
+        "name": "Total",
+        "ms": sum(s["ms"] for s in all_rows),
+        "calls": [value for s in all_rows for value in s["calls"]],
+        "tokens": [value for s in all_rows for value in s["tokens"]],
+        "usd": [value for s in all_rows for value in s["usd"]],
+        "models": [],
+    }
+
+    def table_row(stage: dict, bold: bool = False) -> str:
+        cells = [text(stage) for _, text, _ in columns]
+        return "| " + " | ".join(f"**{cell}**" if bold and cell else cell for cell in cells) + " |"
+
+    lines = [
+        "### Per-Stage Breakdown",
+        "",
+        "| " + " | ".join(head for head, _, _ in columns) + " |",
+        "|" + "|".join(align for _, _, align in columns) + "|",
+        *(table_row(stage) for stage in all_rows),
+        table_row(summed, bold=True),
+        "",
+    ]
+    reused = sum(row.get("reused") or 0 for row in stage_rows)
+    if reused:
+        lines += [f"*{reused} results came from an earlier run, so their time is not recorded.*", ""]
+    return lines + _model_table(stage_rows)
+
+
+def _usd(amount: float | None) -> str:
+    return "–" if amount is None else f"{amount:.2f}"
+
+
+def _model_table(stage_rows: list[dict]) -> list[str]:
+    """Calls, kinds of tokens, and cost per model."""
+    kinds = (("Uncached", "input"), ("Cache write", "cache_write"), ("Cache read", "cache_read"), ("Output", "output"))
+    models: dict[str, dict[str, float]] = {}
+    for row in stage_rows:
+        for model, counters in (row.get("models") or {}).items():
+            summed = models.setdefault(model, {})
+            for key, value in counters.items():
+                summed[key] = summed.get(key, 0) + value
+    if not models:
+        return []
+    priced = all("usd" in counters for counters in models.values())
+
+    def cells(counters: dict[str, float]) -> list[str]:
+        out = [str(int(counters.get("calls", 0)))]
+        out += [token_count(int(counters.get(key, 0))) for _, key in kinds]
+        return out + ([_usd(counters.get("usd"))] if priced else [])
+
+    head = ["Model", "Calls", *(label for label, _ in kinds), *(["Cost (≈ USD)"] if priced else [])]
+    ranked = sorted(models.items(), key=lambda item: (-item[1].get("usd", 0), -item[1].get("calls", 0), item[0]))
+    combined: dict[str, float] = {}
+    for _, counters in ranked:
+        for key, value in counters.items():
+            combined[key] = combined.get(key, 0) + value
+    lines = [
+        "### Tokens by model",
+        "",
+        "| " + " | ".join(head) + " |",
+        "|---|" + "--:|" * (len(head) - 1),
+        *(f"| {model} | " + " | ".join(cells(counters)) + " |" for model, counters in ranked),
+        "| **Total** | " + " | ".join(f"**{cell}**" for cell in cells(combined)) + " |",
+        "",
+    ]
+    if priced:
+        lines += ["*Costs are estimates at API list prices. A subscription bills differently.*", ""]
+    return lines
 
 
 def _read_stage_stats(output_dir: Path) -> list[dict]:
@@ -14015,29 +14033,6 @@ def _fmt_seconds(secs: int) -> str:
     if secs < 60:
         return f"{secs}s"
     return f"{secs // 60}m {secs % 60:02d}s"
-
-
-def _format_generated_timestamp(raw: str) -> str:
-    """Format an ISO8601 timestamp (`2026-05-17T05:31:44Z`) into a
-    reader-friendly form (`2026-05-17 05:31 UTC`).
-
-    Falls back to the input verbatim when the parser can't recognise it
-    so non-ISO values aren't silently dropped.
-    """
-    if not isinstance(raw, str) or not raw.strip():
-        return raw or "—"
-    try:
-        # Normalise the trailing `Z` to `+00:00` so fromisoformat accepts it.
-        s = raw.strip()
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        dt = dt.astimezone(timezone.utc)
-        return dt.strftime("%Y-%m-%d %H:%M UTC")
-    except (ValueError, AttributeError):
-        return raw
 
 
 def _read_live_plugin_meta() -> tuple[str | None, int | None]:
@@ -15733,7 +15728,6 @@ def _render_actor_inventory(ctx: RenderContext, people: list[dict]) -> str:
 
     model = ctx.yaml_data
     meta = model.get("meta") or {}
-    glyphs = _load_attack_class_taxonomy().get("glyph_sequence") or list("①②③④⑤⑥⑦⑧⑨")
     attackers = [p for p in people if p["kind"] == "attacker"]
     roles = [p for p in people if p["kind"] == "role"]
     counts: dict[str, dict[str, int]] = {}
@@ -15773,8 +15767,9 @@ def _render_actor_inventory(ctx: RenderContext, people: list[dict]) -> str:
         intro += f" [Figure 1b](#{_FIGURE1B_ANCHOR}) draws {names(build_attackers)} and the build it attacks."
     intro += " Each row gives that actor's access and the findings attributed to it."
     lines = ['<a id="identified-actors"></a>', "### Identified Actors", "", intro, ""]
-    lines += ["| Actor | Type | Access | Scenarios | Attributed findings |", "|---|---|---|---|---|"]
-    several = len(attackers) > 1
+    lines += ["| Actor | Type | Access | Findings |", "|---|---|---|---|"]
+    # An actor ID tells actors apart, so a single one says nothing.
+    several = sum(1 for person in attackers if person.get("code")) > 1
     for person in people:
         attacker = person["kind"] == "attacker"
         name = f"{person['code']} · {person['name']}" if attacker and several and person.get("code") else person["name"]
@@ -15782,10 +15777,10 @@ def _render_actor_inventory(ctx: RenderContext, people: list[dict]) -> str:
         extra = configured.get(person["slug"], []) if attacker else []
         if extra:
             access += ("; " if access else "") + "includes " + ", ".join(extra)
+        access = access[:1].upper() + access[1:]
         kind = "Attacker" if attacker else "Privileged role" if person.get("privileged") else "Role"
         if not attacker and person["scenarios"]:
             kind += " (victim)"
-        scenario_text = " ".join(glyphs[int(n) - 1] if int(n) <= len(glyphs) else n for n in person["scenarios"])
         tally = counts.get(person["slug"]) if attacker else None
         findings = (
             " · ".join(
@@ -15796,8 +15791,7 @@ def _render_actor_inventory(ctx: RenderContext, people: list[dict]) -> str:
             if tally
             else "—"
         )
-        where = f" · [Figure 1b](#{_FIGURE1B_ANCHOR})" if person.get("figure") == "1b" else ""
-        lines.append(f"| {safe(name)} | {kind} | {safe(access)}{where} | {scenario_text or '—'} | {findings} |")
+        lines.append(f"| {safe(name)} | {kind} | {safe(access)} | {findings} |")
     shown_slugs = {person["slug"] for person in attackers}
     unassigned = [
         threat
@@ -15810,8 +15804,8 @@ def _render_actor_inventory(ctx: RenderContext, people: list[dict]) -> str:
         lines.extend(
             [
                 "",
-                f"{len(unassigned)} findings are not represented in the actor counts ({summary}). "
-                "These counts cover assigned findings only; absence from them does not establish inaccessibility.",
+                f"{len(unassigned)} findings ({summary}) have no assigned actor. "
+                "That does not mean they are out of reach.",
             ]
         )
     return "\n".join(lines) + "\n"
@@ -16462,18 +16456,16 @@ def _boundary_finding_links(finding_ids: list[str], leg_states: list[dict], ctx:
     what comes back, user 2026-08-02). Leaving that group bare made a deliberate
     refusal to guess look like a rendering fault.
 
-    Severity dot + id only, never the finding title: this is the narrowest
-    column in the table and the global `linkify_anchors` label pass would append
-    titles, which once collapsed it into a column of single stacked characters
-    (user 2026-07-31). The row is exempt from that pass via
-    `_is_bare_finding_ref_line`, so the dot is emitted here.
+    Each finding carries its title: this is the widest column of the table, and
+    a bare ID would tell the reader nothing about the gap it stands for.
     """
     if not finding_ids:
         return "—"
 
     def _chip(finding_id: str) -> str:
         icon = _SEV_ICON_TBL.get(ctx.severity_for_ref(finding_id).lower(), "")
-        return f"{icon} [{finding_id}](#{finding_id.lower()})".strip()
+        title = ctx.lookup_label(finding_id)
+        return f"{icon} [{finding_id}](#{finding_id.lower()})".strip() + (f" — {title}" if title else "")
 
     remaining = list(finding_ids)
     parts: list[str] = []
@@ -16493,7 +16485,7 @@ def _boundary_finding_links(finding_ids: list[str], leg_states: list[dict], ctx:
         # finding while its neighbours showed headings, and the reader had no
         # way to tell a refusal to guess from a rendering fault. Every group
         # carries a label, so a missing one never has to be interpreted.
-        parts.append("_Unattributed_")
+        parts.append("_Not tied to one control_")
         parts.extend(_chip(finding_id) for finding_id in remaining)
     return "<br>".join(parts)
 
@@ -16577,8 +16569,78 @@ _TEST_CASE_OUTCOMES = {
     "not_applicable": "Not applicable",
     "disabled": "Disabled",
 }
+# The counts above the tables: separators of their own, because a label may hold a comma.
+_TEST_CASE_COUNTS = {
+    "finding": "findings",
+    "control": "controls",
+    "partial": "partial",
+    "no_finding": "no finding",
+    "undecidable": "undecidable",
+    "not_applicable": "not applicable",
+    "disabled": "disabled",
+}
+# Two places with nothing to examine, in the words of a table cell. Each sentence would repeat in many rows.
+_NO_LOCATION_REASONS = {
+    "no test case of the aspect has a starting candidate in the component, so no model job ran": (
+        "No location found, model not run"
+    ),
+    NOTHING_EXAMINED_REASON: "Model found no location to check",
+}
+_UNDECIDED_AT_RE = re.compile(r"(\d+) of (\d+) candidate locations undecidable: (.*)", re.DOTALL)
 _TEST_CASE_ID = re.compile(r"TC-[A-Z]+-[0-9]{2}")
 _TEST_CASE_FINDING_ID = re.compile(r"TCF-[0-9]{3,}")
+
+
+def _count_of(count: str, total: str, noun: str) -> str:
+    return f"{count} of {total} {noun}{'' if total == '1' else 's'}"
+
+
+def _test_case_result(row: dict) -> str:
+    """What an item's result means in one short line, with how it was confirmed only when that is weak."""
+    reason = " ".join(str(row.get("reason") or "").split())
+    if found := re.search(r"weakness at (\d+) of (\d+) candidate", reason):
+        text = "Fails at " + _count_of(*found.groups(), "location")
+    elif found := re.search(r"(\d+) of (\d+) applicable rules violated", reason):
+        text = "Fails " + _count_of(*found.groups(), "rule")
+    elif found := re.search(r"control evidenced[^.]*? at (\d+) of (\d+) candidate", reason):
+        text = "Holds at " + _count_of(*found.groups(), "location")
+    elif found := re.search(r"control evidenced[^.]*? at all (\d+) candidate", reason):
+        text = "Holds at " + _count_of(found.group(1), found.group(1), "location")
+    elif found := re.search(r"all (\d+) applicable rules satisfied", reason):
+        text = "Meets " + _count_of(found.group(1), found.group(1), "rule")
+    elif found := re.search(r"(\d+) of (\d+) applicable rules satisfied", reason):
+        text = "Meets " + _count_of(*found.groups(), "rule")
+    else:
+        text = html.escape(reason[:1].upper() + reason[1:])
+    return text + ("<br/><em>model review only</em>" if row.get("evidence_basis") == "model" else "")
+
+
+def _undecided_reason(row: dict) -> str:
+    reason = " ".join(str(row.get("reason") or "").split())
+    if reason in _NO_LOCATION_REASONS:
+        return _NO_LOCATION_REASONS[reason]
+    if found := _UNDECIDED_AT_RE.fullmatch(reason):
+        return f"{_count_of(found.group(1), found.group(2), 'location')}: {html.escape(found.group(3))}"
+    return html.escape(reason[:1].upper() + reason[1:])
+
+
+def _undecided_blocks(
+    blocks: list[tuple[dict, list[dict]]], item: Callable[[dict], str], subject: Callable[[dict, dict], str]
+) -> list[tuple[str, list[list[str]]]]:
+    """Components with the same item and reason share a row.
+
+    A question someone examined and could not settle asks more of the reader than a place with
+    nothing to examine, so it comes first.
+    """
+    plain = set(_NO_LOCATION_REASONS.values())
+    out = []
+    for case, rows in sorted(blocks, key=lambda block: all(_undecided_reason(r) in plain for r in block[1])):
+        by_reason: dict[str, list[str]] = {}
+        for row in rows:
+            by_reason.setdefault(_undecided_reason(row), []).append(subject(case, row))
+        ordered = sorted(by_reason.items(), key=lambda pair: pair[0] in plain)
+        out.append((item(case), [["<br/>".join(places), reason] for reason, places in ordered]))
+    return out
 
 
 def _table_text(value: object) -> str:
@@ -16615,7 +16677,7 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
     for row in results:
         if row.get("test_case_id") in known:
             counts[row.get("outcome")] = counts.get(row.get("outcome"), 0) + 1
-    summary = ", ".join(f"{counts[key]} {label.lower()}" for key, label in _TEST_CASE_OUTCOMES.items() if key in counts)
+    summary = " · ".join(f"{counts[key]} {label}" for key, label in _TEST_CASE_COUNTS.items() if key in counts)
     lines = [
         '<a id="appendix-verification-items"></a>',
         "## Appendix: Verification Items",
@@ -16648,9 +16710,17 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         if isinstance(t, dict) and re.fullmatch(r"T-\d{3,}", str(t.get("id")))
         for value in (t.get("verification") or {}).get("finding_ids") or []
     }
+    # A rules item names register findings directly, a model-backed item its verification findings.
+    register |= {
+        str(t["id"]): str(t["id"])
+        for t in ctx.yaml_data.get("threats") or []
+        if isinstance(t, dict) and re.fullmatch(r"T-\d{3,}", str(t.get("id")))
+    }
 
     def findings_text(row: dict) -> str:
-        values = [v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v)]
+        values = [
+            v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v) or v in register
+        ]
         if apart:
             linked = [f"{v} (as {', '.join(survey_ids[v])})" if survey_ids.get(v) else v for v in values]
             return (
@@ -16662,6 +16732,33 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         if missing := sum(1 for v in values if v not in register):
             shown.append(f"{missing} not in the findings register")
         return f"Findings: {', '.join(shown)}." if shown else ""
+
+    def row_findings(row: dict) -> tuple[list[str], int]:
+        """The visible finding IDs of a result, and how many stayed below the report's threshold."""
+        values = [
+            v for v in map(str, row.get("finding_ids") or []) if _TEST_CASE_FINDING_ID.fullmatch(v) or v in register
+        ]
+        visible = dict.fromkeys(re.sub(r"^T-", "F-", register[v]) for v in values if v in register)
+        return list(visible), sum(1 for v in values if v not in register)
+
+    def severity_counts(rows: list[dict]) -> tuple[int, int, int]:
+        """Critical, High, and Medium findings of some results, each counted once, negated for sorting."""
+        visible = {finding for row in rows for finding in row_findings(row)[0]}
+        tally = Counter((ctx.severity_for_ref(finding) or "").strip().lower() for finding in visible)
+        return -tally["critical"], -tally["high"], -tally["medium"]
+
+    floor = str((ctx.yaml_data.get("meta") or {}).get("register_severity_floor") or "medium").lower()
+    below = {"critical": "🟠", "high": "🟡", "medium": "🟢"}.get(floor, "⚪")
+
+    def findings_cell(row: dict) -> str:
+        if apart:
+            return findings_text(row).removeprefix("Findings: ").rstrip(".") or "–"
+        visible, hidden = row_findings(row)
+        ranked = sorted(visible, key=lambda finding: (_severity_rank(ctx.severity_for_ref(finding) or ""), finding))
+        ids = id_list((badge(ctx.severity_for_ref(f)), f"[{f}](#{f.lower()})") for f in ranked)
+        return (
+            "<br/>".join(part for part in (ids, f"{below}&nbsp;{hidden} not reported" if hidden else "") if part) or "–"
+        )
 
     def outcome_text(row: dict) -> str:
         label = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"])
@@ -16684,31 +16781,80 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             elif row.get("outcome") == "control":
                 controls.append((case, row))
 
-    def result_rows(rows: list[tuple[dict, dict]]) -> list[str]:
-        out = ["| Verification item | Where | Outcome | Reason |", "|---|---|---|---|"]
+    def item(case: dict) -> str:
+        return f"[{case['id']}](#{case['id'].lower()}) {_table_text(case['title'])}"
+
+    def by_case(rows: list[tuple[dict, dict]]) -> list[tuple[dict, list[dict]]]:
+        grouped: dict[str, tuple[dict, list[dict]]] = {}
         for case, row in rows:
-            reason = _table_text(row["reason"])
-            if found := findings_text(row):
-                reason += f". {found}"
-            out.append(
-                f"| [{case['id']}](#{case['id'].lower()}) {_table_text(case['title'])} | {subject(case, row)} "
-                f"| {outcome_text(row)} | {reason} |"
-            )
-        return out + [""]
+            grouped.setdefault(case["id"], (case, []))[1].append(row)
+        return list(grouped.values())
+
+    def attention_table(blocks: list[tuple[dict, list[dict]]]) -> str:
+        return spanned_table(
+            ("Verification item", "Where", "Result", "Findings"),
+            [
+                (item(case), [[subject(case, r), _test_case_result(r), findings_cell(r)] for r in rows])
+                for case, rows in blocks
+            ],
+            (34, 20, 17, 29),
+        )
 
     lines += ["### Results that need attention", ""]
-    lines += (
-        result_rows(attention) if attention else ["No verification item reported a finding or a partial result.", ""]
-    )
+    if attention:
+        # Worst first, each finding counted once; among a block's rows the one with the heavier findings leads.
+        blocks = [
+            (case, sorted(rows, key=lambda r: severity_counts([r])))
+            for case, rows in sorted(by_case(attention), key=lambda block: severity_counts(block[1]))
+        ]
+        heavy = [block for block in blocks if severity_counts(block[1])[:2] != (0, 0)]
+        light = [block for block in blocks if block not in heavy]
+        # A list of only lighter results has nothing to set apart from, so it stays open.
+        if not heavy:
+            heavy, light = light, []
+        lines += [attention_table(heavy), ""]
+        if light:
+            count = sum(len(rows) for _, rows in light)
+            lines += [
+                f"<details><summary>{count} more results without Critical or High findings</summary>",
+                attention_table(light),
+                "</details>",
+                "",
+            ]
+        notes = []
+        attention_rows = [row for _, row in attention]
+        if any(row.get("evidence_basis") == "model" for row in attention_rows):
+            notes.append("Model review only: neither a fixed check nor the evidence review confirmed the whole result.")
+        if any(row_findings(row)[1] for row in attention_rows) and not apart:
+            notes.append(f"{below} not reported: findings below the report threshold, see [§11](#11-out-of-scope).")
+        notes.append("Titles and evidence are in the item details below.")
+        lines += ["*" + " ".join(notes) + "*", ""]
+    else:
+        lines += ["No verification item reported a finding or a partial result.", ""]
     if undecided:
         lines += [
             "### Not decided",
             "",
-            "The examined source could not settle these items; they are neither findings nor controls.",
+            "These items have no result for the named component. They are neither findings nor controls.",
             "",
-        ] + result_rows(undecided)
+            spanned_table(
+                ("Verification item", "Where", "Why it stayed open"),
+                _undecided_blocks(by_case(undecided), item, subject),
+                (40, 28, 32),
+            ),
+            "",
+        ]
     if controls:
-        lines += ["### Controls evidenced", ""] + result_rows(controls)
+        lines += [
+            "### Controls evidenced",
+            "",
+            fixed_table(
+                ("Verification item", "Where", "Result"),
+                [[item(case), subject(case, row), _test_case_result(row)] for case, row in controls],
+                (58, 20, 22),
+            ),
+            "",
+        ]
 
     # Everything else stays listed, compactly, so the appendix still names every item and every disable reason.
     detailed = {case["id"] for case, _ in attention + undecided + controls}
@@ -16894,12 +17040,14 @@ def _render_trust_boundary_catalog(ctx: RenderContext, env: jinja2.Environment, 
         "",
         "Each row names a crossing and the condition it relies on. A modelled crossing does not prove that its control works.",
         "",
-        "| ID | Crossing | Required condition | Findings / open question |",
+        "| Crossing | Required condition | Control | Status and findings |",
         "|---|---|---|---|",
     ]
+    placed: list[tuple[tuple[int, int, int], str]] = []
     for row in shown:
         crossing, mechanism = _boundary_crossing_and_mechanism(row, names)
         crossing = _safe_boundary_text(crossing, table=True)
+        crossing = crossing[:1].upper() + crossing[1:]
         if row.get("resolution_status") != "resolved":
             crossing += "<br>Endpoints: " + _safe_boundary_text(
                 row.get("resolution_status") or "unresolved", table=True
@@ -16910,22 +17058,30 @@ def _render_trust_boundary_catalog(ctx: RenderContext, env: jinja2.Environment, 
         if covers:
             crossing += "<br>Also covers: " + _safe_boundary_text(", ".join(covers), table=True)
         condition = _safe_boundary_text(_normalize_boundary_arrows(row.get("assumption")), table=True)
-        condition += "<br>Control: " + (_safe_boundary_text(mechanism, table=True) if mechanism else "not identified")
+        control = _safe_boundary_text(mechanism, table=True) if mechanism else "Not identified"
+        # A plain word starts the sentence; an identifier keeps its spelling.
+        if re.match(r"[a-z][a-z-]*\s", control):
+            control = control[:1].upper() + control[1:]
         legs = boundary_leg_states(row, ctx.yaml_data.get("threats") or [])
         links = _boundary_finding_links(linked.get(row["id"], []), legs, ctx)
         state, ids = boundary_assumption_state(row, ctx.yaml_data.get("threats") or [])
         if state == "refuted":
-            answer = "Gap evidenced: " + links
+            answer = "**Gap:** " + links
         elif state == "unconfirmed":
             noun = "finding" if len(ids) == 1 else "findings"
-            answer = f"{len(ids)} related {noun}; relevance to this crossing remains unverified."
+            answer = f"**Unverified:** {len(ids)} related {noun}"
             if links != "—":
                 answer += "<br>" + links
         else:
-            answer = "No linked finding establishes a gap; control effectiveness is not established."
+            answer = "**No gap shown,** control not confirmed"
             if links != "—":
                 answer += "<br>" + links
-        lines.append(f'| <a id="{row["id"]}"></a>{row["id"]} | {crossing} | {condition} | {answer} |')
+        worst = min((_severity_rank(ctx.severity_for_ref(f)) for f in linked.get(row["id"], [])), default=9)
+        place = ({"refuted": 0, "unconfirmed": 1}.get(state, 2), worst, -len(ids) if state == "unconfirmed" else 0)
+        placed.append(
+            (place, f'| <a id="{row["id"]}"></a>{row["id"]} · {crossing} | {condition} | {control} | {answer} |')
+        )
+    lines.extend(line for _, line in sorted(placed, key=lambda item: item[0]))
     if len(rows) > len(shown):
         lines.extend(["", f"{len(rows) - len(shown)} additional trust boundary row(s) are recorded in `{MODEL}`."])
     lines.extend(["", f"Crossing types, source evidence and provenance are retained in `{MODEL}`."])
@@ -19257,14 +19413,12 @@ def render(
     # sections go through their own Jinja templates and bypass it.
     rendered = _escape_dollar_operators(rendered)
 
-    # Wrap unescaped `<script>` / `<img onerror=…>` attacker-payload tags
-    # in inline backticks so the rendered HTML/PDF report does not interpret
-    # them as live HTML elements (the report would otherwise become its own
-    # XSS sink — see _escape_html_payloads_in_prose for the full rationale).
-    # MUST run at the global pipeline (not per-section) because the §8
-    # Findings Register cells with attacker payloads live inside a computed
-    # section that bypasses _render_markdown_fragment.
-    rendered = _escape_html_payloads_in_prose(rendered)
+    # Only known harmless markup stays, so the report cannot become its own XSS
+    # sink when text from an analyzed repository reaches it through model output.
+    # MUST run at the global pipeline (not per-section) because the §8 Findings
+    # Register cells with attacker payloads live inside a computed section that
+    # bypasses _render_markdown_fragment.
+    rendered = keep_known_markup(rendered)
 
     # Neutralise TLD-shaped brand tokens (Socket.IO, Node.js, …) across the
     # WHOLE document — not just markdown fragments. `_render_markdown_fragment`

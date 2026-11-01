@@ -1989,13 +1989,13 @@ _TABLE_SCHEMA_CHECKS: list[tuple[str, str, list[str]]] = [
         "operational_strengths",
         "Operational Strengths",
         [
-            # 2026-07-15 — Gap merged into Effectiveness; Mitigates shown only when
-            # a row carries a back-reference. 3-col (no Mitigates, the common case)
-            # and 4-col (with Mitigates) forms. The legacy 5-col
+            # 2026-07-15 — Gap merged into Effectiveness; Open gaps shown only when
+            # a row has findings that remain open. 3-col (no open findings) and
+            # 4-col (with them) forms. The legacy 5-col
             # `… | Effectiveness | Gap | Mitigates |` is intentionally omitted so
             # reports rendered by old code are flagged.
             "| Strength | What's in Place | Effectiveness |",
-            "| Strength | What's in Place | Effectiveness | Mitigates |",
+            "| Strength | What's in Place | Effectiveness | Open gaps |",
             # Post-2026-05 empty-state — every cluster demoted to Weak, no
             # table rendered, only an italic explanatory banner. Accept the
             # banner's stable opener as evidence the section was authored.
@@ -4546,8 +4546,8 @@ _AS_TABLE_HEADERS = ("Method", "Route", "Risk", "Notes")
 # Shared column widths (must sum to 100). Route is deliberately kept modest so
 # long routes wrap to several short lines rather than one wide column.
 _AS_COL_WIDTHS = ("9%", "30%", "14%", "47%")
-_ASSET_TABLE_HEADERS = ("Asset", "Classification", "Description", "Linked Threats")
-_ASSET_COL_WIDTHS = ("22%", "13%", "32%", "33%")
+_ASSET_TABLE_HEADERS = ("Asset", "Sensitivity (assumed)", "Findings")
+_ASSET_COL_WIDTHS = ("46%", "16%", "38%")
 # Trust Boundaries (2026-07-31): compose drops a column whose every row says the
 # same thing — the Source column when all rows share one provenance (a catalogue
 # of nine identical `detected` cells spent 8% on a constant that also line-broke
@@ -4601,12 +4601,12 @@ def _trust_boundary_spec(*, with_source: bool, with_status: bool):
 
 
 # Operational Strengths (2026-07-15): Gap merged into the Effectiveness cell;
-# Mitigates column shown only when at least one row carries a back-reference.
-# Two fixed-layout forms — 3-col (no Mitigates) and 4-col (with Mitigates).
+# Open gaps column shown only when at least one row has findings that remain open.
+# Two fixed-layout forms — 3-col (without it) and 4-col (with it).
 _STRENGTH_TABLE_HEADERS_3 = ("Strength", "What's in Place", "Effectiveness")
 _STRENGTH_COL_WIDTHS_3 = ("20%", "33%", "47%")
-_STRENGTH_TABLE_HEADERS_4 = ("Strength", "What's in Place", "Effectiveness", "Mitigates")
-_STRENGTH_COL_WIDTHS_4 = ("18%", "30%", "40%", "12%")
+_STRENGTH_TABLE_HEADERS_4 = ("Strength", "What's in Place", "Effectiveness", "Open gaps")
+_STRENGTH_COL_WIDTHS_4 = ("18%", "32%", "14%", "36%")
 # §7b Requirements Compliance. Keep in sync with compose's
 # `_FIXED_LAYOUT_TABLE_HEADERS`, which exempts this table from soft-wrap.
 _REQ_COMPLIANCE_HEADERS = ("Requirement", "Status", "Priority", "Evidence")
@@ -4631,10 +4631,10 @@ _REQ_MS_COL_WIDTHS = ("46%", "27%", "27%")
 #   Threats) where each `<br/>` deliberately separates one finding per line.
 _FIXED_LAYOUT_SPECS = (
     (
-        ("ID", "Crossing", "Required condition", "Findings / open question"),
-        ("7%", "25%", "36%", "32%"),
+        ("Crossing", "Required condition", "Control", "Status and findings"),
+        ("20%", "25%", "21%", "34%"),
         {
-            0: "white-space:nowrap",
+            0: "overflow-wrap:break-word",
             1: "overflow-wrap:break-word",
             2: "overflow-wrap:break-word",
             3: "overflow-wrap:break-word",
@@ -4645,10 +4645,10 @@ _FIXED_LAYOUT_SPECS = (
     (
         _ASSET_TABLE_HEADERS,
         _ASSET_COL_WIDTHS,
-        # Asset names are prose and Linked Threats is a stack of short ids —
+        # Asset names are prose and Findings is a stack of short ids —
         # neither may break mid-character.
-        {0: "overflow-wrap:break-word", 3: "overflow-wrap:break-word"},
-        frozenset({2}),  # Description (col 2) reflows; Linked Threats keeps its <br/> stack
+        {0: "overflow-wrap:break-word", 2: "overflow-wrap:break-word"},
+        frozenset(),
     ),
     *(
         _trust_boundary_spec(with_source=with_source, with_status=with_status)
@@ -4710,7 +4710,7 @@ _AS_INLINE_TOKEN_RE = re.compile(
     # HTML cell — markdown is not processed inside a raw <table>, so a
     # composer-escaped `Node\.js` was reaching the reader verbatim (2026-07-31).
     r"(?P<esc>\\(?P<escch>[^\w\s]))"
-    r'|(?P<anchor><a id="tb-\d+"></a>)'
+    r'|(?P<anchor><a id="tb-\d+"></a>|<span style="white-space:nowrap">|</span>|</?details>|</?summary>)'
     r"|(?P<br><br\s*/?>)"
     r"|\[(?P<ltext>[^\]]+)\]\((?P<lhref>[^)]+)\)"
     r"|\*\*(?P<bold>[^*]+)\*\*"
@@ -4723,7 +4723,8 @@ _AS_INLINE_TOKEN_RE = re.compile(
 
 
 def _as_html_escape(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # An entity stays one: a cell can arrive escaped, and `&amp;amp;` would show as `&amp;`.
+    return re.sub(r"&(?!(?:[a-zA-Z]+|#\d+);)", "&amp;", s).replace("<", "&lt;").replace(">", "&gt;")
 
 
 _CODE_SPAN_RE = re.compile(r"`([^`]+)`")
@@ -4748,7 +4749,9 @@ def _render_inline_md_to_html(text: str) -> str:
     codes: list[str] = []
 
     def _stash(m: re.Match[str]) -> str:
-        codes.append(f"<code>{_as_html_escape(m.group(1))}</code>")
+        # Code has no spaces, so a narrow column needs offered break points or it cuts inside a word.
+        escaped = _as_html_escape(m.group(1))
+        codes.append("<code>" + re.sub(r"(?<=\w{4})\.(?=\w{4})", ".<wbr>", escaped) + "</code>")
         return f"\x00{len(codes) - 1}\x00"
 
     staged = _CODE_SPAN_RE.sub(_stash, text)
@@ -4819,9 +4822,11 @@ def _attack_surface_tables_to_html(md: str) -> tuple[str, int]:
 
 
 def _emit_as_html_table(body_rows: list[str], spec) -> list[str]:
+    from renderers.compact_tables import MAX_TABLE_WIDTH
+
     headers, widths, styles, prose_cols = spec
     ncol = len(headers)
-    html = ['<table style="table-layout:fixed;width:100%">']
+    html = [f'<table style="table-layout:fixed;width:100%;max-width:{MAX_TABLE_WIDTH}">']
     # Emit BOTH the inline `style` (honoured by VS Code markdown-it + WeasyPrint
     # PDF) and the deprecated `width` attribute. GitHub's HTML sanitizer strips
     # `style` on <table>/<col> but allowlists `width`, so without the attribute
@@ -7142,7 +7147,7 @@ def _row_is_auth_method(name: str, whitelist: list) -> bool:
 
 _DETAIL_FIGURE_RE = re.compile(r"!\[Figure \d+ - [^\]]+\]\(([^)\s]+)\)")
 # figure_details.DETAIL_TABLE_MARKER directly above a Markdown table (header and separator row).
-_DETAIL_TABLE_RE = re.compile(r"^<!-- detail-table -->\n\|[^\n]*\|\n\|[ \t:\-|]+\|$", re.MULTILINE)
+_DETAIL_TABLE_RE = re.compile(r"^<!-- detail-table -->\n(?:\|[^\n]*\|\n\|[ \t:\-|]+\||<table\b.*)$", re.MULTILINE)
 
 
 def check_diagram_compactness(md_path: Path, contract_path: Path = DEFAULT_CONTRACT_PATH) -> Report:
@@ -11256,13 +11261,10 @@ def check_cell_format(md_path: Path) -> tuple[Report, str]:
     issues_remaining: list[str] = []
 
     for start_line, block in _iter_table_blocks(text):
-        # §4 Assets deliberately renders its "Linked Threats" column INLINE
-        # (` · `-separated) rather than `<br/>`-stacked, so the column claims
-        # enough width in content-sizing renderers — stacked links made it the
-        # narrowest column while the prose Description dominated (2026-05-30 user
-        # request). Skip the stacking auto-fix for that one table.
+        # §4 Assets lists IDs by severity on purpose, so the stacking auto-fix
+        # would pull one line apart. Skip it for that one table.
         header_cells = {c.lower() for c in _split_table_cells(block[0])} if block else set()
-        if {"asset", "classification", "description", "linked threats"} <= header_cells:
+        if {"asset", "sensitivity (assumed)", "findings"} <= header_cells:
             continue
         # Header + separator + body rows.  We only rewrite body rows.
         for offset, row in enumerate(block[2:], start=2):

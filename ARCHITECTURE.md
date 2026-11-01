@@ -74,7 +74,7 @@ The route inventory includes this metadata in use classification under the same 
 | Model input and validation | [case_candidates.py](scripts/model/case_candidates.py) prepares starting candidates and shares them across jobs. [case_postchecks.py](scripts/model/case_postchecks.py) holds fixed post-checks. [case_analysis.py](scripts/contexts/case_analysis.py) validates replies from `test_case_investigator` and `open_reviewer`. |
 | Verification jobs | [assessment_test_cases.py](scripts/orchestrator/assessment_test_cases.py) runs the selected aspects, reports budget coverage before the first job, and saves component results, findings, and incomplete aspects in the working directory. |
 | Open review | `AssessmentBudget.hold` in [assessment_jobs.py](scripts/runtime/assessment_jobs.py) reserves its budget. The open review does not run yet. |
-| Report and export | The composer renders the appendix, verification findings, and finding links. The SARIF exporter names linked findings by verification item. |
+| Report and export | The composer renders the appendix, verification findings, and finding links. [compact_tables.py](scripts/renderers/compact_tables.py) holds the shared rules for short tables, such as what may fold. [report_markup.py](scripts/renderers/report_markup.py) keeps only allowed HTML in report text. The SARIF exporter names linked findings by verification item. |
 
 ## Shared services and dependency direction
 

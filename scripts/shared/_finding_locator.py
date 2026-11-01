@@ -72,13 +72,21 @@ def is_code_locator(token: str) -> bool:
     return bool(m.group("line")) and bool(dot and stem)
 
 
+def _names_a_location(token: str) -> bool:
+    """Whether a bare word is a place in the code; `secret/token` or `read/write` are ordinary words."""
+    if re.search(r":\d", token) or token.startswith(("/", "./", "../")):
+        return True
+    *folders, name = re.split(r"[\\/]", token)
+    return len(folders) > 1 or (bool(folders) and "." in name)
+
+
 def _strip_one(s: str) -> str:
     for pattern in (_PARENS_TAIL_RE, _DASH_TAIL_RE):
         m = pattern.search(s)
         if m and is_code_locator(m.group(1)) and s[: m.start()].strip():
             return s[: m.start()].rstrip()
     m = _SPACE_TAIL_RE.search(s)
-    if m and is_code_locator(m.group(1)) and re.search(r"[\\/]|:\d", m.group(1)):
+    if m and is_code_locator(m.group(1)) and _names_a_location(m.group(1)):
         head = _DANGLING_PREPOSITION_RE.sub("", s[: m.start()]).rstrip()
         if head.strip():
             return head

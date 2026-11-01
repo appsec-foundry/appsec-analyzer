@@ -340,7 +340,7 @@ def test_refuted_step_keeps_its_own_icon(tmp_path: Path):
     m = rac.build_models(tmp_path, None)[0]
     assert [r["status_icon"] for r in m["rows"]] == ["⚠", "✗", "?"]
     assert [r["verdict"] for r in m["rows"]] == ["confirmed", "refuted", "inconclusive"]
-    assert "✗ Refuted" in rac._LEGEND
+    assert "✗ refuted" in rac._LEGEND
 
 
 @pytest.mark.parametrize(
@@ -430,7 +430,7 @@ def test_report_orders_cases_by_verified_risk_and_preserves_export_order(tmp_pat
         assert [md.index(f"### {cid}") for cid in cards] == sorted(md.index(f"### {cid}") for cid in cards)
         assert f"### {unresolved}" not in md
         assert f'<a id="{unresolved.lower()}"></a>{unresolved}' in md
-        assert md.index("**Confirmed attack paths**") < md.index("**Unresolved scenarios**")
+        assert md.index("<th>Scenario</th>") < md.index("**Unresolved scenarios**")
         assert md.index("**Unresolved scenarios**") < md.index("**Checked without finding**")
         # A case that holds is one table row with its anchor, not a card.
         assert f"### {settled}" not in md
@@ -482,12 +482,94 @@ def test_only_confirmed_open_case_keeps_its_card():
             assert "Not verified" in md and 'id="repo-ac-102"' in md
 
 
+def _model(case_id, risk, verdict, rows=()):
+    return {
+        "id": case_id,
+        "title": f"Case {case_id}",
+        "combined_risk": risk,
+        "chain_verdict": verdict,
+        "rows": list(rows),
+        "matched_finding_ids": [row["fid"] for row in rows],
+    }
+
+
+def _step(step, verdict, reason="r", fid="F-001", sev="High", unverified=False):
+    return {
+        "step": step,
+        "verdict": verdict,
+        "reason": reason,
+        "fid": fid,
+        "finding_sev": sev,
+        "unverified": unverified,
+        "evidence": "",
+    }
+
+
+def test_the_overview_holds_every_open_case_worst_first_without_an_actor_column():
+    rows = [
+        _model("AC-1", "High", "inconclusive"),
+        _model("AC-2", "Critical", "partially_blocked"),
+        _model("AC-3", "High", "fully_viable"),
+    ]
+    table = rac._overview_table(rows)
+    assert table.index("AC-2") < table.index("AC-3") < table.index("AC-1")
+    assert "Actor" not in table
+
+
+def test_an_unresolved_case_states_each_step_and_folds_the_reasons():
+    model = _model(
+        "AC-1",
+        "High",
+        "inconclusive",
+        [
+            _step(1, "confirmed"),
+            _step(2, "confirmed", fid="F-002", sev="Critical"),
+            _step(3, "refuted", "Blocked at entry."),
+            _step(4, "confirmed", "x", unverified=True),
+        ],
+    )
+    model["open_questions"] = ["Does the proxy strip the header?"]
+    cell = rac._where_it_stands(model)
+    lines = cell.split("<br/>")
+    assert lines[:3] == ["✓ Steps 1–2 confirmed", "✗ Step 3 refuted", "? Step 4 inconclusive"]
+    assert "Open question: Does the proxy strip the header?" in cell
+    assert "<details><summary>Reasons</summary>Step 3: Blocked at entry.<br/>Step 4: not verified</details>" in cell
+    table = rac._unresolved_table([model])
+    assert table.index("F-002") < table.index("F-001")
+
+
+def test_a_step_reason_ends_at_a_sentence_and_never_inside_a_word():
+    model = _model("AC-1", "High", "inconclusive", [_step(1, "refuted", "First sentence. " + "Word " * 80)])
+    assert "Step 1: First sentence.<" in rac._where_it_stands(model)
+
+
+def test_model_text_in_an_unresolved_row_stays_text():
+    model = _model("AC-1", "High", "inconclusive", [_step(1, "refuted", "<img src=x onerror=alert(1)> [a](#b)")])
+    model["title"] = "<script>alert(1)</script>"
+    table = rac._unresolved_table([model])
+    assert "<img" not in table and "<script" not in table and '<a href="#b"' not in table
+
+
+def test_an_empty_goal_leaves_no_label():
+    model = _model("AC-1", "High", "fully_viable")
+    model |= {
+        "source": "discovered",
+        "actor_label": "A",
+        "goal": "",
+        "prerequisite": "",
+        "unverified_steps": [],
+        "blocking_mitigations": [],
+        "combined_risk_rationale": "",
+    }
+    assert "**Goal:**" not in rac._case_markdown(model)
+
+
 def test_fragment_markdown_structure(tmp_path: Path):
     _setup(tmp_path, _FULLY_VIABLE)
     models = rac.build_models(tmp_path, None)
     md = rac.render_fragment(models)
     assert md.startswith("## 9. Abuse Cases")
-    assert "| # | Scenario | Actor | Combined Risk | Verdict |" in md
+    assert "<th>Scenario</th><th>Risk</th><th>Verdict</th>" in md
     assert '<a id="ac-t-001"></a>' in md
     assert "### AC-T-001 —" in md
     # 3-column chain table: Evidence folded into Finding (`<br/>`), Status dropped.
@@ -500,7 +582,6 @@ def test_fragment_markdown_structure(tmp_path: Path):
     assert "severs the chain" not in md
     assert "| Mitigation | Addresses | Breaks chain at |" not in md
     assert "at **Step 1**. Validate the fix" in md
-    assert "[§8 Findings Register](#8-findings-register)" in md
     # summary table verdict cell
     assert "⚠ Fully viable" in md
 

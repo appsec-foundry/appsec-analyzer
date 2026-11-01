@@ -409,16 +409,44 @@ class TestGeneratorsRich:
         md = pf.gen_architecture_diagrams(rich_yaml_data)
         assert "## 2. Architecture Diagrams" in md
 
-    def test_assets_with_linked_threats_column(self, rich_yaml_data):
+    def test_assets_with_findings_column(self, rich_yaml_data):
         md = pf.gen_assets(rich_yaml_data)
-        assert "Linked Threats" in md
-        # 4-column layout — the A-NNN id is internal and no longer a column.
-        assert "| Asset | Classification | Description | Linked Threats |" in md
-        assert "| ID |" not in md
+        # 3-column layout — the A-NNN id is internal and no longer a column.
+        assert "<th>Asset</th><th>Sensitivity (assumed)</th><th>Findings</th>" in md
+        assert "<th>ID</th>" not in md
+
+    def _assets(self, *assets, threats=()):
+        return pf.gen_assets({"assets": list(assets), "threats": list(threats)})
+
+    def test_assets_run_by_their_worst_finding_with_the_sensitivity_as_assumed(self):
+        md = self._assets(
+            {"name": "Restricted but quiet", "classification": "Restricted", "linked_threats": []},
+            {"name": "Internal but hit", "classification": "Internal", "linked_threats": ["T-001"]},
+            threats=[{"id": "T-001", "title": "SQL injection", "risk": "Critical"}],
+        )
+        assert md.index("Internal but hit") < md.index("Restricted but quiet")
+        assert "Restricted but quiet</strong></td><td" in md and ">High</td>" in md and ">Low</td>" in md
+        assert "assumed from the code" in md
+
+    def test_asset_medium_findings_collapse_and_critical_or_high_never_do(self):
+        threats = [
+            {"id": "T-001", "title": "First", "risk": "High"},
+            {"id": "T-002", "title": "Second", "risk": "Medium"},
+        ]
+        md = self._assets(
+            {"name": "A", "classification": "Internal", "linked_threats": ["T-001", "T-002"]}, threats=threats
+        )
+        visible, collapsed = md.split("<details>", 1)
+        assert '<a href="#f-001">F-001</a>' in visible and "F-002" not in visible
+        assert "<summary>1 Medium</summary>" in collapsed and '<a href="#f-002">F-002</a> — Second' in collapsed
+
+    def test_an_asset_without_findings_says_so_and_is_not_called_safe(self):
+        md = self._assets({"name": "A", "classification": "Internal"})
+        assert "No finding linked</td>" in md and "does not mean the asset is safe" in md
 
     def test_attack_surface_rich(self, rich_yaml_data):
         md = pf.gen_attack_surface(rich_yaml_data)
-        assert "/api/products" in md
+        assert "/api/products" in md.replace("<wbr>", "")
 
     def test_security_architecture_v2_thorough(self, rich_yaml_data):
         md = pf.gen_security_architecture_v2(rich_yaml_data, "thorough")
@@ -457,19 +485,11 @@ class TestHelperBranches:
         assert pf._attack_surface_method({"entry_point": "weird thing"}) == "?"
         assert pf._attack_surface_method({}) == "?"
 
-    def test_attack_surface_notes_combines(self):
-        out = pf._attack_surface_notes({"notes": "see (T-001)", "linked_threats": ["T-001"]})
-        assert "F-001" in out
-
-    def test_attack_surface_notes_reader_wording(self):
+    def test_route_notes_reader_wording(self):
         # Inventory tags stay in the YAML; §5 shows reader wording and no handler locator.
-        out = pf._attack_surface_notes({"notes": "public-by-design; handler: server.ts:426"})
-        assert out == "Public by design"
-        out = pf._attack_surface_notes({"notes": "Management surface; authorization-review-required"})
+        assert pf._reader_route_notes("public-by-design; handler: server.ts:426") == "Public by design"
+        out = pf._reader_route_notes("Management surface; authorization-review-required")
         assert out == "Management surface; Authorization not confirmed (review)"
-
-    def test_attack_surface_notes_non_dict(self):
-        assert pf._attack_surface_notes("nope") == ""  # type: ignore[arg-type]
 
     def test_count_routings_by_section(self):
         threats = [
@@ -508,10 +528,6 @@ class TestHelperBranches:
     def test_normalize_security_controls(self, rich_yaml_data):
         out = pf._normalize_security_controls(rich_yaml_data["security_controls"])
         assert isinstance(out, list)
-
-    def test_proportional_separator(self):
-        sep = pf._proportional_separator(20, 6, 12)
-        assert sep.startswith("|")
 
     def test_load_diagram_compactness(self):
         out = pf._load_diagram_compactness()

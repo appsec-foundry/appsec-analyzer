@@ -2609,6 +2609,73 @@ def test_job_timing_reaches_the_per_stage_table(tmp_path):
     assert not (empty / ".stage-stats.jsonl").exists()
 
 
+class _RoleUsage:
+    def __init__(self, seconds=None, models=None):
+        self.usage = {"stride_analyzer": {"seconds": seconds or 0.0, "models": models or {}}}
+
+    def role_usage(self):
+        return self.usage
+
+
+def test_the_stage_table_gets_real_model_time_tokens_and_cost(tmp_path):
+    """The job's duration also counts its waiting: 228 minutes of it were 110 minutes of model work."""
+    from renderers.compose_threat_model import _read_stage_stats
+
+    models = {"sonnet": {"calls": 2, "input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "usd": 0.25}}
+    timing = {"stride_analyzer": {"jobs": 1, "reused": 0, "calls": 2, "seconds": 60.0}}
+    controller._write_assessment_stage_stats(tmp_path, timing, _RoleUsage(12.5, models), show_costs=True)
+    (row,) = _read_stage_stats(tmp_path)
+    assert row["duration_ms"] == 12500 and row["tokens"] == 10 and row["usd"] == 0.25
+    assert row["models"] == models and "tool_uses" not in row
+
+
+def test_a_subscription_run_writes_no_cost(tmp_path):
+    from renderers.compose_threat_model import _read_stage_stats
+
+    models = {"sonnet": {"calls": 1, "input": 1, "usd": 0.25}}
+    timing = {"stride_analyzer": {"jobs": 1, "reused": 0, "calls": 1, "seconds": 5.0}}
+    controller._write_assessment_stage_stats(tmp_path, timing, _RoleUsage(1.0, models), show_costs=False)
+    (row,) = _read_stage_stats(tmp_path)
+    assert row["usd"] is None and "usd" not in row["models"]["sonnet"]
+
+
+def test_a_partial_token_report_stays_unknown(tmp_path):
+    """One of two calls itemised: a sum would read as the whole."""
+    from renderers.compose_threat_model import _read_stage_stats
+
+    timing = {"stride_analyzer": {"jobs": 1, "reused": 0, "calls": 2, "seconds": 5.0}}
+    models = {"sonnet": {"calls": 1, "input": 7}}
+    controller._write_assessment_stage_stats(tmp_path, timing, _RoleUsage(1.0, models), show_costs=True)
+    (row,) = _read_stage_stats(tmp_path)
+    assert row["tokens"] is None and row["usd"] is None
+
+
+def test_the_evidence_review_has_its_own_row_after_verification(tmp_path):
+    from renderers.compose_threat_model import _read_stage_stats
+
+    rows = {"jobs": 1, "reused": 0, "calls": 1, "seconds": 1.0}
+    timing = {role: dict(rows) for role in ("evidence_verifier", "stride_analyzer", "test_case_investigator")}
+    controller._write_assessment_stage_stats(tmp_path, timing)
+    assert [row["name"].split(":")[0] for row in _read_stage_stats(tmp_path)] == ["Survey", "Verify", "Evidence review"]
+
+
+def test_the_budget_keeps_model_time_and_usage_per_role():
+    import threading
+
+    from runtime.multi_repo_discovery import DiscoveryBudget
+
+    budget = DiscoveryBudget.__new__(DiscoveryBudget)
+    budget._lock, budget._local = threading.RLock(), threading.local()
+    budget.ledger, budget.call_time = {}, {}
+    budget._local.job = ("group", "stride_analyzer", False)
+    budget._record_usage({"sonnet": {"input": 5, "usd": 0.5}}, 2.5)
+    budget._record_usage({"sonnet": {"input": 1, "usd": 0.5}}, 1.5)
+    budget._record_usage(None, 1.0)
+    assert budget.role_usage() == {
+        "stride_analyzer": {"seconds": 5.0, "models": {"sonnet": {"calls": 2, "input": 6, "usd": 1.0}}}
+    }
+
+
 def test_jobs_record_fresh_and_reused_time_per_role():
     import threading
 

@@ -44,6 +44,7 @@ from shared._finding_locator import strip_trailing_locator
 from shared._severity_policy import abuse_case_priority, abuse_case_risk, verified_chain_risk
 
 from renderers.actor_presentation import attacker_display
+from renderers.compact_tables import fixed_table, id_list, plain_text, whole_sentences
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 HEADING = "## 9. Abuse Cases"
@@ -59,6 +60,9 @@ _CHAIN_VERDICT = {
 # Combined-risk level → emoji.
 _RISK_EMOJI = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢", "Informational": "⚪"}
 _SEV_ORDER = ["Informational", "Low", "Medium", "High", "Critical"]
+_RISK_ORDER = _SEV_ORDER[::-1]
+# How long a step's reason may run in a table; it ends at a sentence, never inside a word.
+_REASON_LIMIT = 240
 
 # initial_access enum → report prose.
 _ACCESS_PROSE = {
@@ -360,7 +364,7 @@ def render_case(
                     str(control).strip() for control in (sv.get("controls_found") or []) if str(control).strip()
                 ],
                 "unverified": unverified,
-                "reason": " ".join(str(sv.get("reason") or "").split())[:240],
+                "reason": whole_sentences(sv.get("reason") or "", _REASON_LIMIT),
             }
         )
 
@@ -564,8 +568,9 @@ def _case_markdown(m: dict) -> str:
             f"verification. This verdict is **provisional**; the run summary records skipped work."
         )
         out.append("")
-    out.append(f"**Goal:** {m['goal']}")
-    out.append("")
+    if m["goal"]:
+        out.append(f"**Goal:** {m['goal']}")
+        out.append("")
     if m["prerequisite"]:
         out.append(f"**Prerequisite:** {m['prerequisite']}")
         out.append("")
@@ -663,44 +668,42 @@ def _settled_table(models: list[dict]) -> str:
     return "\n".join(out)
 
 
-def _summary_table(models: list[dict]) -> str:
-    out = ["| # | Scenario | Actor | Combined Risk | Verdict |", "|---|----------|-------|---------------|---------|"]
-    for m in models:
-        icon, label = _CHAIN_VERDICT.get(m["chain_verdict"], ("?", "Inconclusive"))
-        emoji = _RISK_EMOJI.get(m["combined_risk"], "")
-        actor_short = m["actor_label"].split(" — ")[0]
-        out.append(
-            f"| [{m['id']}](#{m['id'].lower()}) | {m['title']} | {actor_short} | "
-            f"{_risk_text(m['combined_risk'], emoji)} | {icon} {label} |"
-        )
-    return "\n".join(out)
+def _overview_table(models: list[dict]) -> str:
+    """Every open case in one table, worst first: confirmed, partial and unresolved are the same cases."""
+    verdicts = list(_CHAIN_VERDICT)
 
+    def place(m: dict) -> tuple[int, int]:
+        risk = _RISK_ORDER.index(m["combined_risk"]) if m["combined_risk"] in _RISK_ORDER else len(_RISK_ORDER)
+        verdict = verdicts.index(m["chain_verdict"]) if m["chain_verdict"] in verdicts else len(verdicts)
+        return risk, verdict
+
+    rows = []
+    for m in sorted(models, key=place):
+        icon, label = _CHAIN_VERDICT.get(m["chain_verdict"], ("?", "Inconclusive"))
+        risk = _risk_text(m["combined_risk"], _RISK_EMOJI.get(m["combined_risk"], ""))
+        rows.append(
+            [
+                f"[{m['id']}](#{m['id'].lower()}) · {plain_text(m['title'])}",
+                f'<span style="white-space:nowrap">{risk}</span>',
+                f'<span style="white-space:nowrap">{icon} {label}</span>',
+            ]
+        )
+    return fixed_table(("Scenario", "Risk", "Verdict"), rows, (58, 18, 24))
+
+
+_VERIFICATION_GROUPS = ("fully_viable", "partially_blocked", "inconclusive", "mitigated")
 
 _INTRO = (
-    "_Abuse cases connect findings into attack scenarios. The verdict records "
-    "whether repository evidence confirms the path. Combined risk is the highest "
-    "policy-rated risk of the linked findings in the "
-    "[§8 Findings Register](#8-findings-register); verification adds no severity. "
-    "Within each verification group, higher-risk cases appear first. Equal risks "
-    "use the strongest finding's assessed reach, impact and likelihood. "
-    "Case IDs remain stable and do not indicate priority._"
+    "_Abuse cases connect findings into attack scenarios, worst first. The verdict records whether repository "
+    "evidence confirms the path. Risk is the highest risk among the linked findings; verification adds none._"
 )
-
-_VERIFICATION_GROUPS = {
-    "fully_viable": "Confirmed attack paths",
-    "partially_blocked": "Partially blocked attack paths",
-    "inconclusive": "Unresolved scenarios",
-    "mitigated": "Mitigated scenarios",
-}
 
 # Stated once for the section instead of under every case's list.
 _BLOCKING_NOTE = "_Proposed fixes address confirmed steps; their effectiveness still requires validation._"
 _LEGEND = (
-    "_Verdict: ⚠ Fully viable — no effective control blocks this chain · "
-    "◐ Partially blocked — at least one step has a compensating control but the "
-    "chain is not fully closed · ✓ Mitigated — chain is broken at a verified step · "
-    "? Inconclusive — could not be verified end-to-end. "
-    "Step: ✗ Refuted — the matched pairing does not hold on the code._"
+    "_⚠ Fully viable: no effective control blocks the chain · ◐ Partially blocked: at least one step has a "
+    "compensating control · ✓ Mitigated: the chain is broken at a verified step · ? Inconclusive: could not be "
+    "verified end to end. Steps: ✓ confirmed · ✗ refuted · ? inconclusive._"
 )
 
 
@@ -781,12 +784,8 @@ def render_fragment(
         settled = [model for model in models if _held(model)]
         open_models = [model for model in models if not _held(model)]
         parts += [_INTRO, ""]
-        for verdict, label in _VERIFICATION_GROUPS.items():
-            if verdict == "inconclusive":
-                continue
-            group = [model for model in open_models if model["chain_verdict"] == verdict]
-            if group:
-                parts += [f"**{label}**", "", _summary_table(group), ""]
+        if open_models:
+            parts += [_overview_table(open_models), ""]
         unresolved = [m for m in open_models if m["chain_verdict"] == "inconclusive"]
         if unresolved:
             parts += ["**Unresolved scenarios**", "", _unresolved_table(unresolved), ""]
@@ -832,21 +831,48 @@ def _coverage_cell(value: object) -> str:
     return text
 
 
+def _steps_text(numbers: list[int | str]) -> str:
+    if len(numbers) == 1:
+        return f"Step {numbers[0]}"
+    consecutive = all(str(b) == str(int(a) + 1) for a, b in zip(numbers, numbers[1:]) if str(a).isdigit())
+    return f"Steps {numbers[0]}–{numbers[-1]}" if consecutive else f"Steps {', '.join(map(str, numbers))}"
+
+
+def _where_it_stands(model: dict) -> str:
+    """The state first: one result per step, an open question, and the reasons only on demand."""
+    confirmed = [row["step"] for row in model["rows"] if row["verdict"] == "confirmed" and not row["unverified"]]
+    lines = [f"✓ {_steps_text(confirmed)} confirmed"] if confirmed else []
+    reasons = []
+    for row in model["rows"]:
+        if row["verdict"] == "confirmed" and not row["unverified"]:
+            continue
+        refuted = row["verdict"] == "refuted" and not row["unverified"]
+        lines.append(f"{'✗' if refuted else '?'} Step {row['step']} {'refuted' if refuted else 'inconclusive'}")
+        reason = "not verified" if row["unverified"] else row.get("reason") or row["verdict"]
+        location = f" ({row['evidence']})" if row.get("evidence") else ""
+        reasons.append(plain_text(f"Step {row['step']}: {whole_sentences(reason, _REASON_LIMIT)}{location}"))
+    lines.extend(f"Open question: {plain_text(question)}" for question in model.get("open_questions") or [])
+    if reasons:
+        lines.append(f"<details><summary>Reasons</summary>{'<br/>'.join(reasons)}</details>")
+    return "<br/>".join(lines)
+
+
 def _unresolved_table(models: list[dict]) -> str:
-    out = ["| Case | Findings | Unresolved evidence |", "|------|----------|---------------------|"]
+    rows = []
     for model in models:
-        details = []
-        for row in model["rows"]:
-            reason = "not verified" if row["unverified"] else row.get("reason") or row["verdict"]
-            location = f" ({row['evidence']})" if row.get("evidence") else ""
-            details.append(_coverage_cell(f"Step {row['step']}: {reason}{location}"))
-        details.extend(_coverage_cell(question) for question in model.get("open_questions") or [])
-        detail = "<br/>".join(details)
-        findings = ", ".join(f"[{fid}](#{fid.lower()})" for fid in model["matched_finding_ids"]) or "No matched finding"
-        out.append(
-            f'| <a id="{model["id"].lower()}"></a>{model["id"]} — {_coverage_cell(model["title"])} | {findings} | {detail} |'
+        severity = {row["fid"]: row.get("finding_sev") for row in model["rows"]}
+        by_severity = id_list(
+            (_RISK_EMOJI.get(severity.get(fid), ""), f"[{fid}](#{fid.lower()})")
+            for fid in dict.fromkeys(model["matched_finding_ids"])
         )
-    return "\n".join(out)
+        rows.append(
+            [
+                f'<a id="{model["id"].lower()}"></a>{model["id"]} · {plain_text(model["title"])}',
+                by_severity or "No matched finding",
+                _where_it_stands(model),
+            ]
+        )
+    return fixed_table(("Case", "Findings", "Where it stands"), rows, (26, 16, 58))
 
 
 # ---------------------------------------------------------------------------

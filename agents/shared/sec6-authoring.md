@@ -37,9 +37,9 @@ Concrete fix for the recurring failure: collapse `Password Hashing` + `JWT Signi
 
 **§6 finding-range citations.** When listing multiple findings in §6 prose, NEVER use a range notation (`[F-016]...[F-021]`) UNLESS every F-ID in the span shares the same primary weakness cluster. The qa_checks `finding_range_homogeneous` check verifies this by cross-referencing each F-ID's CWE against `data/weakness-classes.yaml`. Prefer explicit enumeration of the listed findings — readers should not have to lookup which IDs fall inside a span.
 
-**No code in finding titles, Top-Findings cells, or §6.1 "Main reason" cells (hard rule).** Findings are first-class human-readable artifacts; titles and high-level reason cells must read as **prose**, not as code fragments.
+**No code in finding titles or Top-Findings cells (hard rule).** Findings are first-class human-readable artifacts; titles must read as **prose**, not as code fragments.
 
-The following are forbidden in (a) `findings[].title` / `threats[].title` strings, (b) any rendered Finding cell of the §1 Top Findings table (`[F-NNN](#f-NNN) — <title>`), (c) the §6.1 Security Control Overview "Main reason" column, AND (d) any markdown link text that points at an F-NNN / T-NNN anchor (the linked-title form `[F-001](#f-001) — <title>`):
+The following are forbidden in (a) `findings[].title` / `threats[].title` strings, (b) any rendered Finding cell of the §1 Top Findings table (`[F-NNN](#f-NNN) — <title>`), AND (c) any markdown link text that points at an F-NNN / T-NNN anchor (the linked-title form `[F-001](#f-001) — <title>`):
 
 - Library identifiers with versions: `express-jwt@0.1.3`, `socket.io@3.1.2`, `libxmljs2@0.30`, `unzipper@0.9.15`, `notevil@1.x`, `jsonwebtoken@0.4.0`. The library name is allowed in §6.X prose; the `@version` suffix is not allowed anywhere in titles or §6.1.
 - Algorithm / payload phrases used as title fragments: `alg:none`, `noent:true`, `bypassSecurityTrustHtml()`, `crypto.createHash('md5')`, `package-lock=false`, `helmet.xssFilter`, `noSniff`, `frameguard`. Reword as plain prose: `JWT algorithm confusion`, `XXE external-entity parsing`, `unsafe-HTML sanitizer bypass`, `unsalted password hashing`.
@@ -47,8 +47,6 @@ The following are forbidden in (a) `findings[].title` / `threats[].title` string
 - File-path payloads inside the title proper (the trailing `(<path>[:line])` group on a title is the only legal place for a path — never in the leading weakness clause).
 
 The legal title shape is the storage form `<Weakness class> (<relative_file_path[:line]>)` for one instance, or class-only for consolidated multi-location findings. The rendered `Instances (N)` row owns their paths. The library + version + payload phrasing belongs in the finding's `evidence.excerpt` or in the §6 narrative prose — never in the title.
-
-**§6.1 "Main reason" cells.** The §6.1 Security Control Overview is the reader's first map; its `Main reason` column is the section's headline, not a debugger output. The cell MUST be a single narrative clause built from the section's dominant weakness theme — e.g. `SQL login, hardcoded JWT signing material, and weak password hashing break the authentication boundary` — and MUST NOT contain `lib@version` strings, payload phrases, or function-call literals. The §6.1 pregenerator owns the mechanical fallback (`X control(s), Y routed finding(s).`); the LLM may upgrade to a narrative reason but only inside the same prose constraints. If you find yourself typing `express-jwt@0.1.3` or `bypassSecurityTrustHtml()` into a §6.1 cell, stop — that string belongs in the §6.2/§6.3/§6.7 prose, not on the overview row.
 
 Fenced code blocks INSIDE §6.X prose (after a colon-terminated introducing sentence) remain explicitly allowed — those are evidence anchors, not titles.
 
@@ -58,7 +56,7 @@ Fenced code blocks INSIDE §6.X prose (after a colon-terminated introducing sent
 
 §6 is an **architectural review** of controls, not a finding catalog. The unit of discussion is the concrete control or boundary. Findings are evidence and belong under the affected control's `**Relevant findings**` block.
 
-`### 6.1 Security Control Overview` contains only the overview table: `Control category | Verdict | Main reason`. Do not add control IDs or finding-ID columns to this table.
+`### 6.1 Security Control Overview` contains only the overview table: `Control category | Verdict | Findings | Weakest controls`. The pregenerator owns this table; do not edit it.
 
 Each `### 6.2` through `### 6.12` block uses this exact section-level structure:
 

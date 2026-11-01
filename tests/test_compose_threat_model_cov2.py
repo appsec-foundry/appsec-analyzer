@@ -740,7 +740,7 @@ class TestRenderAppendixRunStatistics:
         ctx = _bare_ctx(tmp_path, {"meta": {}})
         out = compose._render_appendix_run_statistics(ctx, None, {})
         assert "## Appendix: Run Statistics" in out
-        assert "| Invocation |" in out
+        assert "| Command |" in out
         # no per-stage / agent-dispatch / tokens blocks
         assert "### Per-Stage Breakdown" not in out
         assert "Per-Phase Duration Breakdown" not in out
@@ -754,58 +754,116 @@ class TestRenderAppendixRunStatistics:
         assert "| STRIDE per-category cap | 2 threat(s) per category" in out
         assert "Critical/High-safe" in out
 
-    def test_reasoning_models_row_rendered(self, tmp_path):
-        ctx = _bare_ctx(
-            tmp_path, {"meta": {"stride_model": "sonnet", "triage_model": "opus", "merger_model": "sonnet"}}
+    def test_the_command_is_the_one_a_reader_can_run(self, tmp_path):
+        ctx = _bare_ctx(tmp_path, {"meta": {"invocation": "--hard-budget 20 --assessment-depth standard"}})
+        out = compose._render_appendix_run_statistics(ctx, None, {})
+        assert "| Command | `appsec-analyzer assess --hard-budget 20 --assessment-depth standard` |" in out
+        assert "/appsec-advisor" not in out
+
+    def test_a_report_names_the_examined_commit_and_no_local_path(self, tmp_path):
+        meta = {
+            "git": {"commit_sha": "33518f5a0911e25d9df747b1e70fb7af279a755c", "branch": "master"},
+            "repository_root": "/home/someone/secret-project",
+            "output_dir": "/tmp/1667",
+        }
+        (tmp_path / ".skill-config.json").write_text(
+            '{"repo_root": "/home/someone/secret-project", "output_dir": "/tmp/1667"}'
         )
-        out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert "| Reasoning models | STRIDE sonnet, triage opus, merger sonnet |" in out
+        out = compose._render_appendix_run_statistics(_bare_ctx(tmp_path, {"meta": meta}), None, {})
+        assert "| Code | `33518f5a0` on `master` |" in out
+        assert "/home/someone" not in out and "/tmp/1667" not in out
 
-    def test_orchestrator_row_not_taken_from_stride_model(self, tmp_path):
-        # meta.model carries the STRIDE model; it must not be labelled as the
-        # orchestrator (session) model.
-        ctx = _bare_ctx(tmp_path, {"meta": {"model": "opus"}})
-        out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert "Orchestrator model" not in out
+    def test_what_other_parts_of_the_report_state_is_not_repeated(self, tmp_path):
+        meta = {"generated": "2026-05-17T05:31:44Z", "mode": "full", "assessment_depth": "standard"}
+        meta |= {"plugin_version": "1.0", "stride_model": "sonnet", "reasoning_model": "sonnet-economy"}
+        out = compose._render_appendix_run_statistics(_bare_ctx(tmp_path, {"meta": meta}), None, {})
+        for row in ("Generated", "Mode", "Assessment depth", "Analyzer version", "Reasoning models", "STRIDE sonnet"):
+            assert row not in out
 
-    def test_grouped_stage_row_names_every_agent(self, tmp_path):
-        (tmp_path / ".stage-stats.jsonl").write_text(
-            '{"stage": 2, "name": "Render", "agent": "appsec-advisor:appsec-secarch-renderer,'
-            'appsec-advisor:appsec-ms-renderer", "model": "s", "duration_ms": 1000, "tool_uses": 1, "tokens": 10}\n'
-        )
-        ctx = _bare_ctx(tmp_path, {"meta": {}})
-        out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert "| appsec-secarch-renderer, appsec-ms-renderer |" in out
+    @pytest.mark.parametrize(
+        ("sources", "expected"),
+        [
+            ([{"label": "api", "without_git": True}], "api: directory without Git"),
+            (
+                [{"label": "a", "head": "1234567890ab"}, {"label": "b", "head": "abcdef1234"}],
+                "a: `123456789`, b: `abcdef123`",
+            ),
+            ([{"label": "api", "head": "1234567890ab", "dirty": True}], "`123456789` with local changes"),
+        ],
+    )
+    def test_the_code_row_describes_each_selected_checkout(self, sources, expected):
+        assert compose._examined_code({"source_repositories": sources}) == expected
 
-    def test_reasoning_models_row_omitted_when_unknown(self, tmp_path):
-        ctx = _bare_ctx(tmp_path, {"meta": {}})
-        out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert "Reasoning models" not in out
+    def test_a_run_without_recorded_code_has_no_code_row(self, tmp_path):
+        assert "| Code |" not in compose._render_appendix_run_statistics(_bare_ctx(tmp_path, {"meta": {}}), None, {})
 
-    def test_reasoning_models_row_includes_tier(self, tmp_path):
-        ctx = _bare_ctx(
-            tmp_path,
+    def test_stages_add_up_by_their_phase_with_real_usage(self, tmp_path):
+        model = {"calls": 2, "input": 10, "output": 20, "cache_read": 30, "cache_write": 40, "usd": 0.5}
+        rows = [
+            {"stage": 9, "name": "Survey: a (1 job)", "duration_ms": 60000, "calls": 2, "tokens": 100, "usd": 0.5},
+            {"stage": 9, "name": "Survey: b (1 job)", "duration_ms": 30000, "calls": 2, "tokens": 100, "usd": 0.5},
+        ]
+        rows[0]["models"] = rows[1]["models"] = {"claude-sonnet": model}
+        text = "\n".join(compose._stage_tables(rows))
+        assert "| Stage | Calls | Tokens | Cost (≈ USD) | Model time |" in text
+        assert "| Survey | 4 | 200 | 1.00 | 1m 30s |" in text
+        assert "| **Total** | **4** | **200** | **1.00** | **1m 30s** |" in text
+
+    def test_the_model_column_appears_only_with_several_models(self):
+        rows = [
+            {"stage": 2, "name": "Recon: a", "duration_ms": 1000, "calls": 1, "models": {"haiku": {"calls": 1}}},
+            {"stage": 9, "name": "Survey: b", "duration_ms": 1000, "calls": 1, "models": {"sonnet": {"calls": 1}}},
+        ]
+        assert "| Stage | Model | Calls | Model time |" in "\n".join(compose._stage_tables(rows))
+
+    def test_tokens_by_model_show_each_kind_and_the_total(self):
+        haiku = {"calls": 3, "input": 37158, "cache_write": 45723, "cache_read": 91446, "output": 12081, "usd": 0.02}
+        sonnet = {
+            "calls": 9,
+            "input": 320029,
+            "cache_write": 4241631,
+            "cache_read": 4031896,
+            "output": 762660,
+            "usd": 19.27,
+        }
+        rows = [{"stage": 1, "name": "A", "duration_ms": 1, "models": {"haiku": haiku, "sonnet": sonnet}}]
+        text = "\n".join(compose._stage_tables(rows))
+        assert "| Model | Calls | Uncached | Cache write | Cache read | Output | Cost (≈ USD) |" in text
+        assert text.index("| sonnet | 9 | 320k | 4.2M | 4.0M | 763k | 19.27 |") < text.index("| haiku | 3 |")
+        assert "| **Total** | **12** | **357k** | **4.3M** | **4.1M** | **775k** | **19.29** |" in text
+        assert "estimates at API list prices" in text
+
+    def test_hidden_costs_leave_no_column_and_no_note(self):
+        rows = [
             {
-                "meta": {
-                    "reasoning_model": "sonnet-economy",
-                    "stride_model": "sonnet",
-                    "triage_model": "opus",
-                    "merger_model": "sonnet",
-                }
-            },
-        )
-        out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert "| Reasoning models | sonnet-economy — STRIDE sonnet, triage opus, merger sonnet |" in out
+                "stage": 1,
+                "name": "A",
+                "duration_ms": 1000,
+                "calls": 1,
+                "tokens": 5,
+                "usd": None,
+                "models": {"m": {"calls": 1, "input": 5}},
+            }
+        ]
+        text = "\n".join(compose._stage_tables(rows))
+        assert "Cost" not in text and "list prices" not in text and "| Model | Calls | Uncached |" in text
 
-    def test_invocation_row_from_meta(self, tmp_path):
-        ctx = _bare_ctx(
-            tmp_path, {"meta": {"invocation": "--reasoning-model sonnet-economy --triage-model opus --stride-cap 2"}}
-        )
-        out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert (
-            "| Invocation | `/appsec-advisor:appsec-analyzer "
-            "--reasoning-model sonnet-economy --triage-model opus --stride-cap 2` |"
-        ) in out
+    def test_an_unknown_token_count_is_never_shown_as_zero(self):
+        rows = [
+            {"stage": 1, "name": "A", "duration_ms": 1000, "calls": 1, "tokens": 5},
+            {"stage": 2, "name": "B", "duration_ms": 1000, "calls": 1, "tokens": None},
+        ]
+        text = "\n".join(compose._stage_tables(rows))
+        assert "| B | 1 | – | 0m 01s |" in text.replace("1s", "01s") or "| B | 1 | – |" in text
+        assert "**–**" in text and "**5**" not in text
+
+    def test_a_host_that_reports_no_usage_keeps_only_the_columns_it_can_fill(self):
+        text = "\n".join(compose._stage_tables([{"stage": 1, "name": "A: b", "duration_ms": 65000, "calls": 2}]))
+        assert "| Stage | Calls | Model time |" in text and "Tokens" not in text
+
+    def test_reused_results_are_named_below_the_table(self):
+        rows = [{"stage": 1, "name": "A", "duration_ms": 1000, "calls": 1, "reused": 2}]
+        assert "2 results came from an earlier run" in "\n".join(compose._stage_tables(rows))
 
     def test_with_stage_stats_and_meta(self, tmp_path):
         (tmp_path / ".stage-stats.jsonl").write_text(
@@ -835,9 +893,7 @@ class TestRenderAppendixRunStatistics:
         assert "### Per-Stage Breakdown" in out
         assert "**Total**" in out
         assert "### Agent Dispatch Log" in out
-        assert "### Tokens & Cost" in out
-        assert "$1.23" in out
-        assert "Cache savings:** 30%" in out
+        assert "### Tokens & Cost" not in out
         # total duration derived from stage ms sum (180000ms = 3m 00s)
         assert "3m 00s" in out
 
@@ -847,14 +903,12 @@ class TestRenderAppendixRunStatistics:
         out = compose._render_appendix_run_statistics(ctx, None, {})
         assert "2m 05s" in out
         # Sole wall source → wall row present, no separate compute row.
-        assert "| Wall clock (active) | 2m 05s |" in out
-        assert "Agent compute" not in out
+        assert "| Duration | 2m 05s |" in out
+        assert "Model time" not in out
 
     def test_wall_and_compute_shown_separately(self, tmp_path):
-        # net_compute (Σ parallel dispatches) exceeds the measured wall. The
-        # appendix must show wall and compute as DISTINCT rows and must not
-        # label the inflated compute sum as "Total analysis duration"
-        # (regression: that conflation made the duration estimator look wrong).
+        # Parallel model time exceeds the measured wall. The appendix must show
+        # both as DISTINCT rows, and never the sum as the elapsed duration.
         (tmp_path / ".stage-stats.jsonl").write_text(
             '{"stage": 1, "name": "Threat Analysis", "agent": "ns:analyst", "model": "sonnet", '
             '"duration_ms": 4311000, "wall_secs_observed": 2110, "tool_uses": 1, "tokens": 1}\n'
@@ -867,9 +921,8 @@ class TestRenderAppendixRunStatistics:
         (tmp_path / ".scan-wall-seconds").write_text("4999", encoding="utf-8")
         ctx = _bare_ctx(tmp_path, {"meta": {}})
         out = compose._render_appendix_run_statistics(ctx, None, {})
-        assert "| Wall clock (active) | 83m 19s |" in out
-        assert "| Agent compute (Σ parallel dispatches) | 98m 04s |" in out
-        assert "| Total analysis duration |" not in out
+        assert "| Duration | 83m 19s |" in out
+        assert "| Model time | 98m 04s across parallel calls |" in out
 
     def test_orchestrator_model_from_agents(self, tmp_path):
         meta = {"run_statistics": {"agents": [{"name": "x", "model": "opus-model", "role": "Orchestrator"}]}}
@@ -943,14 +996,6 @@ class TestFmtSecondsExtra:
 
     def test_sub_minute(self):
         assert compose._fmt_seconds(42) == "42s"
-
-
-class TestFormatGeneratedTimestampExtra:
-    def test_iso_z(self):
-        assert compose._format_generated_timestamp("2026-05-17T05:31:44Z") == "2026-05-17 05:31 UTC"
-
-    def test_non_string(self):
-        assert compose._format_generated_timestamp(None) == "—"
 
 
 class TestTruncateWithEllipsis:

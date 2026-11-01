@@ -167,6 +167,9 @@ _ASSET_CLASS_CWES: dict[str, set[str]] = {
     },
     # Challenge state / non-sensitive
     "challenge_state": set(),  # explicitly empty — no real risk surface
+    # Data stores by query language: an injection reaches only the store that speaks its language.
+    "sql_store": {"CWE-89"},
+    "document_store": {"CWE-943"},
 }
 
 
@@ -217,6 +220,9 @@ _ASSET_CLASS_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("uploaded_files", ("uploaded file", "user-uploaded", "user upload", "uploads directory")),
     ("product_data", ("product catalog", "product description", "catalog item", "product list")),
     ("challenge_state", ("ctf state", "challenge state", "challenge progress")),
+    # Last, so a store named after what it holds keeps its more specific class.
+    ("sql_store", ("sqlite", "postgres", "mysql", "mariadb", "mssql", "sql server", "oracle database")),
+    ("document_store", ("mongodb", "marsdb", "nosql", "couchdb", "dynamodb", "firestore", "document store")),
 ]
 
 

@@ -307,6 +307,29 @@ class TestMain:
         assert p.read_text() == before
 
 
+def test_a_data_store_gets_only_the_injections_of_its_query_language():
+    """A store without a class kept no findings, so SQLite read 'No finding linked' beside its SQL injections."""
+    threats = [
+        {"id": "T-SQL", "cwe": "CWE-89", "title": "SQL injection"},
+        {"id": "T-NOSQL", "cwe": "CWE-943", "title": "Operator injection"},
+        {"id": "T-XSS", "cwe": "CWE-79", "title": "Stored XSS"},
+    ]
+    assets = [
+        {"id": "A-1", "name": "Application SQLite database", "description": "Sequelize store."},
+        {"id": "A-2", "name": "Reviews collections", "description": "In-process MarsDB collections."},
+        {"id": "A-3", "name": "Alchemy API keys", "description": "Keys for the blockchain RPC."},
+    ]
+    data = {"assets": assets, "threats": threats}
+    eal.enrich(data)
+    assert data["assets"][0]["linked_threats"] == ["T-SQL"]
+    assert data["assets"][1]["linked_threats"] == ["T-NOSQL"]
+    assert not data["assets"][2].get("linked_threats")
+
+
+def test_a_store_named_after_what_it_holds_keeps_its_specific_class():
+    assert eal._classify_asset({"name": "Password store", "description": "SQLite table"}) == "credentials"
+
+
 def test_cli_subprocess(run_plugin_script, output_dir):
     data = {
         "assets": [{"id": "tokens", "name": "session tokens", "linked_threats": []}],

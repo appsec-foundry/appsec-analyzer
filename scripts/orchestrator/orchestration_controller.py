@@ -4078,8 +4078,14 @@ def _assessment_invocation(argv: list[str]) -> str:
     return " ".join(kept)
 
 
-def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
-    """Per-role job timing in the Per-Stage table's format (`runtime/record_stage_stats.py`)."""
+def _write_assessment_stage_stats(workspace: Path, timing: dict, budget=None, *, show_costs: bool = False) -> None:
+    """Per-role model time, calls, and usage in the Per-Stage table's format (`runtime/record_stage_stats.py`).
+
+    The duration is the time the models worked, from the budget. A job's own duration also counts its
+    waiting, so it stands in only when the budget has no record. Tokens stay unknown unless the hosts
+    itemised every call of the role, because a partial sum would read as the whole. Costs follow the
+    console's rule, so a subscription run without `--show-costs` writes none.
+    """
     phases = {
         "recon_scanner": (2, "Reconnaissance"),
         "architecture_analyst": (3, "Architecture"),
@@ -4087,8 +4093,9 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
         "trust_boundary_analyst": (7, "Trust Boundaries"),
         "control_analyst": (8, "Controls"),
         "stride_analyzer": (9, "Survey"),
-        "evidence_verifier": (9, "Survey"),
         "test_case_investigator": (9, "Verify"),
+        # The review covers the findings of the survey and of verification, so it belongs to neither.
+        "evidence_verifier": (9, "Evidence review"),
         "threat_merger": (10, "Scan Synthesis"),
         "finding_combiner": (10, "Scan Synthesis"),
         "triage_validator": (10, "Scan Synthesis"),
@@ -4097,20 +4104,35 @@ def _write_assessment_stage_stats(workspace: Path, timing: dict) -> None:
         "abuse_case_deriver": (11, "Finalization"),
         "abuse_case_verifier": (11, "Finalization"),
     }
+    from runtime.multi_repo_discovery import TOKEN_COUNTERS
+
+    usage = budget.role_usage() if budget is not None else {}
+    order = list(phases)
     lines = []
-    for role in sorted(timing, key=lambda r: (phases.get(r, (11, ""))[0], r)):
+    for role in sorted(
+        timing, key=lambda r: (phases.get(r, (11, ""))[0], order.index(r) if r in order else len(order))
+    ):
         row = timing[role]
         stage, phase = phases.get(role, (11, "Finalization"))
         jobs = f"{row['jobs']} job{'s' if row['jobs'] != 1 else ''}, {row['calls']} model calls"
         reused = f"; {row['reused']} reused from an earlier run, time not recorded" if row["reused"] else ""
+        spent = usage.get(role, {})
+        models = {
+            model: {key: value for key, value in counters.items() if key != "usd" or show_costs}
+            for model, counters in (spent.get("models") or {}).items()
+        }
+        itemised = bool(models) and sum(int(c.get("calls", 0)) for c in models.values()) >= row["calls"]
         record = {
             "stage": stage,
             "name": f"{phase}: {role.replace('_', ' ')} ({jobs}{reused})",
             "agent": f"controller:{role}",
             "model": "—",
-            "duration_ms": round(row["seconds"] * 1000),
-            "tool_uses": 0,
-            "tokens": 0,
+            "duration_ms": round(spent.get("seconds", row["seconds"]) * 1000),
+            "calls": row["calls"],
+            "tokens": sum(int(c.get(key, 0)) for c in models.values() for key in TOKEN_COUNTERS) if itemised else None,
+            "usd": sum(c.get("usd", 0.0) for c in models.values()) if itemised and show_costs else None,
+            "models": models,
+            "reused": row["reused"],
             "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         lines.append(json.dumps(record, ensure_ascii=False))
@@ -4269,7 +4291,10 @@ def _assessment_render(
             # The merge made verification findings part of the register; verified controls contradict survey findings.
             case_outcomes.mark_contradicted(model.get("threats") or [], model["test_case_results"]["results"])
             # A finding outcome whose findings the evidence review confirmed no longer rests on model review only.
-            case_outcomes.mark_reviewed(model.get("threats") or [], model["test_case_results"]["results"])
+            case_outcomes.mark_reviewed(
+                case_outcomes.reviewed_scope(model.get("threats") or [], workspace),
+                model["test_case_results"]["results"],
+            )
         # The report title names the combined system, never a working directory. A
         # sole repository keeps its manifest name (RA-18) unless --project named it.
         if cfg.get("project_name"):
@@ -4341,7 +4366,7 @@ def _assessment_render(
     from orchestrator.assessment_stage2 import render as render_stage2
 
     receipts += render_stage2(jobs, workspace, progress=progress)
-    _write_assessment_stage_stats(workspace, jobs.timing)
+    _write_assessment_stage_stats(workspace, jobs.timing, jobs.budget, show_costs=_AssessmentProgress.show_costs)
     if not _compose_if_ready(workspace, str(root)):
         raise ControllerError("combined report composition failed " + _compose_blocker(workspace))
     progress("Running the quality gates")

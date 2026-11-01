@@ -57,10 +57,12 @@ from urllib.parse import unquote
 
 try:
     from renderers.figure_theme import light_images
+    from renderers.report_markup import keep_known_markup
     from shared._atomic_io import atomic_write_text
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parents[1]))
     from renderers.figure_theme import light_images  # noqa: E402
+    from renderers.report_markup import keep_known_markup  # noqa: E402
     from shared._atomic_io import atomic_write_text  # noqa: E402
 
 
@@ -571,6 +573,11 @@ def _colw_cell_text(cell_html: str) -> int:
     return longest
 
 
+# Tables that stay Markdown, because QA reads their rows, but need set column shares: by content alone,
+# Risk & Impact and Fix got so narrow in the threat overview that words broke apart at 800 px.
+_SET_COLUMN_SHARES = {("#", "Threat Description"): (4, 20, 39, 18, 19)}
+
+
 def _inject_table_colgroups(html: str) -> str:
     """Insert a content-aware <colgroup> into every <table> that lacks one."""
     cell_re = re.compile(r"<t[hd][^>]*>(.*?)</t[hd]>", re.DOTALL | re.IGNORECASE)
@@ -587,6 +594,10 @@ def _inject_table_colgroups(html: str) -> str:
         ncol = len(header_cells)
         if ncol < 2:
             return m.group(0)
+        shares = _SET_COLUMN_SHARES.get(tuple(re.sub(r"<[^>]+>", "", h).strip() for h in header_cells[:2]))
+        if shares and len(shares) == ncol:
+            cols = "".join(f'<col style="width: {share}%" />' for share in shares)
+            return f"{open_tag}\n<colgroup>{cols}</colgroup>{inner}</table>"
         content = [_colw_cell_text(re.sub(r"<[^>]+>", " ", h)) for h in header_cells]
         roles = [_colw_role(re.sub(r"<[^>]+>", "", h)) for h in header_cells]
         for r in rows[1:]:
@@ -977,6 +988,8 @@ def export_pdf(
     md_text = input_md.read_text(encoding="utf-8")
     # A printed page is light: every figure exports as its light file.
     md_text = light_images(rewrite_vscode_links(md_text))
+    # The renderer loads what the markup names, so a report composed before the filter gets it here.
+    md_text = keep_known_markup(md_text)
     md_text = _append_architecture_detail(md_text, input_md.parent)
 
     with tempfile.TemporaryDirectory(prefix="export-threat-model-pdf-") as tmp:

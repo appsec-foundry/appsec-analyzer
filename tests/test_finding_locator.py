@@ -31,6 +31,18 @@ def test_every_locator_shape_is_removed(title: str, expected: str) -> None:
 @pytest.mark.parametrize(
     "title",
     [
+        "Weak hash of secret/token",
+        "Unrestricted read/write",
+        "Credentials sent over TCP/IP",
+    ],
+)
+def test_ordinary_words_with_a_slash_stay(title: str) -> None:
+    assert strip_trailing_locator(title) == title
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
         "Insecure Direct Object Reference (IDOR)",
         "Tampering with orders (S·E)",
         "Unpinned base image in Dockerfile",

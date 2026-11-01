@@ -573,9 +573,9 @@ def test_check_cell_format_stacks(tmp_path):
 def test_check_cell_format_skips_assets_table(tmp_path):
     md = (
         "# Title\n\n"
-        "| Asset | Classification | Description | Linked Threats |\n"
-        "| --- | --- | --- | --- |\n"
-        "| A-001 | high | desc | [F-001](#f-001) · [F-002](#f-002) |\n"
+        "| Asset | Sensitivity (assumed) | Findings |\n"
+        "| --- | --- | --- |\n"
+        "| A-001 | High | [F-001](#f-001) · [F-002](#f-002) |\n"
     )
     f = _md(tmp_path, md)
     rep, new_text = qa.check_cell_format(f)

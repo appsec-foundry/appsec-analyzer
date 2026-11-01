@@ -142,8 +142,8 @@ def clean_weakness(raw_title: str) -> str:
     s = re.sub(r"\s+on:\d+", "", s)
     # Drop a trailing truncation fragment the author left ("… no Depend…").
     s = re.sub(r"\s*…\S*$", "", s)
-    # Drop a now-dangling trailing preposition (was "… in <file>" before strip).
-    s = re.sub(r"\s+(?:in|at|for|inside|within|on|of)\s*$", "", s, flags=re.IGNORECASE)
+    # Drop a now-dangling trailing word (was "… in <file> and <file>" before strip).
+    s = re.sub(r"(?:[\s,]+(?:in|at|for|inside|within|on|of|and|or))+[\s,]*$", "", s, flags=re.IGNORECASE)
     # Tidy whitespace and dangling separators.
     s = re.sub(r"\s{2,}", " ", s).strip(" -—–:,.")
     for pat, repl in _ACRONYM_FIX.items():

@@ -36,6 +36,16 @@ def _load_module():
 pf = _load_module()
 
 
+def _surface(data):
+    """§5 as a reader sees it: `<wbr>` only marks where a route may wrap."""
+    return pf.gen_attack_surface(data).replace("<wbr>", "")
+
+
+def _auth_row(block, name):
+    """The §6.2 table row of one mechanism."""
+    return next(line for line in block.splitlines() if f">{name}</a></td>" in line)
+
+
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
@@ -276,9 +286,9 @@ class TestAssets:
 
     def test_contains_asset_table(self, minimal_yaml_data):
         md = pf.gen_assets(minimal_yaml_data)
-        # Contract requires "| Asset |" header
-        assert "| Asset |" in md
-        assert "| User credentials |" in md
+        # The contract requires the Asset header.
+        assert "<th>Asset</th>" in md
+        assert "<strong>User credentials</strong>" in md
 
     def test_handles_empty_assets(self):
         md = pf.gen_assets({"assets": []})
@@ -1024,17 +1034,17 @@ class TestVerdict:
 
 class TestAttackSurface:
     def test_starts_with_correct_heading(self, minimal_yaml_data):
-        md = pf.gen_attack_surface(minimal_yaml_data)
+        md = _surface(minimal_yaml_data)
         assert md.startswith("## 5. Attack Surface\n")
 
     def test_has_required_subsections(self, minimal_yaml_data):
-        md = pf.gen_attack_surface(minimal_yaml_data)
+        md = _surface(minimal_yaml_data)
         # Contract requires 5.1 + 5.2 patterns; we use the canonical wording
         assert re.search(r"^### 5\.1 Unauthenticated", md, re.MULTILINE)
         assert re.search(r"^### 5\.2 Authenticated", md, re.MULTILINE)
 
     def test_lists_routes(self, minimal_yaml_data):
-        md = pf.gen_attack_surface(minimal_yaml_data)
+        md = _surface(minimal_yaml_data)
         assert "/api/foo" in md
         assert "/api/bar" in md
 
@@ -1079,15 +1089,15 @@ class TestAttackSurface:
                 },
             }
         }
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         assert "/rest/login" in md
         assert "/metrics" in md
         assert "/api/orders" in md
         # Linked-threat IDs render as link cells.
         # P4 — visible label normalised T-NNN → F-NNN (anchor stays valid
         # via the dual-anchor emission in compose._render_threat_register).
-        assert "[F-001](#f-001)" in md
-        assert "[F-003](#f-003)" in md
+        assert '<a href="#f-001">F-001</a>' in md
+        assert '<a href="#f-003">F-003</a>' in md
 
     def test_flat_list_v0_shape(self):
         """attack_surface = [ {path, requires_auth, threats}, ... ]"""
@@ -1097,7 +1107,7 @@ class TestAttackSurface:
                 {"path": "GET /b", "method": "GET", "requires_auth": True, "threats": ["T-2"]},
             ]
         }
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         assert "/a" in md
         assert "/b" in md
 
@@ -1111,7 +1121,7 @@ class TestAttackSurface:
                 ]
             }
         }
-        md = pf.gen_attack_surface(data)  # must not raise
+        md = _surface(data)  # must not raise
         assert "/ok" in md
         # Bare string was silently dropped — count reflects the surviving entries.
         assert "(1)" in md  # "Unauthenticated Entry Points (1)"
@@ -1127,7 +1137,7 @@ class TestAttackSurface:
                 ]
             }
         }
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         assert "/e1" in md
         assert "/e2" in md
         assert "/e3" in md
@@ -1140,7 +1150,7 @@ class TestAttackSurface:
                 ]
             }
         }
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         # Method already has its own column; route column should NOT
         # prepend it again.
         assert "POST /rest/login" not in md
@@ -1156,7 +1166,7 @@ class TestAttackSurface:
             "attack_surface": [{**e, "auth_required": False} for e in unauth],
             "threats": [{"id": "T-1", "risk": "Critical"}],
         }
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         # Header carries the full count.
         assert "Unauthenticated Entry Points (41)" in md
         # The finding-linked row is shown; the 40 noise rows are not listed.
@@ -1189,7 +1199,7 @@ class TestAttackSurface:
             }
         )
         data = {"attack_surface": entries}
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         # Relevance-tagged finding-free rows are shown with their review chip.
         assert "/rest/user/login" in md
         assert "/rest/wallet/balance" in md
@@ -1207,7 +1217,7 @@ class TestAttackSurface:
                 {"endpoint": "GET /b", "method": "GET", "auth_required": False},
             ]
         }
-        md = pf.gen_attack_surface(data)
+        md = _surface(data)
         assert "/a" in md and "/b" in md
         assert "further entry point(s)" not in md
 
@@ -2814,11 +2824,22 @@ class TestAuthMechanismFindingOrder:
         rows = pf._build_auth_mechanism_inventory(
             {"threats": threats, "security_controls": [], "meta": {}},
         )
-        cell = next(ln for ln in rows if ln.startswith("| Password reset"))
+        cell = _auth_row("\n".join(rows), "Password reset / change")
         assert cell.index("F-011") < cell.index("F-012") < cell.index("F-010")
 
 
 _SEVERITY_DOT_RANK = {"🔴": 0, "🟠": 1, "🟡": 2, "🟢": 3, "⚪": 4}
+
+
+def _table_cells(markdown: str) -> list[str]:
+    """Every cell of a Markdown or raw HTML table."""
+    cells: list[str] = []
+    for line in markdown.splitlines():
+        if line.lstrip().startswith("|"):
+            cells.extend(line.split("|"))
+        elif line.startswith("<tr>"):
+            cells.extend(re.findall(r"<td[^>]*>(.*?)</td>", line))
+    return cells
 
 
 def _unsorted_link_cells(markdown: str, severity_by_num: dict[int, str]) -> list[str]:
@@ -2827,16 +2848,13 @@ def _unsorted_link_cells(markdown: str, severity_by_num: dict[int, str]) -> list
     builder, so a new table that orders its own way is caught too."""
     rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     offenders: list[str] = []
-    for line in markdown.splitlines():
-        if not line.lstrip().startswith("|"):
+    for cell in _table_cells(markdown):
+        nums = [int(n) for n in re.findall(r"\b[TF]-(\d+)", cell)]
+        if len(nums) < 2:
             continue
-        for cell in line.split("|"):
-            nums = [int(n) for n in re.findall(r"\[[TF]-(\d+)\]", cell)]
-            if len(nums) < 2:
-                continue
-            ranks = [rank.get((severity_by_num.get(n) or "").lower(), 9) for n in nums]
-            if ranks != sorted(ranks):
-                offenders.append(cell.strip()[:90])
+        ranks = [rank.get((severity_by_num.get(n) or "").lower(), 9) for n in nums]
+        if ranks != sorted(ranks):
+            offenders.append(cell.strip()[:90])
     return offenders
 
 
@@ -2898,8 +2916,9 @@ class TestStackedFindingLinksAreSeverityOrdered:
         }
 
     def test_attack_surface_cells_ordered(self):
-        out = pf.gen_attack_surface(self._model())
-        assert _unsorted_link_cells(out, self.SEVERITY_BY_NUM) == []
+        out = _surface(self._model())
+        marks = re.findall("[🔴🟠🟡🟢]", out.split("<tbody>", 1)[1])
+        assert marks == sorted(marks, key="🔴🟠🟡🟢".index) and len(marks) > 1
 
     def test_auth_mechanism_cells_ordered(self):
         out = "\n".join(pf._build_auth_mechanism_inventory(self._model()))
@@ -2907,11 +2926,12 @@ class TestStackedFindingLinksAreSeverityOrdered:
 
     def test_the_fixture_would_expose_unordered_output(self):
         """The model must actually contain a mixed-severity multi-link cell —
-        otherwise the two tests above pass vacuously."""
-        out = pf.gen_attack_surface(self._model())
-        cells = [c for line in out.splitlines() for c in line.split("|") if len(re.findall(r"\[[TF]-\d+\]", c)) >= 2]
+        otherwise the test above passes vacuously."""
+        out = "\n".join(pf._build_auth_mechanism_inventory(self._model()))
+        cells = [c for c in _table_cells(out) if len(re.findall(r"\b[TF]-\d+", c)) >= 2]
         assert cells, "fixture produces no stacked-link cell — the guard would be vacuous"
-        shuffled = {**self.SEVERITY_BY_NUM, 1: "Low"}
+        first = int(re.search(r"\b[TF]-(\d+)", cells[0]).group(1))
+        shuffled = {**self.SEVERITY_BY_NUM, first: "Low"}
         assert _unsorted_link_cells(out, shuffled), "guard cannot detect an out-of-order cell"
 
 
@@ -2936,15 +2956,58 @@ class TestAttackSurfaceRiskColumn:
 
     def test_row_risk_follows_the_register_not_the_promotion(self):
         """RA-20: the Risk column matches the finding dot, which is the register rating."""
-        out = pf.gen_attack_surface(self._model(risk="High", effective_severity="Critical"))
+        out = _surface(self._model(risk="High", effective_severity="Critical"))
         row = next(ln for ln in out.splitlines() if "/fetch" in ln)
-        assert "🟠 High" in row
-        assert "🔴 Critical" not in row
+        assert "🟠" in row
+        assert "🔴" not in row
 
     def test_falls_back_to_risk_when_untriaged(self):
-        out = pf.gen_attack_surface(self._model(risk="High"))
+        out = _surface(self._model(risk="High"))
         row = next(ln for ln in out.splitlines() if "/fetch" in ln)
-        assert "🟠 High" in row
+        assert "🟠" in row
+
+
+class TestAttackSurfaceTable:
+    def _entry(self, method, path, *links, **extra):
+        return {"method": method, "path": path, "linked_threats": list(links), **extra}
+
+    def _model(self, *entries):
+        threats = [
+            {"id": "T-001", "title": "a", "risk": "Critical"},
+            {"id": "T-002", "title": "b", "risk": "High"},
+            {"id": "T-003", "title": "c", "risk": "Medium"},
+        ]
+        return {"threats": threats, "attack_surface": {"unauthenticated": list(entries), "authenticated": []}}
+
+    def test_routes_with_the_same_findings_share_a_row_and_methods_stand_together(self):
+        out = _surface(
+            self._model(
+                self._entry("GET", "/a", "T-002"), self._entry("POST", "/a", "T-002"), self._entry("GET", "/b", "T-002")
+            )
+        )
+        row = next(ln for ln in out.splitlines() if ln.startswith("<tr><td"))
+        assert "GET · POST <code>/a</code>" in row and "GET <code>/b</code>" in row
+        assert out.count("<tr><td") == 1
+
+    def test_rows_run_by_risk_and_lighter_ones_collapse(self):
+        out = _surface(self._model(self._entry("GET", "/m", "T-003"), self._entry("GET", "/c", "T-001", "T-002")))
+        visible, collapsed = out.split("<details>", 1)
+        assert "/c" in visible and "/m" not in visible
+        assert "1 more entry points without Critical or High findings" in collapsed.replace("</summary>", " ")
+        assert "F-003" in collapsed
+
+    def test_a_list_of_lighter_rows_stays_open(self):
+        assert "<details>" not in _surface(self._model(self._entry("GET", "/m", "T-003")))
+
+    def test_a_long_path_gives_way_in_the_middle_and_keeps_the_whole_in_a_tooltip(self):
+        path = "/this/page/is/hidden/behind/an/incredibly/high/paywall/that/could/only/be/unlocked/by/sending"
+        out = pf.gen_attack_surface(self._model(self._entry("GET", path, "T-002")))
+        assert f'title="{path}"' in out and "/…/" in out.replace("<wbr>", "")
+
+    def test_common_words_in_a_path_link_no_finding(self):
+        """Three such words once made a paywall route Critical."""
+        threat = {"id": "T-001", "title": "x", "scenario": "An attacker could read data that only admins see"}
+        assert pf._derive_attack_surface_links({"path": "/behind/that/could/only/page"}, [threat]) == []
 
 
 class TestTierClassification:
@@ -3318,17 +3381,10 @@ class TestSecurityArchitectureV2:
         csp = next(l for l in rows if "Browser and Cross-Origin" in l)
         assert "🔴 Unsafe" in auth, auth
         assert "🔴 Missing" in csp, csp
-        # A Missing category that HAS a catalogued (absent) control names it as
-        # "required controls not in place" — not the misleading "no controls
-        # catalogued", which must be reserved for genuinely empty categories
-        # (2026-06-02 §6.1 fix).
-        assert "required controls not in place" in csp, csp
-        assert "no controls catalogued" not in csp.lower(), csp
-        # A category with NO catalogued control at all still reads "No controls
-        # catalogued for this category."
-        empty_rows = [l for l in rows if "no controls catalogued" in l.lower()]
-        for l in empty_rows:
-            assert "required controls not in place" not in l, l
+        # A Missing category names its absent control. "None catalogued" is
+        # reserved for categories without any (2026-06-02 §6.1 fix).
+        assert "Content Security Policy" in csp, csp
+        assert "None catalogued" not in csp, csp
 
     def test_status_badge_on_every_h4(self):
         md = pf.gen_security_architecture_v2(self._data())
@@ -3529,14 +3585,17 @@ def test_auth_inventory_lists_present_mechanisms():
     block = "\n".join(pf._build_auth_mechanism_inventory(_auth_yaml()))
     # Registration (meta flag + threat), Password login (control), Password
     # hashing (control+threat), JWT (control+threat), MFA/TOTP (threat) present.
-    assert "| User registration |" in block
-    assert "| Password login |" in block
-    assert "| Password storage (hashing) |" in block
-    assert "| JWT / bearer-token session |" in block
-    assert "| Multi-factor authentication (TOTP / 2FA) |" in block
+    for name in (
+        "User registration",
+        "Password login",
+        "Password storage (hashing)",
+        "JWT / bearer-token session",
+        "Multi-factor authentication (TOTP / 2FA)",
+    ):
+        assert _auth_row(block, name)
     # Findings link to F-ids (T-NNN → F-NNN, same number).
-    assert "[F-029](#f-029)" in block and "[F-024](#f-024)" in block
-    assert "[F-001](#f-001)" in block and "[F-007](#f-007)" in block
+    for finding in ("F-029", "F-024", "F-001", "F-007"):
+        assert f'<a href="#{finding.lower()}">{finding}</a>' in block
 
 
 def test_auth_inventory_absent_go_to_note():
@@ -3545,25 +3604,23 @@ def test_auth_inventory_absent_go_to_note():
     # NOT a table row.
     assert "Also checked, not detected" in block
     assert "OAuth / OIDC federated login" in block.split("Also checked")[1]
-    assert "| OAuth / OIDC federated login |" not in block
+    assert ">OAuth / OIDC federated login</a>" not in block
 
 
 def test_auth_inventory_section_pointers():
     block = "\n".join(pf._build_auth_mechanism_inventory(_auth_yaml()))
     # JWT assessed under §6.3, hashing under §6.9, registration under §6.2.
-    assert "[§6.3](#63-session-and-token-controls)" in block
-    assert "[§6.9](#69-cryptography-secrets-and-data-protection)" in block
-    assert "[§6.2](#62-identity-and-authentication-controls)" in block
+    assert 'href="#63-session-and-token-controls">JWT' in _auth_row(block, "JWT / bearer-token session")
+    assert 'href="#69-cryptography-secrets-and-data-protection">' in _auth_row(block, "Password storage (hashing)")
+    assert 'href="#62-identity-and-authentication-controls">' in _auth_row(block, "User registration")
 
 
 def test_auth_inventory_status_from_effectiveness():
     block = "\n".join(pf._build_auth_mechanism_inventory(_auth_yaml()))
     # Password login control effectiveness=weak → 🟠 Weak badge in its row.
-    login_row = next(l for l in block.splitlines() if l.startswith("| Password login |"))
-    assert "🟠 Weak" in login_row
+    assert "🟠 Weak" in _auth_row(block, "Password login")
     # Password hashing control effectiveness=missing → 🔴 Missing.
-    hash_row = next(l for l in block.splitlines() if l.startswith("| Password storage (hashing) |"))
-    assert "🔴 Missing" in hash_row
+    assert "🔴 Missing" in _auth_row(block, "Password storage (hashing)")
 
 
 def test_auth_inventory_empty_without_auth():
@@ -3577,16 +3634,12 @@ def test_auth_inventory_empty_without_auth():
     assert pf._build_auth_mechanism_inventory(yaml_data) == []
 
 
-def test_auth_inventory_is_frozen_marked_and_single_titles():
+def test_auth_inventory_is_frozen_marked_and_lists_each_finding_once():
     block = "\n".join(pf._build_auth_mechanism_inventory(_auth_yaml()))
     assert "AUTH-MECHANISMS-FROZEN" in block
-    # Each finding link appears once and CARRIES its title (the inventory is a
-    # table, so compose's prose-linkifier never enriches it — emitting a bare
-    # ID left it 'leer betitelt', 2026-06-02). The link must show `— <title>`.
-    assert block.count("[F-001](#f-001)") == 1
-    assert re.search(r"\[F-001\]\(#f-001\) — \S", block), (
-        "§6.2 inventory finding link must carry a title, not a bare ID"
-    )
+    # Raw HTML keeps the §6 label passes off the IDs; they would swap findings for weaknesses.
+    assert block.count('<a href="#f-001">F-001</a>') == 1
+    assert "](#f-001)" not in block
 
 
 class TestAttackSurfaceLinkPrecision:
@@ -3647,23 +3700,6 @@ class TestAttackSurfaceLinkPrecision:
         assert "T-013" in links and "T-005" not in links
         # order-history matches neither.
         assert pf._derive_attack_surface_links({"entry_point": "GET /rest/order-history"}, threats) == []
-
-
-class TestWrappableRoute:
-    """Long attack-surface routes get zero-width break opportunities so they
-    wrap instead of forcing the Route column unreadably wide (user 2026-06)."""
-
-    def test_short_route_untouched(self):
-        assert pf._wrappable_route("/rest/user/login") == "/rest/user/login"
-
-    def test_long_route_gets_zwsp_after_separators(self):
-        route = "/this/page/is/hidden/behind/an/incredibly/high/paywall/that/could/only/be/unlocked"
-        out = pf._wrappable_route(route)
-        assert "​" in out
-        # ZWSP is invisible — stripping it returns the original route verbatim.
-        assert out.replace("​", "") == route
-        # A break opportunity after every slash.
-        assert out.count("​") >= route.count("/")
 
 
 def test_system_overview_renders_component_selection_transparency():
@@ -3961,8 +3997,8 @@ class TestAuthMechanismInventory:
         }
         out = pf._build_auth_mechanism_inventory(yaml_data)
         joined = "\n".join(out)
-        assert "Authentication mechanisms (at a glance)" in joined
-        assert "| Mechanism | Status | Assessed in | Findings |" in joined
+        assert "**Authentication mechanisms.**" in joined
+        assert "<th>Mechanism</th><th>Status</th><th>Findings</th>" in joined
         assert "Password login" in joined
         # registration present via meta flag
         assert "User registration" in joined
@@ -3981,17 +4017,13 @@ class TestAuthMechanismInventory:
         assert "✅ Present" in joined
 
 
-class TestAuthMechFindingLink:
+class TestAuthMechFindingId:
     def test_none_when_no_number(self):
-        assert pf._auth_mech_finding_link({"id": "no-digits"}) is None
+        assert pf._auth_mech_finding_id({"id": "no-digits"}) is None
 
-    def test_link_with_title(self):
-        out = pf._auth_mech_finding_link({"id": "T-7", "title": "JWT forgery"})
-        assert out == "[F-007](#f-007) — JWT forgery"
-
-    def test_link_without_title(self):
-        out = pf._auth_mech_finding_link({"t_id": "T-3"})
-        assert out == "[F-003](#f-003)"
+    def test_the_number_names_the_finding(self):
+        assert pf._auth_mech_finding_id({"id": "T-7", "title": "JWT forgery"}) == "F-007"
+        assert pf._auth_mech_finding_id({"t_id": "T-3"}) == "F-003"
 
 
 class TestFriendlySubcontrolTitle:
@@ -4111,7 +4143,7 @@ class TestOverviewVerdictBranches:
         md = pf.gen_security_architecture_v2(data)
         row = next(l for l in md.splitlines() if l.startswith("| [") and "Identity and Authentication" in l)
         assert "🟡 Partial" in row
-        assert "leave gaps" in row
+        assert row.endswith("| – | Login |")
 
     def test_adequate_verdict_row(self):
         data = {
@@ -4124,8 +4156,7 @@ class TestOverviewVerdictBranches:
         md = pf.gen_security_architecture_v2(data)
         row = next(l for l in md.splitlines() if l.startswith("| [") and "Identity and Authentication" in l)
         assert "🟢 Adequate" in row
-        assert "no findings in this category" in row
-        assert "routed" not in row
+        assert row.endswith("| – | Login |")
 
     def test_weak_no_controls_routed_finding(self):
         # A finding routes to §6.4 (CWE-862 authz) but no control catalogued there.
@@ -4138,7 +4169,7 @@ class TestOverviewVerdictBranches:
         rows = [l for l in md.splitlines() if l.startswith("| [")]
         weak = [l for l in rows if "🟠 Weak" in l]
         assert weak, "expected a weak-from-routed-finding row"
-        assert any("no compensating controls catalogued" in l for l in weak)
+        assert any(l.endswith("| 1 | None catalogued |") for l in weak)
 
 
 class TestClassifyTierBoundary:

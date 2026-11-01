@@ -219,8 +219,10 @@ def test_appendix_lists_every_catalog_test_case_and_never_shows_an_unexamined_on
         assert f'<a id="{case["id"].lower()}"></a>' in out
     assert '<a id="tc-authz-01"></a>TC-AUTHZ-01' in out.split("### Other items", 1)[1]
     assert "Not examined: " in out
-    assert "| [TC-CI-01](#tc-ci-01) Workflows run with least-privilege tokens | Repository | Undecidable |" in out
-    assert "### Controls evidenced" not in out and "| Control evidenced |" not in out
+    not_decided = out.split("### Not decided", 1)[1].split("\n### ", 1)[0]
+    assert '<a href="#tc-ci-01">TC-CI-01</a> Workflows run with least-privilege tokens' in not_decided
+    assert ">Repository<" in not_decided and "No scanner result was recorded" in not_decided
+    assert "### Controls evidenced" not in out
 
 
 def test_appendix_is_absent_without_results(tmp_path):
@@ -282,8 +284,10 @@ def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_find
     model["threats"] = [{"id": "T-001", "verification": {"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]}}]
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
     attention = out.split("### Results that need attention", 1)[1].split("\n### ", 1)[0]
-    assert "| Order API | Finding (model review only) |" in attention and "Findings: T-001. |" in attention
-    assert "| Order API | Partial, not a control (model review only) |" in attention
+    assert "Verification item</th><th>Where</th><th>Result</th><th>Findings" in attention
+    assert ">Order API<" in attention and '<a href="#f-001">F-001</a>' in attention
+    assert "<em>model review only</em>" in attention and "Holds at" in attention
+    assert "Partial, not a control" not in attention
     other = out.split("### Other items", 1)[1].split("\n### ", 1)[0]
     assert "No finding, no control" in other and "TC-AUTHZ-03" in other
     assert "Not examined: " in other and "TC-AUTHZ-04" in other
@@ -324,6 +328,141 @@ def test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_e
         {"outcome": "control", "evidence_basis": "model", "finding_ids": ["TCF-001"]},
     ]
     assert tcr.mark_reviewed(threats, rows) == 0 and {r["evidence_basis"] for r in rows} == {"model"}
+
+
+def test_a_finding_below_the_register_floor_still_counts_as_reviewed(tmp_path):
+    """REQ-040: the floor removes a finding from the model, not the review that confirmed it."""
+    low = {"risk": "Low", "evidence_basis": "llm-verified", "verification": {"finding_ids": ["TCF-001"]}}
+    (tmp_path / ".threats-merged.json").write_text(json.dumps({"threats": [low]}), encoding="utf-8")
+    row = {"outcome": "finding", "evidence_basis": "model", "finding_ids": ["TCF-001"]}
+    assert tcr.mark_reviewed([], [row]) == 0
+    assert tcr.mark_reviewed(tcr.reviewed_scope([], tmp_path), [row]) == 1
+    assert row["evidence_basis"] == "review"
+
+
+def test_a_missing_merged_file_leaves_only_the_register_in_review_scope(tmp_path):
+    assert tcr.reviewed_scope([{"id": "T-001"}], tmp_path) == [{"id": "T-001"}]
+
+
+def _appendix(tmp_path, results, threats=(), meta=None):
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    model = {
+        "test_case_results": {"catalog_version": "1", "results": results},
+        "components": [{"id": "api", "name": "Order API"}, {"id": "web", "name": "Web Client"}],
+        "threats": list(threats),
+        "meta": meta or {},
+    }
+    return compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
+
+
+def _row(case_id, outcome, reason, *, findings=(), component="api", basis="review"):
+    row = {
+        "test_case_id": case_id,
+        "outcome": outcome,
+        "reason": reason,
+        "finding_ids": list(findings),
+        "evidence_basis": basis,
+        "scope": "component",
+        "component_id": component,
+    }
+    return row if component else {**row, "scope": "repository"}
+
+
+def test_a_rules_item_links_the_register_findings_it_names(tmp_path):
+    """A rules item holds T- IDs, which the filter for verification findings once dropped."""
+    threat = {"id": "T-107", "title": "Container Runs as Root", "risk": "Medium"}
+    row = _row("TC-INFRA-01", "finding", "1 of 6 applicable rules violated", findings=["T-107"], component=None)
+    row["evidence_basis"] = "deterministic"
+    out = _appendix(tmp_path, [row], [threat])
+    assert "Fails 1 of 6 rules" in out and '<a href="#f-107">F-107</a>' in out
+    assert ">Repository<" in out and "Findings: T-107." in out
+
+
+def test_results_run_by_risk_each_finding_counted_once_and_lighter_ones_collapse(tmp_path):
+    threats = [
+        {"id": "T-001", "title": "a", "risk": "Critical"},
+        {"id": "T-002", "title": "b", "risk": "High"},
+        {"id": "T-003", "title": "c", "risk": "High"},
+        {"id": "T-004", "title": "d", "risk": "Medium"},
+    ]
+    weak = "weakness at 1 of 2 candidate locations"
+    results = [
+        _row("TC-AUTHN-02", "finding", weak, findings=["T-004"]),
+        _row("TC-AUTHZ-01", "finding", weak, findings=["T-002", "T-003"]),
+        _row("TC-INPUT-01", "finding", weak, findings=["T-001"]),
+    ]
+    out = _appendix(tmp_path, results, threats)
+    visible, collapsed = out.split("### Results that need attention", 1)[1].split("<details>", 1)
+    assert visible.index("TC-INPUT-01") < visible.index("TC-AUTHZ-01")
+    assert "TC-AUTHN-02" not in visible and "F-001" in visible and "F-002" in visible
+    assert "1 more results without Critical or High findings" in collapsed.replace("</summary>", " ")
+    assert "F-004" in collapsed.split("</details>", 1)[0]
+
+
+def test_results_stay_open_when_none_has_critical_or_high_findings(tmp_path):
+    threat = {"id": "T-004", "title": "d", "risk": "Medium"}
+    row = _row("TC-AUTHN-02", "finding", "weakness at 1 of 2 candidate locations", findings=["T-004"])
+    out = _appendix(tmp_path, [row], [threat])
+    assert "<details>" not in out.split("### Results that need attention", 1)[1].split("### ", 1)[0]
+
+
+def test_an_item_stands_once_over_its_components(tmp_path):
+    threats = [{"id": "T-001", "title": "a", "risk": "High"}]
+    weak = "weakness at 1 of 2 candidate locations"
+    results = [
+        _row("TC-AUTHZ-01", "finding", weak, findings=["T-001"]),
+        _row("TC-AUTHZ-01", "finding", weak, findings=["T-001"], component="web"),
+    ]
+    out = _appendix(tmp_path, results, threats)
+    table = out.split("### Results that need attention", 1)[1].split("</table>", 1)[0]
+    assert 'rowspan="2"' in table and table.count("TC-AUTHZ-01") == 1
+
+
+def test_findings_below_the_threshold_are_counted_with_the_badge_below_it(tmp_path):
+    row = _row("TC-AUTHZ-01", "finding", "weakness at 1 of 1 candidate locations", findings=["TCF-009"])
+    out = _appendix(tmp_path, [row], meta={"register_severity_floor": "medium"})
+    assert "🟢&nbsp;1 not reported" in out and "see [§11](#11-out-of-scope)" in out
+    assert "Findings: 1 not in the findings register." in out
+
+
+def test_not_decided_groups_places_by_reason_and_leads_with_open_questions(tmp_path):
+    from orchestrator.assessment_test_cases import NO_CANDIDATE_REASON
+
+    results = [
+        _row("TC-AUTHN-04", "undecidable", NO_CANDIDATE_REASON),
+        _row("TC-AUTHN-04", "undecidable", NO_CANDIDATE_REASON, component="web"),
+        _row("TC-FILE-01", "undecidable", "1 of 1 candidate locations undecidable: the sources cannot settle it"),
+    ]
+    out = _appendix(tmp_path, results)
+    table = out.split("### Not decided", 1)[1].split("</table>", 1)[0]
+    assert table.index("TC-FILE-01") < table.index("TC-AUTHN-04")
+    assert "Order API<br/>Web Client" in table and table.count("No location found, model not run") == 1
+    assert "1 of 1 location: the sources cannot settle it" in table
+    assert "Undecidable" not in table and "could not settle" not in out
+
+
+def test_the_short_reasons_cover_the_sentences_the_pipeline_writes():
+    from orchestrator.assessment_test_cases import NO_CANDIDATE_REASON
+    from renderers import compose_threat_model as compose
+
+    assert set(compose._NO_LOCATION_REASONS) == {NO_CANDIDATE_REASON, tcr.NOTHING_EXAMINED_REASON}
+
+
+def test_a_control_shows_its_count_without_repeating_the_heading(tmp_path):
+    row = _row("TC-CI-01", "control", "all 2 applicable rules satisfied", component=None)
+    table = _appendix(tmp_path, [row]).split("### Controls evidenced", 1)[1]
+    assert "Meets 2 of 2 rules" in table and "<th>Outcome</th>" not in table
+
+
+def test_the_appendix_counts_keep_labels_with_commas_apart(tmp_path):
+    results = [
+        _row("TC-AUTHZ-01", "partial", "control evidenced by model review only at 6 of 8 candidate locations"),
+        _row("TC-AUTHN-02", "no_finding", "every candidate location was rejected with evidence"),
+    ]
+    assert "in this run: 1 partial · 1 no finding." in _appendix(tmp_path, results)
 
 
 def test_a_verification_finding_the_evidence_review_refuted_shows_the_reason_as_text():

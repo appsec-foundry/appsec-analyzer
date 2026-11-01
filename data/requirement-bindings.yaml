@@ -1140,6 +1140,8 @@ requirements:
       - tests/test_compose_threat_model.py::test_equal_risks_rank_by_their_three_heaviest_findings
       - tests/test_compose_threat_model.py::test_the_same_findings_give_the_same_order_whatever_a_model_authored
       - tests/test_compose_threat_model.py::test_every_consumer_numbers_the_sorted_paths
+      - tests/test_compose_threat_model.py::test_the_overview_keeps_only_critical_and_high_threats_when_any_exists
+      - tests/test_compose_threat_model.py::test_the_overview_shows_all_threats_without_critical_or_high_findings
       - tests/test_architect_review_runtime.py::test_final_gate_rejects_lost_corrections_and_clears_old_success
       - tests/test_validate_mitigation_quality.py::test_urgent_fix_requires_steps_and_verification
       - tests/test_render_abuse_cases.py::test_review_task_and_unconfirmed_fix_are_not_chain_blockers
@@ -1304,6 +1306,9 @@ requirements:
       - scripts/renderers/render_abuse_cases.py
       - scripts/model/emit_requirement_trace_to_model.py
       - scripts/validators/validate_intermediate.py
+      - scripts/renderers/compact_tables.py
+      - scripts/renderers/report_markup.py
+      - scripts/renderers/figure_details.py
       - docs/threat-dragon-export.md
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
@@ -1315,6 +1320,13 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_compact_tables.py::test_critical_and_high_always_stay_visible_however_many_there_are
+      - tests/test_compact_tables.py::test_a_collapsed_block_names_what_it_holds_and_keeps_every_entry
+      - tests/test_compact_tables.py::test_an_id_list_shows_one_badge_per_severity_worst_first
+      - tests/test_compact_tables.py::test_code_offers_break_points_so_a_narrow_column_cuts_no_word
+      - tests/test_compose_threat_model.py::test_medium_findings_collapse_but_critical_and_high_never_do
+      - tests/test_report_markup.py::test_the_report_own_markup_passes_unchanged
+      - tests/test_report_markup.py::test_nothing_runs_in_the_rendered_page
       - tests/test_figure1_dfd.py::test_gaps_without_boundary_chips_are_sized_by_their_routes_and_labels
       - tests/test_figure1_dfd.py::test_a_longer_payload_label_widens_only_its_own_gap
       - tests/test_figure1_dfd.py::test_a_gap_with_boundary_chips_keeps_the_chip_reserve

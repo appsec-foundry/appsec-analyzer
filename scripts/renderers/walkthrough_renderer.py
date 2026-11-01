@@ -257,6 +257,14 @@ _VIA_IMPL_TAIL_RE = re.compile(r"\s+(?:via|using|through)\s+.*$", re.IGNORECASE)
 # extension AND a ``:line`` so ordinary trailing words ("Node.js", "localStorage")
 # are never mistaken for a path.
 _TRAILING_FILE_RE = re.compile(r"\s*\S*\.[A-Za-z]{1,6}:\d+\s*$")
+# What a removed file leaves behind: "… in a.ts:1 and b.ts:2".
+_FILE_LEFTOVER_RE = re.compile(r"\s+(?:in|at|on|and|or)$", re.IGNORECASE)
+
+
+def _without_trailing_files(text: str) -> str:
+    while (shorter := _TRAILING_FILE_RE.sub("", text)) != text:
+        text = _FILE_LEFTOVER_RE.sub("", shorter.rstrip(" ,"))
+    return text.strip()
 
 
 def _strip_fileref_parens(text: str) -> str:
@@ -323,7 +331,7 @@ def _attack_class(threat: dict) -> str:
     cls = re.split(r"\s+—\s+", raw, maxsplit=1)[0].strip()
     cls = _VIA_IMPL_TAIL_RE.sub("", cls).strip()
     cls = _strip_fileref_parens(cls)
-    cls = _TRAILING_FILE_RE.sub("", cls).strip()
+    cls = _without_trailing_files(cls)
     cls = re.sub(r"\s+on:\d+\s*$", "", cls).strip()
     cls = re.sub(r"\s{2,}", " ", cls).strip(" -—–:,.")
     return cls or _weakness_class(threat.get("title") or "")

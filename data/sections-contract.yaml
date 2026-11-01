@@ -956,7 +956,7 @@ sections:
     fragment_type: markdown
     fragment: "assets.md"
     required_patterns:
-      - "\\| Asset \\|"                             # must contain an Asset table
+      - "(?:<th>Asset</th>|\\| Asset \\|)"                             # must contain an Asset table
 
   attack_surface:
     heading: "## 5. Attack Surface"

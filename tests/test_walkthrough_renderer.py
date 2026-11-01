@@ -821,6 +821,12 @@ def test_attack_class_prefers_title_source_and_keeps_attack_framing():
     assert renderer._attack_class(threat) == "SQL Injection Authentication Bypass"
 
 
+def test_attack_class_drops_every_file_of_a_title_that_names_several():
+    source = "Systemic IDOR: missing ownership checks in routes/payment.ts:41 and routes/basketItems.ts:68"
+    assert renderer._attack_class({"_title_source": source}) == "Systemic IDOR: missing ownership checks"
+    assert renderer._attack_class({"_title_source": "Weak hash in a.ts:1, b.ts:2 or c.ts:3"}) == "Weak hash"
+
+
 def test_attack_class_strips_via_impl_and_file_tokens():
     # The `via <impl>` tail and any file token are dropped — the concrete
     # feature is re-attached by _attack_target_label; impl/file live on Source.

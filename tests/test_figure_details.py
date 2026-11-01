@@ -221,7 +221,7 @@ def test_controls_table_renders_and_section_2_2_has_no_detail_view(tmp_path: Pat
     figs = FD.build_detail_figures(_model(root, n), _inventory(root))
     assert sorted(figs) == ["2.3"]  # four compose services still draw no deployment figure
     table = figs["2.3"]
-    assert table.markdown.startswith(FD.DETAIL_TABLE_MARKER + "\n| Component |") and not table.svg
+    assert table.markdown.startswith(FD.DETAIL_TABLE_MARKER + "\n<table") and not table.svg
     assert "s3cr3t-value" not in table.markdown  # environment values never reach a view
 
 
@@ -237,8 +237,8 @@ def test_controls_are_placed_by_implementation_evidence(tmp_path: Path, variant:
     assert placed["Lockfile hygiene"] == {"pipeline"}  # no evidence, supply-chain domain → CI component
     assert placed["Transport Encryption"] == {FD.SYSTEM_WIDE}  # file without a line
     fig = FD.controls_table(m, 4)
-    assert "| System-wide: evidence not tied to one component |" in fig.markdown
-    row = next(ln for ln in fig.markdown.splitlines() if ln.startswith(f"| [C-02](#c-02) · {n['app_name']} |"))
+    assert "System-wide: evidence not tied to one component" in fig.markdown
+    row = next(ln for ln in fig.markdown.splitlines() if f"C-02 · {n['app_name']}" in ln)
     assert "🔴 Unsafe: Input / query" in row  # worst effectiveness per domain, named by the domain
     assert fig.takeaway.startswith("Every component that handles credentials (C-02)")
 
@@ -315,7 +315,7 @@ def test_composer_writes_no_figure_and_section_2_replaces_only_the_2_3_mermaid(t
     md = gen_architecture_diagrams(ctx.yaml_data, figures=figures)
     assert md.count("```mermaid") == 2  # §2.1 and §2.2 keep their Mermaid diagrams
     assert "Deployment and Technology" not in md and "figure3" not in md
-    assert FD.DETAIL_TABLE_MARKER + "\n| Component |" in md
+    assert FD.DETAIL_TABLE_MARKER + "\n<table" in md
     assert "| Component ID | Name | Tier | Source paths | Threats |" in md  # the §2.3 table stays
     assert "### 2.4" not in md
     for fig in figures.values():
@@ -424,20 +424,66 @@ def test_missing_data_classification_is_not_drawn_as_none():
         "security_controls": [{"control": "Password hashing", "effectiveness": "Weak", "implementation": "src/a.py"}],
         "threats": [],
     }
-    row = FD.controls_table(FD.Model(model, None), 4).markdown.splitlines()[3]
-    assert row.startswith("| [C-01](#c-01) · API |") and "None" not in row and "| – |" in row
+    row = next(ln for ln in FD.controls_table(FD.Model(model, None), 4).markdown.splitlines() if "C-01 · API" in ln)
+    assert '<a id="c-01"></a><strong>C-01 · API</strong>' in row and "None" not in row and ">–</td>" in row
 
 
-def test_inbound_cell_counts_authenticated_flows_once_and_names_the_schemes(tmp_path: Path):
-    n = _names(False)
-    root = _repo(tmp_path, n)
-    data = _model(root, n)
-    app = f"{n['app']}-service"
-    for i, scheme in enumerate(("bearer", "cookie", "bearer", "none"), start=10):
-        data["data_flows"].append(
-            {"id": f"df-{i}", "from": "external", "to": app, "protocol": "HTTP", "authentication": {"scheme": scheme}}
-        )
-    fig = FD.controls_table(FD.Model(data, _inventory(root)), 4)
-    row = next(ln for ln in fig.markdown.splitlines() if ln.startswith(f"| [C-02](#c-02) · {n['app_name']} |"))
-    assert "3 authenticated (bearer, cookie)" in row
-    assert row.count("authenticated (") == 1
+def _overview_model() -> dict:
+    return {
+        "components": [
+            {"id": "C-01", "name": "Quiet", "tier": "application", "paths": ["a/**"]},
+            {"id": "component-9f", "name": "Busy", "tier": "application", "paths": ["routes/**"]},
+        ],
+        "data_flows": [],
+        "security_controls": [
+            {"control": "Password hashing", "effectiveness": "Weak", "implementation": "routes/a.ts:1"},
+            {"control": "Lockfile hygiene", "effectiveness": "Adequate", "implementation": "routes/a.ts:2"},
+        ],
+        "threats": [
+            {"id": "T-001", "title": "a", "risk": "Medium", "component": "C-01"},
+            *(
+                {
+                    "id": f"T-{n:03d}",
+                    "title": "b",
+                    "risk": risk,
+                    "component": "component-9f",
+                    "evidence": [{"file": f"routes/{n}.ts", "line": 1}],
+                }
+                for n, risk in ((2, "High"), (3, "Critical"), (4, "High"), (5, "High"))
+            ),
+        ],
+    }
+
+
+def test_the_overview_runs_by_risk_and_anchors_every_component():
+    table = FD.controls_table(FD.Model(_overview_model(), None), 4).markdown
+    assert "<th>Component</th><th>🔴</th><th>🟠</th><th>🟡</th><th>Weakest controls and top findings</th>" in table
+    rows = table.splitlines()
+    busy = next(row for row in rows if "Busy" in row)
+    assert rows.index(busy) < next(i for i, row in enumerate(rows) if "Quiet" in row)
+    assert '<a id="c-02"></a><a id="component-9f"></a><strong>C-02 · Busy</strong>' in busy
+    assert re.search(r">1</td><td[^>]*>3</td><td[^>]*>–</td>", busy)
+
+
+def test_the_overview_names_where_most_findings_sit():
+    busy = next(r for r in FD.controls_table(FD.Model(_overview_model(), None), 4).markdown.splitlines() if "Busy" in r)
+    assert "Mostly in <code>routes/</code>" in busy
+    assert FD._focus_folder(["a/x", "b/y", "c/z"]) == ""
+
+
+def test_the_overview_shows_only_the_weakest_controls():
+    busy = next(r for r in FD.controls_table(FD.Model(_overview_model(), None), 4).markdown.splitlines() if "Busy" in r)
+    assert "🟠 Weak" in busy and "Adequate" not in busy
+
+
+def test_top_findings_lead_with_every_critical_and_the_ranking_settles_equal_severities():
+    model = _overview_model()
+    plain = next(r for r in FD.controls_table(FD.Model(model, None), 4).markdown.splitlines() if "Busy" in r)
+    assert plain.index("F-003") < plain.index("F-002") < plain.index("F-004") and "F-005" not in plain
+    ranked = FD.controls_table(FD.Model(model, None), 4, {"F-005": 900}).markdown
+    assert "F-005" in next(r for r in ranked.splitlines() if "Busy" in r)
+    assert "F-004" not in next(r for r in ranked.splitlines() if "Busy" in r)
+
+
+def test_a_finding_on_several_components_counts_for_each_and_the_note_says_so():
+    assert "add up to more than the register" in FD.controls_table(FD.Model(_overview_model(), None), 4).markdown
