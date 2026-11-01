@@ -202,10 +202,7 @@ _RETRY_TURN_CAP = 88
 def escalated_retry_turns(max_turns: int) -> int:
     """Turn budget for a retry of a component that died without completing work.
 
-    Bounded by ``_RETRY_TURN_CAP`` so it stays under the analyzer's harness
-    ceiling (see agents/appsec-stride-analyzer-v2.md frontmatter ``maxTurns``); the
-    invariant is enforced by
-    tests/test_stage1_coverage_recovery_2026_07_20.py::test_harness_ceiling_exceeds_the_highest_derivable_budget.
+    Bounded by ``_RETRY_TURN_CAP``.
     """
     try:
         base = int(max_turns)

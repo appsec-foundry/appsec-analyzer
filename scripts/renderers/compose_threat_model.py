@@ -18406,7 +18406,7 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
                 #
                 # The analyst already receives `blueprint_guidance` in its
                 # requirement context and is instructed to write the steps
-                # against it (agents/appsec-stride-analyzer-v2.md), so the
+                # against it (data/stride-analysis-policy.md), so the
                 # prescription reaches the reader through `**How:**`, expressed
                 # against this codebase. What is left for the report is the
                 # pointer — placed before the general reference so the

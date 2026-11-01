@@ -16,7 +16,6 @@ def test_every_pipeline_agent_has_a_compact_completion_receipt_contract():
         "appsec-recon-scanner",
         "appsec-ms-renderer",
         "appsec-secarch-renderer",
-        "appsec-stride-analyzer-v2",
         "appsec-threat-merger",
         "appsec-threat-renderer",
         "appsec-triage-validator",

@@ -64,8 +64,6 @@ def _ignore(directory: str, names: list[str]) -> set[str]:
         ignored.update(name for name in names if name in RETIRED_RUNTIME)
     if Path(directory) == ROOT / "scripts" / "analyzers":
         ignored.update(name for name in names if name in RETIRED_ANALYZERS)
-    if Path(directory) == ROOT / "agents":
-        ignored.add("appsec-stride-analyzer-v2.md")
     return ignored
 
 

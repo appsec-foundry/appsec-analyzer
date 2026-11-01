@@ -417,9 +417,9 @@ def test_stride_lens_contracts_share_bounded_plugin_owned_names():
         for field in fields:
             assert set(field["items"]["enum"]) == expected
             assert field["maxItems"] == len(expected)
-    prompt = (REPO_ROOT / "agents/appsec-stride-analyzer-v2.md").read_text()
+    lens_map = (REPO_ROOT / "scripts/contexts/multi_repo_analysis.py").read_text()
     for lens in ("rag", "mcp"):
-        assert f"agents/stride-lenses/{lens}.md" in prompt
+        assert f'"{lens}": "stride-lenses/{lens}.md"' in lens_map
         assert (REPO_ROOT / f"agents/stride-lenses/{lens}.md").is_file()
 
 

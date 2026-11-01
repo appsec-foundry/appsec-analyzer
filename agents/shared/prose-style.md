@@ -354,8 +354,6 @@ The pluralize helper in `scripts/renderers/compose_threat_model.py:pluralize()` 
 
 Loaded explicitly by:
 
-- `agents/appsec-stride-analyzer-v2.md` — before authoring `scenario`,
-  `mitigation_title`, `remediation.steps`, `controls_in_place`.
 - Management Summary and Security Architecture renderers — before authoring
   `ms-verdict.json` and `ms-architecture-assessment.json`, and before
   filling the §6 narrative placeholders.

@@ -81,7 +81,7 @@ def test_inventory_hidden_edges_still_exist_in_consumer_contracts():
         ),
         "agents/appsec-actor-discoverer.md": (".recon-signals.json",),
         "agents/appsec-control-analyst.md": ("Requirements violations",),
-        "agents/appsec-stride-analyzer-v2.md": ("path_routing.focus_paths", "path_routing.exclude_paths"),
+        "scripts/contexts/build_stride_evidence_bundles.py": ("path_routing",),
         "agents/appsec-triage-validator.md": (".recon-summary.md", "data/critical-criteria.yaml"),
         "agents/appsec-abuse-case-verifier.md": ("ABUSE_CASE_CONTEXT_PATH",),
     }

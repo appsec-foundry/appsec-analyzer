@@ -68,30 +68,6 @@ def test_auth_component_also_gets_the_footprint_floor() -> None:
     assert auth["max_turns"] > 31, "auth tier budget must still be raised by footprint"
 
 
-def test_harness_ceiling_exceeds_the_highest_derivable_budget() -> None:
-    """The frontmatter maxTurns must stay above any budget the skill can emit.
-
-    A soft target above the hard harness cap is unreachable by construction:
-    the analyzer is killed at the frontmatter value regardless of what the
-    manifest asked for.
-    """
-    import re
-
-    text = (REPO_ROOT / "agents" / "appsec-stride-analyzer-v2.md").read_text(encoding="utf-8")
-    m = re.search(r"^maxTurns:\s*(\d+)", text, re.M)
-    assert m, "maxTurns not found in analyzer frontmatter"
-    ceiling = int(m.group(1))
-
-    highest = max(
-        classify_component._FOOTPRINT_TURN_CAP,
-        max(b["complex"] for b in classify_component.TURN_BUDGETS.values()),
-    )
-    assert ceiling > highest, (
-        f"harness ceiling {ceiling} does not exceed the highest derivable soft "
-        f"budget {highest}; components at the top of the range cannot finish"
-    )
-
-
 # --------------------------------------------------------------------------
 # D2b — pre-seed must be distinguishable from a genuine partial
 # --------------------------------------------------------------------------

@@ -1238,7 +1238,8 @@ SOURCE_TESTS = {
         run_diagnostics_recovery_2026_07_20
         stride_outputs
     """),
-    "agents/appsec-stride-analyzer-v2.md": _tests("""
+    "data/stride-analysis-policy.md": _tests("""
+        active_stride_policy
         active_tool_calls
         agent_doc_shell_snippets
         agent_logger
@@ -2512,7 +2513,8 @@ SOURCE_TESTS = {
         stage1_context_edge_inventory
         stride_outputs
     """),
-    "agents/appsec-architecture-analyst.md": _tests("""
+    "data/architecture-analysis-policy.md": _tests("""
+        active_stride_policy
         agent_logger
         context_prompt_budgets
         prompt_token_bounds

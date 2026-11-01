@@ -4,7 +4,6 @@
 # Consumers:
 #   - scripts/analyzers/scan_excludes.py (Python loader; whitelist-wins logic)
 #   - agents/appsec-recon-scanner.md  (glob used in Step 3 Grep calls)
-#   - agents/appsec-stride-analyzer-v2.md (glob used for bounded component discovery)
 #   - scripts/analyzers/security_relevance_filter.py (incremental mode file classification)
 #
 # Schema contract:

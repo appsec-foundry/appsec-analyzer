@@ -97,9 +97,6 @@ def test_schema_file_exists_and_nonempty():
 
 
 def test_diagram_prose_distinguishes_zones_from_boundary_crossings():
-    scanned = [
-        PLUGIN_ROOT / "agents" / "appsec-architecture-analyst.md",
-    ]
-    text = "\n".join(path.read_text(encoding="utf-8") for path in scanned)
+    text = (PLUGIN_ROOT / "data" / "architecture-analysis-policy.md").read_text(encoding="utf-8")
     assert "Trust boundaries are subgraphs" not in text
-    assert "Do not invent a crossing or endpoint" in text
+    assert "Use exact finalized component IDs or external as endpoints" in text

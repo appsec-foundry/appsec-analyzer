@@ -1076,8 +1076,8 @@ def render_attack_steps(threat: dict, template: dict) -> list[str]:
 
     Preference order:
       1. ``threat.attack_steps`` — authored by the STRIDE analyzer against the
-         contract in `agents/appsec-stride-analyzer-v2.md` ("Authoring
-         attack_steps"). The ONLY source that can guarantee a chronological,
+         contract in `data/stride-analysis-policy.md`.
+         The ONLY source that can guarantee a chronological,
          attacker-subject list: that is a property of how the text was
          WRITTEN, and no splitter can recover it from an explanatory paragraph.
       2. ``threat.scenario``, sentence-split and filtered against

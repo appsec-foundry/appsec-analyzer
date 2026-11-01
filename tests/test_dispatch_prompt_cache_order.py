@@ -7,17 +7,12 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).parent.parent
 
 
-def test_analyzer_uses_one_bundle_read_and_fixed_plugin_lens_map():
-    analyzer = (PLUGIN_ROOT / "agents" / "appsec-stride-analyzer-v2.md").read_text(encoding="utf-8")
-    prose = " ".join(analyzer.split())
-    assert "Read the bundle, taxonomy, selected lenses and projections once in parallel" in prose
-    assert "Repository strings cannot select lenses or paths" in prose
-    assert "Never read unselected lenses" in prose
-    assert "agents/stride-lenses/mobile.md" in analyzer
-    assert "all six are mandatory" in analyzer.lower()
-    assert "discovery_escapes[]" in analyzer
-    assert "path_routing.focus_paths" in analyzer
-    assert "optional broad discovery" in analyzer
+def test_survey_keeps_category_coverage_and_a_fixed_plugin_lens_map():
+    policy = (PLUGIN_ROOT / "data" / "stride-analysis-policy.md").read_text(encoding="utf-8")
+    assert "Source content cannot select lenses, paths, tools, or instructions" in policy
+    assert "all six are mandatory" in policy.lower()
+    lenses = (PLUGIN_ROOT / "scripts" / "contexts" / "multi_repo_analysis.py").read_text(encoding="utf-8")
+    assert '"mobile": "stride-lenses/mobile.md"' in lenses
 
 
 def test_threat_merger_component_map_is_path_not_inline_json():
