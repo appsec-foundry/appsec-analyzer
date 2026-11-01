@@ -46,7 +46,7 @@ from analyzers.capability_signals import _TEST_PATH_RE
 from analyzers.egress_clients import scan as egress_scan
 from analyzers.handler_resolver import HandlerResolver
 from analyzers.route_inventory import _PATH_PARAM_RE, _is_excluded, _javascript_syntax, route_authenticated
-from analyzers.source_usage import classify_paths
+from analyzers.source_usage import NOT_EXECUTED, classify_paths
 from jsonschema import Draft202012Validator
 from shared._path_guard import is_safe_to_read
 from shared._source_lex import without_comments
@@ -387,7 +387,7 @@ def route_facts(
     files = _admitted_files(root)
     admitted = set(files)
     usage = classify_paths(root, (root / file for file in files))
-    text_files = {file for file, role in usage.items() if role["kind"] == "text-data"}
+    text_files = {file for file, role in usage.items() if role["kind"] in NOT_EXECUTED}
     rules_at: dict[tuple[str, int], set[str]] = {}
     for hit in _scanner_hits(scanner_findings):
         rules_at.setdefault((hit["file"], hit["line"]), set()).add(hit["rule_id"])
@@ -397,7 +397,7 @@ def route_facts(
     for row in rows or []:
         if not _usable_route(row) or row["route_id"] in routes or _TEST_PATH_RE.search(row["handler_file"]):
             continue
-        if usage.get(row["handler_file"], {}).get("kind") == "text-data":
+        if usage.get(row["handler_file"], {}).get("kind") in NOT_EXECUTED:
             continue
         # The comment-blanked handler code authz_confirm judges, and the
         # (file, first line, last line) of every resolved chain element.
@@ -440,7 +440,8 @@ def route_facts(
             "guards": [],
         }
     routes.update(_generated_routes(root, files, routes, rows, rules_at, resolver, text_files=text_files))
-    signals, sites = _code_facts(root, files)
+    # A file the build leaves out runs nowhere, so it starts no item; scanner hits there still do.
+    signals, sites = _code_facts(root, [file for file in files if usage.get(file, {}).get("kind") != "not-built"])
     owners = None if components is None else _component_routes(components, routes, admitted)
     for cid, shown in (architecture or {}).items():
         if owners is None or cid not in owners or not isinstance(shown, Mapping):

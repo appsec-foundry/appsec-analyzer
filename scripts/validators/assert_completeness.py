@@ -203,7 +203,8 @@ def run(output_dir: Path, plugin_root: Path, phase: str) -> int:
         sys.stderr.write("assert-completeness: threat-model.yaml missing or YAML unavailable — BLOCKING\n")
         return 2
     try:
-        y = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        y = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=loader) or {}
     except (OSError, yaml.YAMLError):
         sys.stderr.write("assert-completeness: threat-model.yaml unreadable — BLOCKING\n")
         return 2

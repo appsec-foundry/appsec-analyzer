@@ -1063,7 +1063,8 @@ def published_finding_numbers(output_dir: Path) -> set[int] | None:
     has no authority to judge citations.
     """
     try:
-        model = yaml.safe_load((output_dir / "threat-model.yaml").read_text(encoding="utf-8"))
+        text = (output_dir / "threat-model.yaml").read_text(encoding="utf-8")
+        model = yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (OSError, yaml.YAMLError):
         return None
     if not isinstance(model, dict) or not isinstance(model.get("threats"), list):
@@ -1219,7 +1220,8 @@ def verdict_floor_errors(output_dir: Path, verdict: Any) -> list[str]:
     if not isinstance(verdict, dict):
         return []
     try:
-        model = yaml.safe_load((output_dir / "threat-model.yaml").read_text(encoding="utf-8"))
+        text = (output_dir / "threat-model.yaml").read_text(encoding="utf-8")
+        model = yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (OSError, yaml.YAMLError):
         return []
     if not isinstance(model, dict):

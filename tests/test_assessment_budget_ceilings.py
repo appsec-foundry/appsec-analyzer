@@ -168,3 +168,53 @@ def test_a_measured_report_reserve_lets_the_last_optional_steps_run_near_the_lim
     budget.accepted("verify:a", ROLE, 0.253, 1)
     with budget.job("actors", "actor_discoverer", True):
         assert budget.available_usd() == pytest.approx(20.0 - 17.82 - 1.118)
+
+
+def _finished(budget, usd, role=ROLE):
+    class Host:
+        def __init__(self, ceiling):
+            pass
+
+        def invoke(self, *args):
+            return HostReply({}, usd)
+
+    before = budget.spent_usd
+    with budget.job("tc:done", role, True):
+        budget.invoke(Host, "", "", {}, 30, lambda: False)
+    budget.spent_usd = before
+
+
+def test_the_ceiling_follows_the_largest_call_not_the_jobs_several_calls():
+    """A job of three calls costs far more than a call, and the ceiling binds one call."""
+    budget = _budget(14.5, largest=0.83)
+    _finished(budget, 0.42)
+    started, held = _admitted(budget)
+    assert started == [0.63] * 4 and held == pytest.approx(14.5 + 4 * 0.63)
+
+
+def test_a_failed_call_says_nothing_about_what_a_call_costs():
+    budget = _budget(13.5, largest=0)
+    with pytest.raises(TransportError):
+        _stopped_at(budget, lambda calls: True)
+    assert ROLE not in budget.largest_call
+
+
+def test_a_resumed_role_without_a_measured_call_uses_its_largest_job():
+    assert _admitted(_budget(12.5, largest=0.83))[0] == [1.24] * 4
+
+
+def test_a_usd_15_run_stays_parallel_longer_than_with_the_job_as_measure():
+    """Near a lower limit the job's measure holds too much: only two of the four calls could start."""
+
+    def budget():
+        run = AssessmentBudget(15.0, 2.0, 100, 7200)
+        run.plan_completion()
+        run.accepted("stride:done", "stride_analyzer", 0.36, 1)
+        run.accepted("tc:done", ROLE, 0.83, 1)
+        run.spent_usd = 11.0
+        return run
+
+    assert _admitted(budget())[0] == [1.24] * 2
+    measured = budget()
+    _finished(measured, 0.42)
+    assert _admitted(measured)[0] == [0.63] * 4

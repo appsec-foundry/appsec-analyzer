@@ -789,6 +789,10 @@ def test_coverage_statements_reach_the_console_with_verbose_and_unassigned_code_
     # the report keeps every statement (REQ-003).
     assert controller._coverage_infos([listed, *undecided, *entries], verbose=False) == [unowned["text"]]
     assert controller._coverage_infos([*undecided, *entries], verbose=False) == []
+    # Files the build leaves out had no route or code site checks, which is worth a line in every run (REQ-003).
+    not_built = {"not_built": {"files": 2, "examples": ["a.ts"]}, "text": "2 TypeScript files the build leaves out"}
+    assert controller._coverage_infos([not_built, *entries], verbose=False) == [not_built["text"]]
+    assert controller._coverage_infos([not_built, listed], verbose=False) == [unowned["text"], not_built["text"]]
 
 
 @pytest.mark.parametrize("role", ["stride_analyzer", "evidence_verifier"])

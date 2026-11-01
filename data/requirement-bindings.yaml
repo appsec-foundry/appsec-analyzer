@@ -578,6 +578,10 @@ requirements:
       - tests/test_route_inventory.py::test_potentially_executed_string_routes_remain_candidates
       - tests/test_route_inventory.py::test_tutorial_directory_names_do_not_exclude_executable_routes
       - tests/test_source_usage.py::test_role_follows_text_use_instead_of_directory_names
+      - tests/test_source_usage.py::test_a_file_the_build_leaves_out_stays_out_of_routes_and_is_named
+      - tests/test_source_usage.py::test_a_file_the_build_leaves_out_starts_no_item_but_keeps_its_scanner_hits
+      - tests/test_source_usage.py::test_a_folder_with_its_own_configuration_is_not_left_out
+      - tests/test_source_usage.py::test_without_a_compiled_start_the_exclusion_proves_nothing
       - tests/test_source_usage.py::test_recognized_standard_javascript_text_reads
       - tests/test_source_usage.py::test_local_text_helpers_resolve_literal_arguments_and_composed_paths
       - tests/test_source_usage.py::test_bounded_helper_chain_keeps_the_read_and_call_evidence

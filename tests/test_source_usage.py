@@ -684,3 +684,124 @@ def test_actual_io_uses_a_byte_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "open", guarded_open)
     assert su.classify_paths(tmp_path, paths) == {}
     assert calls == [11]
+
+
+BUILT_MANIFEST = {"scripts": {"build": "tsc", "start": "node build/app"}}
+BUILT_CONFIG = """{
+  // Comments, strings such as "./*" and a trailing comma are all legal in a tsconfig.json.
+  "compilerOptions": {"outDir": "./build", "paths": {"@app/*": ["./*"]}},
+  /* the samples are served as text */
+  "exclude": ["node_modules", "samples/**", "**/*.d.ts",],
+}
+"""
+BUILT_SOURCES = {
+    "app.ts": "import express from 'express'\nconst app = express()\napp.listen(3000)\n",
+    "samples/fix.ts": JS_SAMPLE,
+    "samples/fix.js": JS_SAMPLE,
+}
+
+
+def _built(root: Path, sources=None, manifest=None, config=BUILT_CONFIG):
+    paths = _write(root, {**BUILT_SOURCES, **(sources or {})})
+    (root / "package.json").write_text(json.dumps(BUILT_MANIFEST if manifest is None else manifest))
+    (root / "tsconfig.json").write_text(config)
+    return su.classify_paths(root, paths)
+
+
+def test_a_typescript_file_the_build_leaves_out_runs_nowhere(tmp_path):
+    usage = _built(tmp_path)
+    assert usage["samples/fix.ts"]["kind"] == "not-built"
+    assert usage["samples/fix.ts"]["evidence"] == [{"file": "tsconfig.json", "line": 1}]
+    # JavaScript needs no compilation, so the build says nothing about it; a built file stays what it was.
+    assert usage["samples/fix.js"]["kind"] != "not-built" and usage["app.ts"]["kind"] != "not-built"
+
+
+def test_a_file_the_build_leaves_out_stays_out_of_routes_and_is_named(tmp_path):
+    _built(tmp_path)
+    inventory = build_inventory(tmp_path)
+    assert all(route["handler_file"] != "samples/fix.ts" for route in inventory["routes"])
+    assert inventory["not_built_files"] == ["samples/fix.ts"]
+
+
+def test_a_repository_without_such_files_keeps_its_inventory_shape(tmp_path):
+    _write(tmp_path, {"app.ts": BUILT_SOURCES["app.ts"]})
+    assert "not_built_files" not in build_inventory(tmp_path)
+
+
+def test_a_file_the_build_leaves_out_starts_no_item_but_keeps_its_scanner_hits(tmp_path):
+    sources = {"samples/fix.ts": "const token = jwt.sign({ id }, key)\n", "app.ts": "jwt.verify(token, key)\n"}
+    _built(tmp_path, sources)
+    finding = {"source_check_id": "AUTHN-001", "evidence": [{"file": "samples/fix.ts", "line": 1}]}
+    facts = cc.route_facts(tmp_path, build_inventory(tmp_path), [finding], components={"app": ["app.ts"]})
+    assert all("samples/fix.ts" not in rows for rows in facts["signals"].values())
+    assert all(file != "samples/fix.ts" for rows in facts["sites"].values() for file, _ in rows)
+    assert "samples/fix.ts" in facts["files"]
+
+
+def test_an_import_or_a_declared_entry_outranks_the_build_exclusion(tmp_path):
+    imported = {"app.ts": "import './samples/fix'\n"}
+    assert _built(tmp_path / "imported", imported)["samples/fix.ts"]["kind"] == "runtime"
+    manifest = {"scripts": {"build": "tsc", "start": "node build/app", "seed": "tsx samples/fix.ts"}}
+    assert _built(tmp_path / "entry", manifest=manifest)["samples/fix.ts"]["kind"] == "runtime"
+
+
+def test_a_folder_with_its_own_configuration_is_not_left_out(tmp_path):
+    """A root tsconfig leaves a frontend to the frontend's own one, and that one compiles it."""
+    config = BUILT_CONFIG.replace("samples/**", "web")
+    sources = {"web/tsconfig.json": "{}", "web/src/app/page.ts": JS_SAMPLE}
+    assert _built(tmp_path, sources, config=config)["web/src/app/page.ts"]["kind"] != "not-built"
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        {"scripts": {"build": "tsc", "start": "tsx app.ts"}},
+        {"scripts": {"build": "tsc", "start": "ts-node app.ts"}},
+        {"scripts": {"build": "tsc", "start": "node elsewhere/app"}},
+        {"scripts": {"build": "tsc", "start": "node .", "other": "node build/app"}},
+        {"scripts": {"start": "node build/app"}},
+        {"scripts": {"build": "tsc -p build.json && cp samples build", "start": "node build/app"}},
+        {"scripts": {"build": "tsc"}},
+        {"scripts": "tsc"},
+        {},
+    ],
+)
+def test_without_a_compiled_start_the_exclusion_proves_nothing(tmp_path, manifest):
+    assert _built(tmp_path, manifest=manifest)["samples/fix.ts"]["kind"] != "not-built"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        "{",
+        "[]",
+        '{"exclude": ["samples"]}',
+        '{"compilerOptions": {"outDir": "."}, "exclude": ["samples"]}',
+        '{"compilerOptions": {"outDir": "../elsewhere"}, "exclude": ["samples"]}',
+        '{"compilerOptions": {"outDir": "build"}, "exclude": "samples"}',
+        '{"compilerOptions": {"outDir": "build"}, "exclude": ["sam*les", "samples/*.ts", "**/fix.ts", "../samples"]}',
+        '{"compilerOptions": {"outDir": "build"}, "exclude": ["samples"], "files": ["samples/fix.ts"]}',
+        '{"compilerOptions": {"outDir": "build"}, "exclude": [1, null, "", "."]}',
+    ],
+)
+def test_a_configuration_that_shows_no_literal_exclusion_proves_nothing(tmp_path, config):
+    assert _built(tmp_path, config=config)["samples/fix.ts"]["kind"] != "not-built"
+
+
+def test_an_oversized_or_linked_configuration_proves_nothing(tmp_path):
+    assert (
+        _built(tmp_path / "large", config=BUILT_CONFIG + " " * su.MAX_FILE_BYTES)["samples/fix.ts"]["kind"]
+        != "not-built"
+    )
+    root = tmp_path / "linked"
+    _built(root)
+    (tmp_path / "outside.json").write_text(BUILT_CONFIG)
+    (root / "tsconfig.json").unlink()
+    (root / "tsconfig.json").symlink_to(tmp_path / "outside.json")
+    assert su.classify_paths(root, [root / "app.ts", root / "samples/fix.ts"])["samples/fix.ts"]["kind"] != "not-built"
+
+
+def test_only_the_first_exclude_entries_are_read(tmp_path):
+    entries = json.dumps(["unrelated"] * su.MAX_BUILD_EXCLUDES + ["samples"])
+    config = f'{{"compilerOptions": {{"outDir": "build"}}, "exclude": {entries}}}'
+    assert _built(tmp_path, config=config)["samples/fix.ts"]["kind"] != "not-built"

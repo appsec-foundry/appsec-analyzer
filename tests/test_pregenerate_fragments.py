@@ -210,6 +210,15 @@ class TestSystemOverview:
             "parsed, so their resource checks did not run (`k8s/a'b.yaml`, `k8s/a'b.yaml` and 10 more)." in md
         )
 
+    def test_scope_names_files_the_build_leaves_out(self, minimal_yaml_data):
+        minimal_yaml_data["meta"]["unanalysed_source"] = [
+            {"reason": "not-built", "files": 92, "examples": ["data/static/codefixes/fix.ts"]},
+        ]
+        assert (
+            "**Not analysed:** 92 TypeScript files the build leaves out, so their routes and code sites were not "
+            "checked (`data/static/codefixes/fix.ts` and 91 more)." in pf.gen_system_overview(minimal_yaml_data)
+        )
+
     def test_scope_names_program_files_outside_every_component(self, minimal_yaml_data):
         minimal_yaml_data["meta"]["unowned_source"] = {
             "files": 4,

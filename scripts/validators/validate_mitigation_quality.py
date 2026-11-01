@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"INVALID: no threat-model.yaml in {args[0]}", file=sys.stderr)
         return 1
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=loader) or {}
     except (OSError, yaml.YAMLError) as exc:
         print(f"INVALID: unreadable threat-model.yaml: {exc}", file=sys.stderr)
         return 1

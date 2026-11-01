@@ -582,8 +582,12 @@ class DiscoveryBudget:
             self._settle(ceiling, None)
             raise TransportError("Model call cost is unavailable")
         self._settle(ceiling, cost)
+        self._measured_call(cost)
         self._record_usage(reply.usage, time.monotonic() - admitted_at)
         return reply
+
+    def _measured_call(self, usd: float) -> None:
+        """What a call that finished cost, for a budget that sets its next ceilings from it."""
 
     def _record_usage(self, usage: dict[str, dict[str, float]] | None, seconds: float = 0.0) -> None:
         """Add a finished call's reported usage to the ledger under the calling job's group and role."""

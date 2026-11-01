@@ -390,7 +390,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"emit_general_mitigation_titles: no threat-model.yaml in {ns.output_dir}", file=sys.stderr)
         return 0
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=loader) or {}
     except Exception as exc:  # noqa: BLE001
         print(f"emit_general_mitigation_titles: unreadable yaml ({exc})", file=sys.stderr)
         return 0

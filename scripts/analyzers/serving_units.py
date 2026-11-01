@@ -29,6 +29,8 @@ from pathlib import Path
 
 from shared._path_guard import is_safe_to_read
 
+from analyzers.scan_excludes import is_excluded_name
+
 _MANIFESTS = frozenset(
     {
         "package.json",
@@ -305,7 +307,7 @@ def component_for(unit: dict, repo_root: Path, taken: set[str]) -> dict | None:
     """
     client = unit["kind"] == "client-app"
     paths = [rel for rel in (unit["entry_files"] if client else unit.get("source_files") or unit["entry_files"])]
-    paths = [rel for rel in paths if is_runtime_path(rel)]
+    paths = [rel for rel in paths if is_runtime_path(rel) and not (client and is_excluded_name(rel))]
     if not paths:
         return None
     root = unit.get("root") or ""
@@ -383,7 +385,7 @@ def adopt_remaining(components: list[dict], repo_root: Path, limit: int) -> int:
             break
         if not (is_program_source(rel) and is_runtime_path(rel)) or _TEST_SOURCE_RE.search(rel):
             continue
-        if rel in listed or _path_owns(patterns, rel):
+        if is_excluded_name(rel) or rel in listed or _path_owns(patterns, rel):
             continue
         folders = tuple(rel.split("/")[:-1])
 
@@ -401,8 +403,10 @@ def adopt_remaining(components: list[dict], repo_root: Path, limit: int) -> int:
 def adopt(units: list[dict], components: list[dict], repo_root: Path, routes: list[dict]) -> int:
     """Give each unit's carrier the unit's code no eligible component lists; return additions.
 
-    A client-app carrier receives the app's runtime source files. An http-api
-    carrier receives its package's program files (route registrations,
+    A client-app carrier receives the app's runtime source files, without the
+    libraries whose name alone marks them as vendored; a client build can place
+    them anywhere. An http-api carrier keeps its entry files whatever they are
+    called, since it needs them. It receives its package's program files (route registrations,
     services, configuration; an API at the repository root has no package of
     its own and receives its registration files) and then the resolved
     handler module of every route registered there. Discovery lists only the
@@ -430,7 +434,8 @@ def adopt(units: list[dict], components: list[dict], repo_root: Path, routes: li
             continue
         if unit["kind"] == "client-app":
             for rel in unit["entry_files"]:
-                give(found[0], rel)
+                if not is_excluded_name(rel):
+                    give(found[0], rel)
             continue
         for rel in unit.get("source_files") or unit["entry_files"]:
             give(_closest(found, rel), rel)

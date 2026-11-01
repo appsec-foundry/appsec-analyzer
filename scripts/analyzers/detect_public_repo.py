@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     if not tm_path.is_file():
         sys.stderr.write("detect_public_repo: no threat-model.yaml — skipping\n")
         return 0
-    data = yaml.safe_load(tm_path.read_text(encoding="utf-8")) or {}
+    data = yaml.load(tm_path.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
     meta = data.setdefault("meta", {})
     if not isinstance(meta, dict):
         meta = {}

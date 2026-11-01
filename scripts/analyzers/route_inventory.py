@@ -64,7 +64,7 @@ from typing import Iterable
 from shared._path_guard import is_safe_to_read
 
 from analyzers.handler_resolver import HandlerResolver
-from analyzers.source_usage import METADATA_EXTS, classify_paths
+from analyzers.source_usage import METADATA_EXTS, NOT_EXECUTED, classify_paths
 
 try:
     import yaml  # noqa: F401  (kept for parity with sibling scripts; not used here yet)
@@ -1305,7 +1305,7 @@ def _collect_routes(
     if usage is None:
         usage = classify_paths(repo_root, _walk_sources(repo_root, usage_evidence=True))
     for src in sources:
-        if usage.get(src.relative_to(repo_root).as_posix(), {}).get("kind") == "text-data":
+        if usage.get(src.relative_to(repo_root).as_posix(), {}).get("kind") in NOT_EXECUTED:
             continue
         try:
             lines = src.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
@@ -1664,7 +1664,7 @@ def build_inventory(repo_root: Path) -> dict:
         repo_root,
         all_routes,
         resolver,
-        text_files={file for file, role in usage.items() if role["kind"] == "text-data"},
+        text_files={file for file, role in usage.items() if role["kind"] in NOT_EXECUTED},
     )
     for r in all_routes:
         _lift_auth_signals(r, resolver)
@@ -1676,12 +1676,14 @@ def build_inventory(repo_root: Path) -> dict:
     for i, r in enumerate(deduped, start=1):
         routes_out.append(_serialize_route(i, r))
 
+    not_built = sorted(file for file, role in usage.items() if role["kind"] == "not-built")
     return {
         "version": 1,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "repo_root": str(repo_root),
         "routes": routes_out,
         "coverage": _coverage(routes_out, frameworks_seen, unsupported),
+        **({"not_built_files": not_built} if not_built else {}),
     }
 
 

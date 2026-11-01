@@ -22,6 +22,11 @@
       "type": "array",
       "items": { "$ref": "#/$defs/route" }
     },
+    "not_built_files": {
+      "type": "array",
+      "description": "TypeScript files the build leaves out of the compiled program the manifest starts; route extraction skips them and the report names them.",
+      "items": { "type": "string" }
+    },
     "coverage": {
       "type": "object",
       "required": ["frameworks_detected", "unsupported_route_files"],

@@ -241,7 +241,7 @@ def emit(output_dir: Path) -> tuple[int, int, int]:
         print(f"emit_threat_vektors: no yaml at {yaml_path}", file=sys.stderr)
         return (0, 0, 0)
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (yaml.YAMLError, OSError) as exc:
         print(f"emit_threat_vektors: parse failed: {exc}", file=sys.stderr)
         return (0, 0, 0)

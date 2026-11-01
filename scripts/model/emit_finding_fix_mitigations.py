@@ -338,7 +338,8 @@ def main() -> int:
         print(f"emit_finding_fix_mitigations: no {yaml_path} — skipping", file=sys.stderr)
         return 0
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+        loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=loader) or {}
     except (OSError, yaml.YAMLError) as exc:
         print(f"emit_finding_fix_mitigations: failed to load yaml: {exc}", file=sys.stderr)
         return 0

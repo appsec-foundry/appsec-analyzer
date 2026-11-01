@@ -1972,6 +1972,20 @@ def _assessment_stride(
                 "listing": analysis.unowned_listing(scope, components["components"], Namespaces(scope).qualify),
             }
         )
+    # REQ-003: a file the build leaves out stays in its component, but no route or code site check reaches it.
+    not_built = [
+        Namespaces(scope).qualify(rid, path)
+        for rid, inventory in architecture["route_inventories"].items()
+        for path in inventory.get("not_built_files", [])
+    ]
+    if not_built:
+        jobs.infos.append(
+            {
+                "not_built": {"files": len(not_built), "examples": not_built[:10]},
+                "text": f"{_count_noun(len(not_built), 'TypeScript file')} the build leaves out had no route or "
+                "code site checks",
+            }
+        )
 
     if captured is not None and assessment_context.requirement_ids(captured):
         requirement_rule = (
@@ -3141,6 +3155,7 @@ def _coverage_infos(entries: list[dict], verbose: bool) -> list[str]:
         for directory, files, paths in entry.get("listing") or []:
             more = f", … {files - len(paths)} more" if files > len(paths) else ""
             unowned.append(f"  {field(directory)} {files}: {', '.join(field(path) for path in paths)}{more}")
+    unowned += [entry["text"] for entry in entries if "not_built" in entry]
     if not verbose:
         return unowned
     undecided = [entry["text"] for entry in entries if "undecided" in entry]
@@ -4306,6 +4321,7 @@ def _assessment_render(
         if unexamined:
             model["meta"]["unexamined_source"] = unexamined
         unanalysed = _unanalysed_source(scope, workspace)
+        unanalysed += [{"reason": "not-built", **e["not_built"]} for e in jobs.infos if "not_built" in e]
         if unanalysed:
             model["meta"]["unanalysed_source"] = unanalysed
         unowned = next((e["unowned"] for e in jobs.infos if "unowned" in e), None)
