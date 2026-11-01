@@ -181,6 +181,8 @@ def usage_text(before: dict, after: dict, *, show_costs: bool | None = None) -> 
 
 
 STOP_LABEL_WIDTH = 11
+# The console's abuse-case groups, in their order; `run_abuse_cases` sorts each case into one.
+CASE_GROUPS = ("Technical", "Business", "Custom")
 KEPT = ("Status", "finished steps are kept")
 RESUME = "run the same command again with --resume"
 
@@ -360,10 +362,13 @@ class _AssessmentConsole:
     detail starts with the phase's duration. In the threat analysis, DETAIL
     starts with a column naming the method a line belongs to: Scanners, Survey
     and, with verification, Verify. The run header explains the three; Survey
-    and Verify each have a start and a done line of their own. A phase's
+    and Verify each have a start and a done line of their own. In the abuse
+    cases, the same column names a group: Technical, Business or Custom. Their
+    cases run side by side, so a group has no start or done line. A phase's
     start line names its scope, what the phase does and the agents that work
     in it with their models in parentheses (``(Sonnet 5.5)``). The threat
-    analysis's start line names the methods the run header lists instead; the
+    analysis's start line names the methods the run header lists instead, and
+    the abuse cases' start line the groups its case sources can fill; the
     start lines of Survey and Verify name their agents' models.
 
     PROGRESS counts finished work. Once the component count is known
@@ -511,18 +516,21 @@ class _AssessmentConsole:
         "Stage 2:": "report section",
     }
     # What each phase does, for its start line; the agents' models follow it. The threat analysis names its
-    # methods instead (`_description`), and each method's start line names its models.
+    # methods instead (`_description`), and each method's start line names its models. The abuse cases name
+    # their groups, and use their description only when the run header names no case source.
     PHASE_DESCRIPTIONS = {
         "Reconnaissance": "maps structure, technology and security-relevant code",
         "Architecture": "derives components and data flows",
         "Trust boundaries": "checks where data crosses between components",
         "Controls": "assesses the security controls",
         "Consolidation": "merges duplicate findings, then reviews and ranks them",
-        "Abuse cases": "derives and verifies business abuse cases",
+        "Abuse cases": "verifies abuse cases",
         "Finalization": "builds the report and runs the quality checks",
     }
     # Prefix of a phase's result step: "<RESULT><phase>: <what it produced>".
     RESULT = "Phase result: "
+    # Prefix of an abuse-case group's result step: "<CASE_RESULT><group>: <verdicts>".
+    CASE_RESULT = "Abuse case result · "
     # Suffix of a component's last step when every job it needed was reused.
     REUSED = " · reused"
     _POSITION = re.compile(r"\s*\((\d+)/(\d+)\)$")
@@ -562,8 +570,9 @@ class _AssessmentConsole:
         "Survey": "STRIDE-based review per component: entry points, outbound calls, scanner hits",
         "Verify": "fixed verification catalog",
     }
-    # Width of the method column that starts DETAIL in the threat analysis.
+    # Width of the method column that starts DETAIL in the threat analysis, and of the group column in the abuse cases.
     _METHOD_WIDTH = max(len(name) for name in METHODS)
+    _CASE_GROUP_WIDTH = max(len(name) for name in CASE_GROUPS)
     # The plan comes before the survey, the start after it; both name the components and end with the job count.
     # Only the start is shown: the plan only weighs the phase.
     _VERIFY_PLAN = re.compile(r"Verify (?:planned|start) · (\d+) components?(?: for | · ).* · (\d+) jobs?$")
@@ -634,8 +643,10 @@ class _AssessmentConsole:
         # The threat analysis method of the current lines, and the components each method took from the earlier run.
         self.method = ""
         self.method_reused: Counter = Counter()
-        # The threat analysis methods the run header names, for the phase's start line.
+        # The threat analysis methods the run header names, for the phase's start line, and the abuse-case
+        # groups its case sources can fill.
         self.methods = ["Scanners", "Survey"]
+        self.case_groups = []
         # (phase, method) pairs that already said a job was taken over from the earlier run.
         self.announced: set = set()
         # Corrected answers per role in the current phase (MR-17).
@@ -691,10 +702,11 @@ class _AssessmentConsole:
         return " ".join(part for part in (family.capitalize(), f"{major}.{minor}" if minor else major) if part)
 
     def _description(self, phase: str) -> str:
-        """What a phase does, for its start line; the threat analysis names its methods: ``Scanners and Survey``."""
-        if phase != "Threat analysis":
+        """What a phase does, for its start line; the threat analysis and abuse cases name their parts: ``Survey and Verify``."""
+        names = {"Threat analysis": self.methods, "Abuse cases": self.case_groups}.get(phase)
+        if not names:
             return self.PHASE_DESCRIPTIONS.get(phase, "")
-        *first, last = self.methods
+        *first, last = names
         return f"{', '.join(first)} and {last}" if first else last
 
     def phase_agents(self, phase: str) -> str:
@@ -783,13 +795,23 @@ class _AssessmentConsole:
         """The phases a run executes, in order; skipped abuse cases drop their phase."""
         return [name for name in cls.WEIGHTS if abuse_cases or name != "Abuse cases"]
 
-    def plan_phases(self, *, abuse_cases: bool, qa_depth: str = "full", architect_review: bool = False) -> None:
+    def plan_phases(
+        self,
+        *,
+        abuse_cases: bool,
+        qa_depth: str = "full",
+        architect_review: bool = False,
+        business_cases: bool = True,
+    ) -> None:
         """Number the phases this run will execute; skipped abuse cases shorten the count.
 
-        The depth's quality checks and architect review weigh finalization and consolidation.
+        The depth's quality checks and architect review weigh finalization and consolidation. A run that
+        verifies no business cases does not name their group.
         """
         self.plan = self.planned_phases(abuse_cases=abuse_cases)
         self.qa_depth, self.architect_review = qa_depth, architect_review
+        if not business_cases:
+            self.case_groups = [group for group in self.case_groups if group != "Business"]
 
     def plan_components(self, count: int) -> None:
         """Scale Controls and STRIDE to the run's components; RUN then shows a share."""
@@ -1233,9 +1255,11 @@ class _AssessmentConsole:
         if phase:
             number = f"{self.plan.index(phase) + 1}/{len(self.plan)}" if phase in self.plan else "?"
             phase = f"{number} {phase}"
-        # A threat analysis line names its method first; a long detail wraps under the text after it.
+        # A threat analysis line names its method first, an abuse-case line its group; a long detail wraps under
+        # the text after it.
         method = self.method if event not in ("start", "done") else ""
-        lead = f"{method:<{self._METHOD_WIDTH}}  " if method else ""
+        width = self._CASE_GROUP_WIDTH if self.phase == "Abuse cases" else self._METHOD_WIDTH
+        lead = f"{method:<{width}}  " if method else ""
         run = self._run(now)
         bar = ""
         if live:
@@ -1341,6 +1365,11 @@ class _AssessmentConsole:
         st = self.st
         if named := [key for key, value in rows if key in self.METHODS and not value.startswith("skipped")]:
             self.methods = named
+        if sources := dict(rows).get("Abuse cases"):
+            # The row lists Built-in first; only a user-supplied entry can add a file name.
+            built_in = CASE_GROUPS[:2] if sources.startswith("Built-in") else ()
+            custom = CASE_GROUPS[2:] if "organization" in sources or "user-supplied" in sources else ()
+            self.case_groups = [*built_in, *custom]
         if title:
             self.write("")
             if st.enabled:
@@ -1460,6 +1489,12 @@ class _AssessmentConsole:
         role = self.FACT_ROLES.get("Models" if key == "Model" else key, "bold")
         return self.st(head, role) + self.st(sep + tail, "muted")
 
+    def _case_row(self, group: str, detail: str, now: float) -> None:
+        """A line of one abuse-case group, which takes the column of a threat analysis method."""
+        self.method = group
+        self.record("·", detail, now)
+        self.method = ""
+
     def step(self, text: str) -> None:
         if text.startswith("Coverage gap: "):
             skip = None if self.verbose else self._BUDGET_SKIP.fullmatch(text)
@@ -1473,11 +1508,17 @@ class _AssessmentConsole:
             detail = text.removeprefix("Review coverage: ")
             label = detail.partition(":")[0]
             self.review_coverage.setdefault(self.phase, {})[label] = detail
-            self.record("·", detail)
+            # The abuse-case groups state their results; the count stands on the phase's end line.
+            if self.phase != "Abuse cases":
+                self.record("·", detail)
             return
         if text.startswith(self.RESULT):
             phase, _, result = text[len(self.RESULT) :].partition(": ")
             self.results[phase] = result
+            return
+        if text.startswith(self.CASE_RESULT):
+            group, _, result = text[len(self.CASE_RESULT) :].partition(": ")
+            self._case_row(group, result, self.clock())
             return
         reused = text.endswith(self.REUSED)
         if reused:
@@ -1559,12 +1600,13 @@ class _AssessmentConsole:
             self.record("·", text, now)
             return
         if prefix == "Abuse cases to verify":
-            # The step lists one "ID  title" per line; names come from case files and model output.
+            # A group's step lists one "ID  title" per line; names come from case files and model output.
+            head, *listed = text.split("\n")
             entries = [
-                "".join(char if char.isprintable() else "?" for char in entry)[: self._NAME_MAX]
-                for entry in text.split("\n")[1:]
+                "".join(char if char.isprintable() else "?" for char in entry)[: self._NAME_MAX] for entry in listed
             ]
-            self.record("·", "\n".join([f"{_count_noun(len(entries), 'abuse case')} to verify", *entries]), now)
+            listing = "\n".join([f"{_count_noun(len(entries), 'case')} to verify", *entries])
+            self._case_row(head.removeprefix(f"{prefix} · "), listing, now)
             return
         if position:
             # Subjects already finished in this phase, so the share never runs ahead.

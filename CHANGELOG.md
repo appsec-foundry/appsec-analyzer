@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Assessment progress lists abuse cases and their results in the groups `Technical`, `Business`, and `Custom`, and the phase's start line names these groups. `Custom` holds organization, repository, and selected cases, whatever they check. The cases still run side by side, and the checks and the report are unchanged.
 - Assessment progress shows the run's total against its limit, such as `USD 9.18 of 20.00 spent`, when a phase, the survey, verification, or one of their components finishes, with the amount in color on a terminal and only in runs that show costs. The verification start now calls its remaining amount `available after the completion reserve`, because it excludes the part reserved for finishing the run.
 - Verification keeps candidate locations with shared source files, models and handlers together when dividing work. It avoids overlapping source windows and reviews identical verification findings once while retaining all item and finding links. Live cost and runtime effects have not been measured.
 - Catalog verification can omit controller-derived identity fields and source hashes from model replies. Analyzer restores these values from the captured sources and applies the existing evidence checks before saving results. This reduces repeated output data; live token and cost savings have not been measured.

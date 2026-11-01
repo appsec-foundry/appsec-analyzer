@@ -3735,6 +3735,17 @@ def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, st
     return None
 
 
+def _business_cases_planned(cfg: dict[str, Any]) -> bool:
+    """Whether the run's depth or case selection lets built-in business abuse cases run."""
+    settings = cfg.get("depth_settings")
+    by_depth = (
+        settings["abuse_cases"] or settings["derived_abuse_cases"]
+        if settings
+        else cfg.get("assessment_depth") != "quick"
+    )
+    return bool(by_depth or cfg.get("only_abuse_case_ids") or cfg.get("check_abuse_case_ids"))
+
+
 def _assessment_pipeline(cfg: dict[str, Any]) -> str:
     """Name the phases this run executes and the optional steps it enables in them.
 
@@ -4817,6 +4828,7 @@ def assess_repositories(
                         abuse_cases=not cfg.get("skip_abuse_case_verification"),
                         qa_depth=cfg.get("qa_depth", "full"),
                         architect_review=bool(cfg.get("architect_review")),
+                        business_cases=_business_cases_planned(cfg),
                     )
                     if state.worked_before:
                         # ELAPSED adds the working time of a resumed run's earlier attempts, or of the

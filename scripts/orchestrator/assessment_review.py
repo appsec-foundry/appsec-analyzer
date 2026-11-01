@@ -21,6 +21,7 @@ from pathlib import Path
 import yaml
 from runtime.assessment_host import ExchangeError
 
+from appsec_analyzer.assessment.console import CASE_GROUPS
 from orchestrator.assessment_workspace import WorkspaceError, read_json, write_json
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +32,8 @@ _ABUSE_GATE_EXIT = 2
 # Repository-local case locations the resolver loads relative to its root.
 _CASE_DIRECTORIES = ("docs/security/abuse-cases", ".appsec/abuse-cases")
 _CASE_SUFFIXES = (".yaml", ".yml")
+# What a case's console line adds about its origin; the other origins go without saying in their group.
+_CASE_NOTES = {"derived": "(model-derived)", "org": "(organization)"}
 # One architect job holds up to 24 packets of 16 KiB; an exchange context is
 # bounded at 256 KiB, so a large job is reviewed in several exchanges.
 _ARCHITECT_EXCHANGE_BYTES = 196_608
@@ -200,8 +203,8 @@ def _validate_retrieved(artifact: dict, ranges: list[dict], allowed: frozenset) 
             raise ExchangeError("Abuse-case evidence was not retrieved by its authorized job")
 
 
-def _candidate_titles(workspace: Path) -> dict[str, str]:
-    """``{AC-ID: title}`` from the matcher sidecar, for the console's progress lines.
+def _case_matches(workspace: Path) -> dict[str, dict]:
+    """``{AC-ID: match}`` from the matcher sidecar, for the console's progress lines.
 
     Best-effort: without a readable sidecar a case is shown by its ID alone.
     """
@@ -210,10 +213,40 @@ def _candidate_titles(workspace: Path) -> dict[str, str]:
     except (OSError, ValueError, AttributeError):
         return {}
     return {
-        str(match["abuse_case_id"]): str(match.get("title") or "").strip()
+        str(match["abuse_case_id"]): match
         for match in matches or []
         if isinstance(match, dict) and match.get("abuse_case_id")
     }
+
+
+def _candidate_titles(workspace: Path) -> dict[str, str]:
+    """``{AC-ID: title}`` of the cases the matcher names."""
+    return {case: str(match.get("title") or "").strip() for case, match in _case_matches(workspace).items()}
+
+
+def _case_group(match: dict) -> str:
+    """The console group of a case; who supplied it decides before what it checks."""
+    if match.get("origin") in ("org", "repo", "explicit"):
+        return "Custom"
+    return "Business" if match.get("source") == "descriptive" else "Technical"
+
+
+def _listed_cases(workspace: Path, candidates: list[str]) -> list[str]:
+    """One console step per group with cases, listing one aligned ``ID  title`` per line."""
+    matches = _case_matches(workspace)
+    width = max(map(len, candidates))
+    steps = []
+    for group in CASE_GROUPS:
+        lines = [f"Abuse cases to verify · {group}"]
+        for case in sorted(candidates):
+            match = matches.get(case, {})
+            if _case_group(match) == group:
+                note = _CASE_NOTES.get(match.get("origin"), "")
+                text = " ".join(part for part in (" ".join(str(match.get("title") or "").split()), note) if part)
+                lines.append(f"{case:<{width}}  {text}" if text else case)
+        if len(lines) > 1:
+            steps.append("\n".join(lines))
+    return steps
 
 
 def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, instructions) -> None:
@@ -384,11 +417,9 @@ def run_abuse_cases(
             + [arg for candidate in candidates for arg in ("--candidate", candidate)],
         )
         titles = _candidate_titles(workspace)
-        # The cases run concurrently: the console names them once instead of one line per start.
-        listed_cases = "\n".join(
-            f"{item}  {' '.join(titles[item].split())}" if titles.get(item) else item for item in sorted(candidates)
-        )
-        progress(f"Abuse cases to verify\n{listed_cases}")
+        # The cases run concurrently, whatever their group: the console names them once instead of one line per start.
+        for listed_cases in _listed_cases(workspace, candidates):
+            progress(listed_cases)
 
         def verify(position, candidate, jobs):
             title = f" — {titles[candidate]}" if titles.get(candidate) else ""
@@ -421,6 +452,8 @@ def run_abuse_cases(
         progress(f"{merging} · {len(model.get('threats') or [])} findings in the report")
     persist_abuse_cases(workspace, root, cfg, run_script)
     if candidates:
+        for result in _group_results(workspace):
+            progress(result)
         progress("Review coverage: " + _abuse_coverage(workspace, candidates))
         # What came out of the checks; the numbered steps above already counted the cases.
         if result := _abuse_result(workspace):
@@ -504,6 +537,24 @@ def _abuse_result(workspace: Path) -> str:
 
     model = yaml.safe_load((workspace / "threat-model.yaml").read_text(encoding="utf-8"))
     return abuse_case_line(model.get("abuse_case_analysis"))
+
+
+def _group_results(workspace: Path) -> list[str]:
+    """One console step per group with a result, in the words of the phase's done line."""
+    from renderers.summarize_threat_model import abuse_case_line
+
+    model = yaml.safe_load((workspace / "threat-model.yaml").read_text(encoding="utf-8"))
+    analysis = model.get("abuse_case_analysis") or {}
+    groups = {case: _case_group(match) for case, match in _case_matches(workspace).items()}
+    steps = []
+    for group in CASE_GROUPS:
+        own = {
+            key: [row for row in analysis.get(key) or [] if groups.get(row["id"]) == group]
+            for key in ("cases", "not_performed")
+        }
+        if line := abuse_case_line(own):
+            steps.append(f"Abuse case result · {group}: {line}")
+    return steps
 
 
 def persist_abuse_cases(workspace, root, cfg, run_script) -> None:

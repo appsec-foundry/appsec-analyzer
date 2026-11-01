@@ -1697,6 +1697,20 @@ def test_depth_settings_set_the_business_case_limits(tmp_path: Path):
     assert {m["reason"] for m in matches} == {"standard depth verifies business abuse cases only on explicit request"}
 
 
+def test_each_match_names_where_its_case_came_from(tmp_path: Path):
+    repo = _repo(tmp_path)
+    case_dir = repo / ".appsec" / "abuse-cases"
+    case_dir.mkdir(parents=True)
+    (case_dir / "business.yaml").write_text(yaml.safe_dump({"schema_version": 2, "abuse_cases": [_descriptive()]}))
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / ".threats-merged.json").write_text(json.dumps({"threats": []}))
+    assert mac.main(["match", "--output-dir", str(out), "--repo-root", str(repo)]) == 0
+    by_id = {m["abuse_case_id"]: m for m in json.loads((out / ".abuse-case-matches.json").read_text())["matches"]}
+    assert by_id["REPO-AC-020"]["origin"] == "repo"
+    assert by_id["AC-T-001"]["origin"] == by_id["AC-B-001"]["origin"] == "library"
+
+
 def test_scan_profile_lists_check_and_skip_cases_and_warn_about_inactive_ones(tmp_path: Path, capsys):
     repo = _repo(tmp_path)
     case_dir = repo / ".appsec" / "abuse-cases"

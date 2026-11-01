@@ -270,8 +270,9 @@ def test_each_verified_case_is_reported_with_its_title_and_position(abuse):
     )
     assert f"Verifying abuse case: {CASE} — Expression evaluation leads to code execution (1/1)" in shown
     # The concurrent cases are listed once, before the first one starts.
-    assert f"Abuse cases to verify\n{CASE}  Expression evaluation leads to code execution" in shown
-    assert shown.index(f"Abuse cases to verify\n{CASE}  Expression evaluation leads to code execution") < shown.index(
+    listed = f"Abuse cases to verify · Technical\n{CASE}  Expression evaluation leads to code execution"
+    assert listed in shown
+    assert shown.index(listed) < shown.index(
         f"Verifying abuse case: {CASE} — Expression evaluation leads to code execution (1/1)"
     )
     # The numbered steps count the checked cases; no second count as a phase result.
@@ -302,6 +303,66 @@ def test_abuse_coverage_distinguishes_checked_partial_and_missing_results(tmp_pa
     assert review._abuse_coverage(tmp_path, [f"AC-B-{n:03d}" for n in range(1, 5)]) == (
         "abuse-case verification: 1 checked, 1 partial, 2 unchecked"
     )
+
+
+def _grouped_matches(tmp_path):
+    matches = [
+        {"abuse_case_id": "AC-T-001", "title": "Read foreign data", "source": "mandatory", "origin": "library"},
+        {"abuse_case_id": "AC-B-002", "title": "Pay less", "source": "descriptive", "origin": "library"},
+        {"abuse_case_id": "AC-B-003", "title": "Skip a step", "source": "descriptive", "origin": "library"},
+        {"abuse_case_id": "MODEL-AC-001", "title": "Redeem twice", "source": "descriptive", "origin": "derived"},
+        # The origin decides before what a case checks: a team's technical case is one of its own cases.
+        {"abuse_case_id": "ORG-AC-001", "title": "Approve alone", "source": "descriptive", "origin": "org"},
+        {"abuse_case_id": "REPO-AC-001", "title": "Refund\nmore", "source": "mandatory", "origin": "explicit"},
+        {"abuse_case_id": "REPO-AC-002", "source": "mandatory", "origin": "repo"},
+    ]
+    (tmp_path / ".abuse-case-matches.json").write_text(json.dumps({"matches": matches}))
+    return [match["abuse_case_id"] for match in matches]
+
+
+def test_cases_to_verify_are_listed_per_group_with_aligned_titles(tmp_path):
+    candidates = [case for case in _grouped_matches(tmp_path) if case != "AC-B-003"]
+    assert review._listed_cases(tmp_path, candidates) == [
+        "Abuse cases to verify · Technical\nAC-T-001      Read foreign data",
+        "Abuse cases to verify · Business\nAC-B-002      Pay less\nMODEL-AC-001  Redeem twice (model-derived)",
+        "Abuse cases to verify · Custom\n"
+        "ORG-AC-001    Approve alone (organization)\n"
+        "REPO-AC-001   Refund more\n"
+        "REPO-AC-002",
+    ]
+
+
+def test_a_group_without_a_case_is_not_listed(tmp_path):
+    _grouped_matches(tmp_path)
+    assert review._listed_cases(tmp_path, ["AC-T-001"]) == [
+        "Abuse cases to verify · Technical\nAC-T-001  Read foreign data"
+    ]
+
+
+def test_each_group_states_its_own_verdicts_and_the_cases_left_out(tmp_path):
+    _grouped_matches(tmp_path)
+    cases = [
+        {"id": "AC-T-001", "chain_verdict": "fully_viable"},
+        {"id": "AC-B-002", "chain_verdict": "mitigated"},
+        {"id": "MODEL-AC-001", "chain_verdict": "mitigated"},
+        {"id": "ORG-AC-001", "chain_verdict": "mitigated"},
+        {"id": "REPO-AC-001", "chain_verdict": "inconclusive"},
+    ]
+    left_out = [{"id": "AC-B-003", "reason": "exceeds the limit of 3 business abuse cases at standard depth"}]
+    analysis = {"cases": cases, "not_performed": left_out}
+    (tmp_path / "threat-model.yaml").write_text(yaml.safe_dump({"abuse_case_analysis": analysis}))
+    assert review._group_results(tmp_path) == [
+        "Abuse case result · Technical: 1 confirmed",
+        "Abuse case result · Business: 2 mitigated · 1 not checked (limit)",
+        "Abuse case result · Custom: 1 unresolved · 1 mitigated",
+    ]
+
+
+def test_a_group_without_a_verdict_states_no_result(tmp_path):
+    _grouped_matches(tmp_path)
+    cases = [{"id": "AC-T-001", "chain_verdict": "fully_viable"}]
+    (tmp_path / "threat-model.yaml").write_text(yaml.safe_dump({"abuse_case_analysis": {"cases": cases}}))
+    assert review._group_results(tmp_path) == ["Abuse case result · Technical: 1 confirmed"]
 
 
 def test_abuse_result_states_the_verdicts_the_phase_line_carries(tmp_path):

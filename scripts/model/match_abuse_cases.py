@@ -1278,6 +1278,8 @@ def cmd_match(args: argparse.Namespace) -> int:
     ]
     findings_by_id = {_finding_id(finding): finding for finding in findings}
     matches.sort(key=lambda match: _candidate_priority(match, findings_by_id))
+    for match in matches:
+        match["origin"] = origins.get(match["abuse_case_id"])
     settings, check_ids, skip_ids = _depth_settings(out_dir)
     active = {c.get("id") for c in cases}
     for cid in sorted(set(check_ids) - active):

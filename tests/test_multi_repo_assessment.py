@@ -2707,7 +2707,7 @@ def test_every_stride_component_gets_its_own_line_and_the_abuse_cases_one_list(c
     console.step("Analyzed component: Ledger \x1b[2J\u202e (1/2)")
     clock.tick(5)
     console.step("Analyzed component: Gateway (2/2)")
-    console.step("Abuse cases to verify\nAC-901  Replay a signed callback\nAC-902\x1b[2J")
+    console.step("Abuse cases to verify · Technical\nAC-901  Replay a signed callback\nAC-902\x1b[2J")
     console.step("Verifying abuse case: AC-901 — Replay a signed callback (1/2)")
     console.step("Verifying abuse case: AC-902 (2/2)")
     console.close()
@@ -2723,7 +2723,7 @@ def test_every_stride_component_gets_its_own_line_and_the_abuse_cases_one_list(c
         "Survey    start · 2 components",
         *([] if live else started),
         # The concurrent cases are named once, aligned under the detail column; a start prints no line.
-        "2 abuse cases to verify\n" + " " * 66 + "AC-901  Replay a signed callback\n" + " " * 66 + "AC-902?[2J",
+        "Technical  2 cases to verify\n" + " " * 77 + "AC-901  Replay a signed callback\n" + " " * 77 + "AC-902?[2J",
     ]
     # A finish counts completions, never a start slot: Ledger started second but finished first.
     assert [row[5] for row in rows if row[1] == "✓"] == [
@@ -2734,6 +2734,85 @@ def test_every_stride_component_gets_its_own_line_and_the_abuse_cases_one_list(c
         "7/8 Abuse cases",
         "0s · 2 abuse cases",
     )
+
+
+def test_abuse_case_lines_name_their_group_in_a_column_of_their_own():
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.facts(None, [("Abuse cases", "Built-in + organization + 2 user-supplied")])
+    console.plan_phases(abuse_cases=True)
+    console.step("Matching abuse cases")
+    console.step("Abuse cases to verify · Technical\nAC-T-001    Read foreign data")
+    console.step("Abuse cases to verify · Custom\nORG-AC-001  Approve alone (organization)\nREPO-AC-001 Refund\x1b[2J")
+    console.step("Verifying abuse case: AC-T-001 — Read foreign data (1/3)")
+    console.step("Review coverage: abuse-case verification: 3 checked, 0 partial, 0 unchecked")
+    console.step("Abuse case result · Technical: 1 confirmed")
+    console.step("Abuse case result · Custom: 1 unresolved · 1 mitigated")
+    console.step("Phase result: Abuse cases: 1 confirmed · 1 unresolved · 1 mitigated")
+    console.close()
+    column = " " * 77
+    assert [(row[1], row[5]) for row in _rows(lines)] == [
+        ("start", "Technical, Business and Custom"),
+        ("·", f"Technical  1 case to verify\n{column}AC-T-001    Read foreign data"),
+        (
+            "·",
+            f"Custom     2 cases to verify\n{column}ORG-AC-001  Approve alone (organization)\n{column}REPO-AC-001 Refund?[2J",
+        ),
+        # The groups say what the coverage count would say, so it stands only on the phase's end.
+        ("·", "Technical  1 confirmed"),
+        ("·", "Custom     1 unresolved · 1 mitigated"),
+        (
+            "done",
+            "0s · 1 confirmed · 1 unresolved · 1 mitigated · abuse-case verification: 3 checked, 0 partial, 0 unchecked",
+        ),
+    ]
+
+
+def test_a_group_line_leaves_the_threat_analysis_columns_and_a_later_line_alone():
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.step("Matching abuse cases")
+    console.step("Abuse case result · Technical: 1 confirmed")
+    console.step("A step without a group")
+    assert [row[5] for row in _rows(lines)][-2:] == ["Technical  1 confirmed", "A step without a group"]
+
+
+@pytest.mark.parametrize(
+    ("sources", "business", "start"),
+    [
+        ("Built-in", True, "Technical and Business"),
+        ("Built-in; 1 case file(s) rejected", True, "Technical and Business"),
+        ("Built-in + organization", True, "Technical, Business and Custom"),
+        ("organization", True, "Custom"),
+        ("1 user-supplied (Built-in.yaml)", True, "Custom"),
+        # Only explicitly chosen cases run at a depth without business cases, so the line does not promise them.
+        ("Built-in + 1 user-supplied (review/cases.yaml)", False, "Technical and Custom"),
+        ("None loaded", True, "verifies abuse cases"),
+    ],
+)
+def test_the_abuse_case_phase_names_the_groups_its_cases_can_fall_into(sources, business, start):
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.facts(None, [("Abuse cases", sources)])
+    console.plan_phases(abuse_cases=True, business_cases=business)
+    console.step("Matching abuse cases")
+    assert _rows(lines)[0][5] == start
+
+
+@pytest.mark.parametrize(
+    ("cfg", "planned"),
+    [
+        ({"depth_settings": {"abuse_cases": 3, "derived_abuse_cases": 0}}, True),
+        ({"depth_settings": {"abuse_cases": 0, "derived_abuse_cases": 3}}, True),
+        ({"depth_settings": {"abuse_cases": 0, "derived_abuse_cases": 0}}, False),
+        ({"assessment_depth": "standard"}, True),
+        ({"assessment_depth": "quick"}, False),
+        ({"assessment_depth": "quick", "only_abuse_case_ids": ["AC-B-001"]}, True),
+        ({"depth_settings": {"abuse_cases": 0, "derived_abuse_cases": 0}, "check_abuse_case_ids": ["AC-B-001"]}, True),
+    ],
+)
+def test_business_cases_are_planned_by_depth_or_explicit_selection(cfg, planned):
+    assert controller._business_cases_planned(cfg) is planned
 
 
 @pytest.mark.parametrize(
