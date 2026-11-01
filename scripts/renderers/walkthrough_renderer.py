@@ -1559,7 +1559,7 @@ def _render_walkthrough_block(
     )
     lines.append("")
     lines.append(
-        f"Severity **{register_severity(threat) or 'High'}** "
+        f"Severity {_dot_prefix}{register_severity(threat) or 'High'} "
         f"({cwe or 'CWE-?'}). STRIDE: {threat.get('stride') or 'n/a'}. "
         f"See [§8 {fid}](#{_anchor(fid)}) for the full register row."
     )

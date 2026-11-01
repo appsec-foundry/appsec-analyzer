@@ -86,6 +86,11 @@ def test_a_shortened_route_keeps_its_full_text_as_tooltip():
     assert clean(route) == route
 
 
+def test_a_finding_link_keeps_its_title_as_tooltip():
+    link = '<a href="#f-001" title="SQL &quot;injection&quot; &lt;login&gt;">F-001</a>'
+    assert clean(link) == link
+
+
 @pytest.mark.skipif(not shutil.which("pandoc"), reason="pandoc is not installed")
 @pytest.mark.parametrize(
     "markdown",

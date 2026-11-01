@@ -584,9 +584,9 @@ sections:
       - { id: G1, rule: "each attack glyph appears at most once on attack-arrow labels" }
       - { id: G2, rule: "glyph order on attack arrows is ① ② … without gaps" }
       # T — Top Threats table below the diagram (replaced the legacy bullet list).
-      - { id: T1, rule: "the Top Threats table header `| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |` is present below the diagram" }
+      - { id: T1, rule: "the Top Threats table header `| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |` is present below the diagram" }
       - { id: T2, rule: "diagram ↔ table glyph parity: every heatmap attack-arrow glyph appears exactly once as a Top Threats table-row `#` glyph, and vice-versa (emitted as `T2/G3`)" }
-      - { id: T3, rule: "the Top Threats table links findings into §8 via `[F-NNN](#f-nnn)`" }
+      - { id: T3, rule: "the Top Threats table links findings into §8 via `<a href=\"#f-nnn\">`" }
 
   # 2026-05 — `top_findings` and `architecture_assessment` were MERGED into
   # the single `top_threats` section below (one threat-grouped table that

@@ -575,7 +575,7 @@ def _colw_cell_text(cell_html: str) -> int:
 
 # Tables that stay Markdown, because QA reads their rows, but need set column shares: by content alone,
 # Risk & Impact and Fix got so narrow in the threat overview that words broke apart at 800 px.
-_SET_COLUMN_SHARES = {("#", "Threat Description"): (4, 20, 39, 18, 19)}
+_SET_COLUMN_SHARES = {("#", "Threat Description"): (5, 31, 24, 17, 23)}
 
 
 def _inject_table_colgroups(html: str) -> str:

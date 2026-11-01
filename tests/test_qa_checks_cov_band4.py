@@ -1082,7 +1082,7 @@ linkStyle 2 stroke:#b71c1c
 linkStyle 3 stroke:#6b7280
 ```
 
-| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |
+| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |
 | --- | --- | --- | --- | --- |
 | <a id="path-1"></a>① | Injection | [F-001](#f-001) | High | Patch |
 

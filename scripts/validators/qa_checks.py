@@ -982,6 +982,9 @@ def linkify_anchors(md_path: Path) -> tuple[Report, str]:
     return report, new_text
 
 
+# The table links findings as HTML, so the IDs keep their tooltip and get no title written behind them.
+_TOP_THREATS_FINDING_LINK_RE = re.compile(r'\[F-\d+\]\(#f-\d+\)|<a href="#f-\d+"')
+
 # Operational Strengths is reserved for *architectural* strengths. Tactical
 # baseline hygiene (HTTP response-header hardening, single-line middleware
 # without a meaningful architectural commitment) must not appear there.
@@ -1982,7 +1985,7 @@ _TABLE_SCHEMA_CHECKS: list[tuple[str, str, list[str]]] = [
         "top_threats",
         "Top Threats",
         [
-            "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |",
+            "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |",
         ],
     ),
     (
@@ -10621,7 +10624,7 @@ def _check_posture_structure_svg(report: Report, section: str, md_path: Path, im
         report.issues.extend(f"D-SVG: {problem}" for problem in check_figure2_svg(svg_text))
 
     # T1: table header present.
-    if "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |" not in section:
+    if "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |" not in section:
         report.issues.append("T1: missing Top Threats table header below Figure 2")
     # T2/G3: figure arrow glyphs (from data-glyphs) == Top Threats row glyphs.
     # Table glyphs are circled unicode (①..); normalise both to integers.
@@ -10636,8 +10639,8 @@ def _check_posture_structure_svg(report: Report, section: str, md_path: Path, im
             f"T2/G3: Figure 2 arrow glyphs {sorted(svg_nums)} ≠ Top Threats row glyphs {sorted(table_nums)}"
         )
     # T3: at least one finding links into §8.
-    if table_glyphs and not re.search(r"\[F-\d+\]\(#f-\d+\)", section):
-        report.issues.append("T3: Top Threats findings are not linked to §8 (`[F-NNN](#f-nnn)`)")
+    if table_glyphs and not _TOP_THREATS_FINDING_LINK_RE.search(section):
+        report.issues.append("T3: Top Threats findings are not linked to §8 (`#f-nnn`)")
 
     if not report.issues:
         report.ok = 1
@@ -10871,7 +10874,7 @@ def check_security_posture_structure(md_path: Path) -> Report:
     # glyphs (G3, now diagram↔table), and that finding/mitigation/component
     # cross-references are linked.
     # T1: table header present.
-    if "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |" not in after_mermaid:
+    if "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |" not in after_mermaid:
         report.issues.append("T1: missing Top Threats table header below the diagram")
     # T2/G3: every diagram arrow glyph appears exactly once as a table-row `#`
     # glyph (the row carries `<a id="path-…"></a>①`), and vice versa.
@@ -10885,10 +10888,10 @@ def check_security_posture_structure(md_path: Path) -> Report:
         report.issues.append(
             f"T2/G3: diagram arrow glyphs {arrow_glyph_set} ≠ Top Threats row glyphs {set(table_glyphs)}"
         )
-    # T3: at least one finding is linked into §8 (`[F-NNN](#f-nnn)`); the table
-    # is the canonical place those cross-references now live.
-    if table_glyphs and not re.search(r"\[F-\d+\]\(#f-\d+\)", after_mermaid):
-        report.issues.append("T3: Top Threats findings are not linked to §8 (`[F-NNN](#f-nnn)`)")
+    # T3: at least one finding is linked into §8; the table is the canonical
+    # place those cross-references now live.
+    if table_glyphs and not _TOP_THREATS_FINDING_LINK_RE.search(after_mermaid):
+        report.issues.append("T3: Top Threats findings are not linked to §8 (`#f-nnn`)")
 
     if not report.issues:
         report.ok = 1

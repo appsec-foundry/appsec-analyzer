@@ -59,13 +59,16 @@ def split_visible(entries: Iterable[str]) -> tuple[list[str], list[str]]:
     return shown, rest
 
 
-def fold(entries: list[str]) -> str:
-    """A collapsed block that names what it holds, or an empty string for no entries."""
+def fold(entries: list[str], body: str = "") -> str:
+    """A collapsed block that names what it holds, or an empty string for no entries.
+
+    ``body`` replaces the plain list when the entries need a layout of their own.
+    """
     if not entries:
         return ""
     count = Counter(badge_of(entry) for entry in entries)
     label = " · ".join(f"{count[mark]} {_NAMES.get(mark, 'more')}" for mark in _RANK if mark in count)
-    return f"<details><summary>{label}</summary>{'<br/>'.join(entries)}</details>"
+    return f"<details><summary>{label}</summary>{body or '<br/>'.join(entries)}</details>"
 
 
 def severity_tally(entries: list[str]) -> str:
@@ -92,6 +95,14 @@ def plain_text(value: object) -> str:
     """Model-authored text for a cell: it stays text and can form neither markup nor a link."""
     text = html.escape(" ".join(str(value).split()), quote=False)
     return re.sub(r"[`*_\[\]|\\]", lambda match: f"&#{ord(match.group(0))};", text)
+
+
+def tooltip(value: object) -> str:
+    """Model-authored text for a double-quoted HTML attribute: it cannot end the attribute.
+
+    A dollar sign stands as a reference, because the math escaping of later passes would show in a tooltip.
+    """
+    return plain_text(value).replace('"', "&quot;").replace("$", "&#36;")
 
 
 def whole_sentences(text: str, limit: int) -> str:

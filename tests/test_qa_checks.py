@@ -1926,7 +1926,7 @@ class TestSecurityPostureStructureRegexes:
 
         **3 structural threats** — Top Threats table (merged section).
 
-        | # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |
+        | # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |
         |---|--------------------|------------------------|---------------|-----|
         | <a id="path-injection"></a>① | **Injection** _(T·I)_<br/>input flows into an interpreter | •&nbsp;[F-001](#f-001)&nbsp;SQL&nbsp;Injection&nbsp;→&nbsp;[C-01](#c-01) | 🔴 **Critical**<br/>Full Admin Takeover | [M-001](#m-001) (P1) |
         | <a id="path-auth-bypass"></a>② | **Auth Bypass** _(S·E)_<br/>weak credentials | •&nbsp;[F-002](#f-002)&nbsp;JWT&nbsp;alg:none&nbsp;→&nbsp;[C-01](#c-01) | 🔴 **Critical**<br/>Full Admin Takeover | [M-002](#m-002) (P1) |
@@ -2027,7 +2027,7 @@ class TestSecurityPostureStructureRegexes:
 
             ![Figure 2 - Risk Flow: Actor to Tier to Impact]({img_src})
 
-            | # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |
+            | # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |
             |---|--------------------|------------------------|---------------|-----|
             | <a id="path-injection"></a>① | **Injection** | •&nbsp;[F-001](#f-001)&nbsp;→&nbsp;[C-01](#c-01) | 🔴 **Critical** | [M-001](#m-001) |
             | <a id="path-auth"></a>② | **Auth Bypass** | •&nbsp;[F-002](#f-002)&nbsp;→&nbsp;[C-01](#c-01) | 🔴 **Critical** | [M-002](#m-002) |
@@ -2174,7 +2174,7 @@ class TestSecurityPostureStructureRegexes:
         """2026-05: the bullet list was replaced by the Top Threats table.
         If that table header is absent, T1 must fire."""
         broken = self._CLEAN_POSTURE_SECTION.replace(
-            "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |",
+            "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |",
             "| # | Threat | Findings |",  # wrong/legacy header
         )
         md = _write_minimal_model(tmp_path, broken)
@@ -2799,9 +2799,13 @@ class TestPostureB2IdConvention:
         report = qa.check_security_posture_structure(md)
         assert not any(i.startswith("B2:") for i in report.issues), report.issues
 
-    def test_t3_flags_table_without_finding_links(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("findings", "fires"),
+        [("•&nbsp;SQL Injection (no link)", True), ('🔴&nbsp;<a href="#f-001" title="SQL">F-001</a>', False)],
+    )
+    def test_t3_flags_table_without_finding_links(self, tmp_path, findings, fires):
         """2026-05: bullets were replaced by the Top Threats table. A table
-        whose findings are not linked into §8 (`[F-NNN](#f-nnn)`) must fire T3."""
+        whose findings are not linked into §8 must fire T3."""
         section = textwrap.dedent("""\
             ### Security Posture & Top Threats
 
@@ -2832,13 +2836,13 @@ class TestPostureB2IdConvention:
                 linkStyle 3 stroke:#6b7280,stroke-width:1.5px,stroke-dasharray:4
             ```
 
-            | # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |
+            | # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |
             |---|--------------------|------------------------|---------------|-----|
-            | <a id="path-injection"></a>① | **Injection** _(T·I)_<br/>flows | •&nbsp;SQL Injection (no link) | 🔴 **Critical**<br/>Full Takeover | — |
-            """)
+            | <a id="path-injection"></a>① | **Injection** _(T·I)_<br/>flows | FINDINGS | 🔴 **Critical**<br/>Full Takeover | — |
+            """).replace("FINDINGS", findings)
         md = _write_minimal_model(tmp_path, section)
         report = qa.check_security_posture_structure(md)
-        assert any(i.startswith("T3:") for i in report.issues), report.issues
+        assert any(i.startswith("T3:") for i in report.issues) is fires, report.issues
 
 
 # ---------------------------------------------------------------------------

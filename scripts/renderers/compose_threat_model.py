@@ -154,7 +154,6 @@ from renderers.actor_presentation import attacker_display, inventory_actors
 from renderers.compact_tables import (
     MAX_TABLE_WIDTH,
     badge,
-    badge_of,
     fixed_table,
     fold,
     id_list,
@@ -162,6 +161,7 @@ from renderers.compact_tables import (
     spanned_table,
     split_visible,
     token_count,
+    tooltip,
 )
 from renderers.component_labels import component_names, endpoint_label
 from renderers.pregenerate_fragments import _TIER_HINTS as _pregen_tier_hints
@@ -3041,6 +3041,13 @@ def _member_severity(ctx: RenderContext, t: dict[str, Any]) -> str:
     return (ctx.severity_for_ref(ref) or t.get("risk") or t.get("severity") or "").strip()
 
 
+def _ranking_scores(ctx: RenderContext) -> dict[str, float]:
+    """The triage ranking score of each finding by visible ID."""
+    threats = _threat_lookup(ctx)
+    ranked = (ctx.triage.get("ranking") or {}).get("views", {}).get("top_findings", {}).get("findings_ranked") or []
+    return {_path_finding(threats, row.get("id") or "")[0]: row.get("score") or 0 for row in ranked}
+
+
 def _sort_attack_paths(ctx: RenderContext, data: dict, taxonomy: dict) -> None:
     """Order the paths by risk, because every consumer numbers them by position (REQ-012).
 
@@ -3049,8 +3056,7 @@ def _sort_attack_paths(ctx: RenderContext, data: dict, taxonomy: dict) -> None:
     model wrote and whether a class had to be added to it.
     """
     threats = _threat_lookup(ctx)
-    ranked = (ctx.triage.get("ranking") or {}).get("views", {}).get("top_findings", {}).get("findings_ranked") or []
-    scores = {_path_finding(threats, row.get("id") or "")[0]: row.get("score") or 0 for row in ranked}
+    scores = _ranking_scores(ctx)
     classes = [cls.get("id") for cls in taxonomy.get("classes") or [] if isinstance(cls, dict)]
 
     def rank(path: dict) -> tuple[int, float, int]:
@@ -5136,7 +5142,7 @@ def _measure_prio_prefix(ctx: RenderContext, mid: str) -> str:
 
     The full-label form (`[M-NNN](#m-nnn) — title`) gets this prefix from
     `linkify_with_label`; this helper is for the compact bare-chip cells
-    (§2 Top-Threats Fix, §7b Requirements Traceability, Top-Findings measures)
+    (§7b Requirements Traceability, Top-Findings measures)
     that deliberately omit the title but must still carry the same annotation.
     Returns "" when the priority is unknown (no prefix rather than a bare digit).
     """
@@ -7983,9 +7989,61 @@ _REMEDIATION_FIXES_PER_CAUSE = 3
 _REMEDIATION_MIN_ROWS = 5
 
 
+_PRIORITY_RANK = {"P1": 0, "P2": 1, "P3": 2, "P4": 3}
+
+
 def _finding_key(ref: str) -> str:
     """Visible F-NNN for a T-NNN or F-NNN reference."""
     return _normalize_tid_to_fid(str(ref or "").strip().upper())
+
+
+def _measure_row(m: dict[str, Any], threats: dict[str, dict[str, Any]], business_relevant: Any) -> dict[str, Any]:
+    """One mitigation with what ranking it needs."""
+    addressed_ids = [str(a) for a in (m.get("addresses") or m.get("threat_ids") or []) if a]
+    max_sev = 99
+    critical = False
+    for tid in addressed_ids:
+        t = threats.get(tid, {})
+        sev = t.get("effective_severity") or t.get("risk") or t.get("severity")
+        max_sev = min(max_sev, _severity_rank(sev))
+        critical = critical or str(sev or "").strip().lower() == "critical"
+    priority = (m.get("priority") or "").strip().upper()
+    if priority not in _PRIORITY_RANK:
+        priority = {0: "P1", 1: "P2", 2: "P3", 3: "P4"}.get(max_sev, "P4")
+    return {
+        "id": m.get("m_id") or m.get("id") or "",
+        "finding_keys": list(dict.fromkeys(_finding_key(a) for a in addressed_ids)),
+        "effort": m.get("effort") or "Medium",
+        "priority": priority,
+        "max_sev_rank": max_sev,
+        "covers_critical": critical,
+        "business_note": _business_relevance.mitigation_note(addressed_ids, business_relevant),
+        "kind": m.get("kind") or "",
+        "prevents": [str(cwe) for cwe in m.get("prevents") or [] if cwe],
+    }
+
+
+def _measure_sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        _PRIORITY_RANK.get(r["priority"], 9),
+        not r["business_note"],
+        -len(r["finding_keys"]),
+        r["max_sev_rank"],
+        _effort_rank(r["effort"]),
+        r["id"],
+    )
+
+
+def _do_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The P1/P2 measures. Rows with only P3 or P4 would show nothing, so their best tier stands in."""
+    tiers = sorted({r["priority"] for r in rows}, key=lambda p: _PRIORITY_RANK.get(p, 9))
+    first = {"P1", "P2"} if not tiers or tiers[0] in ("P1", "P2") else {tiers[0]}
+    return [r for r in rows if r["priority"] in first]
+
+
+def _measure_reference(ctx: RenderContext, mid: str) -> str:
+    """A measure with its title, without the finding ID that only tells equal titles apart."""
+    return re.sub(r"\s*\(\[?F-\d+\]?(?:\(#f-\d+\))?\)", "", ctx.linkify_with_label(mid))
 
 
 def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
@@ -8010,53 +8068,14 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
     threats = _threat_lookup(ctx)
     business_relevant = _business_relevance.relevant_findings(ctx.yaml_data)
 
-    def _derive_priority(max_sev_rank: int) -> str:
-        return {0: "P1", 1: "P2", 2: "P3", 3: "P4"}.get(max_sev_rank, "P4")
-
-    def enrich(m: dict[str, Any]) -> dict[str, Any]:
-        addressed_ids = [str(a) for a in (m.get("addresses") or m.get("threat_ids") or []) if a]
-        max_sev = 99
-        critical = False
-        for tid in addressed_ids:
-            t = threats.get(tid, {})
-            sev = t.get("effective_severity") or t.get("risk") or t.get("severity")
-            max_sev = min(max_sev, _severity_rank(sev))
-            critical = critical or str(sev or "").strip().lower() == "critical"
-        priority = (m.get("priority") or "").strip().upper()
-        if priority not in ("P1", "P2", "P3", "P4"):
-            priority = _derive_priority(max_sev)
-        return {
-            "id": m.get("m_id") or m.get("id") or "",
-            "finding_keys": list(dict.fromkeys(_finding_key(a) for a in addressed_ids)),
-            "effort": m.get("effort") or "Medium",
-            "priority": priority,
-            "max_sev_rank": max_sev,
-            "covers_critical": critical,
-            "business_note": _business_relevance.mitigation_note(addressed_ids, business_relevant),
-        }
-
-    def _row_sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
-        return (
-            {"P1": 0, "P2": 1, "P3": 2, "P4": 3}.get(r["priority"], 9),
-            not r["business_note"],
-            -len(r["finding_keys"]),
-            r["max_sev_rank"],
-            _effort_rank(r["effort"]),
-            r["id"],
-        )
-
-    enriched = sorted((enrich(m) for m in mitigations), key=_row_sort_key)
+    enriched = sorted((_measure_row(m, threats, business_relevant) for m in mitigations), key=_measure_sort_key)
     # When declared context reaches every measure, the unnamed marker orders
     # nothing and tells the reader nothing; a named asset still explains a row.
     if enriched and all(r["business_note"] for r in enriched):
         for r in enriched:
             if r["business_note"] == _business_relevance.UNNAMED_CONTEXT_NOTE:
                 r["business_note"] = ""
-    # Do first means P1/P2. A model whose measures are all P3 or P4 would
-    # otherwise show no measure at all, so its best present tier takes their place.
-    tiers = sorted({r["priority"] for r in enriched}, key=lambda p: {"P1": 0, "P2": 1, "P3": 2, "P4": 3}.get(p, 9))
-    first = {"P1", "P2"} if not tiers or tiers[0] in ("P1", "P2") else {tiers[0]}
-    eligible = [r for r in enriched if r["priority"] in first]
+    eligible = _do_first(enriched)
 
     top = _ms_top_weaknesses(ctx)
     ranked = _ranked_weaknesses(ctx)
@@ -8090,7 +8109,7 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
                 break
             if r not in kept:
                 kept.append(r)
-        return sorted(kept, key=_row_sort_key)
+        return sorted(kept, key=_measure_sort_key)
 
     assigned = {r["id"] for rows in groups.values() for r in rows} | {r["id"] for r in orphans}
     shown_groups: list[tuple[dict | None, list[dict[str, Any]]]] = []
@@ -8109,7 +8128,7 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
             assigned.add(r["id"])
             shown_count += 1
     if orphans:
-        shown_groups.append((None, sorted(orphans, key=_row_sort_key)))
+        shown_groups.append((None, sorted(orphans, key=_measure_sort_key)))
     if not shown_groups and enriched:
         shown_groups.append((None, enriched[:_REMEDIATION_MIN_ROWS]))
 
@@ -8135,7 +8154,7 @@ def _render_mitigations(ctx: RenderContext, env: jinja2.Environment, section: di
                 return "<em>No separate measure; the lasting fix applies.</em>"
             return "—"
         # Resolves shows the finding, so a measure title need not repeat its ID.
-        cell = _md(re.sub(r"\s*\(\[?F-\d+\]?(?:\(#f-\d+\))?\)", "", ctx.linkify_with_label(r["id"])))
+        cell = _md(_measure_reference(ctx, r["id"]))
         if r["business_note"]:
             cell += f"<br/><em>{html.escape(r['business_note'], quote=False)}</em>"
         return cell
@@ -9719,29 +9738,112 @@ def _strip_finding_location(title: str) -> str:
     return stripped or t
 
 
-def _threat_findings_cell(entries: list[tuple[str, str, str]]) -> str:
-    """A threat's findings under their components, for (finding line, component ID, component name).
+def _finding_chip(fid: str, title: str) -> str:
+    """A linked finding ID with its title as a tooltip.
+
+    Plain HTML, because the report's reference passes would write the title behind a Markdown link.
+    """
+    return f'<a href="#{fid.lower()}" title="{tooltip(title)}">{fid}</a>'
+
+
+def _threat_findings_cell(entries: list[tuple[str, str, str, str]]) -> str:
+    """A threat's findings under their components, for (badge, finding link, component ID, component name).
 
     The component with the worst finding comes first, among equals the one with more findings, and a
-    component's name stands once instead of behind every finding. Medium and lower may collapse.
+    component's name stands once. Below it one badge per severity carries its IDs. Medium and lower
+    may collapse, under the same names.
     """
-    owner = {line: component for line, component, _ in entries}
-    names = {component: name for _, component, name in entries}
-    shown, rest = split_visible(line for line, _, _ in entries)
-    groups: dict[str, list[str]] = {}
-    for line in shown:
-        groups.setdefault(owner[line], []).append(line)
+    by_line = {f"{entry[0]} {index}": entry for index, entry in enumerate(entries)}
+    names = {component: name for _, _, component, name in entries}
 
-    def place(group: tuple[str, list[str]]) -> tuple[int, int]:
-        return min(_SEVERITY_BADGE_ORDER.get(badge_of(line), 9) for line in group[1]), -len(group[1])
+    def grouped(lines: list[str]) -> str:
+        groups: dict[str, list[tuple[str, str]]] = {}
+        for line in lines:
+            mark, link, component, _ = by_line[line]
+            groups.setdefault(component, []).append((mark, link))
 
-    lines: list[str] = []
-    for component, members in sorted(groups.items(), key=place):
-        name = f" {names[component]}" if names[component] else ""
-        lines.append(f"**→ [{component}](#{component.lower()}){name}**")
-        lines.extend(members)
-    collapsed = [f"{line} → [{owner[line]}](#{owner[line].lower()})" for line in rest]
-    return "<br/>".join(lines + ([fold(collapsed)] if collapsed else []))
+        def place(group: tuple[str, list[tuple[str, str]]]) -> tuple[int, int]:
+            return min(_SEVERITY_BADGE_ORDER.get(mark, 9) for mark, _ in group[1]), -len(group[1])
+
+        parts: list[str] = []
+        for component, pairs in sorted(groups.items(), key=place):
+            name = f" {names[component]}" if names[component] else ""
+            parts += [f"→ [{component}](#{component.lower()}){name}", id_list(pairs)]
+        return "<br/>".join(parts)
+
+    shown, rest = split_visible(by_line)
+    return "<br/>".join(part for part in (grouped(shown), fold(rest, grouped(rest))) if part)
+
+
+# Primary Measures: one per root cause, so the column stays a short answer to what matters most.
+_PRIMARY_MEASURES_MAX = 3
+_PRIMARY_MEASURES_MIN = 2
+
+
+def _primary_measures(ctx: RenderContext, findings: Iterable[str]) -> list[str]:
+    """A threat's most important measures, most important first (REQ-012).
+
+    Each stands for one root cause, because measures of one cause repeat the same advice for different
+    findings. A finding without a weakness counts by its threat category, and measures with the same
+    CWE or title always count as one cause. A cause ranks by its worst finding, then by its Critical
+    and High findings, its best priority, and its ranking score, so the same findings always give the
+    same measures. Review tasks give way to real fixes.
+    """
+    wanted = {_finding_key(fid) for fid in findings}
+    threats = _threat_lookup(ctx)
+    relevant = _business_relevance.relevant_findings(ctx.yaml_data)
+    rows = [_measure_row(m, threats, relevant) for m in ctx.yaml_data.get("mitigations") or []]
+    rows = [r for r in rows if wanted & set(r["finding_keys"])]
+    rows = _do_first([r for r in rows if r["kind"] != "review"] or rows)
+
+    def title(row: dict[str, Any]) -> str:
+        return _measure_reference(ctx, row["id"]).partition(" — ")[2].casefold() or row["id"]
+
+    owners = [
+        ((w.get("id") or "").strip(), {_finding_key(fid) for fid in _weakness_finding_ids(w)} & wanted)
+        for w in _ranked_weaknesses(ctx)
+    ]
+    causes: list[dict[str, Any]] = []
+    for row in rows:
+        reached = wanted & set(row["finding_keys"])
+        owner, owned = next(((wid, keys) for wid, keys in owners if keys & reached), ("", set()))
+        roots = {owner} if owner else {_path_finding(threats, f)[1].get("threat_category_id") or "" for f in reached}
+        cause = {"keys": {title(row), *roots, *row["prevents"]} - {""}, "rows": [row], "findings": reached | owned}
+        for other in [c for c in causes if c["keys"] & cause["keys"]]:
+            causes.remove(other)
+            cause["keys"] |= other["keys"]
+            cause["findings"] |= other["findings"]
+            cause["rows"] += other["rows"]
+        causes.append(cause)
+
+    scores = _ranking_scores(ctx)
+
+    def weight(cause: dict[str, Any]) -> tuple[Any, ...]:
+        ranks = [_severity_rank(_member_severity(ctx, _path_finding(threats, f)[1])) for f in cause["findings"]]
+        return (
+            min(ranks),
+            -sum(rank <= _severity_rank("High") for rank in ranks),
+            min(_PRIORITY_RANK.get(r["priority"], 9) for r in cause["rows"]),
+            -max(scores.get(f, 0) for f in cause["findings"]),
+            -len(cause["findings"]),
+            min(r["id"] for r in cause["rows"]),
+        )
+
+    chosen = [min(c["rows"], key=_measure_sort_key) for c in sorted(causes, key=weight)[:_PRIMARY_MEASURES_MAX]]
+    # A single root cause still names a second step when it has a different one.
+    for row in sorted(rows, key=_measure_sort_key):
+        if len(chosen) >= _PRIMARY_MEASURES_MIN:
+            break
+        if title(row) not in {title(r) for r in chosen}:
+            chosen.append(row)
+    return [r["id"] for r in chosen]
+
+
+def _primary_measure_line(ctx: RenderContext, mid: str) -> str:
+    """A measure's priority mark and ID, which never break apart, with its title."""
+    chip, _, label = _measure_reference(ctx, mid).partition(" — ")
+    chip = f'<span style="white-space:nowrap">{chip}</span>'
+    return f"{chip} — {label}" if label else chip
 
 
 def _other_threats_line(ctx: RenderContext) -> str:
@@ -9778,17 +9880,17 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
         `_build_finding_to_path_map`).
       * Threat title + STRIDE — from `attack-class-taxonomy.yaml`
         (`threat_label` / `stride`).
-      * Findings — each member finding rendered as `[F-NNN](#f-nnn) <short>
-        → [C-NN](#c-nn)`, linking into §8 Findings Register and §2.3 Components.
+      * Findings — member finding IDs by severity under their component,
+        linking into §8 Findings Register and §2.3 Components, with each
+        title as a tooltip.
       * Risk — the MAX severity across the class's member findings.
       * Impact — business-impact labels from the fragment.
-      * Fix — the union of the member findings' mitigations, linked
-        `[M-NNN](#m-nnn)`, with a `(P1)` / `(P1/P2)` priority token.
+      * Primary measures — `_primary_measures`, most important first, each
+        linked `[M-NNN](#m-nnn)` with its title and priority mark.
     """
     taxonomy = _load_attack_class_taxonomy()
     class_meta = {c.get("id"): c for c in taxonomy.get("classes", []) if isinstance(c, dict)}
     threats = _threat_lookup(ctx)
-    mitigations = _mitigation_lookup(ctx)
     components = _component_lookup(ctx)
     impact_tax = _load_business_impact_taxonomy()
     impact_label = {
@@ -9824,7 +9926,7 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
         stride = meta.get("stride") or ""
         description = (ap.get("description") or meta.get("description") or "").strip()
 
-        finding_entries: list[tuple[str, str, str]] = []
+        finding_entries: list[tuple[str, str, str, str]] = []
         member_threats: list[dict[str, Any]] = []
         seen_fids: set[str] = set()
         for fid in ap.get("findings") or []:
@@ -9834,27 +9936,13 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
             seen_fids.add(visible)
             member_threats.append(t)
             # Canonical locator-free class title, mirroring linkify_with_label's
-            # full form — the cell keeps its severity span and `→ component`
-            # link, so it composes the pieces by hand from the SAME label source.
+            # full form, for the ID's tooltip.
             short = ctx.lookup_label(visible) or _strip_trailing_locator(
                 _strip_finding_location(
                     t.get("title") or t.get("scenario_short") or _canonical_finding_title(t) or visible
                 )
             )
             c_anchor, _c_name = resolve_component(t.get("component") or t.get("component_id"))
-            # Keep the atomic units non-breaking — the bullet+finding id and the
-            # `→ component` link — but let the title wrap on normal spaces so a
-            # long finding name flows onto the next line instead of forcing the
-            # whole Findings column wide (and never breaks inside an F-NNN id).
-            # Use a ` — ` separator between the link and its title (not a bare
-            # space): every downstream re-label pass (qa_checks linkify_anchors,
-            # apply_prose_fixes relevant-findings-bullets, _linkify_bare_refs_in_prose)
-            # keys "already labelled" on ` — `, so the em-dash form is what stops
-            # them re-appending the title and doubling the cell (2026-05-31).
-            # Per-finding severity circle so the reader sees each finding's
-            # criticality inline (same 🔴/🟠/🟡/🟢 vocabulary as the §8/§9
-            # indices). Keep it BEFORE the non-breaking link unit; the ` — `
-            # title separator downstream passes key on is preserved.
             # Severity must come from the SAME source every other section uses —
             # `ctx.severity_for_ref`, the §8 register basis (RA-20). A second
             # basis here once made one finding render two different severities
@@ -9863,14 +9951,10 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
                 (ctx.severity_for_ref(visible) or t.get("risk") or t.get("severity") or "").strip().lower(),
                 "",
             )
-            f_prefix = f"{f_emoji}&nbsp;" if f_emoji else ""
-            # No leading `•` bullet — each finding sits on its own line (joined
-            # by <br/> below); a bullet inside a table cell reads as clutter
-            # (user request 2026-06). Keep the id+dot non-breaking so an F-NNN
-            # id never wraps mid-token; the title still wraps on normal spaces.
             finding_entries.append(
                 (
-                    f'<span style="white-space:nowrap">{f_prefix}[{visible}](#{visible.lower()})</span> — {short}',
+                    f_emoji,
+                    _finding_chip(visible, short),
                     c_anchor,
                     _c_name if _c_name and _c_name != c_anchor else "",
                 )
@@ -9885,38 +9969,6 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
         else:
             risk_word = ""
         risk_emoji = _TOP_THREATS_SEVERITY_EMOJI.get(risk_word.lower(), "")
-
-        # Fix = the member findings' primary mitigations, highest priority
-        # first, capped at 2 (mirrors the Top Findings `[:2]` rule so the
-        # summary stays a primary-action surface; the full set lives in §9).
-        fix_ids: list[str] = []
-        for t in member_threats:
-            for mid in t.get("mitigation_ids") or t.get("mitigations") or []:
-                if mid and mid not in fix_ids:
-                    fix_ids.append(mid)
-
-        def _prio_rank(mid: str) -> int:
-            p = (mitigations.get(mid, {}).get("priority") or "").strip().upper()
-            return {"P1": 0, "P2": 1, "P3": 2, "P4": 3}.get(p, 9)
-
-        fix_ids.sort(key=_prio_rank)
-        shown = fix_ids[:2]
-        # Stack multi-mitigation Fix cells with <br/> (same convention as the
-        # findings_cell below). A ", " join left two `[M-NNN](#…)` links on one
-        # line, which the cell_format QA detector flags as "2 ID links with no
-        # <br/> separator" (juice-shop 2026-06-03 §2 Top-Threats Fix column).
-        # Variant B (2026-06-04): annotate each measure link inline with its
-        # monochrome priority circle + P-tag (`● P1 · [M-NNN]`), the same prefix
-        # `linkify_with_label` emits everywhere else, instead of a trailing
-        # `(P1/P2)` token. Keeps every linked measure annotated consistently.
-        # Wrap each fix link in a nowrap span so the priority circle + M-NNN id
-        # never line-breaks (the narrow Fix column was stacking `❶ / M- / 007`
-        # — IDs must never wrap; user request 2026-06).
-        fix_links = "<br/>".join(
-            f'<span style="white-space:nowrap">{_measure_prio_prefix(ctx, mid)}[{mid}](#{mid.lower()})</span>'
-            for mid in shown
-        )
-        fix_cell = fix_links or "—"
 
         impacts = [impact_label.get(s, s) for s in (ap.get("impact") or [])]
         impact_str = " · ".join(impacts)
@@ -9937,9 +9989,10 @@ def _compute_top_threats_rows(ctx: RenderContext) -> list[dict[str, Any]]:
                 ),
                 "findings_cell": _threat_findings_cell(finding_entries) or "—",
                 "risk_cell": (
-                    f"{risk_emoji} **{risk_word}**<br/>{impact_str}".strip() if risk_word else (impact_str or "—")
+                    f"{risk_emoji} {risk_word}<br/>{impact_str}".strip() if risk_word else (impact_str or "—")
                 ),
-                "fix_cell": fix_cell,
+                "measures_cell": "<br/>".join(_primary_measure_line(ctx, m) for m in _primary_measures(ctx, seen_fids))
+                or "—",
             }
         )
     return rows
@@ -17342,7 +17395,7 @@ def _render_systemic_weaknesses(ctx: RenderContext) -> str:
         wid = (w.get("id") or "").strip()
         title = (w.get("title") or "Weakness").strip()
         sev = (w.get("severity") or "").strip()
-        sev_disp = f"{ctx.severity_emoji(sev.lower())} **{sev}**".strip() if sev else ""
+        sev_disp = f"{ctx.severity_emoji(sev.lower())} {sev}".strip() if sev else ""
         basis = (w.get("severity_basis") or "").strip() or "—"
         fids = _weakness_finding_ids(w)
         comps = w.get("affected_components") or []
@@ -17358,7 +17411,7 @@ def _render_systemic_weaknesses(ctx: RenderContext) -> str:
         wid = (w.get("id") or "").strip()
         title = (w.get("title") or w.get("statement") or "Security control weakness").strip()
         sev = (w.get("severity") or "").strip()
-        sev_disp = f"{ctx.severity_emoji(sev.lower())} **{sev}**".strip()
+        sev_disp = f"{ctx.severity_emoji(sev.lower())} {sev}".strip()
         kind = (w.get("kind") or "").strip()
         basis = (w.get("severity_basis") or "").strip()
         fids = _weakness_finding_ids(w)

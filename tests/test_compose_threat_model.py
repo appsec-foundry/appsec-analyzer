@@ -365,7 +365,7 @@ def test_top_threats_has_five_columns(tmp_path: Path) -> None:
     rendered, _ = compose.render(CONTRACT, out)
     # Locate the merged Top Threats header row (replaced Top Findings +
     # Architecture Assessment).
-    header = "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |"
+    header = "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |"
     assert header in rendered, "Top Threats must use exactly the 5 canonical columns"
 
 
@@ -624,8 +624,8 @@ def test_attack_paths_table_uses_the_register_severity(tmp_path: Path, monkeypat
     assert rows, "expected a Top Threats row"
     cell = rows[0]["findings_cell"]
     # The elevated finding carries its register High dot, the same as its §8 heading.
-    before_ref = cell.split("[F-024]")[0]
-    assert "🟠" in before_ref[-40:], f"F-024 must render its register High severity: {cell[:400]}"
+    before_ref = cell.split('<a href="#f-024"')[0]
+    assert "🟠" in before_ref[-50:], f"F-024 must render its register High severity: {cell[:400]}"
     assert ctx.severity_for_ref("F-024") == "High"
     # The path's aggregate Risk must not sit below its worst member finding.
     assert "high" in (rows[0]["risk_cell"] or "").strip().lower(), rows[0]["risk_cell"]
@@ -739,26 +739,163 @@ def test_the_overview_shows_all_threats_without_critical_or_high_findings(tmp_pa
 
 def test_threat_findings_stand_under_their_component_worst_first() -> None:
     """The name stands once, and a component with the worst finding leads even with fewer findings."""
-    line = '<span style="white-space:nowrap">{}&nbsp;[{}](#{})</span> — title'
     entries = [
-        (line.format("🟠", "F-002", "f-002"), "C-01", "Api"),
-        (line.format("🟠", "F-003", "f-003"), "C-01", "Api"),
-        (line.format("🔴", "F-001", "f-001"), "C-02", "Auth"),
+        ("🟠", compose._finding_chip("F-002", "two"), "C-01", "Api"),
+        ("🟠", compose._finding_chip("F-003", "three"), "C-01", "Api"),
+        ("🔴", compose._finding_chip("F-001", "one"), "C-02", "Auth"),
     ]
     parts = compose._threat_findings_cell(entries).split("<br/>")
-    assert parts[0] == "**→ [C-02](#c-02) Auth**" and "F-001" in parts[1]
-    assert parts[2] == "**→ [C-01](#c-01) Api**" and "F-002" in parts[3] and "F-003" in parts[4]
+    assert parts[0] == "→ [C-02](#c-02) Auth" and parts[1].startswith("🔴") and "F-001" in parts[1]
+    assert parts[2] == "→ [C-01](#c-01) Api" and parts[3].count("🟠") == 1
+    assert "F-002" in parts[3] and "F-003" in parts[3]
 
 
 def test_medium_findings_collapse_but_critical_and_high_never_do() -> None:
-    line = '<span style="white-space:nowrap">{}&nbsp;[{}](#{})</span> — title'
-    entries = [(line.format("🟠", f"F-{n:03d}", f"f-{n:03d}"), "C-01", "Api") for n in range(1, 5)]
-    entries += [(line.format("🟡", f"F-{n:03d}", f"f-{n:03d}"), "C-01", "Api") for n in range(5, 8)]
+    entries = [("🟠", compose._finding_chip(f"F-{n:03d}", "t"), "C-01", "Api") for n in range(1, 5)]
+    entries += [("🟡", compose._finding_chip(f"F-{n:03d}", "t"), "C-01", "Api") for n in range(5, 8)]
     cell = compose._threat_findings_cell(entries)
     visible, collapsed = cell.split("<details>")
     assert all(f"F-{n:03d}" in visible for n in range(1, 5))
     assert all(f"F-{n:03d}" in collapsed for n in range(5, 8))
-    assert "<summary>3 Medium</summary>" in collapsed and "→ [C-01](#c-01)" in collapsed
+    assert "<summary>3 Medium</summary>" in collapsed and "→ [C-01](#c-01) Api" in collapsed
+
+
+def test_a_finding_title_cannot_leave_its_tooltip() -> None:
+    """Finding titles come from model output and stand in an HTML attribute of a Markdown table row."""
+    title = '" onmouseover="alert(1)"><script>x</script> | [y](#z) `c` $where'
+    chip = compose._finding_chip("F-001", title)
+    assert chip.count('"') == 4 and "<script" not in chip
+    assert not {"|", "`", "$"} & set(chip)
+    assert compose.keep_known_markup(chip) == chip
+
+
+def _measure_context(tmp_path: Path, risks: dict[str, str], measures: list[dict], weaknesses=(), scores=None):
+    """A report with one finding per id at the given risk, and the given measures and root causes."""
+    ctx = _threat_order_context(tmp_path, risks, scores)
+    ctx.yaml_data["mitigations"] = [{"kind": "fix", "priority": "P2", **measure} for measure in measures]
+    ctx.yaml_data["weaknesses"] = [
+        {"id": wid, "severity": "High", "instances": [{"id": finding} for finding in findings]}
+        for wid, findings in weaknesses
+    ]
+    return ctx
+
+
+def test_the_weakness_register_writes_a_severity_like_the_findings_register(tmp_path: Path) -> None:
+    """The coloured dot marks a severity, so its word stays plain in the list and on the card."""
+    ctx = _measure_context(tmp_path, {"T-001": "Critical"}, [], [("W-001", ["T-001"])])
+    ctx.yaml_data["weaknesses"][0].update(severity="Critical", title="Queries are concatenated")
+    ctx.severity_taxonomy = {"critical": {"emoji": "🔴"}}
+    out = compose._render_systemic_weaknesses(ctx)
+    assert out.count("🔴 Critical ·") == 2 and "**Critical**" not in out
+
+
+def test_primary_measures_name_one_measure_per_root_cause_worst_first(tmp_path: Path) -> None:
+    """REQ-012: a second measure of the same cause gives way to the next cause."""
+    measures = [
+        {"id": "M-001", "title": "Fix login", "threat_ids": ["T-001"], "priority": "P1"},
+        {"id": "M-002", "title": "Fix signup", "threat_ids": ["T-002"]},
+        {"id": "M-003", "title": "Fix search", "threat_ids": ["T-003"]},
+    ]
+    causes = [("W-001", ["T-001", "T-002"]), ("W-002", ["T-003"])]
+    ctx = _measure_context(tmp_path, {"T-001": "Critical", "T-002": "High", "T-003": "High"}, measures, causes)
+    assert compose._primary_measures(ctx, ["F-001", "F-002", "F-003"]) == ["M-001", "M-003"]
+
+
+def test_primary_measures_put_the_cause_with_more_high_findings_first(tmp_path: Path) -> None:
+    """REQ-012: the same worst severity, so the broader cause leads, however the IDs run."""
+    risks = {f"T-{n:03d}": "High" for n in range(1, 5)}
+    measures = [
+        {"id": "M-001", "title": "One finding", "threat_ids": ["T-001"]},
+        {"id": "M-002", "title": "Three findings", "threat_ids": ["T-002"]},
+    ]
+    causes = [("W-001", ["T-001"]), ("W-002", ["T-002", "T-003", "T-004"])]
+    ctx = _measure_context(tmp_path, risks, measures, causes)
+    assert compose._primary_measures(ctx, list(risks)) == ["M-002", "M-001"]
+
+
+def test_primary_measures_let_the_ranking_score_settle_equal_causes(tmp_path: Path) -> None:
+    risks = {"T-001": "High", "T-002": "High"}
+    measures = [
+        {"id": "M-001", "title": "Lighter", "threat_ids": ["T-001"]},
+        {"id": "M-002", "title": "Heavier", "threat_ids": ["T-002"]},
+    ]
+    ctx = _measure_context(tmp_path, risks, measures, scores={"T-001": 100, "T-002": 500})
+    assert compose._primary_measures(ctx, list(risks)) == ["M-002", "M-001"]
+
+
+def test_primary_measures_count_the_same_cwe_or_title_once_without_a_weakness(tmp_path: Path) -> None:
+    """REQ-012: the same advice twice would hide another measure."""
+    risks = {f"T-{n:03d}": "High" for n in range(1, 5)}
+    measures = [
+        {"id": "M-001", "title": "Strip role", "threat_ids": ["T-001"], "prevents": ["CWE-915"]},
+        {"id": "M-002", "title": "Strip fields", "threat_ids": ["T-002"], "prevents": ["CWE-915"]},
+        {"id": "M-003", "title": "Verify tokens (F-003)", "threat_ids": ["T-003"], "prevents": ["CWE-347"]},
+        {"id": "M-004", "title": "Verify tokens (F-004)", "threat_ids": ["T-004"], "prevents": ["CWE-345"]},
+    ]
+    assert compose._primary_measures(_measure_context(tmp_path, risks, measures), list(risks)) == ["M-001", "M-003"]
+
+
+def test_findings_without_a_weakness_count_by_their_threat_category(tmp_path: Path) -> None:
+    """REQ-012: three ways to expose one directory stay one measure, and another kind of risk keeps its own."""
+    risks = {"T-001": "High", "T-002": "High", "T-003": "High"}
+    measures = [
+        {"id": "M-001", "title": "Stop serving keys", "threat_ids": ["T-001"], "prevents": ["CWE-538"]},
+        {"id": "M-002", "title": "Disable listings", "threat_ids": ["T-002"], "prevents": ["CWE-548"]},
+        {"id": "M-003", "title": "Allowlist targets", "threat_ids": ["T-003"], "prevents": ["CWE-918"]},
+    ]
+    ctx = _measure_context(tmp_path, risks, measures)
+    categories = {"T-001": "TH-09", "T-002": "TH-09", "T-003": "TH-08"}
+    for threat in ctx.yaml_data["threats"]:
+        threat["threat_category_id"] = categories[threat["id"]]
+    assert compose._primary_measures(ctx, list(risks)) == ["M-001", "M-003"]
+
+
+def test_primary_measures_stop_at_three(tmp_path: Path) -> None:
+    risks = {f"T-{n:03d}": "High" for n in range(1, 6)}
+    measures = [{"id": f"M-{n:03d}", "title": f"Fix {n}", "threat_ids": [f"T-{n:03d}"]} for n in range(1, 6)]
+    assert len(compose._primary_measures(_measure_context(tmp_path, risks, measures), list(risks))) == 3
+
+
+def test_a_single_root_cause_still_names_a_second_different_step(tmp_path: Path) -> None:
+    risks = {"T-001": "High", "T-002": "High", "T-003": "High"}
+    measures = [
+        {"id": "M-001", "title": "Encode output (F-001)", "threat_ids": ["T-001"]},
+        {"id": "M-002", "title": "Encode output (F-002)", "threat_ids": ["T-002"]},
+        {"id": "M-003", "title": "Add a policy", "threat_ids": ["T-003"]},
+    ]
+    ctx = _measure_context(tmp_path, risks, measures, [("W-001", ["T-001", "T-002", "T-003"])])
+    assert compose._primary_measures(ctx, list(risks)) == ["M-001", "M-003"]
+
+
+def test_review_tasks_give_way_to_fixes_and_stand_in_when_nothing_else_exists(tmp_path: Path) -> None:
+    review = {"id": "M-001", "title": "Manual review", "threat_ids": ["T-001"], "kind": "review", "priority": "P1"}
+    fix = {"id": "M-002", "title": "Real fix", "threat_ids": ["T-001"], "priority": "P3"}
+    ctx = _measure_context(tmp_path, {"T-001": "High"}, [review, fix])
+    assert compose._primary_measures(ctx, ["F-001"]) == ["M-002"]
+    ctx = _measure_context(tmp_path, {"T-001": "High"}, [review])
+    assert compose._primary_measures(ctx, ["F-001"]) == ["M-001"]
+
+
+def test_lower_priorities_stay_out_beside_do_first_measures(tmp_path: Path) -> None:
+    risks = {"T-001": "High", "T-002": "Medium"}
+    measures = [
+        {"id": "M-001", "title": "Urgent", "threat_ids": ["T-001"]},
+        {"id": "M-002", "title": "Later", "threat_ids": ["T-002"], "priority": "P3"},
+    ]
+    assert compose._primary_measures(_measure_context(tmp_path, risks, measures), list(risks)) == ["M-001"]
+
+
+def test_the_primary_measures_column_shows_titles_without_finding_ids(tmp_path: Path, monkeypatch) -> None:
+    """The measure stands for its cause, so a finding ID in its title would narrow it down again."""
+    measures = [{"id": "M-001", "title": "Enforce ownership (F-001)", "threat_ids": ["T-001"], "priority": "P1"}]
+    ctx = _measure_context(tmp_path, {"T-001": "Critical", "T-002": "High"}, measures)
+    paths = [{"class": "auth-bypass", "findings": ["T-001"]}, {"class": "privilege-escalation", "findings": ["T-002"]}]
+    monkeypatch.setattr(compose, "_load_attack_paths_fragment_impl", lambda *args: {"attack_paths": paths})
+    compose._load_attack_paths_fragment(ctx, compose._load_attack_class_taxonomy(), ctx.yaml_data["threats"])
+    rows = compose._compute_top_threats_rows(ctx)
+    assert rows[0]["measures_cell"].endswith("[M-001](#m-001)</span> — Enforce ownership")
+    assert rows[1]["measures_cell"] == "—"
+    assert rows[0]["risk_cell"].startswith("🔴 Critical")
 
 
 def test_a_gap_filled_class_no_longer_changes_the_order(tmp_path: Path) -> None:
@@ -4319,7 +4456,7 @@ class TestSecurityPostureV2:
         ctx, env = self._build_ctx(tmp_path, self._yaml_seven_classes(), self._fragment_seven_classes())
         out = compose._render_security_posture_at_a_glance(ctx, env, self._section_cfg())
         assert "### Security Posture & Top Threats" in out
-        assert "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |" in out
+        assert "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |" in out
         # One self-anchored table row per glyph.
         for glyph in ("①", "②", "③", "④", "⑤", "⑥", "⑦"):
             assert glyph in out
@@ -4327,9 +4464,9 @@ class TestSecurityPostureV2:
     def test_v2_findings_linked_in_table(self, tmp_path):
         ctx, env = self._build_ctx(tmp_path, self._yaml_seven_classes(), self._fragment_seven_classes())
         out = compose._render_security_posture_at_a_glance(ctx, env, self._section_cfg())
-        # Findings cells link into §8 (`[F-NNN](#f-nnn)`).
-        assert "[F-001](#f-001)" in out
-        assert "[F-007](#f-007)" in out
+        # Findings cells link into §8 and keep the title as a tooltip.
+        assert '<a href="#f-001" title="' in out
+        assert '<a href="#f-007" title="' in out
 
     def test_v2_impact_shown_in_risk_cell(self, tmp_path):
         ctx, env = self._build_ctx(tmp_path, self._yaml_seven_classes(), self._fragment_seven_classes())
@@ -4366,7 +4503,7 @@ class TestSecurityPostureV2:
         # Must still produce a Figure 2 (portable SVG, or the Mermaid fallback
         # when the SVG builder yields nothing) + the Top Threats table.
         assert re.search(r"!\[Figure 2[^\]]*\]\([^)]*\.svg\)", light_images(out)) or "```mermaid" in out
-        assert "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |" in out
+        assert "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |" in out
 
     def test_v2_classify_finding_class(self):
         taxonomy = compose._load_attack_class_taxonomy()
@@ -6196,7 +6333,7 @@ def test_softwrap_exempts_structural_threats_table():
     """The `# | Threat Description | …` posture table must NOT get the 44-char
     `<br/>` soft-wrap (it chopped the description into random stub lines)."""
     md = (
-        "| # | Threat Description | Findings (→ Component) | Risk & Impact | Fix |\n"
+        "| # | Threat Description | Findings (→ Component) | Risk & Impact | Primary Measures |\n"
         "|---|--------------------|------------------------|---------------|-----|\n"
         "| ① | **Insecure Query** _(T·I)_ user input flows into a server-side "
         "interpreter without parameterization or schema validation here. | x | y | z |\n"

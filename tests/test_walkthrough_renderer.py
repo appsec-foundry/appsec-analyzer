@@ -742,6 +742,22 @@ class TestGenAdapter:
         assert "WALKTHROUGH_FILL" not in out
         assert out.rstrip().endswith("<!-- generated:walkthrough_renderer -->")
 
+    def test_severity_reads_like_the_findings_register(self):
+        ydata = {
+            "threats": [
+                {
+                    "id": "T-001",
+                    "title": "SQL injection",
+                    "risk": "critical",
+                    "cwe": "CWE-89",
+                    "vektor": "internet-anon",
+                    "scenario": "Attacker sends GET /search?q=' UNION SELECT * FROM Users.",
+                    "evidence": [{"file": "routes/search.ts", "line": 12}],
+                }
+            ]
+        }
+        assert "Severity 🔴 Critical (CWE-89)" in renderer.gen_attack_walkthroughs(ydata)
+
     def test_heading_drops_emdash_file_line_tail(self):
         # The ` — file:line` tail must NOT appear in the §3 heading — it made
         # the GitHub heading anchor diverge from the composer link target and
