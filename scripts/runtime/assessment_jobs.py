@@ -231,14 +231,14 @@ class AssessmentBudget(DiscoveryBudget):
         """Calls run and money spent so far by this session, and how much of it the hosts itemised.
 
         Jobs reused from an earlier run are not part of it, except in ``total_usd``, what the run has
-        cost so far. The console takes the difference of two marks to say what a step cost, and sets
-        ``total_usd`` against ``max_usd``.
+        cost so far. Amounts count finished calls only. The console takes the difference of two marks
+        to say what a step cost, and sets ``total_usd`` against ``max_usd``.
         """
         with self._lock:
             return {
                 "calls": self.calls - self.reused_calls,
-                "usd": None if self.subscription else self.spent_usd - self.reused_usd,
-                "total_usd": None if self.subscription else self.spent_usd,
+                "usd": None if self.subscription else self.settled_usd - self.reused_usd,
+                "total_usd": None if self.subscription else self.settled_usd,
                 "max_usd": None if self.subscription else self.max_usd,
                 "api_prices": self.api_prices,
                 "itemised": sum(row["calls"] for row in self.ledger.values()),

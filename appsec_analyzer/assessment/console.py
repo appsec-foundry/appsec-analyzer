@@ -321,7 +321,7 @@ class _AssessmentProgress:
             return None
         if budget.subscription or not cls.show_costs:
             return ("Used", f"{budget.calls} model calls")
-        mark = {"total_usd": budget.spent_usd, "max_usd": budget.max_usd, "api_prices": budget.api_prices}
+        mark = {"total_usd": budget.settled_usd, "max_usd": budget.max_usd, "api_prices": budget.api_prices}
         return ("Used", f"{spent_text(mark)}; a call still running is not counted")
 
     @classmethod
@@ -578,8 +578,8 @@ class _AssessmentConsole:
     _FOUND = re.compile(r" · (\d+ findings?)$")
     # What the survey found, said when it ends; the console adds its duration and component count.
     _SURVEY_DONE = "Survey done · "
-    # The budget figure `spent_text` writes; a terminal shows it in its own colour.
-    _SPENT = re.compile(r"USD \d+\.\d{2} of \d+\.\d{2} (?:spent|used at API prices)")
+    # The budget figure `spent_text` writes: its amount, which a terminal shows in its own colour, and the rest.
+    _SPENT = re.compile(r"(USD \d+\.\d{2})( of \d+\.\d{2} (?:spent|used at API prices))")
     # A component's jobs are its parts; the console shows one step per component.
     _VERIFY_JOB = re.compile(
         r"(Verifying|Finished verifying) component (\d+)/\d+, part \d+/(\d+), (\S+): (.*?)"
@@ -1263,7 +1263,12 @@ class _AssessmentConsole:
         # The budget figure stays whole across a wrap, which splits only at plain spaces.
         kept = self._SPENT.sub(lambda found: found[0].replace(" ", "\xa0"), detail)
         indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now)
-        cells = [self._SPENT.sub(lambda found: st(found[0], "accent"), p.replace("\xa0", " ")) for p in pieces]
+        # The amount's colour ends with a reset, so a warning line takes its colour up again after it.
+        rest = ("warn",) if event == "⚠" else ()
+        cells = [
+            self._SPENT.sub(lambda found: st(found[1], "accent") + st(found[2], *rest), p.replace("\xa0", " "))
+            for p in pieces
+        ]
         cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in cells]
         if event == "start" or (method and detail.startswith("start")):
             # The models of the phase's or the method's roles carry the colour the header gives its models.

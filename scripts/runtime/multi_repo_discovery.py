@@ -286,6 +286,8 @@ class DiscoveryBudget:
         # stopped call is charged.
         self._lock = threading.Condition()
         self._inflight = 0
+        # The ceilings of running calls: the part of `spent_usd` that is held, not yet a cost.
+        self._held: list[float] = []
         # What hosts reported per finished call, summed by (job group, role, model id). A call without a
         # report (failed, stopped, or a host that reports none) is only in `calls` and `spent_usd`.
         self.ledger: dict[tuple[str | None, str | None, str], dict[str, float]] = {}
@@ -494,6 +496,7 @@ class DiscoveryBudget:
             self.calls += 1
             if not self.subscription:
                 self.spent_usd += ceiling
+                self._held.append(ceiling)
             self._inflight += 1
         try:
             reply = factory(ceiling).invoke(system, prompt, schema, remaining, should_stop)
@@ -675,6 +678,12 @@ class DiscoveryBudget:
     def call_limit(self) -> int:
         return self.max_calls
 
+    @property
+    def settled_usd(self) -> float:
+        """What finished calls cost so far: `spent_usd`, which the limit checks, without running calls' reservations."""
+        with self._lock:
+            return self.spent_usd - sum(self._held)
+
     def _settle(self, ceiling: float | None, cost: float | None) -> None:
         """Replace a finished call's reservation by its cost; an unknown cost stops further calls."""
         with self._lock:
@@ -688,6 +697,7 @@ class DiscoveryBudget:
             else:
                 self.spent_usd += cost - ceiling
             if not self.subscription:
+                self._held.remove(ceiling)
                 # An unknown cost keeps its reservation in `spent_usd`.
                 group = getattr(self._local, "job", (None,))[0]
                 self.charged[group] = self.charged.get(group, 0.0) + (ceiling if cost is None else cost)

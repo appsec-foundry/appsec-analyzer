@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from runtime.analyst_host import HostCancelled, HostReply
+from runtime.analyst_host import HostCancelled, HostReply, TransportError
 from runtime.assessment_host import ExchangeError
 from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
 from runtime.multi_repo_scope import AssessmentScope, RepositoryView
@@ -1171,6 +1171,35 @@ def test_the_budget_itemises_reported_usage_per_model_and_names_what_no_host_rep
     budget.reused_calls, budget.reused_usd = 1, 0.03
     assert budget.usage_mark()["calls"] == 1 and budget.usage_mark()["usd"] == pytest.approx(0.02)
     assert budget.usage_mark()["total_usd"] == pytest.approx(0.05)
+
+
+def test_the_usage_mark_counts_finished_calls_while_the_limit_still_counts_running_ones():
+    budget = AssessmentBudget(1.0, 0.05, 10, 60)
+    running = []
+
+    def transport(cost):
+        class Host:
+            def __init__(self, ceiling):
+                pass
+
+            def invoke(self, *args):
+                running.append((budget.usage_mark(), budget.spent_usd))
+                return HostReply({}, cost)
+
+        return Host
+
+    budget.invoke(transport(0.02), "s", "p", {}, 30, lambda: False)
+    mark, held = running[0]
+    assert mark["calls"] == 1 and mark["usd"] == 0 and mark["total_usd"] == 0
+    # Only the shown figure leaves the reservation out: the spending limit keeps counting it.
+    assert held == pytest.approx(0.05)
+    assert budget.usage_mark()["total_usd"] == pytest.approx(0.02)
+
+    # A call that reports no cost stays charged at its reservation once it has finished.
+    with pytest.raises(TransportError, match="cost is unavailable"):
+        budget.invoke(transport(None), "s", "p", {}, 30, lambda: False)
+    assert running[1][0]["total_usd"] == pytest.approx(0.02)
+    assert budget.usage_mark()["total_usd"] == pytest.approx(0.07)
 
 
 @pytest.mark.parametrize(

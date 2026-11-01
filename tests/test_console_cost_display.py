@@ -219,14 +219,14 @@ def test_a_run_without_usd_amounts_shows_no_budget_figure(limit):
 
 
 @pytest.mark.parametrize("columns", [80, 90, 100, 110, 120, 130, 140])
-def test_a_terminal_keeps_the_budget_figure_whole_and_in_its_own_colour(columns):
+def test_a_terminal_keeps_the_budget_figure_whole_and_colours_only_its_amount(columns):
     lines = []
     console = _AssessmentConsole(False, lines.append, clock=lambda: 100.0, live=False, show_costs=True)
     console.st, console.columns = Style(True), lambda: columns
     _threat_analysis(console)
     text = "\n".join(lines)
-    for figure in ("USD 0.50 of 20.00 spent", "USD 0.75 of 20.00 spent"):
-        assert console.st(figure, "accent") in text
+    for amount in ("USD 0.50", "USD 0.75"):
+        assert f"{console.st(amount, 'accent')} of 20.00 spent" in text
     assert "\xa0" not in text
 
 
@@ -236,8 +236,9 @@ def test_a_warning_line_keeps_its_colour_and_a_stop_names_the_same_figure():
     console.st = Style(True)
     console.step("Matching abuse cases")
     console.record("⚠", "1/1 API · no result (budget) · 0s · USD 0.75 of 20.00 spent")
-    assert "\033[33m1/1 API" in lines[-1] and console.st("USD 0.75 of 20.00 spent", "accent") in lines[-1]
-    budget = SimpleNamespace(calls=3, subscription=False, spent_usd=0.75, max_usd=20.0, api_prices=True)
+    amount, rest = console.st("USD 0.75", "accent"), console.st(" of 20.00 spent", "warn")
+    assert "\033[33m1/1 API" in lines[-1] and f"{amount}{rest}" in lines[-1]
+    budget = SimpleNamespace(calls=3, subscription=False, settled_usd=0.75, max_usd=20.0, api_prices=True)
     _AssessmentProgress.show_costs, _AssessmentProgress.budget = True, budget
     try:
         assert _AssessmentProgress.cost_row() == (
@@ -453,8 +454,10 @@ def stopped_run():
 
 
 def _budget(**fields):
+    # `spent_usd` also holds what running calls reserved; a stop names only what finished calls cost.
+    held = {"spent_usd": 5.456, "settled_usd": 3.456}
     return SimpleNamespace(
-        **{"calls": 12, "spent_usd": 3.456, "max_usd": 10.0, "subscription": False, "api_prices": False, **fields}
+        **{"calls": 12, **held, "max_usd": 10.0, "subscription": False, "api_prices": False, **fields}
     )
 
 

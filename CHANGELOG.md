@@ -28,7 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- Assessment progress shows the run's total against its limit, such as `USD 9.18 of 20.00 spent`, when a phase, the survey, verification, or one of their components finishes, in color on a terminal and only in runs that show costs. The verification start now calls its remaining amount `available after the completion reserve`, because it excludes the part reserved for finishing the run.
+- Assessment progress shows the run's total against its limit, such as `USD 9.18 of 20.00 spent`, when a phase, the survey, verification, or one of their components finishes, with the amount in color on a terminal and only in runs that show costs. The verification start now calls its remaining amount `available after the completion reserve`, because it excludes the part reserved for finishing the run.
 - Verification keeps candidate locations with shared source files, models and handlers together when dividing work. It avoids overlapping source windows and reviews identical verification findings once while retaining all item and finding links. Live cost and runtime effects have not been measured.
 - Catalog verification can omit controller-derived identity fields and source hashes from model replies. Analyzer restores these values from the captured sources and applies the existing evidence checks before saving results. This reduces repeated output data; live token and cost savings have not been measured.
 - The report's threat overview lists the most severe threats first. Its order used to come from a list in a data file, so a High threat could stand above a Critical one. Equal risks now compare their three heaviest findings, and the numbers in the table, Figure 2, and the attack path list follow the same order. A threat can therefore carry a different number in two reports.
@@ -82,6 +82,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Budget figures in `assess` progress and on a stopped run count finished model calls only, as the stop message always said. They used to include what running calls had reserved, so the amount rose too high and then fell. The spending limit still counts those reservations.
 - The live status line of `assess` wraps under its own text instead of ending in `…`, so the running step, its age and the model's state stay readable. Between model calls it names a step once and adds only its age.
 - Reports keep only a fixed set of formatting tags, in the Markdown report and in the HTML and PDF exports. Other HTML from a repository or a model appears as text, and a remote image becomes a link, so opening a report requests nothing from other hosts.
 - Finding titles no longer end in a leftover word such as "in and" after their file paths are removed, and ordinary words with a slash such as `secret/token` stay in the title.
