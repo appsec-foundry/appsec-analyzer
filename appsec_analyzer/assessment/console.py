@@ -753,10 +753,10 @@ class _AssessmentConsole:
                 shown.append(f"{name} {_duration(now - call.started)} {call.state()}")
             more = len(shown) - self.TICK_CALLS
             working = " · ".join(shown[: self.TICK_CALLS]) + (f" · +{more} more" if more > 0 else "")
-        elif self.activity:
-            working = f"{self.activity} · {_duration(now - self.activity_started)}"
         else:
-            working = ""
+            # A step the line already names adds only its age.
+            age = _duration(now - self.activity_started)
+            working = f"{self.activity} · {age}" if self.activity else age
         self.frame += 1
         self._status(self._row("·", " · ".join(part for part in (self.current, working) if part), live=True))
 
@@ -923,8 +923,9 @@ class _AssessmentConsole:
         with _AssessmentConsole._lock:
             if above is None:
                 above = self._unit_rows()
-            lines = [*above, f"{self.st(self._stamp(self.clock()), 'muted')}  {text}"]
-            # A wrapped status line would survive the next clear as a stray row.
+            lines = [*above, *f"{self.st(self._stamp(self.clock()), 'muted')}  {text}".split("\n")]
+            # A line the terminal wraps would survive the next clear as a stray row, so `_row`
+            # wraps the status text itself and only what is still too wide is cut here.
             # Measured without colour codes; a line that must be cut loses its colour.
             width = self.columns() - 1
             for index, line in enumerate(lines):
@@ -1236,17 +1237,18 @@ class _AssessmentConsole:
         method = self.method if event not in ("start", "done") else ""
         lead = f"{method:<{self._METHOD_WIDTH}}  " if method else ""
         run = self._run(now)
+        bar = ""
         if live:
             event = SPINNER[self.frame % len(SPINNER)]
             if self.components:
-                detail = f"{self.st.bar(round(100 * self.done), 100, self.BAR_WIDTH)}  {detail}".rstrip()
+                bar = f"{self.st.bar(round(100 * self.done), 100, self.BAR_WIDTH)}  "
         # Free text comes last, so a long detail never shifts a column.
-        row = f"{phase:<{self._PHASE_WIDTH}}  {event:<{self._EVENT_WIDTH}}  {run}  {lead}{detail}"
+        row = f"{phase:<{self._PHASE_WIDTH}}  {event:<{self._EVENT_WIDTH}}  {run}  {lead}{bar}{detail}"
         if not self.st.enabled:
             if not self.wraps() and "\n" not in detail:
                 return row.rstrip()
             head = row[: len(row) - len(detail)]
-            indent, pieces = self._wrap_detail(len(head), detail, now, live)
+            indent, pieces = self._wrap_detail(len(head), detail, now)
             return self._join(head, indent, pieces)
         # Colour wraps each padded column, so the grid keeps its widths.
         st, role = self.st, ("accent" if live else self.EVENT_ROLES.get(event))
@@ -1255,13 +1257,12 @@ class _AssessmentConsole:
         else:
             phase_cell = st(f"{phase:<{self._PHASE_WIDTH}}", "accent")
         event_cell = st(f"{event:<{self._EVENT_WIDTH}}", role or "muted")
-        run_cell = st(run if detail else run.rstrip(), "muted")
-        head = f"{phase_cell}  {event_cell}  {run_cell}  {st(lead, 'bold') if lead else ''}"
-        # A long detail wraps under its own column instead of at the screen
-        # edge; the status line is cut by `_status` instead.
+        run_cell = st(run if detail or bar else run.rstrip(), "muted")
+        head = f"{phase_cell}  {event_cell}  {run_cell}  {st(lead, 'bold') if lead else ''}{bar}"
+        # A long detail wraps under its own column instead of at the screen edge.
         # The budget figure stays whole across a wrap, which splits only at plain spaces.
         kept = self._SPENT.sub(lambda found: found[0].replace(" ", "\xa0"), detail)
-        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now, live)
+        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now)
         cells = [self._SPENT.sub(lambda found: st(found[0], "accent"), p.replace("\xa0", " ")) for p in pieces]
         cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in cells]
         if event == "start" or (method and detail.startswith("start")):
@@ -1271,7 +1272,7 @@ class _AssessmentConsole:
                 cells = [piece.replace(name, st(name, "agent")) for piece in cells]
         return self._join(head, indent, cells)
 
-    def _wrap_detail(self, head: int, detail: str, now: float, live: bool) -> tuple[int, list[str]]:
+    def _wrap_detail(self, head: int, detail: str, now: float) -> tuple[int, list[str]]:
         """(indent, pieces) of a detail after a `head` columns wide grid head.
 
         A long detail continues under its own column. Where --width leaves that
@@ -1291,7 +1292,7 @@ class _AssessmentConsole:
                     else [line]
                 )
             ]
-        if live or len(detail) <= fit:
+        if len(detail) <= fit:
             return indent, [detail]
         if fit >= 20:
             return indent, textwrap.wrap(detail, fit, break_on_hyphens=False)
@@ -1580,6 +1581,7 @@ class _AssessmentConsole:
         counter = f"{noun} {position[1]}/{position[2]}" if noun and position else noun
         self.parts = {}
         self.current = " · ".join(part for part in (counter, name) if part)
+        self.activity = ""
         if self.verbose or prefix in self.LISTED:
             self.record("·", self.current, now)
             self.shown = (self.current, round(100 * self.done))

@@ -3726,6 +3726,73 @@ def test_input_echoed_between_redraws_leaves_no_stale_status_line(monkeypatch, c
     assert len(screen) == components + 1 and "5/8 Threat analysis" in screen[-1] and screen[-1].endswith("…")
 
 
+@pytest.mark.parametrize("columns", [140, 90], ids=["under its text", "under the time stamp"])
+@pytest.mark.parametrize("colour", [True, False], ids=["colour", "no colour"])
+def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behind(monkeypatch, columns, colour):
+    """On a terminal nothing is cut: the line continues under its own text, and each redraw replaces every row."""
+    import time as clock
+
+    written: list[str] = []
+
+    class _Terminal(io.StringIO):
+        def write(self, text):
+            written.append(text)
+            return len(text)
+
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    if not colour:
+        monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr(sys, "stderr", _Terminal())
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", None)
+    console = controller._AssessmentConsole(False, live=True)
+    assert console.st.enabled is colour
+    console.plan_components(4)
+    console.step("Stage 2: Management Summary (2/2)")
+    controller._AssessmentConsole.clear_status()
+    written.clear()
+    console.running[1] = _Call(
+        "management summary (Sonnet 5.5)", clock.monotonic() - 200, "model is thinking (~12,345 tokens)"
+    )
+    console.tick()
+
+    def shown():
+        return [row for row in _screen(re.sub(r"\033\[[\d;]*m", "", "".join(written)), columns) if row]
+
+    rows = shown()
+    assert re.search(
+        r"report section 2/2 · Management Summary · management summary \(Sonnet 5\.5\) 3m2\ds "
+        r"model is thinking \(~12,345 tokens\)$",
+        " ".join(row.strip() for row in rows),
+    )
+    assert len(rows) > 1 and "…" not in "".join(rows) and all(len(row) < columns for row in rows)
+    # A column too narrow for the text moves it below the bar, starting after the time stamp.
+    column = rows[0].find("report section") if columns == 140 else 10
+    assert column >= 10 and all(len(row) - len(row.lstrip()) == column for row in rows[1:])
+
+    # The call ends and the line shrinks; a key press the terminal echoed goes with the rows above it.
+    console.running.clear()
+    written.append("ab")
+    console.tick()
+    assert len(shown()) == (1 if columns == 140 else 2)
+    controller._AssessmentConsole.clear_status()
+    assert not shown()
+
+
+def test_the_status_line_names_a_step_once_and_keeps_its_age(capsys, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "400")
+    console = controller._AssessmentConsole(False, [].append, live=True)
+    console.plan_components(4)
+    console.step("Stage 2: Management Summary (2/2)")
+    console.tick()
+    status = _status_frames(capsys.readouterr().err)[-1][-1]
+    controller._AssessmentConsole.clear_status()
+    assert status.endswith("report section 2/2 · Management Summary · 0s")
+
+
 def test_the_status_line_turns_a_spinner_and_draws_a_bar(capsys, monkeypatch):
     from renderers.term_style import SPINNER
 
