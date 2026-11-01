@@ -82,6 +82,12 @@ Ask for the depth before any model call only when all of these hold: no command-
 
 Intended and negative cases cover Enter, a number, and a name as answers; a depth given on the command line or by a scan profile that is not asked again; CI, a missing terminal, quiet, non-interactive, and resume runs that do not wait; and an end of input or three invalid answers that start nothing.
 
+When two or more repositories are selected, check for links between them after any cloning and before the run starts, without a model call and without sending anything to other hosts. A repository counts as linked when it connects to the others directly or through another selected repository. Skip the check for a single repository, with `--skip-preflight`, and for `--resume` and `--rebuild`.
+
+If a repository has no link, name each such repository, state that a missing link does not prove the repositories are unrelated, and state that the run produces one combined report. When a person is at the terminal, only an explicit yes continues. Any other answer stops the start and leaves no unfinished run. Otherwise show a warning with the start checks and continue as before.
+
+Intended and negative cases cover directly and indirectly linked repositories that ask nothing; a repository without a link answered with yes, with any other answer, and with an end of input; a single repository, `--skip-preflight`, `--resume`, and `--rebuild` that skip the check; CI, a missing terminal, quiet, and non-interactive runs that do not wait; and a stopped start that leaves nothing to resume.
+
 ## REQ-003: Know what was examined
 
 Record source revisions, captured source state, context sources, exclusions, and coverage gaps. Keep conclusions within the examined snapshot and reject source changes that would invalidate its evidence.
