@@ -517,7 +517,7 @@ def test_a_verification_finding_elsewhere_stays_a_finding_of_its_own(tmp_path, c
     assert threat["found_by"] == ["verification"] and threat["component_id"] == first
     assert "post_check_confirmed" not in threat and "aspect" not in threat
     if confirmed:
-        assert (threat["evidence_check"], threat["evidence_basis"]) == ("verified", "pointer-resolved")
+        assert (threat["evidence_check"], threat["evidence_basis"]) == ("verified", "post-check")
     else:
         assert threat["evidence_check"] == "ambiguous" and threat["evidence_tier"] == "insecure-practice"
         assert "cvss_v4" not in threat
@@ -564,8 +564,35 @@ def test_a_verification_finding_of_its_own_passes_the_evidence_review(tmp_path, 
     assert "cvss_v4" not in threat
     if verdict == "refuted":
         assert threat["evidence_review_contradicted"] == {"reason": "The reviewer read the handler and its guards."}
+        assert "evidence_review_unproven" not in threat
     else:
         assert "evidence_review_contradicted" not in threat
+        reason = {"reason": "The reviewer read the handler and its guards."} if verdict else None
+        assert threat.get("evidence_review_unproven") == reason
+
+
+def test_a_survey_finding_the_review_left_open_keeps_the_reason(tmp_path):
+    merged = _reviewed_in_parts(tmp_path, 1, verdict="ambiguous")
+    assert merged["threats"] and all(t["evidence_check"] == "ambiguous" for t in merged["threats"])
+    for threat in merged["threats"]:
+        assert threat["evidence_review_unproven"]["reason"]
+
+
+def test_a_confirmed_finding_carries_no_open_review_reason(tmp_path):
+    merged = _reviewed_in_parts(tmp_path, 1, verdict="verified")
+    assert not any("evidence_review_unproven" in threat for threat in merged["threats"])
+
+
+def test_a_verification_finding_joining_an_open_finding_takes_its_reason(tmp_path):
+    """The riskier verification finding survives the join, and the open review's reason must survive with it."""
+    merged, _ = _verification(
+        tmp_path,
+        lambda f: f.update(risk="Critical", likelihood="High", impact="High"),
+        verdicts=("ambiguous", "verified"),
+    )
+    threat = _held(merged, "TCF-001")
+    assert threat["evidence_check"] == "ambiguous"
+    assert threat["evidence_review_unproven"]["reason"]
 
 
 def test_only_unchecked_verification_findings_of_their_own_are_reviewed(tmp_path):
@@ -580,7 +607,7 @@ def test_only_unchecked_verification_findings_of_their_own_are_reviewed(tmp_path
     )
     assert received == [["TCF-003"]]
     assert _held(merged, "TCF-001")["found_by"] == ["survey", "verification"]
-    assert _held(merged, "TCF-002")["evidence_basis"] == "pointer-resolved"
+    assert _held(merged, "TCF-002")["evidence_basis"] == "post-check"
     assert "evidence_review_contradicted" in _held(merged, "TCF-003")
 
 
@@ -634,7 +661,7 @@ def test_a_partial_postcheck_does_not_confirm_an_unreviewed_duplicate(tmp_path):
     )
     assert received == [["TCF-002"]]
     assert _held(merged, "TCF-001") is not _held(merged, "TCF-002")
-    assert _held(merged, "TCF-001")["evidence_basis"] == "pointer-resolved"
+    assert _held(merged, "TCF-001")["evidence_basis"] == "post-check"
     assert _held(merged, "TCF-002")["evidence_check"] == "ambiguous"
 
 
@@ -644,7 +671,7 @@ def test_fully_postchecked_duplicates_keep_every_link_without_another_review(tmp
     merged, _ = _verification(tmp_path, change, change, review_verification=review)
     assert received == []
     assert _held(merged, "TCF-001") is _held(merged, "TCF-002")
-    assert _held(merged, "TCF-001")["evidence_basis"] == "pointer-resolved"
+    assert _held(merged, "TCF-001")["evidence_basis"] == "post-check"
 
 
 @pytest.mark.parametrize(

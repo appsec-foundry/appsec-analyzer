@@ -14,6 +14,7 @@ from shared._finding_state import (
     is_confirmed,
     is_discredited,
     is_refuted,
+    reliability,
     review_before_fix,
 )
 from shared._severity_policy import companion_cwes
@@ -54,6 +55,55 @@ def test_legacy_fields(tier, check, confirmed, refuted, discredited, established
     assert is_discredited(threat) is discredited
     assert evidence_established(threat) is established
     assert in_report_scope(threat) is (not refuted)
+
+
+@pytest.mark.parametrize(
+    ("threat", "level"),
+    [
+        ({"evidence_basis": "llm-verified", "found_by": ["survey", "verification"]}, "high"),
+        ({"evidence_basis": "llm-verified", "found_by": ["scanners", "survey", "verification"]}, "high"),
+        ({"evidence_basis": "absence-verified", "found_by": ["scanners"]}, "medium"),
+        ({"evidence_basis": "llm-verified", "found_by": ["survey"]}, "medium"),
+        ({"evidence_basis": "llm-verified", "found_by": ["scanners", "survey"]}, "medium"),
+        ({"evidence_basis": "llm-verified", "found_by": ["scanners", "verification"]}, "medium"),
+        ({"evidence_basis": "llm-verified"}, "medium"),
+        ({"evidence_basis": "post-check", "found_by": ["survey", "verification"]}, "medium"),
+        ({"evidence_basis": "pointer-resolved", "found_by": ["survey", "verification"]}, "low"),
+        ({"evidence_basis": "ambiguous", "found_by": ["survey", "verification"]}, "low"),
+        ({"evidence_basis": "unchecked", "found_by": ["survey", "verification"]}, "low"),
+        ({"evidence_basis": "refuted", "found_by": ["survey", "verification"]}, "low"),
+        ({}, "low"),
+        (None, "low"),
+        (
+            {
+                "evidence_basis": "llm-verified",
+                "found_by": ["survey", "verification"],
+                "verification_contradicted": [{"test_case_id": "TC-AUTHZ-01"}],
+            },
+            "low",
+        ),
+        (
+            {
+                "evidence_basis": "llm-verified",
+                "found_by": ["survey", "verification"],
+                "evidence_review_contradicted": {"reason": "The route runs a guard."},
+            },
+            "low",
+        ),
+    ],
+)
+def test_reliability_says_how_sure_the_report_is_that_a_finding_is_real(threat, level) -> None:
+    assert reliability(threat) == level
+
+
+def test_reliability_ignores_the_severity() -> None:
+    base = {"evidence_basis": "llm-verified", "found_by": ["survey"]}
+    assert {reliability({**base, "risk": risk}) for risk in ("Critical", "High", "Medium", "Low")} == {"medium"}
+
+
+def test_a_post_check_does_not_confirm_a_finding() -> None:
+    threat = {"evidence_tier": "confirmed-exploitable", "evidence_check": "verified", "evidence_basis": "post-check"}
+    assert not is_confirmed(threat) and not evidence_established(threat) and not is_discredited(threat)
 
 
 @pytest.mark.parametrize(

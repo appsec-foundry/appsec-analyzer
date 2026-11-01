@@ -15603,6 +15603,7 @@ def _build_threat_card(
         )
     if verification_card := _verification_card(t):
         fields.append(verification_card)
+    fields.append(_reliability_card(t))
     if violated_card:
         fields.append(violated_card)
     if weakness_card:
@@ -16923,6 +16924,24 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
 _METHOD_NAMES = {"survey": "survey", "scanners": "scanners", "verification": "verification"}
 
 
+def _reliability_card(t: dict) -> str:
+    """REQ-047: how sure the report is that the weakness is real, and why. Severity is a separate question."""
+    level = _finding_state.reliability(t)
+    if level == "high":
+        return "**Reliability:** High. Probably real: a model review confirmed it, and the survey and verification each found it."
+    if level == "medium":
+        if _finding_state.evidence_basis(t) == _finding_state.POST_CHECK_BASIS:
+            return "**Reliability:** Medium. An automatic check confirmed part of the claim."
+        return "**Reliability:** Medium. A model review confirmed it, but the survey and verification did not both find it."
+    if _finding_state.is_review_contradicted(t) or t.get("verification_contradicted"):
+        return "**Reliability:** Low. This may be a false positive: a review or check contradicts it."
+    unproven = t.get("evidence_review_unproven")
+    if isinstance(unproven, dict) and unproven.get("reason"):
+        # The reason is model text: it stays text and cannot create links or markup.
+        return f"**Reliability:** Low. Not confirmed, this may be a false positive: {_safe_boundary_text(unproven['reason'])}"
+    return "**Reliability:** Low. Not confirmed, this may be a false positive."
+
+
 def _verification_card(t: dict) -> str:
     """REQ-040: the methods that found this finding, or whether verification evidenced a control at its location.
 
@@ -17798,6 +17817,13 @@ def _render_threat_register(ctx: RenderContext, env: jinja2.Environment, section
     # explanatory paragraphs are dropped. The carried-forward footnote below
     # is retained (it flags un-reverified incremental content, not a marker
     # legend).
+
+    # REQ-047: a short note, because "Reliability" is easily read as severity or as a percentage.
+    lines.append(
+        "_**Reliability** says how sure this report is that a finding is real, not how severe it is. "
+        "It is a judgement, not a probability._"
+    )
+    lines.append("")
 
     # ---- §8 footnote: carried-forward (incremental depth-downgrade) ------
     # Depth-independent so a standard re-scan that downgraded from thorough

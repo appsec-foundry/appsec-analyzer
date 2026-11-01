@@ -4518,3 +4518,11 @@ def test_source_in_another_encoding_is_named_in_the_run_and_the_report(tmp_path,
     assert outcome["status"] == "complete"
     assert any("not in UTF-8 were not analysed: edge/legacy.js" in w for w in outcome["warnings"])
     assert "`edge/legacy.js`" in (out / "security-assessment.md").read_text()
+
+
+def test_a_failed_evidence_review_keeps_the_exception_out_of_the_reason():
+    """The reason reaches the report, while the job's recorded gap keeps the cause."""
+    finding = {"local_id": "issue-1", "evidence": {"repository_id": "r", "file": "a.py", "line": 3, "sha256": "0" * 64}}
+    artifact = controller._unreviewed_evidence({"source_scope_sha256": "0" * 64}, [finding])
+    assert artifact["decisions"][0]["verdict"] == "ambiguous"
+    assert artifact["decisions"][0]["reason"] == "The independent evidence review did not run."

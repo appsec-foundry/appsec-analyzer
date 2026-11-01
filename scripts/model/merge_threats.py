@@ -59,7 +59,7 @@ from runtime.stride_outputs import component_id as _stride_component_id
 from runtime.stride_outputs import stride_output_files
 from shared._artifact_stamp import carry_generated_at
 from shared._atomic_io import atomic_write_json, atomic_write_text
-from shared._finding_state import is_refuted, is_review_contradicted, record_evidence
+from shared._finding_state import POST_CHECK_BASIS, is_refuted, is_review_contradicted, record_evidence
 from shared._severity_policy import normalize_risks
 from shared._shared_sources import CODE_LEVEL_SOURCES, DESIGN_LEVEL_SOURCES
 
@@ -3519,6 +3519,11 @@ def _unscored(threat: dict) -> None:
     threat.pop("cvss_v4", None)
 
 
+def _review_reason(decision: dict) -> str:
+    """The evidence review's reason as one bounded line of model text."""
+    return " ".join(str(decision.get("reason") or "").split())[:300]
+
+
 def _locations(threat: dict) -> list[tuple]:
     """The file and line of a finding's evidence and of each of its instances."""
     rows = [_primary_evidence(threat), *(row for row in threat.get("instances") or [] if isinstance(row, dict))]
@@ -3632,13 +3637,14 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
     riskier finding stays, on equal risk the reviewed one; a systemic finding
     always stays and takes the riskier rating. The finding takes the reviewed
     finding's verdict. A verification finding that repeats none stays
-    a finding of its own, verified as a resolved pointer when a post-check
+    a finding of its own, with the basis ``post-check`` when a post-check
     confirmed it. ``review`` receives the TCF- IDs of the others at once and
     returns the evidence review's decision per ID: a verified one scores the
     finding like a reviewed survey finding; a refuted one keeps it in the
     register, unscored, with the review's reason in
     ``evidence_review_contradicted``, because the review reads only bounded
-    source windows; any other or no decision leaves it ambiguous. Such
+    source windows; any other or no decision leaves it ambiguous, with the
+    reason in ``evidence_review_unproven`` when the review gave one. Such
     findings are never offered to the merge review: a wrong merge would hide
     a finding only verification reported. Returns the threats followed by the
     remaining verification findings.
@@ -3669,7 +3675,7 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
         partners = [p for p in index.get(key, []) if key is not None and not apart(threats[p], finding)]
         if not partners:
             if confirmed:
-                record_evidence(finding, "verified", "pointer-resolved")
+                record_evidence(finding, "verified", POST_CHECK_BASIS)
             else:
                 unreviewed.append(finding)
             alone.append(finding)
@@ -3683,6 +3689,8 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
         record_evidence(finding, partner.get("evidence_check") or "unchecked", partner.get("evidence_basis"))
         if finding["evidence_check"] == "ambiguous":
             _unscored(finding)
+            if partner.get("evidence_review_unproven"):
+                finding["evidence_review_unproven"] = dict(partner["evidence_review_unproven"])
         riskier = _risk_rank(finding.get("risk")) < _risk_rank(partner.get("risk"))
         # A systemic finding keeps its title and group; it takes the riskier part's rating instead.
         survivor = finding if riskier and not partner.get("systemic") else partner
@@ -3700,9 +3708,11 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
             continue
         record_evidence(finding, "ambiguous")
         _unscored(finding)
+        reason = _review_reason(decision)
         if decision.get("verdict") == "refuted":
-            reason = " ".join(str(decision.get("reason") or "").split())[:300]
             finding["evidence_review_contradicted"] = {"reason": reason or "The source contradicts the finding."}
+        elif reason:
+            finding["evidence_review_unproven"] = {"reason": reason}
     result = threats + alone
     for finding in result:
         block = finding.get("verification")
@@ -3913,6 +3923,7 @@ def merge_assessment(
             if decision["verdict"] == "ambiguous":
                 threat["evidence_tier"] = "insecure-practice"
                 threat.pop("cvss_v4", None)
+                threat["evidence_review_unproven"] = {"reason": _review_reason(decision)}
             # Comparison scope cannot come from an unrelated root's literal
             # control name. Actual shared mechanisms need a separate review.
             if threat.get("control_scope"):

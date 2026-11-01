@@ -554,6 +554,44 @@ def test_a_confirmed_step_verifies_the_finding_it_cites(tmp_path: Path, existing
     assert finding["evidence_tier"] == "insecure-practice"
 
 
+def test_a_step_does_not_verify_a_finding_with_further_locations(tmp_path: Path) -> None:
+    """One step reads one location, so it cannot settle what the review left open at the others (REQ-008)."""
+    _repo_with_approval(tmp_path)
+    _business(tmp_path, _step("confirmed", matched_finding_id="T-001"), chain_verdict="fully_viable")
+    _with_existing_finding(
+        tmp_path,
+        evidence={"file": "app/approvals/approve.py", "line": 12},
+        instances=[
+            {"file": "app/approvals/approve.py", "line": 12},
+            {"file": "app/approvals/other.py", "line": 3},
+        ],
+        evidence_check="ambiguous",
+        evidence_basis="ambiguous",
+        evidence_review_unproven={"reason": "The route registration is not in the supplied source."},
+    )
+
+    mod.promote(tmp_path)
+    finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    assert finding["evidence_check"] == "ambiguous"
+    assert finding["evidence_review_unproven"]["reason"].startswith("The route registration")
+
+
+def test_a_step_that_verifies_a_finding_clears_the_open_review_reason(tmp_path: Path) -> None:
+    _repo_with_approval(tmp_path)
+    _business(tmp_path, _step("confirmed", matched_finding_id="T-001"), chain_verdict="fully_viable")
+    _with_existing_finding(
+        tmp_path,
+        evidence={"file": "app/approvals/approve.py", "line": 12},
+        evidence_check="ambiguous",
+        evidence_review_unproven={"reason": "The route registration is not in the supplied source."},
+    )
+
+    mod.promote(tmp_path)
+    finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    assert finding["evidence_check"] == "verified"
+    assert "evidence_review_unproven" not in finding
+
+
 def test_a_confirmed_technical_step_verifies_its_matched_finding(tmp_path: Path) -> None:
     """The same rule holds when the matcher, not the verifier, made the binding."""
     _repo_with_approval(tmp_path)
