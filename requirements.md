@@ -36,6 +36,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-008:** **Show the evidence behind each finding.** Every finding explains the problem and points to the affected code and supporting evidence. Grouping similar problems must preserve each affected location. Unproven claims are labelled and left unscored.
 
+- **REQ-047:** **Show how reliable a finding is.** Every finding states how sure the report is that the weakness is real and not a false positive, as high, medium, or low, and why. This is separate from its severity.
+
 - **REQ-009:** **Explain severity.** A finding's severity is justified by evidence of the harm it could cause. A configuration rule hit is an insecure practice, not a confirmed exploitable weakness, unless evidence shows how it can be exploited where the system runs. Configuration that serves only local development is labelled as such and does not raise the verdict. The report states what is uncertain or unknown. Business context can inform the assessment, and an explicit absence of business harm can lower business impact. It cannot change priority tiers, hide technical findings, or override the severity rules.
 
 - **REQ-010:** **Include business context.** Teams can supply information about their business and organization, or ask Analyzer to skip stored business context. The report explains how that information affected the analysis and what relevant facts are still missing.

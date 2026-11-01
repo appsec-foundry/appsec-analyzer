@@ -275,6 +275,18 @@ depths:
 
 `test_cases: true` records the catalog without model jobs. Only the nine rule-based items then receive an outcome, from the recorded results of their scanner rules, and the other items are listed as not examined. A rule-based item reports a control only when every applicable rule is satisfied and the scanner recorded a result for each. A control here means that the examined files contain the expected configuration. It does not show that the control works in production.
 
+### How reliable a finding is
+
+Every finding card has a **Reliability** line. It says how sure the report is that the weakness is real and not a false positive. Severity is a separate question: a Critical with low reliability is serious if it turns out to be real.
+
+| Level | Meaning |
+| --- | --- |
+| High | A model review confirmed the finding, and the survey and verification each found it. |
+| Medium | A model review confirmed the finding, but the survey and verification did not both find it, or an automatic check confirmed part of the claim. |
+| Low | Nothing confirmed the finding, or a review or check contradicts it. The card gives the review's reason when there is one. |
+
+The level is a judgement, not a probability. High is not proof: the same model family reviews what it found, and even a review can confirm a false claim. Check low findings before you act on them, and check high ones before you rely on them for a release decision.
+
 ### Where to find the results
 
 With verification on:

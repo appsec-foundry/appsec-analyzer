@@ -1146,3 +1146,39 @@ def test_the_report_names_both_methods_a_contradiction_and_an_incomplete_aspect(
     block = {"catalog_version": "1", "results": [], "incomplete_aspects": ["AuthZ"]}
     appendix = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data={"test_case_results": block}), None, {})
     assert "Verification of AuthZ is incomplete: the model budget ended before every job ran" in appendix
+
+
+@pytest.mark.parametrize(
+    ("threat", "start"),
+    [
+        (
+            {"evidence_basis": "llm-verified", "found_by": ["survey", "verification"]},
+            "**Reliability:** High. Probably real",
+        ),
+        (
+            {"evidence_basis": "llm-verified", "found_by": ["scanners", "survey"]},
+            "**Reliability:** Medium. A model review",
+        ),
+        ({"evidence_basis": "post-check", "found_by": ["verification"]}, "**Reliability:** Medium. An automatic check"),
+        ({"evidence_basis": "ambiguous"}, "**Reliability:** Low. Not confirmed"),
+        (
+            {"evidence_basis": "llm-verified", "verification_contradicted": [{"file": "a.ts"}]},
+            "**Reliability:** Low. This may",
+        ),
+    ],
+)
+def test_a_finding_card_states_its_reliability(threat, start):
+    from renderers import compose_threat_model as compose
+
+    assert compose._reliability_card(threat).startswith(start)
+
+
+def test_the_reason_of_an_open_review_stays_text_on_the_card():
+    """REQ-047: the reason is model text derived from repository content, so it cannot create links or markup."""
+    from renderers import compose_threat_model as compose
+
+    reason = "See [here](https://evil.example) <img src=x onerror=alert(1)>\nNew line"
+    card = compose._reliability_card({"evidence_basis": "ambiguous", "evidence_review_unproven": {"reason": reason}})
+    # An escaped bracket renders as text, so "\\](https" is no link.
+    assert "<img" not in card and "&lt;img" in card and "\\[here\\](https" in card and "\n" not in card
+    assert card.startswith("**Reliability:** Low. Not confirmed, this may be a false positive: See \\[here\\]")

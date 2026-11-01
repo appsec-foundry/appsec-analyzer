@@ -10,9 +10,10 @@ unchecked findings.
 
 Decision (operator, see ``docs/internal/decisions.md``): a finding is
 *confirmed* only when its evidence was established — ``llm-verified``,
-``absence-verified`` or ``verified-prior``. ``pointer-resolved``,
-``unchecked``, ``ambiguous`` and ``refuted`` are not confirmed. Unconfirmed
-findings stay in the register; they are only not called confirmed.
+``absence-verified`` or ``verified-prior``. ``post-check``,
+``pointer-resolved``, ``unchecked``, ``ambiguous`` and ``refuted`` are not
+confirmed. Unconfirmed findings stay in the register; they are only not called
+confirmed.
 
 Field sources, newest first:
 
@@ -47,6 +48,7 @@ from __future__ import annotations
 
 CONFIRMED_BASES = frozenset({"llm-verified", "absence-verified", "verified-prior"})
 DISCREDITED_BASES = frozenset({"refuted", "ambiguous"})
+POST_CHECK_BASIS = "post-check"
 _LEGACY_CONFIRMED_CHECKS = frozenset({"verified", "verified-prior"})
 _PRACTICE_TIER = "insecure-practice"
 
@@ -136,6 +138,25 @@ def is_review_contradicted(threat: dict | None) -> bool:
     refuted survey finding, because the review reads only bounded windows.
     """
     return isinstance(threat, dict) and bool(threat.get("evidence_review_contradicted"))
+
+
+def reliability(threat: dict | None) -> str:
+    """How sure the report is that the weakness is real: ``high``, ``medium`` or ``low`` (REQ-047).
+
+    This says true or false positive and never touches the severity. High needs
+    established evidence from both the survey and verification, which do not
+    feed each other. Scanner hits are starting points for both, so a scanner
+    beside one method is no second opinion. A post-check tests a fixed property,
+    not the whole claim, so it reaches medium without confirming the finding.
+    """
+    if not isinstance(threat, dict) or is_review_contradicted(threat) or threat.get("verification_contradicted"):
+        return "low"
+    if evidence_basis(threat) == POST_CHECK_BASIS:
+        return "medium"
+    if not evidence_established(threat):
+        return "low"
+    methods = threat.get("found_by") or []
+    return "high" if "survey" in methods and "verification" in methods else "medium"
 
 
 def counts_toward_assessment(threat: dict | None) -> bool:

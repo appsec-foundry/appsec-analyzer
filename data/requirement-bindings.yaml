@@ -2673,3 +2673,30 @@ requirements:
       - tests/test_remote_repositories.py::test_redirect_to_the_git_suffix_is_reported_and_never_followed
       - tests/test_remote_repositories.py::test_only_a_same_host_repository_redirect_is_reported
       - tests/test_remote_repositories.py::test_no_probe_through_a_proxy_or_after_a_network_error
+
+  REQ-047:
+    applies_to:
+      - scripts/shared/_finding_state.py
+      - scripts/renderers/compose_threat_model.py
+      - scripts/model/merge_threats.py
+      - scripts/model/promote_verified_abuse_cases.py
+      - scripts/orchestrator/orchestration_controller.py
+      - schemas/threat-model.output.schema.yaml
+      - schemas/threats-merged.schema.yaml
+    decisions: []
+    documents:
+      - docs/security-assessment.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_finding_state.py::test_reliability_says_how_sure_the_report_is_that_a_finding_is_real
+      - tests/test_finding_state.py::test_reliability_ignores_the_severity
+      - tests/test_finding_state.py::test_a_post_check_does_not_confirm_a_finding
+      - tests/test_case_outcomes.py::test_a_finding_card_states_its_reliability
+      - tests/test_case_outcomes.py::test_the_reason_of_an_open_review_stays_text_on_the_card
+      - tests/test_multi_repo_builder.py::test_a_survey_finding_the_review_left_open_keeps_the_reason
+      - tests/test_multi_repo_builder.py::test_a_confirmed_finding_carries_no_open_review_reason
+      - tests/test_multi_repo_builder.py::test_a_verification_finding_joining_an_open_finding_takes_its_reason
+      - tests/test_multi_repo_assessment.py::test_a_failed_evidence_review_keeps_the_exception_out_of_the_reason
+      - tests/test_promote_verified_abuse_cases.py::test_a_step_does_not_verify_a_finding_with_further_locations
+      - tests/test_promote_verified_abuse_cases.py::test_a_step_that_verifies_a_finding_clears_the_open_review_reason

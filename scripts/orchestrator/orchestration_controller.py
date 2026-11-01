@@ -2798,15 +2798,16 @@ def _assessment_evidence_review(
         validate=lambda artifact, ranges: analysis.validate_evidence_review(
             scope, findings, fingerprint, artifact, ranges, review_sources
         ),
-        on_failure=lambda reason: _unreviewed_evidence(identity, findings, reason),
+        on_failure=lambda reason: _unreviewed_evidence(identity, findings),
     )
 
 
-def _unreviewed_evidence(identity: dict, findings: list[dict], reason: str) -> dict:
+def _unreviewed_evidence(identity: dict, findings: list[dict]) -> dict:
     """The review a failed evidence job stands for: every finding stays ambiguous (OR-39).
 
     An ambiguous finding is an observed practice whose exploit is unproven, so
-    nothing is confirmed or refuted without an independent reading.
+    nothing is confirmed or refuted without an independent reading. The reason
+    reaches the report, so it names no exception; the job's recorded gap does.
     """
     keys = ("repository_id", "file", "line", "sha256")
     return {
@@ -2816,7 +2817,7 @@ def _unreviewed_evidence(identity: dict, findings: list[dict], reason: str) -> d
             {
                 "local_id": finding["local_id"],
                 "verdict": "ambiguous",
-                "reason": f"Independent evidence review unavailable: {reason}"[:500],
+                "reason": "The independent evidence review did not run.",
                 "evidence": [{key: finding["evidence"].get(key, 1) for key in keys}],
             }
             for finding in findings

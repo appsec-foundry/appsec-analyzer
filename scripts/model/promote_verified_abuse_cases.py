@@ -40,7 +40,7 @@ from shared._register_titles import HEADING_SOFT_MAX, clamp_mitigation_title, cl
 
 from model.finding_intake import apply_intake
 from model.match_abuse_cases import _configured_repo_root, _evidence_problem, _finding_file
-from model.merge_threats import _evidence_identity_key
+from model.merge_threats import _evidence_identity_key, _locations
 from model.reclassify_components import resolve_owner  # canonical registry resolver
 
 _VALID_SEVERITIES = {"Critical", "High", "Medium", "Low"}
@@ -164,7 +164,8 @@ def _verify_bound_findings(matches: list, verdict_by_case: dict, threats: list, 
 
     The cited excerpt must pass the same gate that admits descriptive
     evidence, at the finding's own file. Only ambiguous or unchecked evidence
-    changes; the exploitability tier is left alone.
+    changes; the exploitability tier is left alone. A step reads one location,
+    so a finding with further locations stays as the review left it (REQ-008).
     """
     by_id: dict[str, dict] = {}
     for threat in threats:
@@ -192,10 +193,12 @@ def _verify_bound_findings(matches: list, verdict_by_case: dict, threats: list, 
                 or finding.get("evidence_check") not in _UNSETTLED_EVIDENCE
                 or not isinstance(evidence, dict)
                 or evidence.get("file") != _finding_file(finding)
+                or len(set(_locations(finding))) > 1
                 or _evidence_problem(evidence, repo_root)
             ):
                 continue
             record_evidence(finding, "verified", "llm-verified")
+            finding.pop("evidence_review_unproven", None)
             verified.append(str(finding.get("t_id") or finding.get("id")))
     return verified
 

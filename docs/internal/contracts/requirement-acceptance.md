@@ -150,7 +150,15 @@ Retain repository provenance in combined results and require evidence from both 
 
 ## REQ-008: Show the evidence behind each finding
 
-Explain each concrete security problem with target-source evidence, affected scope, and distinct instances. Group shared weaknesses without losing individual findings. Keep unproven claims visibly unproven and unscored; revalidate imported known threats or record mitigation, declared acceptance, or skip reasons.
+Explain each concrete security problem with target-source evidence, affected scope, and distinct instances. Group shared weaknesses without losing individual findings. Keep unproven claims visibly unproven and unscored; revalidate imported known threats or record mitigation, declared acceptance, or skip reasons. A confirmed abuse-case step confirms a finding only when the finding has no further location, because the step read only one.
+
+## REQ-047: Show how reliable a finding is
+
+Show the level with its reason on every finding card, and state below the findings register that it says how sure the report is that a finding is real, not how severe it is, and that it is a judgement and no probability. The level changes no severity, verdict, count, or priority.
+
+High means a model review, abuse-case step, or re-run check confirmed the finding, and both the survey and verification found it. These two methods work independently. Scanner hits are starting points for both, so a scanner beside one method is no second opinion. Medium means confirmed without both methods, or supported by a post-check. A post-check tests one fixed property of the claim, so such a finding is not counted as confirmed. Low means anything else, and also any finding that the evidence review or verification contradicts.
+
+A low finding names the evidence review's reason when there is one. The reason is model text and stays plain text. If the review did not run, the finding says so and names no technical cause; the run's recorded gaps hold that.
 
 ## REQ-009: Explain severity
 

@@ -1402,6 +1402,15 @@ properties:
           required: [reason]
           properties:
             reason: { type: string, minLength: 1, maxLength: 300 }
+        evidence_review_unproven:
+          description: >-
+            REQ-047: why the evidence review left this finding open, or that the review did not run. The reason
+            is the review's model text, so a renderer treats it as text.
+          type: object
+          additionalProperties: false
+          required: [reason]
+          properties:
+            reason: { type: string, minLength: 1, maxLength: 300 }
         component:   { type: string }
         stride:
           type: string
@@ -1501,7 +1510,7 @@ properties:
           # How the evidence verdict was established. Mirrors
           # threats-merged.schema.yaml.
           type: [string, "null"]
-          enum: [llm-verified, pointer-resolved, absence-verified, verified-prior,
+          enum: [llm-verified, post-check, pointer-resolved, absence-verified, verified-prior,
                  refuted, ambiguous, unchecked, carried-unverified-shallower-depth, null]
         scenario:
           type: string
