@@ -8,6 +8,8 @@ replies of the test suite's `FullHost`, in the CLI's own `json` or
 run end to end as separate processes without network access or cost.
 
 It never runs outside tests: the caller points `APPSEC_CLAUDE_EXECUTABLE` at it.
+`audit-requirements` ignores that variable when it starts the model and runs
+`claude` from `PATH`, so its caller also puts this file on `PATH` as `claude`.
 Its own variables avoid the `APPSEC_` prefix, which the transport strips.
 
 Environment:
@@ -18,6 +20,9 @@ Environment:
                              first <count> calls of the role (or of any role for `*`)
                              fail with <kind>: rate_limit, server_error, no_result,
                              text, auth.
+  FAKE_CLAUDE_AUDIT_VERDICTS  JSON file with the verdict of each requirement,
+                             for `audit-requirements` runs. Their prompts are
+                             kept in `audit-prompts.log` in the state directory.
 
 The role of a call is read from its private host directory, which the
 controller names `<role>-<random>/work`.
@@ -36,6 +41,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 FAULT_KINDS = ("rate_limit", "server_error", "no_result", "text", "auth")
+AUDIT_ROLE = "appsec-audit-host"
 
 
 def _option(argv: list[str], name: str) -> str | None:
@@ -78,7 +84,44 @@ def _log(row: dict) -> None:
         sink.write(json.dumps(row) + "\n")
 
 
+def _prompt(argv: list[str]) -> str:
+    """The prompt from stdin; a prompt with cache blocks arrives as one stream-json user message."""
+    text = sys.stdin.read()
+    if _option(argv, "--input-format") != "stream-json":
+        return text
+    return "".join(block["text"] for block in json.loads(text)["message"]["content"])
+
+
+def _audit_answer(prompt: str) -> dict:
+    """Grade one audit batch from the verdicts file, after reading the cited lines as a model must."""
+    from runtime.assessment_host import MARKER
+
+    with open(_state() / "audit-prompts.log", "a", encoding="utf-8") as sink:
+        sink.write(prompt + "\n")
+    packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+    context = packet["context"]
+    verdicts = json.loads(Path(os.environ["FAKE_CLAUDE_AUDIT_VERDICTS"]).read_text(encoding="utf-8"))
+    rows = [verdicts[requirement["id"]] for requirement in context["requirements"]]
+    cited: dict[str, list[int]] = {}
+    for row in rows:
+        for item in row["evidence"]:
+            cited.setdefault(item["file"], []).append(item["line"])
+    if cited and not packet["source_slices"]:
+        reads = [
+            {"repository_id": context["repository_id"], "path": path, "start_line": min(lines), "end_line": max(lines)}
+            for path, lines in sorted(cited.items())
+        ]
+        return {"action": "read", "reads": reads, "artifact": None}
+    results = [
+        {**row, "evidence": [{"file": item["file"], "line": item["line"]} for item in row["evidence"]]} for row in rows
+    ]
+    return {"action": "complete", "reads": [], "artifact": {"results": results}}
+
+
 def _answer(role: str, system: str, prompt: str, schema: dict) -> dict:
+    if role == AUDIT_ROLE:
+        return _audit_answer(prompt)
+
     from runtime import multi_repo_scope
 
     from tests.test_multi_repo_assessment import FullHost
@@ -112,7 +155,7 @@ def main(argv: list[str]) -> int:
         print("fake claude: only -p and auth status are supported", file=sys.stderr)
         return 2
     role = _role()
-    prompt = sys.stdin.read()
+    prompt = _prompt(argv)
     schema = json.loads(_option(argv, "--json-schema") or "{}")
     system = _option(argv, "--system-prompt") or ""
     kind = _fault(role)

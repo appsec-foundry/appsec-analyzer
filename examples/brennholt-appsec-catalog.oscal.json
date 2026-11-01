@@ -1,0 +1,992 @@
+{
+  "catalog": {
+    "uuid": "7b1f4c2e-9a3d-4e6b-8c15-2d7f60a1b3e4",
+    "metadata": {
+      "title": "Brennholt Logistik Application Security Standard",
+      "last-modified": "2026-09-14T08:30:00.000+00:00",
+      "version": "3.2",
+      "oscal-version": "1.1.2",
+      "roles": [
+        {
+          "id": "creator",
+          "title": "Document Creator"
+        }
+      ],
+      "parties": [
+        {
+          "uuid": "c3a9e5d0-41b7-4f28-a6de-58e1f2907c16",
+          "type": "organization",
+          "name": "Brennholt Logistik GmbH",
+          "short-name": "Brennholt",
+          "email-addresses": [
+            "appsec@brennholt.example"
+          ]
+        }
+      ],
+      "responsible-parties": [
+        {
+          "role-id": "creator",
+          "party-uuids": [
+            "c3a9e5d0-41b7-4f28-a6de-58e1f2907c16"
+          ]
+        }
+      ],
+      "remarks": "Fictional example. Brennholt Logistik GmbH does not exist. The catalog shows how a company can write its application security standard in OSCAL. It is not an official standard."
+    },
+    "params": [
+      {
+        "id": "bl-idle-timeout",
+        "label": "idle session timeout in minutes",
+        "values": [
+          "15"
+        ]
+      },
+      {
+        "id": "bl-tls-minimum",
+        "label": "lowest permitted TLS version",
+        "values": [
+          "1.2"
+        ]
+      },
+      {
+        "id": "bl-critical-patch-days",
+        "label": "days to fix a critical dependency vulnerability",
+        "values": [
+          "14"
+        ]
+      }
+    ],
+    "groups": [
+      {
+        "id": "iam",
+        "class": "family",
+        "title": "Identity and Access Management",
+        "parts": [
+          {
+            "id": "iam_ovw",
+            "name": "overview",
+            "prose": "Applies to every Brennholt service that handles shipment, customer or partner data."
+          }
+        ],
+        "groups": [
+          {
+            "id": "iam-authn",
+            "class": "family",
+            "title": "Authentication",
+            "controls": [
+              {
+                "id": "iam-1",
+                "class": "requirement",
+                "title": "Authenticate protected routes",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-1"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-01"
+                  }
+                ],
+                "links": [
+                  {
+                    "href": "#1e8d0c47-b2f6-4a35-9d71-6ac4e3f8127b",
+                    "rel": "reference"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-1_smt",
+                    "name": "statement",
+                    "prose": "Require a verified identity on every route that is not listed as public in the API inventory of the service:",
+                    "parts": [
+                      {
+                        "id": "iam-1_smt.a",
+                        "name": "item",
+                        "props": [
+                          {
+                            "name": "label",
+                            "value": "a."
+                          }
+                        ],
+                        "prose": "enforce authentication in server-side middleware, never in the client; and"
+                      },
+                      {
+                        "id": "iam-1_smt.b",
+                        "name": "item",
+                        "props": [
+                          {
+                            "name": "label",
+                            "value": "b."
+                          }
+                        ],
+                        "prose": "reject a request with a missing, expired or invalid credential before any business logic runs."
+                      }
+                    ]
+                  },
+                  {
+                    "id": "iam-1_gdn",
+                    "name": "guidance",
+                    "prose": "Mount the authentication middleware once on the router and list public routes explicitly, so a new route is protected by default."
+                  }
+                ],
+                "controls": [
+                  {
+                    "id": "iam-1.1",
+                    "class": "requirement",
+                    "title": "Multi-factor authentication for administrators",
+                    "params": [
+                      {
+                        "id": "iam-1.1_prm_1",
+                        "label": "accepted second factors",
+                        "select": {
+                          "how-many": "one-or-more",
+                          "choice": [
+                            "hardware security keys",
+                            "passkeys",
+                            "authenticator apps"
+                          ]
+                        }
+                      }
+                    ],
+                    "props": [
+                      {
+                        "name": "label",
+                        "value": "IAM-1(1)"
+                      },
+                      {
+                        "name": "sort-id",
+                        "value": "iam-01.01"
+                      }
+                    ],
+                    "parts": [
+                      {
+                        "id": "iam-1.1_smt",
+                        "name": "statement",
+                        "prose": "Require {{ insert: param, iam-1.1_prm_1 }} as a second factor for every administrative function."
+                      },
+                      {
+                        "id": "iam-1.1_gdn",
+                        "name": "guidance",
+                        "prose": "SMS codes do not count as a second factor at Brennholt."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "iam-2",
+                "class": "requirement",
+                "title": "Password storage",
+                "params": [
+                  {
+                    "id": "iam-2_prm_1",
+                    "label": "password hashing function",
+                    "select": {
+                      "how-many": "one",
+                      "choice": [
+                        "Argon2id",
+                        "scrypt",
+                        "bcrypt with a cost factor of at least 12"
+                      ]
+                    }
+                  }
+                ],
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-2"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-02"
+                  }
+                ],
+                "links": [
+                  {
+                    "href": "#a05c3e92-7d14-4b6f-8e3a-c1f2b9046d58",
+                    "rel": "reference"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-2_smt",
+                    "name": "statement",
+                    "prose": "Store passwords only as salted hashes produced with {{ insert: param, iam-2_prm_1 }}, and verify them in application code, never in a database query."
+                  },
+                  {
+                    "id": "iam-2_gdn",
+                    "name": "guidance",
+                    "prose": "Each product team records its choice of hashing function in the system security concept."
+                  }
+                ]
+              },
+              {
+                "id": "iam-3",
+                "class": "requirement",
+                "title": "Token and session lifetime",
+                "params": [
+                  {
+                    "id": "iam-3_prm_1",
+                    "label": "access token lifetime in minutes",
+                    "values": [
+                      "30"
+                    ]
+                  }
+                ],
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-3"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-03"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-3_smt",
+                    "name": "statement",
+                    "prose": "Limit access tokens to a lifetime of {{ insert: param, iam-3_prm_1 }} minutes and end a session after {{ insert: param, bl-idle-timeout }} minutes without activity."
+                  }
+                ]
+              },
+              {
+                "id": "iam-4",
+                "class": "requirement",
+                "title": "Partner API authentication",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-4"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-04"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-4_smt",
+                    "name": "statement",
+                    "prose": "Authenticate every partner API call with a key issued to that partner, and return only data that belongs to the authenticated partner."
+                  },
+                  {
+                    "id": "iam-4_gdn",
+                    "name": "guidance",
+                    "prose": "Carriers and customs brokers connect through this API, so a shared key would make their traffic indistinguishable."
+                  }
+                ],
+                "controls": [
+                  {
+                    "id": "iam-4.1",
+                    "class": "requirement",
+                    "title": "Partner key storage",
+                    "params": [
+                      {
+                        "id": "iam-4.1_prm_1",
+                        "label": "partner key rotation interval in days",
+                        "values": [
+                          "180"
+                        ]
+                      }
+                    ],
+                    "props": [
+                      {
+                        "name": "label",
+                        "value": "IAM-4(1)"
+                      },
+                      {
+                        "name": "sort-id",
+                        "value": "iam-04.01"
+                      }
+                    ],
+                    "parts": [
+                      {
+                        "id": "iam-4.1_smt",
+                        "name": "statement",
+                        "prose": "Store partner keys only as hashes and rotate them at least every {{ insert: param, iam-4.1_prm_1 }} days."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "iam-authz",
+            "class": "family",
+            "title": "Authorization",
+            "controls": [
+              {
+                "id": "iam-5",
+                "class": "requirement",
+                "title": "Object-level authorization",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-5"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-05"
+                  }
+                ],
+                "links": [
+                  {
+                    "href": "#4fa2716b-3c9e-4d08-b5c2-90d7e16a8f33",
+                    "rel": "reference"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-5_smt",
+                    "name": "statement",
+                    "prose": "Check on every read and write that the authenticated identity may access the requested object."
+                  },
+                  {
+                    "id": "iam-5_gdn",
+                    "name": "guidance",
+                    "prose": "Identifiers in URLs are never proof of access, even when they are hard to guess."
+                  }
+                ]
+              },
+              {
+                "id": "iam-6",
+                "class": "requirement",
+                "title": "Tenant isolation",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-6"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-06"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-6_smt",
+                    "name": "statement",
+                    "prose": "Derive the tenant from the authenticated identity. Never accept a tenant identifier from a header, parameter or body field that the client controls."
+                  }
+                ]
+              },
+              {
+                "id": "iam-7",
+                "class": "requirement",
+                "title": "Administrative functions",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-7"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-07"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-7_smt",
+                    "name": "statement",
+                    "prose": "Restrict administrative functions to the administrator role and check that role on the server for each call."
+                  }
+                ]
+              },
+              {
+                "id": "iam-8",
+                "class": "requirement",
+                "title": "Network allow-list for administrative functions",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "IAM-8"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "iam-08"
+                  },
+                  {
+                    "name": "status",
+                    "value": "withdrawn"
+                  }
+                ],
+                "links": [
+                  {
+                    "href": "#iam-7",
+                    "rel": "incorporated-into"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "iam-8_smt",
+                    "name": "statement",
+                    "prose": "Allow administrative functions only from the office network."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "inp",
+        "class": "family",
+        "title": "Input Handling",
+        "controls": [
+          {
+            "id": "inp-1",
+            "class": "requirement",
+            "title": "Database access",
+            "props": [
+              {
+                "name": "label",
+                "value": "INP-1"
+              },
+              {
+                "name": "sort-id",
+                "value": "inp-01"
+              }
+            ],
+            "links": [
+              {
+                "href": "#4fa2716b-3c9e-4d08-b5c2-90d7e16a8f33",
+                "rel": "reference"
+              }
+            ],
+            "parts": [
+              {
+                "id": "inp-1_smt",
+                "name": "statement",
+                "prose": "Use parameterized queries or a safe query builder for every database access. Never build a query by joining strings with request data."
+              },
+              {
+                "id": "inp-1_gdn",
+                "name": "guidance",
+                "prose": "Sequelize replacements and bind parameters both meet this control."
+              }
+            ]
+          },
+          {
+            "id": "inp-2",
+            "class": "requirement",
+            "title": "Operating system commands",
+            "props": [
+              {
+                "name": "label",
+                "value": "INP-2"
+              },
+              {
+                "name": "sort-id",
+                "value": "inp-02"
+              }
+            ],
+            "parts": [
+              {
+                "id": "inp-2_smt",
+                "name": "statement",
+                "prose": "Start processes without a shell, pass arguments as a list, and check each argument against an allow-list."
+              }
+            ]
+          },
+          {
+            "id": "inp-3",
+            "class": "requirement",
+            "title": "Outbound requests",
+            "props": [
+              {
+                "name": "label",
+                "value": "INP-3"
+              },
+              {
+                "name": "sort-id",
+                "value": "inp-03"
+              }
+            ],
+            "parts": [
+              {
+                "id": "inp-3_smt",
+                "name": "statement",
+                "prose": "Send server-side requests only to destinations on an allow-list, and refuse private, loopback and link-local addresses."
+              }
+            ]
+          },
+          {
+            "id": "inp-4",
+            "class": "requirement",
+            "title": "Redirect targets",
+            "props": [
+              {
+                "name": "label",
+                "value": "INP-4"
+              },
+              {
+                "name": "sort-id",
+                "value": "inp-04"
+              }
+            ],
+            "parts": [
+              {
+                "id": "inp-4_smt",
+                "name": "statement",
+                "prose": "Redirect only to relative paths or to hosts on an allow-list."
+              }
+            ]
+          },
+          {
+            "id": "inp-5",
+            "class": "requirement",
+            "title": "Request validation",
+            "props": [
+              {
+                "name": "label",
+                "value": "INP-5"
+              },
+              {
+                "name": "sort-id",
+                "value": "inp-05"
+              }
+            ],
+            "parts": [
+              {
+                "id": "inp-5_smt",
+                "name": "statement",
+                "prose": "Validate type, length, format and range of every request field against a schema at the API boundary, and reject unknown fields."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sec",
+        "class": "family",
+        "title": "Secrets and Transport Protection",
+        "controls": [
+          {
+            "id": "sec-1",
+            "class": "requirement",
+            "title": "Secrets in source code",
+            "params": [
+              {
+                "id": "sec-1_prm_1",
+                "label": "approved secret store",
+                "values": [
+                  "the central secrets manager"
+                ]
+              }
+            ],
+            "props": [
+              {
+                "name": "label",
+                "value": "SEC-1"
+              },
+              {
+                "name": "sort-id",
+                "value": "sec-01"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sec-1_smt",
+                "name": "statement",
+                "prose": "Keep secrets out of source code, configuration files and container images. Load them at runtime from {{ insert: param, sec-1_prm_1 }}."
+              },
+              {
+                "id": "sec-1_gdn",
+                "name": "guidance",
+                "prose": "A secret found in Git history counts as disclosed and must be replaced."
+              }
+            ]
+          },
+          {
+            "id": "sec-2",
+            "class": "requirement",
+            "title": "Transport encryption",
+            "props": [
+              {
+                "name": "label",
+                "value": "SEC-2"
+              },
+              {
+                "name": "sort-id",
+                "value": "sec-02"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sec-2_smt",
+                "name": "statement",
+                "prose": "Protect all traffic between clients and services with TLS {{ insert: param, bl-tls-minimum }} or later."
+              }
+            ]
+          },
+          {
+            "id": "sec-3",
+            "class": "requirement",
+            "title": "Credential rotation",
+            "params": [
+              {
+                "id": "sec-3_prm_1",
+                "label": "rotation interval in days, set by the system owner"
+              }
+            ],
+            "props": [
+              {
+                "name": "label",
+                "value": "SEC-3"
+              },
+              {
+                "name": "sort-id",
+                "value": "sec-03"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sec-3_smt",
+                "name": "statement",
+                "prose": "Rotate signing keys and service credentials at least every {{ insert: param, sec-3_prm_1 }} days and after any suspected disclosure."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "log",
+        "class": "family",
+        "title": "Logging and Error Handling",
+        "controls": [
+          {
+            "id": "log-1",
+            "class": "requirement",
+            "title": "Security events",
+            "props": [
+              {
+                "name": "label",
+                "value": "LOG-1"
+              },
+              {
+                "name": "sort-id",
+                "value": "log-01"
+              }
+            ],
+            "parts": [
+              {
+                "id": "log-1_smt",
+                "name": "statement",
+                "prose": "Log authentication outcomes, authorization denials and administrative actions with time, identity and source. Never log credentials or tokens."
+              }
+            ]
+          },
+          {
+            "id": "log-2",
+            "class": "requirement",
+            "title": "Error responses",
+            "props": [
+              {
+                "name": "label",
+                "value": "LOG-2"
+              },
+              {
+                "name": "sort-id",
+                "value": "log-02"
+              }
+            ],
+            "parts": [
+              {
+                "id": "log-2_smt",
+                "name": "statement",
+                "prose": "Return generic error messages to clients. Keep stack traces, query text and system messages in server logs."
+              }
+            ]
+          },
+          {
+            "id": "log-3",
+            "class": "requirement",
+            "title": "Debug interfaces",
+            "props": [
+              {
+                "name": "label",
+                "value": "LOG-3"
+              },
+              {
+                "name": "sort-id",
+                "value": "log-03"
+              }
+            ],
+            "parts": [
+              {
+                "id": "log-3_smt",
+                "name": "statement",
+                "prose": "Remove debug and diagnostic endpoints from production builds."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sup",
+        "class": "family",
+        "title": "Software Supply Chain",
+        "controls": [
+          {
+            "id": "sup-1",
+            "class": "requirement",
+            "title": "CI action pinning",
+            "props": [
+              {
+                "name": "label",
+                "value": "SUP-1"
+              },
+              {
+                "name": "sort-id",
+                "value": "sup-01"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sup-1_smt",
+                "name": "statement",
+                "prose": "Pin third-party CI actions to a full commit hash."
+              }
+            ]
+          },
+          {
+            "id": "sup-2",
+            "class": "requirement",
+            "title": "Reproducible installs",
+            "props": [
+              {
+                "name": "label",
+                "value": "SUP-2"
+              },
+              {
+                "name": "sort-id",
+                "value": "sup-02"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sup-2_smt",
+                "name": "statement",
+                "prose": "Commit a lock file and install dependencies only from it in CI and container builds."
+              }
+            ]
+          },
+          {
+            "id": "sup-3",
+            "class": "requirement",
+            "title": "Vulnerable dependencies",
+            "props": [
+              {
+                "name": "label",
+                "value": "SUP-3"
+              },
+              {
+                "name": "sort-id",
+                "value": "sup-03"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sup-3_smt",
+                "name": "statement",
+                "prose": "Fix a dependency with a known critical vulnerability within {{ insert: param, bl-critical-patch-days }} days of disclosure."
+              }
+            ]
+          },
+          {
+            "id": "sup-4",
+            "class": "requirement",
+            "title": "Container user",
+            "props": [
+              {
+                "name": "label",
+                "value": "SUP-4"
+              },
+              {
+                "name": "sort-id",
+                "value": "sup-04"
+              }
+            ],
+            "parts": [
+              {
+                "id": "sup-4_smt",
+                "name": "statement",
+                "prose": "Run containers as a non-root user."
+              }
+            ],
+            "controls": [
+              {
+                "id": "sup-4.1",
+                "class": "requirement",
+                "title": "Base image pinning",
+                "props": [
+                  {
+                    "name": "label",
+                    "value": "SUP-4(1)"
+                  },
+                  {
+                    "name": "sort-id",
+                    "value": "sup-04.01"
+                  }
+                ],
+                "parts": [
+                  {
+                    "id": "sup-4.1_smt",
+                    "name": "statement",
+                    "prose": "Pin base images to an immutable digest."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ai",
+        "class": "family",
+        "title": "AI Features",
+        "controls": [
+          {
+            "id": "ai-1",
+            "class": "requirement",
+            "title": "Prompt boundary",
+            "props": [
+              {
+                "name": "label",
+                "value": "AI-1"
+              },
+              {
+                "name": "sort-id",
+                "value": "ai-01"
+              }
+            ],
+            "parts": [
+              {
+                "id": "ai-1_smt",
+                "name": "statement",
+                "prose": "Treat user input and retrieved content as untrusted data, and keep it apart from system instructions in the prompt."
+              }
+            ]
+          },
+          {
+            "id": "ai-2",
+            "class": "requirement",
+            "title": "Model output",
+            "props": [
+              {
+                "name": "label",
+                "value": "AI-2"
+              },
+              {
+                "name": "sort-id",
+                "value": "ai-02"
+              }
+            ],
+            "parts": [
+              {
+                "id": "ai-2_smt",
+                "name": "statement",
+                "prose": "Treat model output as untrusted. Encode or validate it before it is rendered, executed or passed to another system."
+              }
+            ]
+          },
+          {
+            "id": "ai-3",
+            "class": "requirement",
+            "title": "Approved model providers",
+            "params": [
+              {
+                "id": "ai-3_prm_1",
+                "label": "approved provider list",
+                "values": [
+                  "the provider list approved by the data protection officer"
+                ]
+              }
+            ],
+            "props": [
+              {
+                "name": "label",
+                "value": "AI-3"
+              },
+              {
+                "name": "sort-id",
+                "value": "ai-03"
+              }
+            ],
+            "parts": [
+              {
+                "id": "ai-3_smt",
+                "name": "statement",
+                "prose": "Send data only to model providers on {{ insert: param, ai-3_prm_1 }}."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "pay",
+        "class": "family",
+        "title": "Payment Data",
+        "controls": [
+          {
+            "id": "pay-1",
+            "class": "requirement",
+            "title": "Card data",
+            "props": [
+              {
+                "name": "label",
+                "value": "PAY-1"
+              },
+              {
+                "name": "sort-id",
+                "value": "pay-01"
+              }
+            ],
+            "parts": [
+              {
+                "id": "pay-1_smt",
+                "name": "statement",
+                "prose": "Process card payments only through the approved payment provider, and never store card numbers or verification codes."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "back-matter": {
+      "resources": [
+        {
+          "uuid": "1e8d0c47-b2f6-4a35-9d71-6ac4e3f8127b",
+          "title": "OWASP Application Security Verification Standard",
+          "rlinks": [
+            {
+              "href": "https://owasp.org/www-project-application-security-verification-standard/"
+            }
+          ]
+        },
+        {
+          "uuid": "4fa2716b-3c9e-4d08-b5c2-90d7e16a8f33",
+          "title": "OWASP Top 10",
+          "rlinks": [
+            {
+              "href": "https://owasp.org/www-project-top-ten/"
+            }
+          ]
+        },
+        {
+          "uuid": "a05c3e92-7d14-4b6f-8e3a-c1f2b9046d58",
+          "title": "NIST SP 800-63B, Digital Identity Guidelines: Authentication",
+          "rlinks": [
+            {
+              "href": "https://pages.nist.gov/800-63-4/sp800-63b.html"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -34,6 +34,8 @@ An OSCAL catalog is converted when it is loaded:
 - Withdrawn controls are left out. The console and the result give their number.
 - OSCAL has no obligation level, so every control gets the priority `MUST`. A gate on `MUST` therefore blocks on every violated control.
 
+[`brennholt-appsec-catalog.oscal.json`](../examples/brennholt-appsec-catalog.oscal.json) is an example OSCAL catalog of a fictional company. It shows nested groups, enhancements, parameters with and without a value, guidance, and a withdrawn control.
+
 Analyzer refuses, with the reason, an OSCAL profile or other OSCAL document, an XML file, a file with both formats, and a control without an ID or with a repeated ID. Resolve a profile to a catalog first, for example with oscal-cli, and convert XML to JSON. A catalog file may be up to 16 MiB as JSON and up to 4 MiB as YAML.
 
 Each command also has a limit that is checked before any model call:

@@ -2308,6 +2308,14 @@ requirements:
       - tests/test_requirements_audit_cli.py::test_audit_refuses_an_oscal_profile_before_any_model_call
       - tests/test_authnz_review_cli.py::test_an_oscal_profile_never_reaches_the_model
       - tests/test_authnz_review_cli.py::test_a_catalog_too_large_for_one_packet_is_refused_with_its_size_and_limit
+      - tests/test_oscal_catalog_e2e.py::test_the_audit_grades_every_active_control_and_blocks_on_failed_controls
+      - tests/test_oscal_catalog_e2e.py::test_the_audit_records_which_catalog_it_read
+      - tests/test_oscal_catalog_e2e.py::test_the_conversion_resolves_parameters_and_keeps_the_catalog_structure
+      - tests/test_oscal_catalog_e2e.py::test_the_model_gets_no_guidance_no_withdrawn_control_and_no_unmasked_secret
+      - tests/test_oscal_catalog_e2e.py::test_the_report_names_the_catalog_and_lists_the_open_controls
+      - tests/test_oscal_catalog_e2e.py::test_a_selected_part_of_the_catalog_without_failures_passes_the_gate
+      - tests/test_oscal_catalog_e2e.py::test_a_profile_is_refused_before_any_model_call
+      - tests/test_oscal_catalog_e2e.py::test_assess_carries_the_catalog_into_the_published_assessment
 
   REQ-031:
     applies_to:

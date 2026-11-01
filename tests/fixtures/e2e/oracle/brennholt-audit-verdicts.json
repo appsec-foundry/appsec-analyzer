@@ -1,0 +1,191 @@
+{
+  "iam-1": {
+    "status": "PARTIAL",
+    "evidence": [
+      {"file": "server.js", "line": 17, "shows": "app.get('/users/:id'"},
+      {"file": "routes/partner-api/orders.js", "line": 5, "shows": "router.use(partnerAuth)"}
+    ],
+    "finding": "The partner router requires authentication, but the routes in server.js have no authentication middleware.",
+    "fix": "Mount authentication middleware on the application and list public routes explicitly."
+  },
+  "iam-1.1": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 22, "shows": "app.post('/admin/export'"}],
+    "finding": "The administrative export has no authentication, so it has no second factor either.",
+    "fix": "Require an administrator session with a second factor before the export runs."
+  },
+  "iam-2": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 12, "shows": "password = '${req.body.password}'"}],
+    "finding": "The login compares the submitted password in a database query, so it is stored unhashed.",
+    "fix": "Store a salted hash with an approved function and verify it in application code."
+  },
+  "iam-3": {
+    "status": "UNVERIFIABLE",
+    "evidence": [],
+    "finding": "signJwt is not part of the repository, so the token lifetime cannot be read from the source.",
+    "fix": ""
+  },
+  "iam-4": {
+    "status": "PASS",
+    "evidence": [
+      {"file": "routes/partner-api/orders.js", "line": 5, "shows": "router.use(partnerAuth)"},
+      {"file": "routes/partner-api/orders.js", "line": 7, "shows": "findByPartnerId(req.partner.id)"}
+    ],
+    "finding": "The partner router authenticates each call and selects orders by the authenticated partner.",
+    "fix": ""
+  },
+  "iam-4.1": {
+    "status": "UNVERIFIABLE",
+    "evidence": [],
+    "finding": "The key lookup is implemented outside the repository, so key storage and rotation cannot be read from the source.",
+    "fix": ""
+  },
+  "iam-5": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 18, "shows": "req.params.id"}],
+    "finding": "Any caller can read any user record by changing the identifier in the URL.",
+    "fix": "Compare the requested user with the authenticated identity before the query."
+  },
+  "iam-6": {
+    "status": "FAIL",
+    "evidence": [{"file": "middleware/tenantContext.js", "line": 2, "shows": "x-tenant-id"}],
+    "finding": "The tenant comes from a request header that the client controls.",
+    "fix": "Read the tenant from the authenticated identity."
+  },
+  "iam-7": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 22, "shows": "app.post('/admin/export'"}],
+    "finding": "The administrative export has no role check.",
+    "fix": "Check the administrator role on the server for each call."
+  },
+  "inp-1": {
+    "status": "FAIL",
+    "evidence": [
+      {"file": "server.js", "line": 12, "shows": "SELECT id, role FROM users"},
+      {"file": "server.js", "line": 18, "shows": "SELECT * FROM users"}
+    ],
+    "finding": "Both queries are built by joining strings with request data.",
+    "fix": "Use parameterized queries."
+  },
+  "inp-2": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 23, "shows": "exec(`tar"}],
+    "finding": "A request field reaches a shell command.",
+    "fix": "Start tar without a shell and check the path against an allow-list."
+  },
+  "inp-3": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 30, "shows": "fetch(req.body.url)"}],
+    "finding": "The server fetches any URL from the request body.",
+    "fix": "Check the destination against an allow-list and refuse internal addresses."
+  },
+  "inp-4": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 40, "shows": "res.redirect(req.query.next)"}],
+    "finding": "The redirect target comes from the query string without a check.",
+    "fix": "Accept only relative paths or allow-listed hosts."
+  },
+  "inp-5": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 6, "shows": "express.json()"}],
+    "finding": "Request bodies are parsed but never validated against a schema.",
+    "fix": "Validate each request body against a schema at the route."
+  },
+  "sec-1": {
+    "status": "FAIL",
+    "evidence": [
+      {"file": "server.js", "line": 9, "shows": "const secret"},
+      {"file": "config/insecure-settings.ini", "line": 2, "shows": "password"}
+    ],
+    "finding": "A signing secret and a database password are stored in the repository.",
+    "fix": "Replace both values and load them from the secrets manager at runtime."
+  },
+  "sec-2": {
+    "status": "UNVERIFIABLE",
+    "evidence": [],
+    "finding": "The service listens on plain HTTP, but TLS may end at a proxy that the repository does not show.",
+    "fix": ""
+  },
+  "sec-3": {
+    "status": "UNVERIFIABLE",
+    "evidence": [],
+    "finding": "The catalog leaves the rotation interval open, and the repository shows no rotation process.",
+    "fix": ""
+  },
+  "log-1": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 11, "shows": "app.post('/login'"}],
+    "finding": "The login handler records no authentication outcome.",
+    "fix": "Log each outcome with time, identity and source, without credentials."
+  },
+  "log-2": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 24, "shows": "error.message"}],
+    "finding": "The export route returns a raw system error message to the client.",
+    "fix": "Return a generic message and keep the details in the server log."
+  },
+  "log-3": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 41, "shows": "/debug/environment"}],
+    "finding": "A debug route returns the full process environment.",
+    "fix": "Remove the route from production builds."
+  },
+  "sup-1": {
+    "status": "FAIL",
+    "evidence": [{"file": ".github/workflows/ci.yml", "line": 8, "shows": "actions/checkout@v3"}],
+    "finding": "The workflow pins actions to a movable tag.",
+    "fix": "Pin each action to a full commit hash."
+  },
+  "sup-2": {
+    "status": "FAIL",
+    "evidence": [
+      {"file": ".github/workflows/ci.yml", "line": 12, "shows": "npm install"},
+      {"file": "Dockerfile", "line": 4, "shows": "npm install"}
+    ],
+    "finding": "CI and the image build run npm install without a committed lock file.",
+    "fix": "Commit a lock file and use npm ci."
+  },
+  "sup-3": {
+    "status": "FAIL",
+    "evidence": [{"file": "package.json", "line": 19, "shows": "\"lodash\": \"4.17.10\""}],
+    "finding": "lodash 4.17.10 has publicly known critical vulnerabilities.",
+    "fix": "Upgrade lodash to a fixed release."
+  },
+  "sup-4": {
+    "status": "FAIL",
+    "evidence": [{"file": "Dockerfile", "line": 7, "shows": "CMD"}],
+    "finding": "The image sets no USER, so the service starts as root.",
+    "fix": "Add a non-root USER before the start command."
+  },
+  "sup-4.1": {
+    "status": "FAIL",
+    "evidence": [{"file": "Dockerfile", "line": 1, "shows": "FROM node:20-alpine"}],
+    "finding": "The base image is pinned to a movable tag.",
+    "fix": "Pin the base image to a digest."
+  },
+  "ai-1": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 36, "shows": "req.body.prompt"}],
+    "finding": "User input is joined directly into the instruction text of the prompt.",
+    "fix": "Pass user input as a separate message and treat it as data."
+  },
+  "ai-2": {
+    "status": "FAIL",
+    "evidence": [{"file": "server.js", "line": 37, "shows": "res.send(answer.content)"}],
+    "finding": "Model output is sent to the client without encoding or validation.",
+    "fix": "Encode or validate the output before it leaves the service."
+  },
+  "ai-3": {
+    "status": "UNVERIFIABLE",
+    "evidence": [],
+    "finding": "The approved provider list is not in the repository.",
+    "fix": ""
+  },
+  "pay-1": {
+    "status": "NOT_APPLICABLE",
+    "evidence": [],
+    "finding": "The service handles no card payments.",
+    "fix": ""
+  }
+}
