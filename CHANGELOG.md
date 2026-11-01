@@ -90,6 +90,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A finding that its analysis called exploitable counts as confirmed again when a confirmed abuse-case step settles its open evidence review. It used to stay an insecure practice, so a verified Critical finding could be missing from the summary's counts. The weakness register now follows this result, because it is rebuilt after abuse-case verification.
+- A finding whose evidence the review left open or refuted is no longer raised to Critical by the always-critical rule of its weakness type.
+- Fixes for findings that the ranking raises move to the matching priority band, for example from P2 to P1, if they have the steps and verification of an urgent fix. `critical_findings` in `security-assessment.yaml` follows the same ranking. It holds Critical and High findings, despite its name.
+- The Management Summary shows the findings register's counts next to the risk distribution when the two differ, and each scenario in the verdict names the cited findings that the evidence review left open.
 - Outbound calls to a URL from an environment or application setting, such as a webhook, now count as leads for the data flows and the survey. They used to be ignored, so such a call could stay out of the report. Settings of a client bundle, whose base URL is normally the client's own backend, stay excluded.
 - Budget figures in `assess` progress and on a stopped run count finished model calls only, as the stop message always said. They used to include what running calls had reserved, so the amount rose too high and then fell. The spending limit still counts those reservations.
 - The live status line of `assess` wraps instead of ending in `…`, so the running step, its age and the model's state stay readable. It breaks between its parts and continues in its own column, or after the time stamp where the window leaves that column too narrow. Between model calls it names a step once and adds only its age.

@@ -24,9 +24,9 @@ Pipeline:
    (e.g. two SQL-injection sinks both fixed by "Parameterize raw queries")
    collapse into ONE card addressing both threat IDs — matching the
    build_mitigations "one M-ID, many threat_ids" model.
-3. Resolve rollout priority from severity + effort using the P1–P4 algorithm
-   in `data/mitigation-priority-rules.yaml` (Critical + tractable effort → P1; high-effort
-   Critical slips to P2; High → P2/P3; Medium → P3; Low → P4).
+3. Resolve rollout priority from severity + effort with `_resolve_priority`
+   (Critical + tractable effort → P1; high-effort Critical slips to P2;
+   High → P2/P3; Medium → P3; Low → P4).
 4. Allocate the next free `M-NNN`, append a card with `kind: fix`,
    `auto_emitted: true`, `auto_source: "finding-fix"`, and link it back via
    `threat.mitigation_ids`.
@@ -60,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from shared._critical_findings_sync import resync_critical_findings  # noqa: E402
 from shared._finding_state import is_review_contradicted, review_before_fix  # noqa: E402
 from shared._register_titles import clamp_mitigation_title  # noqa: E402
+from validators.validate_mitigation_quality import validate as _quality_gaps  # noqa: E402
 
 _M_ID_RE = re.compile(r"\bM-(\d{3,})\b")
 
@@ -116,6 +117,44 @@ def after_review_priority(priority: str) -> str:
     finding (``shared._finding_state.review_before_fix``) never outranks it."""
     index = _PRIORITIES.index(priority) if priority in _PRIORITIES else 2
     return _PRIORITIES[min(index + 1, len(_PRIORITIES) - 1)]
+
+
+def apply_ranked_priorities(data: dict) -> list[str]:
+    """Move fix cards to the band of their findings' ``effective_severity``; returns the raised ids.
+
+    Cards are emitted from ``risk``, before the ranking exists. The ranking can
+    raise a finding for its context, such as a verified attack chain, and its
+    fix then belongs in the band a finding rated that high gets. This only
+    raises a band. ``priority_before_ranking`` keeps the emitted one, so a later
+    ranking can return to it. A fix that waits for a manual review keeps its
+    band, and so does a card without the details of an urgent fix, because the
+    P1/P2 gate ran before the ranking.
+    """
+    threats = {t.get("id"): t for t in data.get("threats") or [] if isinstance(t, dict)}
+    raised: list[str] = []
+    for card in data.get("mitigations") or []:
+        if not isinstance(card, dict):
+            continue
+        emitted = card.pop("priority_before_ranking", None) or card.get("priority")
+        if emitted not in _PRIORITIES:
+            continue
+        card["priority"] = emitted
+        members = [threats[tid] for tid in card.get("threat_ids") or [] if tid in threats]
+        kind = (card.get("kind") or "fix").strip().lower()
+        if not members or kind != "fix" or card.get("priority_before_review"):
+            continue
+        severity = min(
+            (m.get("effective_severity") or m.get("risk") or "Medium" for m in members),
+            key=lambda s: _RISK_ORDER.get(s, 4),
+        )
+        ranked = finding_fix_priority(severity, card.get("effort") or "Medium", members)
+        if _PRIORITIES.index(ranked) >= _PRIORITIES.index(emitted):
+            continue
+        if not _quality_gaps({"mitigations": [{**card, "priority": ranked}]}):
+            card["priority_before_ranking"] = emitted
+            card["priority"] = ranked
+            raised.append(str(card.get("id")))
+    return raised
 
 
 def _norm_title(title: str) -> str:

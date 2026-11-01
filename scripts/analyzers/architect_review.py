@@ -539,7 +539,9 @@ def reviewed_mitigation_errors(
                 errors.append("reviewed mitigation has an unknown finding")
                 continue
             risk = _highest_risk(ids, threats)
-            if card.get("severity") != risk or card.get("priority") != _card_priority(card, risk, threats):
+            # The ranking may raise a card afterwards; the accepted rating decides the band it was emitted with.
+            emitted = card.get("priority_before_ranking") or card.get("priority")
+            if card.get("severity") != risk or emitted != _card_priority(card, risk, threats):
                 errors.append("accepted assessment no longer determines mitigation priority")
     for correction in report["accepted"]:
         tid = correction["t_id"]

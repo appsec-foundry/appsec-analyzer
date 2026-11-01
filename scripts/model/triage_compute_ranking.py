@@ -581,6 +581,10 @@ def _apply_critical_criteria(
                     return _sev_rank("High"), f"always_crit_failed:{cwe}"
                 return eff_rank, ""
             if eff_rank < _sev_rank("Critical"):
+                # This rule lifts on context, so unverified evidence suppresses it like every other elevation.
+                state = t.get("evidence_check")
+                if state in ("refuted", "ambiguous"):
+                    return eff_rank, f"suppressed:evidence_{state}(always_critical)"
                 return _sev_rank("Critical"), f"always_crit_promoted:{cwe}"
             return eff_rank, ""
 
@@ -1411,6 +1415,14 @@ def write_outputs(output_dir: Path, ranking: dict) -> None:
     from model.emit_severity_rationale import refresh_rationales
 
     refresh_rationales(yaml_data.get("threats") or [], output_dir, flags)
+    # The fix cards and the Critical and High list exist before this ranking, so it updates them.
+    from shared._critical_findings_sync import build_critical_findings
+
+    from model.emit_finding_fix_mitigations import apply_ranked_priorities
+
+    apply_ranked_priorities(yaml_data)
+    if isinstance(yaml_data.get("critical_findings"), list):
+        yaml_data["critical_findings"] = build_critical_findings(yaml_data.get("threats") or [])
     continuation.refresh(yaml_data)
     yaml_path.write_text(
         yaml.safe_dump(yaml_data, sort_keys=False, allow_unicode=True, width=120),

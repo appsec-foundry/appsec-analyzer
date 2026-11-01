@@ -77,6 +77,7 @@ from runtime.stride_outputs import stride_output_files  # noqa: E402
 from shared._atomic_io import atomic_write_text  # noqa: E402
 from shared._boundary_criticality import exposure_of as _boundary_exposure_of  # noqa: E402
 from shared._boundary_criticality import tier_of as _boundary_tier_of  # noqa: E402
+from shared._critical_findings_sync import build_critical_findings  # noqa: E402
 from shared._finding_state import is_refuted  # noqa: E402
 from shared._paths import strip_dot_slash  # noqa: E402
 from shared._severity_policy import normalize_risks  # noqa: E402
@@ -2414,23 +2415,6 @@ def build_threat_hypotheses(arch_cov: dict | None, hyp_start_id: int = 1) -> lis
         entry["source_hypothesis_id"] = entry.pop("hypothesis_id", entry.get("source_hypothesis_id", ""))
         entry["id"] = f"HYP-{i:03d}"
         out.append(entry)
-    return out
-
-
-def build_critical_findings(threats: list[dict]) -> list[dict]:
-    """Schema: required [threat_id, summary]. Optional mitigation_id."""
-    out = []
-    for t in threats:
-        sev = t.get("effective_severity", t.get("risk", ""))
-        if sev in ("Critical", "High"):
-            mids = t.get("mitigation_ids", [])
-            out.append(
-                {
-                    "threat_id": t["id"],
-                    "summary": t.get("title", ""),
-                    "mitigation_id": mids[0] if mids else None,
-                }
-            )
     return out
 
 

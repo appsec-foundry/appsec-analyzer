@@ -182,6 +182,25 @@ def test_rating_correction_preserves_finding_fix_priority_policy():
     assert review.reviewed_mitigation_errors(result, audit, merged_snapshot=changed)
 
 
+def test_a_band_the_ranking_raised_still_rests_on_the_accepted_rating():
+    """The ranking may raise a reviewed card; the check reads the band that card was emitted with."""
+    source = merged()
+    row = decision()
+    row.pop("fix")
+    row["remediation"] = "unchanged"
+    changed, audit = apply(source, [row])
+    threats, _ = build_threats(changed)
+    cards = build_mitigations(threats)
+    cards[0].update(auto_source="finding-fix", effort="High", priority="P4")
+    result = review.project_reviewed_mitigations(
+        {"threats": threats, "mitigations": cards}, audit, merged_snapshot=changed
+    )
+    result["mitigations"][0].update(priority="P1", priority_before_ranking="P3")
+    assert not review.reviewed_mitigation_errors(result, audit, merged_snapshot=changed)
+    result["mitigations"][0]["priority_before_ranking"] = "P4"
+    assert review.reviewed_mitigation_errors(result, audit, merged_snapshot=changed)
+
+
 @pytest.mark.parametrize("component,filename", [("gateway", "routes/orders.py"), ("worker", "src/tasks/update.rs")])
 def test_rating_and_fix_reach_register_priority_counts_and_sarif(component, filename):
     source = merged(finding(component=component, filename=filename))

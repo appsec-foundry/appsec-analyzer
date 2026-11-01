@@ -1,7 +1,9 @@
-"""Keep ``critical_findings[].mitigation_id`` in step with ``threats[]``.
+"""Keep ``critical_findings[]`` in step with ``threats[]``.
 
-``build_threat_model_yaml.build_critical_findings`` derives each entry's
-``mitigation_id`` from that threat's ``mitigation_ids[0]`` and writes the yaml.
+Despite its name the list holds every Critical and High finding: the schema key
+stays for existing consumers. :func:`build_critical_findings` derives each
+entry's ``mitigation_id`` from that threat's ``mitigation_ids[0]``, and the
+builder writes the result to the yaml.
 The auto-emitter pass (``auto_emitter_pass.sh``) then runs *after* the builder
 and rewrites ``threats[].mitigation_ids`` — ``emit_config_scan_mitigations``,
 ``emit_finding_fix_mitigations`` and ``emit_review_mitigations`` all mint fresh
@@ -16,8 +18,10 @@ threats had been relinked to the emitter-minted M-010+. Consumers that read
 finding: F-003 "Insecure JWT Verification" pointed at "Apply least-privilege
 permissions" instead of "Enforce JWT signature and algorithm verification".
 
-This resyncs the derived field only. Membership of the list stays the builder's
-decision — an emitter has no business adding or dropping a curated worst case.
+:func:`resync_critical_findings` resyncs the derived field only: an emitter has
+no business adding or dropping an entry. Membership follows the severity, which
+the builder knows only as ``risk``, so the ranking that sets
+``effective_severity`` calls :func:`build_critical_findings` again.
 """
 
 from __future__ import annotations
@@ -28,6 +32,23 @@ from pathlib import Path as _Path
 
 if not __package__:
     _sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+
+
+def build_critical_findings(threats: list[dict]) -> list[dict]:
+    """Schema: required [threat_id, summary]. Optional mitigation_id."""
+    out = []
+    for t in threats:
+        threat_id = t.get("id") or t.get("t_id")
+        if threat_id and (t.get("effective_severity") or t.get("risk")) in ("Critical", "High"):
+            mids = t.get("mitigation_ids", [])
+            out.append(
+                {
+                    "threat_id": threat_id,
+                    "summary": t.get("title", ""),
+                    "mitigation_id": mids[0] if mids else None,
+                }
+            )
+    return out
 
 
 def resync_critical_findings(data: dict) -> int:

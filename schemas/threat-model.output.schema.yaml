@@ -1893,6 +1893,10 @@ properties:
           # need a manual review first (decision FE-23); keeps the band it had
           # so a re-run of model/emit_review_mitigations.py applies it once.
           enum: [P1, P2, P3, P4]
+        priority_before_ranking:
+          # Set only on a fix the ranking raised because its findings' effective
+          # severity is higher than their risk; keeps the band it was emitted with.
+          enum: [P1, P2, P3, P4]
         steps:
           type: array
           items: { type: string }
@@ -1937,6 +1941,7 @@ properties:
               # present such a blueprint as governing guidance.
               type: boolean
 
+  # Every finding whose effective severity is Critical or High, despite the name.
   critical_findings:
     type: array
     items:

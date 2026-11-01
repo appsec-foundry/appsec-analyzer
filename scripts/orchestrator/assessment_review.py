@@ -445,6 +445,8 @@ def run_abuse_cases(
         post_abuse=True,
     )
     if (workspace / ".abuse-case-verdicts.json").is_file():
+        # A confirmed step changes a finding's evidence, and the weakness register derives from it.
+        run_script("model/merge_threats.py", ["refresh-weaknesses", "--output-dir", str(workspace)])
         rebuild()
         run_script("model/triage_compute_ranking.py", [str(workspace), "--if-deterministic-owner"])
     if merging:

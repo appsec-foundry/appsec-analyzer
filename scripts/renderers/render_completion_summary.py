@@ -2499,6 +2499,7 @@ def render_verdict(md_text: str, cfg: dict, verdict: dict | None = None, fixes: 
             (
                 "About this assessment:",
                 "Risk distribution:",
+                "Findings register:",
                 "Reporting threshold:",
                 "Assessment evidence:",
                 "Weakness classes:",

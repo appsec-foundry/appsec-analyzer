@@ -592,6 +592,38 @@ def test_a_step_that_verifies_a_finding_clears_the_open_review_reason(tmp_path: 
     assert "evidence_review_unproven" not in finding
 
 
+@pytest.mark.parametrize(
+    ("claimed", "evidence_file", "expected_check", "expected_tier"),
+    [
+        ("confirmed-exploitable", "app/approvals/approve.py", "verified", "confirmed-exploitable"),
+        ("insecure-practice", "app/approvals/approve.py", "verified", "insecure-practice"),
+        (None, "app/approvals/approve.py", "verified", "insecure-practice"),
+        # The step cites another file, so the review stays open and so does the lowered tier.
+        ("confirmed-exploitable", "app/other.py", "ambiguous", "insecure-practice"),
+    ],
+    ids=["claimed-exploitable", "claimed-practice", "no-claim", "review-stays-open"],
+)
+def test_a_step_that_settles_an_open_review_restores_the_tier_that_review_lowered(
+    tmp_path: Path, claimed, evidence_file, expected_check, expected_tier
+) -> None:
+    """An open review lowers a claimed tier; the step that settles the review takes that back.
+    A producer that never claimed exploitation gets no such claim from a step (REQ-008)."""
+    _repo_with_approval(tmp_path)
+    _business(tmp_path, _step("confirmed", matched_finding_id="T-001"), chain_verdict="fully_viable")
+    _with_existing_finding(
+        tmp_path,
+        evidence={"file": evidence_file, "line": 12},
+        evidence_check="ambiguous",
+        evidence_tier="insecure-practice",
+        **({"claimed_tier": claimed} if claimed else {}),
+    )
+
+    mod.promote(tmp_path)
+    finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    assert finding["evidence_check"] == expected_check
+    assert finding["evidence_tier"] == expected_tier
+
+
 def test_a_confirmed_technical_step_verifies_its_matched_finding(tmp_path: Path) -> None:
     """The same rule holds when the matcher, not the verifier, made the binding."""
     _repo_with_approval(tmp_path)

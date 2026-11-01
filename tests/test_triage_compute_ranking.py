@@ -615,6 +615,34 @@ def test_always_critical_cwe_promotes_under_context() -> None:
     assert not any("always_crit_promoted" in r for r in reasons2)
 
 
+@pytest.mark.parametrize(
+    ("state", "risk", "expected", "reason"),
+    [
+        ("ambiguous", "High", "High", "suppressed:evidence_ambiguous(always_critical)"),
+        ("refuted", "High", "High", "suppressed:evidence_refuted(always_critical)"),
+        ("verified", "High", "Critical", "always_crit_promoted:CWE-915"),
+        (None, "High", "Critical", "always_crit_promoted:CWE-915"),
+        # The rule only keeps a rating here; a finding rated Critical is not elevated by it.
+        ("ambiguous", "Critical", "Critical", None),
+    ],
+    ids=["ambiguous", "refuted", "verified", "unchecked", "already-critical"],
+)
+def test_always_critical_rule_does_not_promote_an_unproven_finding(state, risk, expected, reason) -> None:
+    """Unverified evidence suppresses every contextual elevation, this rule included (REQ-009)."""
+    tcr = _tcr()
+    caps = {"contributor_cap": {"default": "High"}}
+    criteria = {
+        "never_individual_critical": [],
+        "always_critical_cwes": [{"cwe": "CWE-915", "required": {"breach_distance_max": 1, "impact_min": "High"}}],
+        "conditional_critical": {},
+    }
+    finding = {"risk": risk, "impact": "High", "primary_cwe": "CWE-915", "evidence_check": state}
+    effective, reasons = tcr._compute_effective(finding, None, 0, caps, criteria, 1)
+    assert effective == expected
+    if reason:
+        assert reason in reasons
+
+
 def test_mass_assignment_override_pins_distance_1_against_real_config() -> None:
     """Regression for the juice-shop F-009 under-rating: a CWE-915 mass-assignment
     finding whose scenario mentions a 'logged-in user' PUT variant must still get
@@ -1974,6 +2002,38 @@ def test_write_outputs_explains_an_elevated_rating_in_the_same_write(tmp_path: P
     tcr.write_outputs(tmp_path, ranking)
     written = yaml.safe_load((tmp_path / "threat-model.yaml").read_text())["threats"][0]
     assert written.get("severity_rationale") == expected
+
+
+def test_write_outputs_brings_the_critical_list_and_fix_bands_in_line_with_the_ranking(tmp_path: Path):
+    """The list and the cards are built before the ranking, so its write has to update them."""
+    tcr = _tcr()
+    fix = {"kind": "fix", "effort": "Medium", "steps": ["One", "Two"], "verification": "Run the regression test."}
+    threats = [
+        {"id": "T-001", "t_id": "T-001", "title": "raised", "risk": "Medium", "cwe": "CWE-89"},
+        {"id": "T-002", "t_id": "T-002", "title": "chain", "risk": "High", "cwe": "CWE-94"},
+        {"id": "T-003", "t_id": "T-003", "title": "plain", "risk": "Medium", "cwe": "CWE-79"},
+    ]
+    model = _minimal_yaml(threats)
+    model["mitigations"] = [
+        {"id": "M-001", "threat_ids": ["T-001"], "priority": "P3", **fix},
+        {"id": "M-002", "threat_ids": ["T-002"], "priority": "P2", **fix},
+        {"id": "M-003", "threat_ids": ["T-003"], "priority": "P3", **fix},
+    ]
+    _write_yaml(tmp_path / "threat-model.yaml", model)
+    ranking = tcr.compute_ranking(tmp_path)
+    effective = {"T-001": "High", "T-002": "Critical", "T-003": "Medium"}
+    risks = {t["id"]: t["risk"] for t in threats}
+    for update in ranking["_finding_updates"]:
+        update.update(raw_severity=risks[update["id"]], effective_severity=effective[update["id"]], reasons=[])
+    tcr.write_outputs(tmp_path, ranking)
+
+    written = yaml.safe_load((tmp_path / "threat-model.yaml").read_text())
+    assert [row["threat_id"] for row in written["critical_findings"]] == ["T-001", "T-002"]
+    assert {card["id"]: card["priority"] for card in written["mitigations"]} == {
+        "M-001": "P2",
+        "M-002": "P1",
+        "M-003": "P3",
+    }
 
 
 @pytest.mark.parametrize("ids", [("T-071", "T-092"), ("F-208", "F-315")])

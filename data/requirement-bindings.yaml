@@ -902,6 +902,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_compose_threat_model.py::test_verdict_bullet_names_a_cited_finding_the_evidence_review_left_open
+      - tests/test_compose_threat_model.py::test_verdict_names_the_register_tally_when_folding_changes_it
       - tests/test_evidence_exploit_conditions.py::test_lighter_depths_keep_the_existing_review_contract
       - tests/test_evidence_exploit_conditions.py::test_unknown_review_depth_fails_closed
       - tests/test_profiles.py::test_builtins_have_complete_roles_without_output_caps
@@ -993,6 +995,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_triage_compute_ranking.py::test_always_critical_rule_does_not_promote_an_unproven_finding
       - tests/test_merge_threats.py::test_a_configuration_rule_hit_is_an_insecure_practice_unless_set_upstream
       - tests/test_merge_threats.py::test_a_development_only_configuration_finding_keeps_its_label
       - tests/test_config_iac_scanner.py::test_development_only_configuration_is_labelled
@@ -1168,6 +1171,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_emit_finding_fix_mitigations.py::test_a_fix_for_a_finding_the_ranking_raised_moves_to_its_band
+      - tests/test_triage_compute_ranking.py::test_write_outputs_brings_the_critical_list_and_fix_bands_in_line_with_the_ranking
       - tests/test_compose_threat_model.py::test_a_higher_risk_never_stands_below_a_lower_one
       - tests/test_compose_threat_model.py::test_equal_risks_rank_by_their_three_heaviest_findings
       - tests/test_compose_threat_model.py::test_the_same_findings_give_the_same_order_whatever_a_model_authored
@@ -2751,3 +2756,4 @@ requirements:
       - tests/test_multi_repo_assessment.py::test_a_failed_evidence_review_keeps_the_exception_out_of_the_reason
       - tests/test_promote_verified_abuse_cases.py::test_a_step_does_not_verify_a_finding_with_further_locations
       - tests/test_promote_verified_abuse_cases.py::test_a_step_that_verifies_a_finding_clears_the_open_review_reason
+      - tests/test_promote_verified_abuse_cases.py::test_a_step_that_settles_an_open_review_restores_the_tier_that_review_lowered

@@ -240,12 +240,16 @@ def test_a_verified_case_is_promoted_with_its_namespaced_evidence_and_the_gate_p
     assert promoted["evidence_check"] == "verified"
     names = [name for name, _ in abuse.calls]
     order = [
+        "model/promote_verified_abuse_cases.py",
+        # A confirmed step changes a finding's evidence, which the weakness register is derived from.
+        "model/merge_threats.py",
         "rebuild",
         "model/triage_compute_ranking.py",
         "renderers/render_abuse_cases.py",
         "validators/abuse_case_gate.py",
     ]
     assert [names.index(name) for name in order] == sorted(names.index(name) for name in order)
+    assert ("model/merge_threats.py", "refresh-weaknesses") in abuse.calls
     # The controller's own build is the rebuild; a second builder here dropped its meta (RB-6).
     assert "model/build_threat_model_yaml.py" not in names and names.count("rebuild") == 1
     model = yaml.safe_load((abuse.workspace / "threat-model.yaml").read_text())

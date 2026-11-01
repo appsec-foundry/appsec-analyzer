@@ -2298,6 +2298,13 @@ class TestVerdictEcho:
         assert "Risk distribution:" not in joined
         assert "Rotate the key before production." in joined
 
+    def test_render_verdict_keeps_the_register_tally_in_the_report(self):
+        """The closing block prints its own register row, so the report's line stays out of the console."""
+        md = _VERDICT_MD.replace(
+            "**Total: 72**", "**Total: 72**<br/>**Findings register:** 118 · 🔴 Critical: 4 — see the report"
+        )
+        assert "Findings register:" not in "\n".join(rcs.render_verdict(md, {}))
+
     def test_render_verdict_without_persisted_bullets_keeps_the_report_lines(self):
         joined = "\n".join(rcs.render_verdict(_VERDICT_MD, {}))
         assert "- Admin takeover via forged JWT — key committed at lib/insecurity.ts:23." in joined

@@ -6040,6 +6040,62 @@ def test_verdict_low_cell_reads_a_count_when_the_floor_kept_it(tmp_path: Path) -
     assert "not reported (threshold" not in out
 
 
+def _two_bullets() -> list[dict]:
+    return [
+        {"title": "Full DB theft", "body": "Any internet user extracts the customer table.", "refs": ["F-001"]},
+        {"title": "Customer data reachable", "body": "Any logged-in user reads other records.", "refs": ["F-002"]},
+    ]
+
+
+def test_verdict_names_the_register_tally_when_folding_changes_it(tmp_path: Path) -> None:
+    """A Critical folded under its weakness leaves the distribution, so the summary says what §8 lists."""
+    ctx, env, section = _verdict_ctx_with_abuse(tmp_path, bullets=_two_bullets(), abuse_cases=None)
+    ctx.yaml_data = {
+        "threats": [
+            {"id": "T-001", "risk": "Critical", "evidence_tier": "confirmed-exploitable", "evidence_check": "verified"},
+            {"id": "T-002", "risk": "Critical", "evidence_tier": "insecure-practice"},
+            {"id": "T-003", "risk": "High", "evidence_tier": "insecure-practice"},
+        ],
+        "weaknesses": [
+            {
+                "id": "W-001",
+                "kind": "implementation",
+                "observable_backing": {"practice_evidence": [{"id": "T-002"}, {"id": "T-003"}]},
+            }
+        ],
+    }
+    out = compose._render_verdict(ctx, env, section)
+    assert "🔴 Critical: 1 ·" in out.split("**Findings register:**", 1)[0]
+    line = out.split("**Findings register:** ", 1)[1].split("\n", 1)[0]
+    assert line.startswith("3 · 🔴 Critical: 2 · 🟠 High: 1")
+    assert "[§8 Findings Register](#8-findings-register)" in line
+
+
+def test_verdict_leaves_out_the_register_tally_when_it_matches(tmp_path: Path) -> None:
+    ctx, env, section = _verdict_ctx_with_abuse(tmp_path, bullets=_two_bullets(), abuse_cases=None)
+    ctx.yaml_data = {"threats": [{"id": "T-001", "risk": "High", "evidence_tier": "confirmed-exploitable"}]}
+    assert "Findings register" not in compose._render_verdict(ctx, env, section)
+
+
+@pytest.mark.parametrize(
+    ("check", "named"),
+    [("ambiguous", True), ("verified", False), ("unchecked", False)],
+    ids=["open-review", "confirmed", "not-reviewed"],
+)
+def test_verdict_bullet_names_a_cited_finding_the_evidence_review_left_open(tmp_path: Path, check, named) -> None:
+    """REQ-008: an unproven claim stays visibly unproven, also where the summary cites it."""
+    ctx, env, section = _verdict_ctx_with_abuse(tmp_path, bullets=_two_bullets(), abuse_cases=None)
+    ctx.yaml_data = {
+        "threats": [
+            {"id": "T-001", "risk": "Critical", "evidence_check": check, "evidence_basis": check},
+            {"id": "T-002", "risk": "High", "evidence_check": "verified", "evidence_basis": "llm-verified"},
+        ]
+    }
+    out = compose._render_verdict(ctx, env, section)
+    assert ("left open by the evidence review: [F-001](#f-001)" in out) is named
+    assert "left open by the evidence review: [F-002]" not in out
+
+
 def test_verdict_evidence_line_counts_findings_apart_from_weakness_classes(tmp_path: Path) -> None:
     """The evidence line states confirmation over the tallied findings only; a
     stored `confirmed-exploitable` tier without established evidence is not

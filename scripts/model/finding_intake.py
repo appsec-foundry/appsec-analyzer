@@ -8,8 +8,8 @@ final:
 * ``dispatch_component`` — the component the producer worked under or guessed from
   a path. A hint: the finalize pass decides the component.
 * ``claimed_tier`` — the producer's evidence-basis claim (``confirmed-exploitable``
-  or ``insecure-practice``). A claim: the finalize pass derives the tier from the
-  verification verdict.
+  or ``insecure-practice``). A claim: an open evidence review lowers the tier, and
+  the abuse-case step that settles the review returns it to this claim.
 
 ``apply_intake`` records both and derives the established ``component_id``,
 ``component_name`` and ``evidence_tier`` from them exactly as each producer always

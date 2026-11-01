@@ -304,3 +304,69 @@ def test_a_finding_the_evidence_review_contradicted_gets_no_fix_card(tmp_path: P
     data = _read_yaml(tmp_path)
     assert [card["threat_ids"] for card in data["mitigations"]] == [["T-002"]]
     assert not {t["id"]: t for t in data["threats"]}["T-001"].get("mitigation_ids")
+
+
+def _card(priority: str, *threat_ids: str, **extra) -> dict:
+    card = {
+        "id": "M-001",
+        "kind": "fix",
+        "priority": priority,
+        "effort": "Medium",
+        "threat_ids": list(threat_ids),
+        "steps": ["Bind the parameter", "Add a regression test"],
+        "verification": "Send the payload and expect a rejection.",
+    }
+    card.update(extra)
+    return card
+
+
+def _ranked(card: dict, **finding) -> dict:
+    data = {"threats": [{"id": "T-001", "risk": "High", **finding}], "mitigations": [card]}
+    effm.apply_ranked_priorities(data)
+    return data["mitigations"][0]
+
+
+def test_a_fix_for_a_finding_the_ranking_raised_moves_to_its_band() -> None:
+    card = _ranked(_card("P2", "T-001"), effective_severity="Critical")
+    assert (card["priority"], card["priority_before_ranking"]) == ("P1", "P2")
+
+
+def test_a_card_without_an_elevated_finding_stays_as_emitted() -> None:
+    card = _ranked(_card("P2", "T-001"), effective_severity="High")
+    assert card["priority"] == "P2" and "priority_before_ranking" not in card
+
+
+def test_the_ranking_never_lowers_a_band() -> None:
+    card = _ranked(_card("P1", "T-001"), effective_severity="Medium")
+    assert card["priority"] == "P1" and "priority_before_ranking" not in card
+
+
+def test_a_card_returns_to_its_band_when_a_later_ranking_drops_the_elevation() -> None:
+    card = _ranked(_card("P1", "T-001", priority_before_ranking="P2"), effective_severity="High")
+    assert card["priority"] == "P2" and "priority_before_ranking" not in card
+
+
+def test_raising_a_card_twice_gives_the_same_result() -> None:
+    first = _ranked(_card("P2", "T-001"), effective_severity="Critical")
+    assert _ranked(dict(first), effective_severity="Critical") == first
+
+
+def test_effort_and_reachability_keep_their_say_over_the_raised_band() -> None:
+    """A Critical with a high-effort fix is P2 unless it is reachable without authentication."""
+    assert _ranked(_card("P3", "T-001", effort="High"), effective_severity="Critical")["priority"] == "P2"
+    reachable = _ranked(_card("P3", "T-001", effort="High"), effective_severity="Critical", vektor="internet-anon")
+    assert reachable["priority"] == "P1"
+
+
+def test_review_cards_and_fixes_waiting_for_a_review_keep_their_band() -> None:
+    for kind in ("review", "investigate", "accept_risk"):
+        assert _ranked(_card("P3", "T-001", kind=kind), effective_severity="Critical")["priority"] == "P3"
+    assert _ranked(_card("P3", "T-001", kind=None), effective_severity="Critical")["priority"] == "P1"
+    waiting = _card("P3", "T-001", priority_before_review="P2")
+    assert _ranked(waiting, effective_severity="Critical")["priority"] == "P3"
+
+
+def test_a_card_without_the_details_of_an_urgent_fix_keeps_its_band() -> None:
+    """The P1/P2 gate ran before the ranking, so a raised card has to meet it already (REQ-012)."""
+    assert _ranked(_card("P3", "T-001", steps=[]), effective_severity="High")["priority"] == "P3"
+    assert _ranked(_card("P3", "T-001", verification=""), effective_severity="High")["priority"] == "P3"

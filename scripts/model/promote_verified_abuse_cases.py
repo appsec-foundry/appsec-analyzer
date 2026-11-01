@@ -164,8 +164,10 @@ def _verify_bound_findings(matches: list, verdict_by_case: dict, threats: list, 
 
     The cited excerpt must pass the same gate that admits descriptive
     evidence, at the finding's own file. Only ambiguous or unchecked evidence
-    changes; the exploitability tier is left alone. A step reads one location,
-    so a finding with further locations stays as the review left it (REQ-008).
+    changes. The step sets no exploitability tier of its own: it only takes back
+    what the open review lowered, so the finding returns to the tier its
+    producer claimed. A step reads one location, so a finding with further
+    locations stays as the review left it (REQ-008).
     """
     by_id: dict[str, dict] = {}
     for threat in threats:
@@ -199,6 +201,8 @@ def _verify_bound_findings(matches: list, verdict_by_case: dict, threats: list, 
                 continue
             record_evidence(finding, "verified", "llm-verified")
             finding.pop("evidence_review_unproven", None)
+            if finding.get("claimed_tier") == _CONFIRMED_TIER:
+                finding["evidence_tier"] = _CONFIRMED_TIER
             verified.append(str(finding.get("t_id") or finding.get("id")))
     return verified
 

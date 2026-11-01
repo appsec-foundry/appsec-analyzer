@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from shared._critical_findings_sync import resync_critical_findings  # noqa: E402
+from shared._critical_findings_sync import build_critical_findings, resync_critical_findings  # noqa: E402
 
 
 def _model(threat_mids: dict, curated: dict) -> dict:
@@ -82,3 +82,16 @@ def test_every_emitter_resyncs_before_persisting():
     ):
         text = (scripts / name).read_text(encoding="utf-8")
         assert "resync_critical_findings(data)" in text, f"{name} persists without resyncing critical_findings"
+
+
+def test_the_list_holds_critical_and_high_findings_on_their_effective_rating():
+    threats = [
+        {"id": "T-001", "title": "raised", "risk": "Medium", "effective_severity": "High", "mitigation_ids": ["M-001"]},
+        {"id": "T-002", "title": "rated", "risk": "Critical", "mitigation_ids": []},
+        {"id": "T-003", "title": "capped", "risk": "High", "effective_severity": "Medium"},
+        {"id": "T-004", "title": "plain", "risk": "Medium"},
+    ]
+    assert build_critical_findings(threats) == [
+        {"threat_id": "T-001", "summary": "raised", "mitigation_id": "M-001"},
+        {"threat_id": "T-002", "summary": "rated", "mitigation_id": None},
+    ]

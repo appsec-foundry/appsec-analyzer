@@ -2569,6 +2569,25 @@ def _render_verdict(ctx: RenderContext, env: jinja2.Environment, section: dict) 
     if counts["info"] > 0:
         rd_parts.append(f"⚪ Info: {counts['info']}")
     risk_distribution = "**Risk distribution:** " + " · ".join(rd_parts) + f" · **Total: {total}**"
+    # RA-7: without this line the summary names fewer Critical findings than §8 lists and the bullets below cite.
+    register = _severity_counts(ctx)
+    if register != counts:
+        register_parts = [
+            f"{icon} {label}: {register[key]}"
+            for key, icon, label in (
+                ("critical", "🔴", "Critical"),
+                ("high", "🟠", "High"),
+                ("medium", "🟡", "Medium"),
+                ("low", "🟢", "Low"),
+                ("info", "⚪", "Info"),
+            )
+            if register[key]
+        ]
+        risk_distribution += (
+            f"<br/>**Findings register:** {sum(register.values())} · " + " · ".join(register_parts) + " — the "
+            "distribution above counts insecure-practice findings under their weakness; "
+            "see [§8 Findings Register](#8-findings-register)"
+        )
     # The reporting floor that made the Low cell `n/a` is named in the
     # Method-and-limits line (`pregenerate_fragments.method_and_limits`).
     # Findings and weakness classes are different counting units, so each gets
@@ -2593,7 +2612,9 @@ def _render_verdict(ctx: RenderContext, env: jinja2.Environment, section: dict) 
     # Each worst-case bullet gets a clickable citation (findings → weakness) plus
     # the verified-path badge, so the executive scenarios name their evidence.
     verified_suffixes = [
-        _verdict_bullet_refs_suffix(b.get("refs") or [], ctx) + _verdict_bullet_badge(b.get("refs") or [], fmap)
+        _verdict_bullet_refs_suffix(b.get("refs") or [], ctx)
+        + _verdict_bullet_badge(b.get("refs") or [], fmap)
+        + _verdict_bullet_open_review(b.get("refs") or [], ctx)
         for b in (data.get("bullets") or [])
     ]
     # Resolve the verdict to reader-facing ids and stash it. compose is
@@ -7261,6 +7282,20 @@ def _verdict_bullet_badge(refs: list[str], fmap: dict[str, list[str]]) -> str:
             if cid not in chains:
                 chains.append(cid)
     return " — ✓ cited finding in a code-verified chain" if chains else ""
+
+
+def _verdict_bullet_open_review(refs: list[str], ctx: RenderContext) -> str:
+    """Name the cited findings the evidence review left open (REQ-008).
+
+    A verdict may cite them, because they stay in the register, but its prose is
+    model text that reads as established fact, so the mark is added here.
+    """
+    by_id = {_severity_rollup.display_id(str(t.get("id") or "")): t for t in ctx.yaml_data.get("threats") or []}
+    cited = [_severity_rollup.display_id(str(r).strip().upper()) for r in refs]
+    unproven = [fid for fid in dict.fromkeys(cited) if fid in by_id and _finding_state.is_discredited(by_id[fid])]
+    if not unproven:
+        return ""
+    return " — left open by the evidence review: " + ", ".join(f"[{fid}](#{fid.lower()})" for fid in unproven)
 
 
 def _verdict_bullet_refs_suffix(refs: list[str], ctx: RenderContext) -> str:

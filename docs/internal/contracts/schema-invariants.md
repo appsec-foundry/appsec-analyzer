@@ -316,6 +316,8 @@ New merged artifacts carry `severity_policy_version: 1` and their validation enf
 
 `effective_severity` describes contextual prioritization and remains subject to the CWE ceiling. A pattern match alone never establishes a viable attack chain. Only fully viable verified abuse cases may supply chain elevation, and a Critical exception requires a Critical keystone relationship. Missing or refuted required members cannot justify another member's elevation. Register, summary and exports continue to use the corrected individual risk. Artifact gates reject remaining policy violations without mutating their input.
 
+The ranking raises a fix card to the priority band of its findings' `effective_severity`, and `priority_before_ranking` keeps the band it was emitted with. A fix that waits for a manual review keeps its band, and so does a card without the steps and verification of an urgent fix. The ranking also rebuilds `critical_findings`, which despite the name holds every finding with an effective severity of Critical or High.
+
 An abuse case's combined risk is the highest policy-rated individual risk among its linked findings. Verification establishes the path without adding a severity level. A verified chain may raise a weaker member's contextual priority to the risk already established by another member, subject to the existing ceilings. Report cases are grouped by verification status and prioritized within each group; their stable IDs are identifiers, not ranks. The Markdown, render sidecar and canonical abuse-case export preserve the same case order. Candidate dispatch order is provisional and never suppresses a candidate or establishes a finding.
 
 ## Test case results
