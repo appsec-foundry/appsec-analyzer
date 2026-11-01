@@ -34,13 +34,13 @@ _BOUNDS: dict[str, tuple[int, int]] = {
     # Lowered 2026-07-20: the canonical post-autofix gate now owns all
     # mechanical checks. The exceptional reviewer consumes only a compact
     # repair plan or an explicitly forced semantic sample.
-    "agents/appsec-architecture-analyst.md": (500, 3_000),
+    "data/architecture-analysis-policy.md": (500, 3_250),
     "agents/appsec-control-analyst.md": (500, 3_000),
     "agents/appsec-post-stride-synthesizer.md": (500, 3_000),
     "skills/internal-threat-analysis-kernel/SKILL.md": (700, 4_000),
     # Ceiling lives in data/context-budgets.yaml; the `high` here is ignored for
     # any surface budgeted there (see _resolved_bounds). Only `low` applies.
-    "agents/appsec-stride-analyzer-v2.md": (2_500, 3_000),
+    "data/stride-analysis-policy.md": (1_500, 2_250),
     # Parallel Stage-2 specialists intentionally keep only role-local
     # instructions. They load their relevant legacy contract slice on demand.
     "agents/appsec-secarch-renderer.md": (500, 1_200),

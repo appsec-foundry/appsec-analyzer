@@ -854,8 +854,8 @@ def _etc_label(count: object) -> str:
     """Band an ``estimated_threat_count`` integer into the analyzer's pacing label.
 
     The manifest schema stores the count as an integer, but the analyzer's turn
-    budget self-regulation branches on the LABEL (`appsec-stride-analyzer-v2.md` —
-    ``low`` ≤3 / ``moderate`` 4–7 / ``high`` ≥8) and silently falls back to
+    budget self-regulation branches on the LABEL
+    (``low`` ≤3 / ``moderate`` 4–7 / ``high`` ≥8) and silently falls back to
     ``moderate`` for anything it does not recognise. Emitting the label next to
     the count is what makes the count actually reach the pacing rules; without it
     a cheapened component runs `moderate` pacing (verification greps) inside an

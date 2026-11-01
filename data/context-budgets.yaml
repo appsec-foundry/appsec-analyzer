@@ -36,22 +36,10 @@ surfaces:
     path: agents/appsec-post-stride-synthesizer.md
     max_bytes: 12000
   stride_analyzer_role:
-    path: agents/appsec-stride-analyzer-v2.md
-    # 12000 -> 14500 (2026-08-30): carrying requirements and blueprint
-    # provenance into findings and mitigations grew the role to 12764 bytes,
-    # past the hard budget, with no band left for the ten-percent headroom
-    # guard. The eight sections are each 800-2200 bytes of distinct contract
-    # (ownership, admission, bounded reads, write-first, prior/actor/boundary
-    # handling, the six-category workflow, finding admission, output), so
-    # fitting 12000 meant cutting a third of one of them out of the most
-    # quality-critical prompt in the pipeline. Raised instead. This is not a
-    # licence to grow: the role ships once per STRIDE component, so a standard
-    # run pays every byte here seven times.
-    # 14500 -> 17500 (2026-09-24): the mechanism_trace contract (ad8a5a35,
-    # +1128 bytes) landed with this guard red, and the retry repair brief adds
-    # 224. Both are rules the completion gate enforces; cutting their text to
-    # fit would raise gate rejections, the failure this contract exists to stop.
-    max_bytes: 17500
+    path: data/stride-analysis-policy.md
+    # This policy is what the survey job receives. It ships with every survey
+    # job of every component, so this is not a licence to grow.
+    max_bytes: 9000
   stride_lens_llm:
     path: agents/shared/owasp-llm-top10.md
     max_bytes: 7000

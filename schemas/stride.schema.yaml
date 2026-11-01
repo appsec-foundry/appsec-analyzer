@@ -102,8 +102,7 @@ $defs:
       component_id:   { type: string, minLength: 1 }
       component_name: { type: string, minLength: 1 }
       analyzed_at:    { type: string }
-      # Write-first stub bookkeeping (appsec-stride-analyzer-v2.md "Write-first
-      # guarantee"): present while a component is mid-enumeration, cleared on
+      # Write-first stub bookkeeping: present while a component is mid-enumeration, cleared on
       # the final write. Declared so the early stub validates and a future
       # additionalProperties:false tightening will not silently break it.
       started_at:     { type: [string, "null"] }
@@ -144,8 +143,7 @@ $defs:
 
       resolved_prior_findings:
         # Incremental re-scan only. Prior findings this re-scan affirmatively
-        # confirmed FIXED (disposition #2 in appsec-stride-analyzer-v2.md
-        # "prior-finding disposition"). The deterministic reconciler in
+        # confirmed FIXED. The deterministic reconciler in
         # model/build_threat_model_yaml.py uses this to mark them resolved instead
         # of carrying them forward. Advisory: when omitted, the reconciler
         # conservatively carries unconfirmed priors at shallower depth.
@@ -355,9 +353,7 @@ $defs:
             evidence_check:
               # Status of the evidence-verification pass. The STRIDE
               # analyzer sets `verified-prior` when it re-read the cited
-              # evidence file for a prior-finding-derived threat (per the
-              # mandatory verification target rule in
-              # appsec-stride-analyzer-v2.md). Fresh threats start as
+              # evidence file for a prior-finding-derived threat. Fresh threats start as
               # `unchecked`; the appsec-evidence-verifier sub-agent
               # (Phase 10b pre-step) updates them to `verified`,
               # `refuted`, or `ambiguous` after re-reading the cited

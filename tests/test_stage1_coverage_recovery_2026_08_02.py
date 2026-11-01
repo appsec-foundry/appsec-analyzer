@@ -106,36 +106,6 @@ def test_manifest_carries_the_sampling_signal_to_the_dispatch(tmp_path: Path) ->
 
 
 # --------------------------------------------------------------------------
-# E2 — the harness ceiling must track the widest budget the skill can emit
-# --------------------------------------------------------------------------
-
-
-def test_harness_ceiling_covers_cap_and_retry_escalation() -> None:
-    """A soft target above the frontmatter ceiling is unreachable by construction."""
-    import re
-
-    text = (REPO_ROOT / "agents" / "appsec-stride-analyzer-v2.md").read_text(encoding="utf-8")
-    m = re.search(r"^maxTurns:\s*(\d+)", text, re.M)
-    assert m, "maxTurns not found in analyzer frontmatter"
-    ceiling = int(m.group(1))
-
-    highest = max(
-        classify_component._FOOTPRINT_TURN_CAP,
-        classify_component._RETRY_TURN_CAP,
-        max(b["complex"] for b in classify_component.TURN_BUDGETS.values()),
-    )
-    assert ceiling > highest, (
-        f"harness ceiling {ceiling} does not exceed the highest derivable budget "
-        f"{highest}; a component granted that budget is killed before it can spend it"
-    )
-    # The reserve must be big enough for six per-category flushes plus wrap-up.
-    assert ceiling - highest >= 8, (
-        f"only {ceiling - highest} turns between the widest budget and the hard "
-        "kill — too thin for the per-category flushes the write contract requires"
-    )
-
-
-# --------------------------------------------------------------------------
 # E3 — a retry must not repeat the dispatch that already failed
 # --------------------------------------------------------------------------
 

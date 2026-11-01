@@ -827,12 +827,12 @@ class TestSoftTurnBudgetCrossing:
         """A MAX_TURNS line whose source column names the emitting agent."""
         return [(1, f"2026-08-27T10:30:00Z  [--------]  INFO   {source}  MAX_TURNS   {detail}")]
 
-    def test_stride_crossing_reports_the_headroom_it_verified(self):
-        """A soft budget below the ceiling may say so — 31 against 96."""
-        (issue,) = agg._extract_errors([], self._by("stride-analyzer-v2", "turns=34/31  pct=109%"))
-        assert issue["evidence"]["harness_ceiling"] == 96
+    def test_crossing_below_the_ceiling_reports_the_headroom_it_verified(self):
+        """A soft budget below the ceiling may say so — 31 against 40."""
+        (issue,) = agg._extract_errors([], self._by("control-analyst", "turns=34/31  pct=109%"))
+        assert issue["evidence"]["harness_ceiling"] == 40
         assert issue["evidence"]["at_harness_ceiling"] is False
-        assert "below the harness ceiling (96)" in issue["title"]
+        assert "below the harness ceiling (40)" in issue["title"]
 
     def test_crossing_at_the_ceiling_is_not_announced_as_headroom(self):
         """Regression: an agent dispatched without a ``MAX_TURNS`` prompt
@@ -871,10 +871,10 @@ class TestSoftCrossingKeepsItsRecommender:
         spec.loader.exec_module(rf)
 
         # Source column must carry the real emitter so the recommender can locate
-        # agents/appsec-stride-analyzer-v2.md and compare 31 against its ceiling.
+        # agents/appsec-control-analyst.md and compare 31 against its ceiling.
         raw = (
-            "2026-08-23T09:42:55Z  [4a9e80cf]  WARN   stride-analyzer-v2  MAX_TURNS   "
-            "agent=stride-analyzer-v2  agent_call_id=toolu_x  turns=34/31  pct=109%"
+            "2026-08-23T09:42:55Z  [4a9e80cf]  WARN   control-analyst  MAX_TURNS   "
+            "agent=control-analyst  agent_call_id=toolu_x  turns=34/31  pct=109%"
         )
         (issue,) = agg._extract_errors([], [(1, raw)])
         assert issue["category"] in rf.RECOMMENDERS, "soft crossings must stay dispatchable"

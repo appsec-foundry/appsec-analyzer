@@ -203,9 +203,7 @@ QUICK_STRIDE_PROFILE = {
     #     Keep only the top-severity threat
     #     per STRIDE category per component.
     #     CRITICAL/HIGH-SAFE: the analyzer never
-    #     drops a Critical or High to honour this cap
-    #     — see appsec-stride-analyzer-v2.md
-    #     Quick-mode table exception.)
+    #     drops a Critical or High to honour this cap.)
     "skip_code_examples": False,  # C (R9 — was True; flipped 2026-05.
     #     User feedback: mitigations without
     #     code hints are not actionable.
@@ -953,10 +951,7 @@ def resolve_stride_profile(reasoning_mode: str, depth: str, stride_cap: int | No
     depth and only trim the Medium/Low tail per STRIDE category per
     component. The default (None) preserves the documented "standard =
     full STRIDE, reduction opt-in only" invariant. CRITICAL/HIGH-SAFE: the
-    analyzer never drops a Critical or High to honour the cap (see
-    ``agents/appsec-stride-analyzer-v2.md`` cap table). The cap is key-gated
-    in the analyzer — it activates whenever ``max_threats_per_category``
-    is present in the profile, independent of the label.
+    analyzer never drops a Critical or High to honour the cap.
     """
     reasoning_mode = canonical_reasoning_model(reasoning_mode)
     cap = stride_cap if (stride_cap and stride_cap >= 1) else None

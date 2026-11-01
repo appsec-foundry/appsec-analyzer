@@ -1126,7 +1126,6 @@ requirements:
       - scripts/renderers/figure2_svg.py
       - schemas/figure2-diagram.schema.json
       - data/business-impact-taxonomy.yaml
-      - agents/appsec-architecture-analyst.md
       - data/architecture-analysis-policy.md
       - agents/appsec-threat-renderer.md
       - data/attack-class-taxonomy.yaml
