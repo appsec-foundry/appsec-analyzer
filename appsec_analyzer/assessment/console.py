@@ -1272,7 +1272,7 @@ class _AssessmentConsole:
             if not self.wraps() and "\n" not in detail:
                 return row.rstrip()
             head = row[: len(row) - len(detail)]
-            indent, pieces = self._wrap_detail(len(head), detail, now)
+            indent, pieces = self._wrap_detail(len(head), detail, now, live)
             return self._join(head, indent, pieces)
         # Colour wraps each padded column, so the grid keeps its widths.
         st, role = self.st, ("accent" if live else self.EVENT_ROLES.get(event))
@@ -1286,7 +1286,7 @@ class _AssessmentConsole:
         # A long detail wraps under its own column instead of at the screen edge.
         # The budget figure stays whole across a wrap, which splits only at plain spaces.
         kept = self._SPENT.sub(lambda found: found[0].replace(" ", "\xa0"), detail)
-        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now)
+        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now, live)
         # The amount's colour ends with a reset, so a warning line takes its colour up again after it.
         rest = ("warn",) if event == "⚠" else ()
         cells = [
@@ -1301,11 +1301,13 @@ class _AssessmentConsole:
                 cells = [piece.replace(name, st(name, "agent")) for piece in cells]
         return self._join(head, indent, cells)
 
-    def _wrap_detail(self, head: int, detail: str, now: float) -> tuple[int, list[str]]:
+    def _wrap_detail(self, head: int, detail: str, now: float, live: bool = False) -> tuple[int, list[str]]:
         """(indent, pieces) of a detail after a `head` columns wide grid head.
 
-        A long detail continues under its own column. Where --width leaves that
-        column too narrow, the detail starts on the next line after the time stamp.
+        A long detail continues under its own column. The status line's bar leaves
+        that column narrow, so `live` continues after the time stamp instead. Where
+        --width leaves the column too narrow, the detail starts on the next line
+        after the time stamp.
         """
         indent = len(self._stamp(now)) + 2 + head
         fit = self.columns() - 1 - indent
@@ -1323,6 +1325,13 @@ class _AssessmentConsole:
             ]
         if len(detail) <= fit:
             return indent, [detail]
+        if fit >= 20 and live:
+            start = len(self._stamp(now)) + 2
+            # The initial indent keeps the first line in the detail column; `_join` draws it after the head.
+            first, *rest = textwrap.wrap(
+                detail, self.columns() - 1 - start, initial_indent=" " * (indent - start), break_on_hyphens=False
+            )
+            return start, [first[indent - start :], *rest]
         if fit >= 20:
             return indent, textwrap.wrap(detail, fit, break_on_hyphens=False)
         if not self.wraps():

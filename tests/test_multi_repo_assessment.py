@@ -3851,10 +3851,10 @@ def test_input_echoed_between_redraws_leaves_no_stale_status_line(monkeypatch, c
     assert len(screen) == components + 1 and "5/8 Threat analysis" in screen[-1] and screen[-1].endswith("…")
 
 
-@pytest.mark.parametrize("columns", [140, 90], ids=["under its text", "under the time stamp"])
+@pytest.mark.parametrize("columns", [140, 90], ids=["after the bar", "below the bar"])
 @pytest.mark.parametrize("colour", [True, False], ids=["colour", "no colour"])
 def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behind(monkeypatch, columns, colour):
-    """On a terminal nothing is cut: the line continues under its own text, and each redraw replaces every row."""
+    """On a terminal nothing is cut: the line continues after the time stamp, and each redraw replaces every row."""
     import time as clock
 
     written: list[str] = []
@@ -3894,9 +3894,9 @@ def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behin
         " ".join(row.strip() for row in rows),
     )
     assert len(rows) > 1 and "…" not in "".join(rows) and all(len(row) < columns for row in rows)
-    # A column too narrow for the text moves it below the bar, starting after the time stamp.
-    column = rows[0].find("report section") if columns == 140 else 10
-    assert column >= 10 and all(len(row) - len(row.lstrip()) == column for row in rows[1:])
+    # The text starts after the bar, or below it where that column is too narrow, and continues after the time stamp.
+    assert ("report section" in rows[0]) is (columns == 140)
+    assert all(len(row) - len(row.lstrip()) == 10 for row in rows[1:])
 
     # The call ends and the line shrinks; a key press the terminal echoed goes with the rows above it.
     console.running.clear()
@@ -3905,6 +3905,20 @@ def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behin
     assert len(shown()) == (1 if columns == 140 else 2)
     controller._AssessmentConsole.clear_status()
     assert not shown()
+
+
+@pytest.mark.parametrize(("live", "column"), [(True, 10), (False, 90)], ids=["status line", "fixed row"])
+def test_only_the_status_line_continues_after_the_time_stamp(monkeypatch, live, column):
+    """Behind the bar 42 columns remain: only the first line stays there, the rest uses the room after the time."""
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 133)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    detail = " ".join(["survey model is writing its result"] * 10)
+
+    indent, pieces = console._wrap_detail(80, detail, console.clock(), live)
+
+    assert indent == column and " ".join(pieces) == detail
+    assert len(pieces[0]) <= 42 and all(len(piece) <= 132 - column for piece in pieces)
+    assert (max(len(piece) for piece in pieces[1:]) > 42) is live
 
 
 def test_the_status_line_names_a_step_once_and_keeps_its_age(capsys, monkeypatch):
