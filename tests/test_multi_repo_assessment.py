@@ -3918,7 +3918,7 @@ def test_input_echoed_between_redraws_leaves_no_stale_status_line(monkeypatch, c
 @pytest.mark.parametrize("columns", [140, 90], ids=["after the bar", "below the bar"])
 @pytest.mark.parametrize("colour", [True, False], ids=["colour", "no colour"])
 def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behind(monkeypatch, columns, colour):
-    """On a terminal nothing is cut: the line continues after the time stamp, and each redraw replaces every row."""
+    """On a terminal nothing is cut: the line continues between its parts, and each redraw replaces every row."""
     import time as clock
 
     written: list[str] = []
@@ -3952,15 +3952,15 @@ def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behin
         return [row for row in _screen(re.sub(r"\033\[[\d;]*m", "", "".join(written)), columns) if row]
 
     rows = shown()
-    assert re.search(
-        r"report section 2/2 · Management Summary · management summary \(Sonnet 5\.5\) 3m2\ds "
-        r"model is thinking \(~12,345 tokens\)$",
-        " ".join(row.strip() for row in rows),
+    assert rows[-2].strip().endswith("report section 2/2 · Management Summary")
+    assert re.fullmatch(
+        r"management summary \(Sonnet 5\.5\) 3m2\ds model is thinking \(~12,345 tokens\)", rows[-1].strip()
     )
     assert len(rows) > 1 and "…" not in "".join(rows) and all(len(row) < columns for row in rows)
-    # The text starts after the bar, or below it where that column is too narrow, and continues after the time stamp.
+    # The text starts after the bar and continues under it; a narrow window moves it after the time stamp.
     assert ("report section" in rows[0]) is (columns == 140)
-    assert all(len(row) - len(row.lstrip()) == 10 for row in rows[1:])
+    column = re.search("[━─]", rows[0]).start() if columns == 140 else 10
+    assert all(len(row) - len(row.lstrip()) == column for row in rows[1:])
 
     # The call ends and the line shrinks; a key press the terminal echoed goes with the rows above it.
     console.running.clear()
@@ -3971,18 +3971,60 @@ def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behin
     assert not shown()
 
 
-@pytest.mark.parametrize(("live", "column"), [(True, 10), (False, 90)], ids=["status line", "fixed row"])
-def test_only_the_status_line_continues_after_the_time_stamp(monkeypatch, live, column):
-    """Behind the bar 42 columns remain: only the first line stays there, the rest uses the room after the time."""
+def test_the_status_line_keeps_a_running_call_together_in_the_detail_column(monkeypatch):
+    """Without a bar the line breaks between the step and the call, and the call's state continues under the text."""
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    console.phase = "Reconnaissance"
+
+    first, *rest = console._row(
+        "·", "repository 1/1 · juice-shop · discovery (Haiku) 5s model is thinking (~650 tokens)", live=True
+    ).split("\n")
+
+    assert first.endswith("  repository 1/1 · juice-shop")
+    # The status adds the time stamp before the first line only.
+    assert rest == [" " * (10 + first.index("repository")) + "discovery (Haiku) 5s model is thinking (~650 tokens)"]
+
+
+@pytest.mark.parametrize(
+    ("columns", "head", "label", "column"),
+    [(133, 80, 14, 76), (133, 80, 0, 90), (105, 70, 14, 10)],
+    ids=["under the bar", "without a bar", "column too narrow"],
+)
+def test_the_status_line_continues_in_its_column(monkeypatch, columns, head, label, column):
+    """The rest starts under the bar; below `_LIST_MIN_WIDTH` columns of room it starts after the time stamp."""
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", columns)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    detail = " · ".join(["survey model is writing its result"] * 4)
+
+    indent, pieces = console._wrap_detail(head, detail, console.clock(), True, label)
+
+    # Rows that join back to the text with the separator broke between its parts.
+    assert indent == column and " · ".join(piece for piece in pieces if piece) == detail
+    assert all(len(piece) <= columns - 1 - column for piece in pieces[1:])
+
+
+def test_a_fixed_row_still_wraps_under_its_own_text(monkeypatch):
     monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 133)
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     detail = " ".join(["survey model is writing its result"] * 10)
 
-    indent, pieces = console._wrap_detail(80, detail, console.clock(), live)
+    indent, pieces = console._wrap_detail(80, detail, console.clock())
 
-    assert indent == column and " ".join(pieces) == detail
-    assert len(pieces[0]) <= 42 and all(len(piece) <= 132 - column for piece in pieces)
-    assert (max(len(piece) for piece in pieces[1:]) > 42) is live
+    assert indent == 90 and " ".join(pieces) == detail and all(len(piece) <= 42 for piece in pieces)
+
+
+def test_a_status_part_too_wide_for_a_line_wraps_at_its_spaces():
+    wrap = controller._AssessmentConsole._wrap_parts
+    long = "management summary 3m20s model is thinking"
+
+    assert wrap(f"short · {long} · +2 more", 10, 20) == [
+        "short",
+        "management summary",
+        "3m20s model is",
+        "thinking · +2 more",
+    ]
+    assert wrap(long, 10, 30) == ["", "management summary 3m20s model", "is thinking"]
 
 
 def test_the_status_line_names_a_step_once_and_keeps_its_age(capsys, monkeypatch):

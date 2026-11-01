@@ -1273,6 +1273,7 @@ class _AssessmentConsole:
             event = SPINNER[self.frame % len(SPINNER)]
             if self.components:
                 bar = f"{self.st.bar(round(100 * self.done), 100, self.BAR_WIDTH)}  "
+                label += self.BAR_WIDTH + 2
         # Free text comes last, so a long detail never shifts a column.
         row = f"{phase:<{self._PHASE_WIDTH}}  {event:<{self._EVENT_WIDTH}}  {run}  {lead}{bar}{detail}"
         if not self.st.enabled:
@@ -1313,12 +1314,11 @@ class _AssessmentConsole:
     ) -> tuple[int, list[str]]:
         """(indent, pieces) of a detail after a `head` columns wide grid head.
 
-        A long detail continues under its own column. The status line's bar leaves
-        that column narrow, so `live` continues after the time stamp instead. The
-        entries of a list start `label` columns before the detail; where the window
-        leaves that column narrower than `_LIST_MIN_WIDTH`, they start after the
-        time stamp. Where --width leaves the column too narrow, the detail starts
-        on the next line after the time stamp.
+        A long detail continues under its own column. The entries of a list and the
+        rest of the status line, which `live` breaks between its parts, start `label`
+        columns before the detail; where the window leaves that column narrower than
+        `_LIST_MIN_WIDTH`, they start after the time stamp. Where --width leaves the
+        column too narrow, the detail starts on the next line after the time stamp.
         """
         indent = len(self._stamp(now)) + 2 + head
         fit = self.columns() - 1 - indent
@@ -1343,18 +1343,35 @@ class _AssessmentConsole:
         if len(detail) <= fit:
             return indent, [detail]
         if fit >= 20 and live:
-            start = len(self._stamp(now)) + 2
-            # The initial indent keeps the first line in the detail column; `_join` draws it after the head.
-            first, *rest = textwrap.wrap(
-                detail, self.columns() - 1 - start, initial_indent=" " * (indent - start), break_on_hyphens=False
-            )
-            return start, [first[indent - start :], *rest]
+            start = indent - label
+            if self.columns() - 1 - start < self._LIST_MIN_WIDTH:
+                start = len(self._stamp(now)) + 2
+            return start, self._wrap_parts(detail, fit, self.columns() - 1 - start)
         if fit >= 20:
             return indent, textwrap.wrap(detail, fit, break_on_hyphens=False)
         if not self.wraps():
             return indent, [detail]
         indent = len(self._stamp(now)) + 2
-        return indent, ["", *textwrap.wrap(detail, self.columns() - 1 - indent, break_on_hyphens=False)]
+        width = self.columns() - 1 - indent
+        pieces = (
+            self._wrap_parts(detail, width, width) if live else textwrap.wrap(detail, width, break_on_hyphens=False)
+        )
+        return indent, ["", *pieces]
+
+    @staticmethod
+    def _wrap_parts(detail: str, first: int, rest: int) -> list[str]:
+        """Lines of a ` · ` separated text, `first` and then `rest` columns wide, ending between its parts.
+
+        A part too wide for the first line starts below it, one too wide for any line wraps at its spaces.
+        """
+        lines = [""]
+        for part in detail.split(" · "):
+            joined = f"{lines[-1]} · {part}" if lines[-1] else part
+            if len(joined) <= (first if len(lines) == 1 else rest):
+                lines[-1] = joined
+            else:
+                lines += textwrap.wrap(part, rest, break_on_hyphens=False)
+        return lines
 
     @staticmethod
     def _join(head: str, indent: int, pieces: list[str]) -> str:
