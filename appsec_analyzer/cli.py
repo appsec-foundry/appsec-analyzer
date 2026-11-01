@@ -763,6 +763,11 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="PATH",
         help="Repository-relative YAML case file; repeat for several files (replaces profile selection)",
     )
+    scope_group.add_argument(
+        "--abuse-cases",
+        action="store_true",
+        help="Check technical and business abuse cases at any depth, including quick; adds model calls",
+    )
     control_group.add_argument(
         "--keep-runtime-files", action="store_true", help="Retain private intermediate assessment files for debugging"
     )
@@ -1418,6 +1423,7 @@ def _assess(ns: argparse.Namespace) -> int:
         "non_interactive",
         "verbose",
         "show_costs",
+        "abuse_cases",
         "sarif",
         "threatdragon",
         "pdf",

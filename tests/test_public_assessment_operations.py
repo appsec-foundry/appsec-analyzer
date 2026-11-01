@@ -263,6 +263,7 @@ def test_assess_starts_full_assessment_with_headless_defaults(tmp_path: Path, mo
         "--assessment-depth",
         "thorough",
         "--rebuild",
+        "--abuse-cases",
         "--keep-runtime-files",
         "--sarif",
         "--pentest-tasks",
@@ -285,6 +286,7 @@ def test_assess_starts_full_assessment_with_headless_defaults(tmp_path: Path, mo
     assert "--hard-budget" in observed
     for flag in (
         "--rebuild",
+        "--abuse-cases",
         "--keep-runtime-files",
         "--sarif",
         "--pentest-tasks",

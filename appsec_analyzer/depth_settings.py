@@ -42,6 +42,11 @@ def shipped(depth: str) -> dict:
     return copy.deepcopy(_shipped()[depth])
 
 
+def max_abuse_cases() -> int:
+    """The highest ``abuse_cases`` value the schema allows."""
+    return schema()["$defs"]["depth_settings"]["properties"]["abuse_cases"]["maximum"]
+
+
 def effective(depth: str, *, organization: dict | None = None, scan: dict | None = None) -> tuple[dict, dict]:
     """``(values, origins)`` of ``depth``: the shipped file, then the organization's, then the team's ``depths``."""
     values = shipped(depth)

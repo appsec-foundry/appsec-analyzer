@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- `assess --abuse-cases` checks technical and business abuse cases at `quick` depth, which otherwise skips them. It adds model calls.
 - Every finding card states how reliable the finding is, as high, medium, or low, with the reason. The level says how sure the report is that the weakness is real, not how severe it is.
 - `assess`, `scan-sources`, `score`, and `audit-requirements` accept a local directory without Git. A `.gitignore` applies as in a checkout, nothing is written into the directory, and the report shows no commit. See [Directories without Git](docs/security-assessment.md#directories-without-git).
 - `--requirements` of `assess`, `audit-requirements`, `authnz-review`, and `analyze-threats` also reads OSCAL catalogs in JSON or YAML. Analyzer detects the format from the content, assigns the priority MUST to every control, leaves out withdrawn controls, and records the format and the checksum of the supplied file. Profiles, XML, and catalogs above a command's limit are refused before any model call; see [catalog formats](docs/security-requirements-audit-skill.md#catalog-formats).

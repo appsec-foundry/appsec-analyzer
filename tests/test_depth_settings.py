@@ -101,6 +101,28 @@ def test_organization_and_team_values_decide_the_switches_and_flags_still_win():
     assert not derived["skip_abuse_case_verification"]
 
 
+@pytest.mark.parametrize(
+    ("flag", "scan", "limit"),
+    [
+        (True, None, 16),
+        (True, {"quick": {"abuse_cases": 5}}, 5),
+        (False, None, 0),
+    ],
+    ids=["raises a limit of 0", "keeps a limit above 0", "off without the option"],
+)
+def test_the_option_checks_business_cases_at_quick_depth_within_a_set_limit(flag, scan, limit):
+    out = resolve_config.resolve_depth_settings(_ns(abuse_cases=flag), {"assessment_depth": "quick"}, scan)
+    assert out["depth_settings"]["abuse_cases"] == limit
+    assert out["skip_abuse_case_verification"] is (limit == 0)
+
+
+def test_the_option_overrides_a_profile_that_switches_business_cases_off():
+    scan = {"standard": {"abuse_cases": 0}}
+    out = resolve_config.resolve_depth_settings(_ns(abuse_cases=True), {"assessment_depth": "standard"}, scan)
+    assert out["depth_settings"]["abuse_cases"] == depth_settings.max_abuse_cases() == 16
+    assert out["depth_settings_origins"]["abuse_cases"] == "--abuse-cases"
+
+
 def test_the_dialogue_budget_follows_the_organization_and_then_the_scan_profile(tmp_path, monkeypatch):
     import subprocess
 

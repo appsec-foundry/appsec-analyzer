@@ -1049,6 +1049,9 @@ def resolve_depth_settings(ns: argparse.Namespace, cfg: dict, scan_depths: dict 
 
     depth = cfg["assessment_depth"]
     values, origins = depth_settings.effective(depth, organization=cfg.get("org_profile_depths"), scan=scan_depths)
+    if getattr(ns, "abuse_cases", False) and not values["abuse_cases"]:
+        # --abuse-cases asks for the business cases a limit of 0 leaves out; a limit above 0 stays (REQ-011).
+        values["abuse_cases"], origins["abuse_cases"] = depth_settings.max_abuse_cases(), "--abuse-cases"
     out = {"depth_settings": values, "depth_settings_origins": origins}
     out.update(resolve_architect_review(ns, depth, ns.dry_run, values["architect_review"], origins["architect_review"]))
     counted = [origins[key] for key in ("abuse_cases", "derived_abuse_cases") if origins[key] != "analyzer default"]

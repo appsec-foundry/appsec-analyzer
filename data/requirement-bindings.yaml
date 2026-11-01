@@ -1060,9 +1060,11 @@ requirements:
       - appsec_analyzer/assessment/scope.py
       - scripts/orchestrator/orchestration_controller.py
       - appsec_analyzer/cli.py
+      - appsec_analyzer/depth_settings.py
       - appsec_analyzer/profiles.py
       - appsec_analyzer/model_roles.py
       - schemas/scan-profile.schema.yaml
+      - scripts/runtime/resolve_config.py
       - scripts/model/promote_verified_abuse_cases.py
       - scripts/model/match_abuse_cases.py
       - scripts/validators/verify_abuse_cases.py
@@ -1082,6 +1084,8 @@ requirements:
     coverage: partial
     guards:
       - tests/test_assessment_scope.py::test_resolved_organization_settings_reach_startup_and_downstream_case_consumers
+      - tests/test_depth_settings.py::test_the_option_checks_business_cases_at_quick_depth_within_a_set_limit
+      - tests/test_match_abuse_cases.py::test_quick_depth_selects_business_cases_under_the_limit_the_option_sets
       - tests/test_promote_verified_abuse_cases.py::test_unconfirmed_or_unclassified_probe_is_never_promoted
       - tests/test_profiles.py::test_abuse_case_profile_selection_and_cli_replacement
       - tests/test_profiles.py::test_abuse_case_files_reach_controller_from_profile_or_cli

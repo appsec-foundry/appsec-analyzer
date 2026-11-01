@@ -730,6 +730,7 @@ class TestCLI:
         cfg = json.loads(self._run("--quick", "--abuse-cases").stdout)
         assert cfg["skip_abuse_case_verification"] is False
         assert cfg["abuse_case_label"] == "enabled (--abuse-cases)"
+        assert cfg["depth_settings"]["abuse_cases"] == 16
 
     def test_abuse_cases_force_off_at_standard(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

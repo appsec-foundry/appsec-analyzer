@@ -425,6 +425,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | `--quick`, `--standard`, `--thorough` | Shortcuts for `--assessment-depth` with that level. Two different depths in one command are refused. |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
 | `--abuse-case-file PATH` | Check your own business rules from a YAML file. See [custom abuse cases](docs/security-assessment.md#custom-abuse-cases). |
+| `--abuse-cases` | Check technical and business [abuse cases](#abuse-cases) at any depth, including `quick`. Adds model calls. |
 | `--max-parallel N` | Components analyzed at once, 1 to 16. Default: 4, or 3 when the default applies and the components divide by three; 2 for Codex and Copilot subscriptions. |
 | `--non-interactive` | For CI. Without it, an interactive terminal may ask for the depth when none is given, and for a higher budget before skipping work. |
 | `--verbose` | Show job and call identities and detailed correction messages. |
@@ -524,7 +525,7 @@ An abuse case is something an attacker or a user must not be able to do. Analyze
 
 ### How `assess` uses them
 
-- Checks the cases that fit the code. `quick` depth skips them.
+- Checks the cases that fit the code. `quick` depth skips them unless you pass `--abuse-cases`.
 - By default, checks all built-in business rules at `standard` and `thorough` depth, up to 16 rules in total. Rules that a verified aspect already covers come last.
 - Always checks rules you supply or request.
 - Lets a scan profile change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does).

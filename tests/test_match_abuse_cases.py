@@ -1697,6 +1697,25 @@ def test_depth_settings_set_the_business_case_limits(tmp_path: Path):
     assert {m["reason"] for m in matches} == {"standard depth verifies business abuse cases only on explicit request"}
 
 
+def test_quick_depth_selects_business_cases_under_the_limit_the_option_sets():
+    """REQ-011: `assess --abuse-cases` gives quick depth a limit, so its business cases run."""
+    limits = {
+        "descriptive_candidates_standard": 16,
+        "descriptive_candidates_thorough": 16,
+        "descriptive_candidates_explicit": 16,
+        "descriptive_candidates_derived": 3,
+    }
+    matches = _candidates(7)
+    mac.apply_descriptive_limits(
+        matches, set(), "quick", limits, settings={"abuse_cases": 16, "derived_abuse_cases": 0}
+    )
+    assert {m["structural_verdict"] for m in matches} == {"candidate"}
+    # Without the option the same cases are left out, with the reason.
+    matches = _candidates(7)
+    mac.apply_descriptive_limits(matches, set(), "quick", limits, settings={"abuse_cases": 0, "derived_abuse_cases": 0})
+    assert {m["reason"] for m in matches} == {"quick depth verifies business abuse cases only on explicit request"}
+
+
 def test_each_match_names_where_its_case_came_from(tmp_path: Path):
     repo = _repo(tmp_path)
     case_dir = repo / ".appsec" / "abuse-cases"
