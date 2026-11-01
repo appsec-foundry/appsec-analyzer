@@ -1306,24 +1306,27 @@ class _AssessmentConsole:
         """(indent, pieces) of a detail after a `head` columns wide grid head.
 
         A long detail continues under its own column. The status line's bar leaves
-        that column narrow, so `live` continues after the time stamp instead. Where
-        --width leaves the column too narrow, the detail starts on the next line
-        after the time stamp.
+        that column narrow, so `live` continues after the time stamp instead, and
+        so do the entries of a list, which would otherwise wrap at half the screen.
+        Where --width leaves the column too narrow, the detail starts on the next
+        line after the time stamp.
         """
         indent = len(self._stamp(now)) + 2 + head
         fit = self.columns() - 1 - indent
         if "\n" in detail:
-            # A list: each line starts under the detail column; a long entry continues two columns further in.
             wrapped = self.st.enabled or self.wraps()
-            return indent, [
-                piece
-                for line in detail.split("\n")
-                for piece in (
-                    textwrap.wrap(line, fit, subsequent_indent="  ", break_on_hyphens=False)
-                    if wrapped and fit >= 20
-                    else [line]
-                )
-            ]
+
+            def wrap(line, width):
+                if wrapped and width >= 20:
+                    # A long line continues two columns further in.
+                    return textwrap.wrap(line, width, subsequent_indent="  ", break_on_hyphens=False)
+                return [line]
+
+            start = len(self._stamp(now)) + 2
+            first, *entries = detail.split("\n")
+            pieces = wrap(first, fit)
+            pieces[1:] = [" " * (indent - start) + piece for piece in pieces[1:]]
+            return start, [*pieces, *(piece for entry in entries for piece in wrap(entry, self.columns() - 1 - start))]
         if len(detail) <= fit:
             return indent, [detail]
         if fit >= 20 and live:
