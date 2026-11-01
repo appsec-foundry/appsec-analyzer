@@ -1374,7 +1374,7 @@ class _AssessmentConsole:
         st = self.st
         if named := [key for key, value in rows if key in self.METHODS and not value.startswith("skipped")]:
             self.methods = named
-        if sources := dict(rows).get("Abuse cases"):
+        if (sources := dict(rows).get("Abuse cases")) and not sources.startswith("skipped"):
             # The row lists Built-in first; only a user-supplied entry can add a file name.
             built_in = CASE_GROUPS[:2] if sources.startswith("Built-in") else ()
             custom = CASE_GROUPS[2:] if "organization" in sources or "user-supplied" in sources else ()

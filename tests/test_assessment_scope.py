@@ -120,9 +120,21 @@ def test_scope_reads_the_frozen_source_and_sanitizes_its_display_name(tmp_path):
     assert "\x9b" not in text and "\x85" not in text
 
 
-def test_disabled_verification_does_not_read_any_case_source():
-    rows = dict(scope_facts(None, {"skip_abuse_case_verification": True, "abuse_case_files": ["missing.yaml"]}))
-    assert rows["Abuse cases"] == "Dedicated verification disabled"
+@pytest.mark.parametrize(
+    ("label", "shown"),
+    [
+        ("skipped (auto - quick depth)", "skipped · quick depth checks them only on request"),
+        ("skipped (--no-abuse-cases)", "skipped · --no-abuse-cases"),
+        (
+            "skipped (scan profile: no abuse cases at standard depth)",
+            "skipped · scan profile: no abuse cases at standard depth",
+        ),
+        (None, "skipped"),
+    ],
+)
+def test_disabled_verification_names_its_reason_and_reads_no_case_source(label, shown):
+    cfg = {"skip_abuse_case_verification": True, "abuse_case_label": label, "abuse_case_files": ["missing.yaml"]}
+    assert dict(scope_facts(None, cfg))["Abuse cases"] == shown
 
 
 def test_scope_does_not_claim_builtins_when_the_profile_disables_them(tmp_path):

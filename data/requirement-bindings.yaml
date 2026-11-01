@@ -1567,7 +1567,7 @@ requirements:
       - tests/test_assessment_scope.py::test_scope_describes_model_backed_analysis_and_loaded_defaults
       - tests/test_assessment_scope.py::test_scope_counts_enabled_cases_and_deduplicates_explicit_repository_files
       - tests/test_assessment_scope.py::test_scope_reads_the_frozen_source_and_sanitizes_its_display_name
-      - tests/test_assessment_scope.py::test_disabled_verification_does_not_read_any_case_source
+      - tests/test_assessment_scope.py::test_disabled_verification_names_its_reason_and_reads_no_case_source
       - tests/test_assessment_scope.py::test_invalid_explicit_content_fails_without_echoing_it
       - tests/test_assessment_scope.py::test_scope_facts_reach_console_and_structured_start_without_stdout
       - tests/test_assessment_scope.py::test_startup_reports_scope_before_model_work_and_quiet_preserves_the_start_event

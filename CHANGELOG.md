@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - `assess` checks up to 16 optional business abuse cases at `standard` and `thorough` depth instead of three and eight, so all seven built-in business rules run. To check fewer, set `abuse_cases` per depth in a scan or organization profile.
+- The `assess` header names skipped abuse cases once, in its Scope block, with the reason.
 - The threat overview in the report's Management Summary is about two thirds shorter. Findings stand as IDs by severity under their component, and on screen an ID shows its title when you point at it. The `Fix` column is now `Primary Measures`: two or three measures, one per root cause, most important first. All measures stay in the Mitigation Register.
 - The report writes a severity the same way everywhere: a colored dot and a plain word, such as `🔴 Critical`.
 - Assessment progress lists abuse cases and their results in the groups `Technical`, `Business`, and `Custom`, and the phase's start line names these groups. `Custom` holds organization, repository, and selected cases, whatever they check. The cases still run side by side, and the checks and the report are unchanged.

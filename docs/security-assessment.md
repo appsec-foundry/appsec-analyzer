@@ -79,7 +79,7 @@ Coverage: Depends on models, context, depth, and budget
 Excludes: SCA/CVE scanning, comprehensive secret scanning, and runtime testing
 ```
 
-The abuse-case row counts the enabled definitions loaded at startup, before Analyzer checks whether they apply. It separates built-in, organization, and user-supplied cases and counts each file once. It says `Dedicated verification disabled` when verification is off and `None loaded` when no definitions are active. Cases that a model derives later at thorough depth are not counted. Loaded definitions do not prove that business logic was checked. The result lists completed checks, unresolved cases, and omitted work separately.
+The abuse-case row counts the enabled definitions loaded at startup, before Analyzer checks whether they apply. It separates built-in, organization, and user-supplied cases and counts each file once. It says `skipped` with the reason when the run checks no abuse cases and `None loaded` when no definitions are active. Cases that a model derives later at thorough depth are not counted. Loaded definitions do not prove that business logic was checked. The result lists completed checks, unresolved cases, and omitted work separately.
 
 Weaknesses in supply chain and secret handling can still be found in source and configuration, and secret masking and result checks stay active. These checks do not replace a dependency vulnerability scan or a full secret scan of the repository and its Git history. No tests run against the application itself.
 

@@ -3485,8 +3485,6 @@ def _assessment_options(ns, cfg: dict[str, Any]) -> str:
         options.append(f"project: {ns.project}")
     if cfg.get("check_requirements"):
         options.append(cfg.get("requirements_label") or "requirements check enabled")
-    if cfg.get("skip_abuse_case_verification"):
-        options.append("abuse-case verification skipped")
     if ns.fail_on:
         options.append(f"exit status fails on {ns.fail_on} or worse")
     return "\n".join(options)

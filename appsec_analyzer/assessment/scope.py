@@ -27,7 +27,10 @@ def _abuse_case_sources(scope, cfg: dict) -> str:
     from orchestrator.assessment_workspace import Namespaces
 
     if cfg.get("skip_abuse_case_verification"):
-        return "Dedicated verification disabled"
+        reason = str(cfg.get("abuse_case_label") or "").removeprefix("skipped (").removesuffix(")")
+        if reason == "auto - quick depth":
+            reason = "quick depth checks them only on request"
+        return f"skipped · {reason}" if reason else "skipped"
 
     names = Namespaces(scope)
     files = scan_case_files(scope, names, cfg.get("abuse_case_files"))

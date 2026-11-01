@@ -1243,9 +1243,18 @@ def test_console_header_names_the_files_the_run_will_write_and_its_settings():
         rows({"check_requirements": True, "requirements_label": "enabled (--requirements)"})["Options"].splitlines()[1]
         == "enabled (--requirements)"
     )
+    # Skipped abuse cases are named in the Scope block, not a second time here.
+    assert rows({"skip_abuse_case_verification": True})["Options"] == plain["Options"]
     # Without a configuration (the follower's start lines) the rows are left out.
     bare = dict(controller._assessment_intro(ns, budget, "standard", "Models: m1 (a)", "P"))
     assert "Artifacts" not in bare and "Options" not in bare
+
+
+def test_a_skip_reason_naming_a_profile_adds_no_abuse_case_group():
+    """The reason on the row is text, not a list of loaded case sources."""
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    console.facts(None, [("Abuse cases", "skipped · organization profile: no abuse cases at standard depth")])
+    assert console.case_groups == []
 
 
 @pytest.mark.parametrize("subscription", [False, True])
@@ -1289,7 +1298,7 @@ def test_sectioned_header_preserves_facts_and_wraps_at_requested_width(monkeypat
         ("Repository", "/srv/app"),
         ("Budget", "USD 12.50"),
         ("Focus", "Security design, code, and configuration"),
-        ("Abuse cases", "Dedicated verification disabled"),
+        ("Abuse cases", "skipped · quick depth checks them only on request"),
         ("Excludes", "SCA/CVE scanning, comprehensive secret scanning, and runtime testing"),
         ("Pipeline", "Reconnaissance → Architecture → Trust boundaries → Controls → Threat analysis"),
         ("Artifacts", "security-assessment.md · security-assessment.yaml"),
