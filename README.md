@@ -525,7 +525,7 @@ An abuse case is something an attacker or a user must not be able to do. Analyze
 ### How `assess` uses them
 
 - Checks the cases that fit the code. `quick` depth skips them.
-- By default, checks up to three built-in business rules at `standard` depth and up to eight at `thorough`. Rules that a verified aspect already covers come last.
+- By default, checks all built-in business rules at `standard` and `thorough` depth, up to 16 rules in total. Rules that a verified aspect already covers come last.
 - Always checks rules you supply or request.
 - Lets a scan profile change these numbers and name cases that every run checks or skips; see [what each depth does](docs/profiles.md#what-each-depth-does).
 - Reports a case the code allows as a new finding or links it to an existing one. A confirmed attack chain can also raise the severity of its findings. The results are in section 9 of the report.

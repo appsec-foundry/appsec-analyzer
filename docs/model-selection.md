@@ -69,6 +69,7 @@ Read the counts with care:
 - The same problem can get a different severity in another run. Code execution through the stored user name was Critical in `quick` and `thorough`, but High in `standard`.
 - Every run rated a request field as Critical that a scanner rule reported, although the application overwrites that field with the signed-in user before it is used. Where verification sees such a protection, the report marks the finding as contradicted by verification. `quick` runs no verification and shows no such mark.
 - Abuse-case results also varied. Two attack chains that `standard` confirmed as Critical stayed unresolved in `thorough`, although both runs used the same model for this check.
+- In these runs, `standard` checked at most three business rules. It now checks all built-in rules, at a few cents per rule.
 
 These are single runs on one application, not a benchmark. Costs and results depend on the project, models, limits, budget, and retries.
 
