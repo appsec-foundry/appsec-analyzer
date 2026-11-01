@@ -575,6 +575,7 @@ class AssessmentJobs:
         try:
             return self._exchange(**kwargs, trace=trace)
         except BaseException as error:
+            error.assessment_role = kwargs["role"]
             if isinstance(error, ModelAnswerFailure):
                 context = kwargs.get("context") or {}
                 component = context.get("component") or {}

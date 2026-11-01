@@ -1570,6 +1570,13 @@ requirements:
       - tests/test_assessment_state.py::test_resume_of_a_completed_run_with_changed_settings_still_needs_a_new_scan
       - tests/test_assessment_state.py::test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds
       - tests/test_assessment_state.py::test_the_question_omits_a_resume_that_cannot_succeed
+      - tests/test_assessment_state.py::test_the_question_says_where_and_why_the_run_stopped
+      - tests/test_assessment_state.py::test_the_question_names_only_known_codes
+      - tests/test_assessment_state.py::test_text_in_the_stop_codes_is_rejected_with_the_state
+      - tests/test_assessment_state.py::test_a_run_that_died_is_not_shown_as_running
+      - tests/test_assessment_state.py::test_a_run_with_nothing_to_reuse_starts_without_a_question
+      - tests/test_assessment_state.py::test_a_run_without_accepted_steps_but_with_history_asks_without_promising_reuse
+      - tests/test_assessment_state.py::test_a_resumed_run_forgets_why_the_last_attempt_stopped
       - tests/test_assessment_state.py::test_no_question_without_an_unfinished_run
       - tests/test_assessment_state.py::test_resume_without_an_assessment_says_so
       - tests/test_assessment_scope.py::test_scope_describes_model_backed_analysis_and_loaded_defaults

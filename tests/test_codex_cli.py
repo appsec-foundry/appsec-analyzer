@@ -358,6 +358,8 @@ def test_activity_is_streamed_before_completion_without_model_text(transport, mo
     )
     monkeypatch.setattr(transport, "argv", lambda *args: [sys.executable, "-c", script])
     reported = _ReportedTransport(transport, lambda text: None)
+    # Codex may stay silent for a whole call, so the first state claims nothing about a response.
+    assert reported.state() == "model call is running"
     statuses = []
 
     def observe(event):

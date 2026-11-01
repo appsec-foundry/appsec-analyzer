@@ -1201,6 +1201,16 @@ def test_resume_without_an_assessment_says_so(scope):
     assert not (scope.output / ".assessment-state.json").exists()
 
 
+def _accept_step(scope):
+    jobs = scope.output / ".assessment-work" / "jobs"
+    jobs.mkdir(parents=True, exist_ok=True)
+    (jobs / "job-accepted.receipt.json").write_text("{}")
+
+
+def _rewrite_state(scope, **fields):
+    (scope.output / ".assessment-state.json").write_text(json.dumps({**stored(scope), **fields}))
+
+
 def _restart_choice(scope, answers, budget=None):
     from types import SimpleNamespace
 
@@ -1225,10 +1235,11 @@ def test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds(
 
     with lifecycle(scope).hold():
         pass
+    _accept_step(scope)
     choice, shown = _restart_choice(scope, answers)
     assert choice == expected
     assert f"An unfinished assessment is stored in {scope.output}" in shown
-    assert "Interrupted, started" in shown and "Spent so far: USD 0.00." in shown
+    assert "  Interrupted.\n  Started " in shown and "1 accepted step. Spent so far: USD 0.00." in shown
     assert "1  Continue it (--resume)" in shown and "3  Start from scratch (--rebuild)" in shown
     # Reused steps are charged to the new run, so the default says so.
     assert "their cost counts toward the new limit" in shown
@@ -1245,6 +1256,7 @@ def test_the_question_shows_before_input_is_read_and_ignores_keys_typed_earlier(
 
     with lifecycle(scope).hold():
         pass
+    _accept_step(scope)
     events = []
 
     class Terminal:
@@ -1270,10 +1282,84 @@ def test_the_question_shows_before_input_is_read_and_ignores_keys_typed_earlier(
 def test_the_question_omits_a_resume_that_cannot_succeed(scope):
     with lifecycle(scope).hold():
         pass
+    _accept_step(scope)
     choice, shown = _restart_choice(scope, ["1\n", "1\n", "1\n"], budget=AssessmentBudget(2.0, 0.05, 10, 60))
     assert choice is None
     assert "1  Continue it: not available, the budget or time limits differ" in shown
     assert "--resume)" not in shown and "Choose 2 or 3 [2]:" in shown
+
+
+def test_the_question_says_where_and_why_the_run_stopped(scope):
+    error = TransportError("PRIVATE_PROVIDER_TEXT", reason="invalid_response_payload")
+    error.assessment_role = "architecture_analyst"
+    with pytest.raises(TransportError), lifecycle(scope).hold():
+        raise error
+    assert stored(scope)["stop"] == {"reason": "invalid_response_payload", "role": "architecture_analyst"}
+    assert "PRIVATE_PROVIDER_TEXT" not in (scope.output / ".assessment-state.json").read_text()
+    _accept_step(scope)
+    _rewrite_state(scope, worked_seconds=146)
+    _, shown = _restart_choice(scope, ["\n"])
+    assert (
+        "  Failed after 2 min in the architecture step: the model's final answer was invalid or ambiguous.\n" in shown
+    )
+
+
+def test_the_question_names_only_known_codes(scope):
+    with lifecycle(scope).hold():
+        pass
+    _accept_step(scope)
+    _rewrite_state(scope, status="failed", stop={"reason": "made_up_code", "role": "made_up_role"})
+    _, shown = _restart_choice(scope, ["\n"])
+    assert "  Failed.\n" in shown and "made_up" not in shown
+
+
+def test_text_in_the_stop_codes_is_rejected_with_the_state(scope):
+    with lifecycle(scope).hold():
+        pass
+    _accept_step(scope)
+    _rewrite_state(scope, status="failed", stop={"reason": "\u001b[2Jsign in at https://example.test"})
+    assert _restart_choice(scope, ["\n"]) == (None, "")
+
+
+def test_a_run_that_died_is_not_shown_as_running(scope):
+    with lifecycle(scope).hold():
+        pass
+    _accept_step(scope)
+    _rewrite_state(scope, status="running", worked_seconds=600)
+    _, shown = _restart_choice(scope, ["\n"])
+    assert "  Ended unexpectedly after 10 min.\n" in shown and "Running" not in shown
+
+
+def test_a_run_with_nothing_to_reuse_starts_without_a_question(scope):
+    with pytest.raises(TransportError), lifecycle(scope).hold():
+        raise TransportError("PRIVATE_PROVIDER_TEXT", reason="rate_limit")
+    # The waiting "3" answers nothing, so it cannot start a rebuild.
+    choice, shown = _restart_choice(scope, ["3\n"])
+    assert choice is None
+    assert shown == (
+        f"The unfinished assessment in {scope.output} left nothing to reuse, so a new run starts. "
+        "Interrupted: wait for provider capacity.\n"
+    )
+
+
+def test_a_run_without_accepted_steps_but_with_history_asks_without_promising_reuse(scope):
+    with lifecycle(scope).hold():
+        pass
+    (scope.output / ".assessment-work" / "history.json").write_text("[]")
+    choice, shown = _restart_choice(scope, ["\n"])
+    assert choice is None
+    assert "0 accepted steps." in shown and "reus" not in shown
+    assert "  2  Start a new run with this command's limits (default)\n" in shown
+    assert "  3  Start from scratch (--rebuild): history is deleted\n" in shown
+    assert shown.endswith("Starting a new run.\n")
+
+
+def test_a_resumed_run_forgets_why_the_last_attempt_stopped(scope):
+    with pytest.raises(TransportError), lifecycle(scope).hold():
+        raise TransportError("PRIVATE_PROVIDER_TEXT", reason="rate_limit")
+    assert stored(scope)["stop"] == {"reason": "rate_limit"}
+    with lifecycle(scope, resume=True).hold():
+        assert "stop" not in stored(scope)
 
 
 def test_no_question_without_an_unfinished_run(scope):

@@ -119,6 +119,27 @@ def _read_state(path: Path):
         raise ExchangeError("Assessment state is unreadable or malformed") from None
 
 
+def _accepted_steps(directory: Path) -> int:
+    """How many accepted steps a work directory holds for a later run."""
+    accepted = set()
+    for folder in (directory / JOBS_NAME, directory / CACHE_NAME):
+        if folder.is_dir() and not folder.is_symlink():
+            accepted |= {receipt.name for receipt in folder.glob("job-*.receipt.json")}
+    return len(accepted)
+
+
+def _stop_record(error: BaseException) -> dict:
+    """The step and failure code that ended an attempt: fixed values, never error text."""
+    from runtime.assessment_diagnostics import failure_fields
+
+    fields = {"reason": failure_fields(error)["reason"], "role": getattr(error, "assessment_role", None)}
+    return {
+        key: value
+        for key, value in fields.items()
+        if isinstance(value, str) and re.fullmatch(r"[a-z0-9_]{1,64}", value)
+    }
+
+
 def _deliverable(output: Path, name: str) -> str:
     # The controller supplies public basenames, never source/model paths.
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
@@ -228,6 +249,7 @@ class AssessmentState:
                     or (isinstance(error, TransportError) and error.reason == "rate_limit")
                     else "failed"
                 )
+                self.state["stop"] = _stop_record(error)
                 self.checkpoint()
                 raise
             else:
@@ -306,6 +328,7 @@ class AssessmentState:
                 self.state["identity"]["runtime_sha256"] = self.identity["runtime_sha256"]
             if self.state["status"] != "complete":
                 self.state["status"] = "running"
+                self.state.pop("stop", None)
         else:
             self._discard_unfinished_run()
             now = int(time.time())
@@ -378,15 +401,12 @@ class AssessmentState:
         again = "Run the same command without --resume"
         if identity.get("scope_sha256") != self.identity["scope_sha256"]:
             return f"{again} for a new scan; it repeats every model step because the source changed"
-        accepted = set()
-        for folder in (self.directory / JOBS_NAME, self.directory / CACHE_NAME):
-            if folder.is_dir() and not folder.is_symlink():
-                accepted |= {receipt.name for receipt in folder.glob("job-*.receipt.json")}
+        accepted = _accepted_steps(self.directory)
         if not accepted:
             return f"{again} for a new scan"
         return (
             f"{again}: a new run with this command's limits reuses every accepted step whose inputs are "
-            f"unchanged ({len(accepted)} accepted so far)"
+            f"unchanged ({accepted} accepted so far)"
         )
 
     def _discard_unfinished_run(self):
@@ -939,10 +959,16 @@ def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
         blocked = "its original budget is exhausted"
     else:
         blocked = None
+    work = output / WORK_NAME
+    history = work / HISTORY_NAME
     return {
         "status": state["status"],
         "started_at": state["started_at"],
         "resume_blocked": blocked,
         "spent_usd": accounting["spent_usd"],
         "calls": accounting["calls"],
+        "worked_seconds": state.get("worked_seconds", 0),
+        "stop": state.get("stop", {}),
+        "accepted": _accepted_steps(work),
+        "history": history.is_file() and not history.is_symlink(),
     }

@@ -3175,7 +3175,7 @@ def test_the_terminal_status_line_names_each_running_call_with_its_age(capsys, m
         [
             ("survey", 130, "model is thinking (~9,000 tokens)"),
             ("controls", 20, "model is writing its result (~1,200 characters)"),
-            ("survey", 5, "waiting for the model's first response"),
+            ("survey", 5, "model call is running"),
         ]
     ):
         console.running[index] = _Call(name, now - age, state)

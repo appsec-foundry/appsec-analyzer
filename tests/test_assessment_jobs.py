@@ -496,9 +496,11 @@ def test_a_transient_failure_that_persists_still_stops_a_required_job(tmp_path, 
     jobs, kwargs = _hanging(tmp_path, host)
     if optional:
         kwargs["on_failure"] = lambda reason: pytest.fail("Rate limits cannot become optional coverage gaps")
-    with pytest.raises(TransportError, match="rate_limit.*--resume"):
+    with pytest.raises(TransportError, match="rate_limit.*--resume") as failure:
         jobs.execute(**kwargs)
     assert host.calls == 4 and not jobs.budget.failed
+    # The restart question names the step that stopped the run.
+    assert failure.value.assessment_role == kwargs["role"]
 
 
 @pytest.mark.parametrize(

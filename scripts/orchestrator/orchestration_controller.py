@@ -3318,7 +3318,8 @@ class _ReportedTransport:
             return f"model is writing its result (~{self.written:,} characters)"
         if self.phase == "thinking":
             return f"model is thinking (~{self.thinking:,} tokens)" if self.thinking else "model is thinking"
-        return "waiting for the model's first response"
+        # Some hosts report nothing until a call ends, so no event does not mean no response yet.
+        return "model call is running"
 
     def _status(self, minutes):
         return f"{minutes} min: {self.state()}"
@@ -5123,14 +5124,36 @@ _RESTART_CHOSEN = {
 }
 
 
+def _restart_span(seconds: int) -> str:
+    minutes = max(int(seconds) // 60, 1)
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h" if minutes < 2880 else f"{minutes // 1440} days"
+
+
+def _restart_summary(found: dict) -> str:
+    """How the unfinished run ended. Only known codes are named, so no text from the state file is shown."""
+    from runtime.assessment_diagnostics import FAILURE_HINTS
+
+    # A run still marked as running here has no live lock: its process ended without recording why.
+    text = {"running": "Ended unexpectedly"}.get(found["status"], str(found["status"]).capitalize())
+    if found["worked_seconds"]:
+        text += f" after {_restart_span(found['worked_seconds'])}"
+    step = _AssessmentConsole.ROLE_LABELS.get(found["stop"].get("role"))
+    if step:
+        text += f" in the {step} step"
+    cause = FAILURE_HINTS.get(found["stop"].get("reason"))
+    return f"{text}: {cause}." if cause else f"{text}."
+
+
 def _assessment_restart_choice(ns, budget, *, readline=None, write=None, show_costs=True) -> str | None:
     """Ask how to start when the destination holds an unfinished run and no flag chose.
 
     Only an explicit answer selects --resume or --rebuild. Enter, end of input
     and repeated invalid answers keep the default: a new scan that reuses the
-    run's accepted steps. Continuing is offered only when the recorded limits,
-    deadline and accounting allow it. The answer's effect is confirmed in one
-    line. Returns "resume", "rebuild" or None.
+    run's accepted steps. A run that left no accepted steps and no history has
+    nothing to decide, so the default starts without a question. Continuing is
+    offered only when the recorded limits, deadline and accounting allow it.
+    The answer's effect is confirmed in one line. Returns "resume", "rebuild"
+    or None.
     """
     from runtime.assessment_state import unfinished_run
 
@@ -5139,15 +5162,21 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None, show_co
         return None
     readline = readline or _restart_readline
     write = write or _restart_write
+    summary = _restart_summary(found)
+    accepted = found["accepted"]
+    if not accepted and not found["history"]:
+        write(f"The unfinished assessment in {ns.output} left nothing to reuse, so a new run starts. {summary}\n")
+        return None
     started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(found["started_at"]))
-    minutes = max(int(time.time() - found["started_at"]) // 60, 1)
-    ago = f"{minutes} min" if minutes < 60 else f"{minutes // 60} h" if minutes < 2880 else f"{minutes // 1440} days"
+    ago = _restart_span(time.time() - found["started_at"])
     spent = (
         f"{found['calls']} model calls" if budget.subscription or not show_costs else f"USD {found['spent_usd']:.2f}"
     )
     lines = [
         f"An unfinished assessment is stored in {ns.output}",
-        f"  {str(found['status']).capitalize()}, started {started} ({ago} ago). Spent so far: {spent}.",
+        f"  {summary}",
+        f"  Started {started} ({ago} ago). {accepted} accepted step{'' if accepted == 1 else 's'}."
+        f" Spent so far: {spent}.",
         "",
     ]
     if found["resume_blocked"]:
@@ -5156,13 +5185,20 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None, show_co
     else:
         lines.append("  1  Continue it (--resume), with its original limits and deadline")
         choices = {"1": "resume", "2": None, "3": "rebuild"}
-    counted = "model calls count" if budget.subscription else "cost counts"
-    lines += [
-        "  2  Start a new run with this command's limits, reusing accepted steps that still match (default);",
-        f"     their {counted} toward the new limit",
-        "  3  Start from scratch (--rebuild): accepted steps and history are deleted",
-        "",
-    ]
+    if accepted:
+        counted = "model calls count" if budget.subscription else "cost counts"
+        lines += [
+            "  2  Start a new run with this command's limits, reusing accepted steps that still match (default);",
+            f"     their {counted} toward the new limit",
+            "  3  Start from scratch (--rebuild): accepted steps and history are deleted",
+            "",
+        ]
+    else:
+        lines += [
+            "  2  Start a new run with this command's limits (default)",
+            "  3  Start from scratch (--rebuild): history is deleted",
+            "",
+        ]
     write("\n".join(lines) + "\n")
     choice = None
     for _ in range(3):
@@ -5175,7 +5211,7 @@ def _assessment_restart_choice(ns, budget, *, readline=None, write=None, show_co
         if not answer or answer in choices:
             choice = choices.get(answer)
             break
-    write(_RESTART_CHOSEN[choice] + "\n")
+    write((_RESTART_CHOSEN[choice] if choice or accepted else "Starting a new run.") + "\n")
     return choice
 
 

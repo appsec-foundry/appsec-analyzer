@@ -225,46 +225,51 @@ def attempt_trail(error) -> list[dict]:
     return rows
 
 
+# Plain cause or recovery advice per failure code, written here and never taken from provider prose.
+FAILURE_HINTS = {
+    "request_too_large": "the request must be reduced before retrying",
+    "invalid_request": "the host rejected the request or output schema; correct it before retrying",
+    "connection_timeout": "the selected CLI provider timed out; check connectivity and provider availability",
+    "connection_failed": "the selected CLI provider could not maintain its connection; check connectivity",
+    "stream_disconnected": "the selected CLI provider ended before completion; no answer was accepted",
+    "tls_error": "the selected CLI provider could not verify its secure connection; check certificates",
+    "model_unavailable": "check that the selected model is supported for this account and host",
+    "authentication_failed": "check external credentials or sign in again (Claude, Codex CLI, or Copilot CLI)",
+    "billing_error": "the account has no usage left; check provider billing",
+    "quota_exhausted": "wait for the subscription allowance to reset",
+    "host_arguments": "check that the installed host CLI supports Analyzer's required options",
+    "host_configuration": "check the operator-owned host configuration",
+    "no_result": "check the host installation and login; no structured result was returned",
+    "rate_limit": "wait for provider capacity",
+    "invalid_response": "the host returned an invalid structured answer; check the private diagnostic feed",
+    "invalid_response_stream": "the selected CLI returned malformed structured output; check its supported version",
+    "invalid_response_envelope": "the model's final answer did not have the required form",
+    "invalid_response_payload": "the model's final answer was invalid or ambiguous",
+    "unexpected_host_item": "Codex emitted a tool or unsupported item; check CLI isolation before retrying",
+    "incomplete_response": "Codex did not return one completed turn with a final answer",
+    "error_max_budget_usd": "a model call reached its spending limit before it returned a valid answer",
+    "error_max_structured_output_retries": "the model's answers kept failing the output schema",
+    "error_max_turns": "a model call reached its turn limit before it returned a valid answer",
+    "error_during_execution": "the host stopped during the call; check the host installation",
+    "output_token_limit": "the model's answer exceeded its output token limit",
+    "error": "the host ended the call with an unnamed error; check the host login and the private diagnostic feed",
+    "unclassified": "the failure has no known cause; check the private diagnostic feed",
+    "timeout": "a model call exceeded its time limit",
+    "validation": "a result failed validation",
+}
+
+
 def transport_summary(error: TransportError) -> str:
     """Operator recovery advice from fixed codes, never from provider prose."""
     reason = failure_fields(error)["reason"]
-    if reason == "request_too_large":
-        return "request_too_large; the request must be reduced before retrying; --resume alone does not fix it"
-    if reason == "invalid_request":
-        return "invalid_request; the host rejected the request or output schema; correct it before retrying; --resume alone does not fix it"
-    hints = {
-        "connection_timeout": "the selected CLI provider timed out; check connectivity and provider availability",
-        "connection_failed": "the selected CLI provider could not maintain its connection; check connectivity",
-        "stream_disconnected": "the selected CLI provider ended before completion; no answer was accepted",
-        "tls_error": "the selected CLI provider could not verify its secure connection; check certificates",
-        "model_unavailable": "check that the selected model is supported for this account and host",
-        "authentication_failed": "check external credentials or sign in again (Claude, Codex CLI, or Copilot CLI)",
-        "billing_error": "the account has no usage left; check provider billing",
-        "quota_exhausted": "wait for the subscription allowance to reset",
-        "host_arguments": "check that the installed host CLI supports Analyzer's required options",
-        "host_configuration": "check the operator-owned host configuration",
-        "no_result": "check the host installation and login; no structured result was returned",
-        "rate_limit": "wait for provider capacity",
-        "invalid_response": "the host returned an invalid structured answer; check the private diagnostic feed",
-        "invalid_response_stream": "the selected CLI returned malformed structured output; check its supported version",
-        "invalid_response_envelope": "Codex's final message did not match the required JSON envelope",
-        "invalid_response_payload": "Codex's final envelope contained an invalid or ambiguous structured payload",
-        "unexpected_host_item": "Codex emitted a tool or unsupported item; check CLI isolation before retrying",
-        "incomplete_response": "Codex did not return one completed turn with a final answer",
-        "error_max_budget_usd": "a model call reached its spending limit before it returned a valid answer",
-        "error_max_structured_output_retries": "the model's answers kept failing the output schema",
-        "error_max_turns": "a model call reached its turn limit before it returned a valid answer",
-        "error_during_execution": "the host stopped during the call; check the host installation",
-        "output_token_limit": "the model's answer exceeded its output token limit",
-        "error": "the host ended the call with an unnamed error; check the host login and the private diagnostic feed",
-        "unclassified": "the failure has no known cause; check the private diagnostic feed",
-    }
+    if reason in ("request_too_large", "invalid_request"):
+        return f"{reason}; {FAILURE_HINTS[reason]}; --resume alone does not fix it"
     issue = failure_fields(error).get("response_issue")
     detail = f"; {issue['kind']} ({issue.get('rule', 'decode')}) at {issue['path']}" if issue else ""
     return (
         reason
         + "; "
-        + hints.get(reason, "check the selected host")
+        + FAILURE_HINTS.get(reason, "check the selected host")
         + detail
         + "; then continue compatible work with --resume"
     )
