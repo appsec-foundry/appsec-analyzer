@@ -429,13 +429,14 @@ def _budget_statement(
         jobs.notes.append(note)
         return f"{subject} · {note} · {_count_jobs(count)}"
     if needed <= available:
-        return f"{subject} · ≈ USD {needed:.2f}, USD {available:.2f} of the budget left · {_count_jobs(count)}"
+        covered = f"≈ USD {needed:.2f}, USD {available:.2f} available after the completion reserve"
+        return f"{subject} · {covered} · {_count_jobs(count)}"
     jobs.notes.append(
         f"verification needs about USD {needed:.2f} for {count - reused} jobs, but USD {available:.2f} remained; "
         "aspects whose jobs the budget stops are marked incomplete"
     )
     return (
-        f"{subject} · ≈ USD {needed:.2f}, but only USD {available:.2f} of the budget left; "
+        f"{subject} · ≈ USD {needed:.2f}, but only USD {available:.2f} available after the completion reserve; "
         f"an aspect that cannot finish is marked incomplete · {_count_jobs(count)}"
     )
 

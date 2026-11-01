@@ -1083,12 +1083,17 @@ def test_the_threat_analysis_start_line_names_the_methods_of_the_run_header():
         console.facts(None, [("Scanners", "checks"), ("Survey", "review"), ("Verify", verify)], sectioned=True)
         console.plan_components(1)
         console.step("Running deterministic source scanners")
-        console.step("Verify start · 1 component · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left · 1 job")
+        console.step(
+            "Verify start · 1 component · AuthZ · ≈ USD 1.20, USD 3.00 available after the completion reserve · 1 job"
+        )
         console.close()
         details = [row[5] for row in _rows(rows) if row[0].endswith("Threat analysis")]
         assert details[0] == methods
         # Verification runs on the survey's model, so one model names both of its roles.
-        assert "Verify    start · 1 component (Sonnet 5.5) · ≈ USD 1.20, USD 3.00 of the budget left" in details
+        assert (
+            "Verify    start · 1 component (Sonnet 5.5) · ≈ USD 1.20, USD 3.00 available after the completion reserve"
+            in details
+        )
         assert not any("Haiku" in detail for detail in details if detail.startswith("Verify"))
 
 
@@ -3974,7 +3979,9 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
     clock.tick(5)
     # The survey says what it found; the console adds its duration and component count.
     console.step("Survey done · 3 findings")
-    console.step("Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 of the budget left · 3 jobs")
+    console.step(
+        "Verify start · 2 components · AuthZ · ≈ USD 1.20, USD 3.00 available after the completion reserve · 3 jobs"
+    )
     assert console.done == survey and console.current == "0/2 components done"
     console.step("Verifying component 1/2, part 1/2, AuthZ: API")
     console.step("Verifying component 1/2, part 2/2, AuthZ: API")
@@ -4009,7 +4016,7 @@ def test_verification_is_a_second_threat_analysis_step_whose_share_never_falls()
         ("✓", "Survey    1/2 API · 2 findings · 1m00s"),
         ("✓", "Survey    2/2 Web · 1 finding · 1m00s"),
         ("·", "Survey    done · 2 components · 3 findings · 1m05s"),
-        ("·", "Verify    start · 2 components · ≈ USD 1.20, USD 3.00 of the budget left"),
+        ("·", "Verify    start · 2 components · ≈ USD 1.20, USD 3.00 available after the completion reserve"),
         ("·", "Verify    component 1 started · API"),
         ("·", "Verify    component 2 started · Web"),
         ("⚠", "Verify    1/2 API · AuthZ · 1 of 2 parts without result (budget) · 1m00s"),
@@ -4191,7 +4198,7 @@ def test_a_new_run_that_takes_over_an_earlier_one_shows_its_total_time_and_cost(
     lines, clock = [], _Clock()
     console = controller._AssessmentConsole(False, lines.append, clock=clock)
     console.continue_from(4200, resumed=False)
-    mark = {"calls": 0, "usd": 0.0, "total_usd": 14.72, "itemised": 0, "tokens": 0}
+    mark = {"calls": 0, "usd": 0.0, "total_usd": 14.72, "max_usd": 30.0, "itemised": 0, "tokens": 0}
     console.usage_mark = lambda: dict(mark)
     console.step("Matching abuse cases")
     clock.tick(60)
@@ -4202,7 +4209,7 @@ def test_a_new_run_that_takes_over_an_earlier_one_shows_its_total_time_and_cost(
     (done,) = [line for line in lines if "  done  " in line]
     assert _column(header, done, "ELAPSED") == "1m (1h11m)"
     # What this attempt paid, then what every result of the run cost, those taken over included.
-    assert done.endswith("≈ USD 0.80 (USD 15.52 in total)")
+    assert done.endswith("≈ USD 0.80 · USD 15.52 of 30.00 spent")
     # A new run takes over another run's results, not an earlier attempt of its own.
     assert any(line.endswith("  taken over from the earlier run") for line in lines)
 

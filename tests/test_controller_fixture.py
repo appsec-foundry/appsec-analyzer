@@ -746,7 +746,8 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     assert said.index(scanners) < min(said.index(text) for text in said if text.startswith("Surveying component"))
     # Before the first job the run says whether the remaining budget covers them all.
     (start,) = [text for text in said if text.startswith("Verify start · ")]
-    assert start.startswith("Verify start · 1 component · AuthZ · ≈ USD ") and " of the budget left" in start
+    assert start.startswith("Verify start · 1 component · AuthZ · ≈ USD ")
+    assert " available after the completion reserve" in start
     assert start.endswith(f" · {count} jobs")
     assert said.index(start) < min(said.index(text) for text in said if text.startswith("Verifying component "))
     jobs = [f"component 1/1, part {number}/{count}, AuthZ: {name}" for number in range(1, count + 1)]

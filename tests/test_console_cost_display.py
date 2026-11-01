@@ -8,8 +8,15 @@ from types import SimpleNamespace
 import pytest
 from orchestrator import assessment_test_cases
 from orchestrator import orchestration_controller as controller
+from renderers.term_style import Style
 
-from appsec_analyzer.assessment.console import _AssessmentConsole, api_billing, usage_text, usd_at_api_prices
+from appsec_analyzer.assessment.console import (
+    _AssessmentConsole,
+    _AssessmentProgress,
+    api_billing,
+    usage_text,
+    usd_at_api_prices,
+)
 
 
 @pytest.mark.parametrize(
@@ -138,8 +145,14 @@ def test_public_flag_reaches_structured_request_without_changing_configuration(t
 def test_usage_hides_only_costs_and_never_invents_unavailable_amounts():
     before = {"calls": 1, "usd": 1.0, "itemised": 1, "tokens": 100}
     after = {"calls": 3, "usd": 1.5, "total_usd": 2.0, "itemised": 3, "tokens": 2100}
-    assert usage_text(before, after, True, show_costs=False) == "2k tokens"
-    assert usage_text(before, after, True, show_costs=True) == "≈ USD 0.50 (USD 2.00 in total) · 2k tokens"
+    assert usage_text(before, after, show_costs=False) == "2k tokens"
+    assert usage_text(before, after, show_costs=True) == "≈ USD 0.50 · 2k tokens"
+    limited = {**after, "max_usd": 20.0}
+    assert usage_text(before, limited, show_costs=False) == "2k tokens"
+    assert usage_text(before, limited, show_costs=True) == "≈ USD 0.50 · 2k tokens · USD 2.00 of 20.00 spent"
+    assert usage_text(before, {**limited, "api_prices": True}, show_costs=True).endswith(
+        "USD 2.00 of 20.00 used at API prices"
+    )
     assert usage_text(before, {**after, "itemised": 2}, show_costs=False) == ""
     unknown = {**after, "usd": None, "total_usd": None}
     assert usage_text({**before, "usd": None}, unknown, show_costs=True) == "USD cost unavailable · 2k tokens"
@@ -159,6 +172,80 @@ def test_phase_progress_respects_cost_visibility_and_keeps_tokens(verbose, enabl
     text = "\n".join(lines)
     assert ("≈ USD 0.50" in text) is enabled
     assert "1k tokens" in text
+
+
+def _threat_analysis(console, **limit):
+    """A survey and a verification of one component that cost USD 0.50 and USD 0.25."""
+    mark = {"calls": 0, "usd": 0.0, "total_usd": 0.0, "max_usd": 20.0, "itemised": 0, "tokens": 0, **limit}
+    console.usage_mark = lambda: dict(mark)
+
+    def spend(calls, usd):
+        mark.update(calls=mark["calls"] + calls, usd=mark["usd"] + usd)
+        if mark["total_usd"] is not None:
+            mark["total_usd"] += usd
+
+    console.plan_components(1)
+    console.step("Surveying component: API (1/1)")
+    spend(2, 0.5)
+    console.step("Analyzed component: API · 3 findings")
+    console.step("Survey done · 3 findings")
+    console.step("Verify start · 1 component for AuthZ · the run's call and time limits apply · 1 job")
+    console.step("Verifying component 1/1, part 1/1, AuthZ: API")
+    spend(1, 0.25)
+    console.step("Finished verifying component 1/1, part 1/1, AuthZ: API")
+    console.step("Verify done · AuthZ")
+    console.close()
+
+
+def test_finished_components_and_steps_show_what_the_run_spent_of_its_limit():
+    lines = []
+    _threat_analysis(_AssessmentConsole(False, lines.append, clock=lambda: 100.0, live=False, show_costs=True))
+    text = "\n".join(lines)
+    assert "Survey    1/1 API · 3 findings · 0s · USD 0.50 of 20.00 spent" in text
+    assert "Survey    done · 1 component · 3 findings · 0s · ≈ USD 0.50 · USD 0.50 of 20.00 spent" in text
+    assert "Verify    1/1 API · AuthZ · 0s · USD 0.75 of 20.00 spent" in text
+    assert "Verify    done · 0s · ≈ USD 0.25 · USD 0.75 of 20.00 spent" in text
+    # The phase's end shows the same total as its last step; a log gets no colour codes.
+    assert "≈ USD 0.75 · USD 0.75 of 20.00 spent" in lines[-1]
+    assert "\033" not in text
+
+
+@pytest.mark.parametrize("limit", [{}, {"total_usd": None, "max_usd": None}], ids=["costs hidden", "subscription"])
+def test_a_run_without_usd_amounts_shows_no_budget_figure(limit):
+    lines = []
+    console = _AssessmentConsole(False, lines.append, clock=lambda: 100.0, live=False, show_costs=False)
+    _threat_analysis(console, **limit)
+    assert " of 20.00" not in "\n".join(lines) and "USD" not in "\n".join(lines)
+
+
+@pytest.mark.parametrize("columns", [80, 90, 100, 110, 120, 130, 140])
+def test_a_terminal_keeps_the_budget_figure_whole_and_in_its_own_colour(columns):
+    lines = []
+    console = _AssessmentConsole(False, lines.append, clock=lambda: 100.0, live=False, show_costs=True)
+    console.st, console.columns = Style(True), lambda: columns
+    _threat_analysis(console)
+    text = "\n".join(lines)
+    for figure in ("USD 0.50 of 20.00 spent", "USD 0.75 of 20.00 spent"):
+        assert console.st(figure, "accent") in text
+    assert "\xa0" not in text
+
+
+def test_a_warning_line_keeps_its_colour_and_a_stop_names_the_same_figure():
+    lines = []
+    console = _AssessmentConsole(False, lines.append, clock=lambda: 100.0, live=False, show_costs=True)
+    console.st = Style(True)
+    console.step("Matching abuse cases")
+    console.record("⚠", "1/1 API · no result (budget) · 0s · USD 0.75 of 20.00 spent")
+    assert "\033[33m1/1 API" in lines[-1] and console.st("USD 0.75 of 20.00 spent", "accent") in lines[-1]
+    budget = SimpleNamespace(calls=3, subscription=False, spent_usd=0.75, max_usd=20.0, api_prices=True)
+    _AssessmentProgress.show_costs, _AssessmentProgress.budget = True, budget
+    try:
+        assert _AssessmentProgress.cost_row() == (
+            "Used",
+            "USD 0.75 of 20.00 used at API prices; a call still running is not counted",
+        )
+    finally:
+        _AssessmentProgress.show_costs, _AssessmentProgress.budget = False, None
 
 
 @pytest.mark.parametrize("enabled", [False, True])

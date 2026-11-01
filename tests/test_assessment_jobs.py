@@ -1161,6 +1161,8 @@ def test_the_budget_itemises_reported_usage_per_model_and_names_what_no_host_rep
         "calls": 2,
         "usd": pytest.approx(0.05),
         "total_usd": pytest.approx(0.05),
+        "max_usd": budget.max_usd,
+        "api_prices": False,
         "itemised": 1,
         "tokens": 370,
     }

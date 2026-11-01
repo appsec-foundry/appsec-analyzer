@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- Assessment progress shows the run's total against its limit, such as `USD 9.18 of 20.00 spent`, when a phase, the survey, verification, or one of their components finishes, in color on a terminal and only in runs that show costs. The verification start now calls its remaining amount `available after the completion reserve`, because it excludes the part reserved for finishing the run.
 - Verification keeps candidate locations with shared source files, models and handlers together when dividing work. It avoids overlapping source windows and reviews identical verification findings once while retaining all item and finding links. Live cost and runtime effects have not been measured.
 - Catalog verification can omit controller-derived identity fields and source hashes from model replies. Analyzer restores these values from the captured sources and applies the existing evidence checks before saving results. This reduces repeated output data; live token and cost savings have not been measured.
 - The report's threat overview lists the most severe threats first. Its order used to come from a list in a data file, so a High threat could stand above a Critical one. Equal risks now compare their three heaviest findings, and the numbers in the table, Figure 2, and the attack path list follow the same order. A threat can therefore carry a different number in two reports.

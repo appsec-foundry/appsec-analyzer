@@ -145,12 +145,20 @@ def usd_at_api_prices(adapter: str | None = None) -> bool:
     return adapter not in ("codex-cli", "copilot-cli") and not api_billing(adapter)
 
 
-def usage_text(before: dict, after: dict, total: bool = False, *, show_costs: bool | None = None) -> str:
+def spent_text(mark: dict) -> str:
+    """What the run has spent of its limit, taken-over results included; "" without USD amounts."""
+    if mark.get("total_usd") is None or mark.get("max_usd") is None:
+        return ""
+    basis = "used at API prices" if mark.get("api_prices") else "spent"
+    return f"USD {mark['total_usd']:.2f} of {mark['max_usd']:.2f} {basis}"
+
+
+def usage_text(before: dict, after: dict, *, show_costs: bool | None = None) -> str:
     """What the model calls between two budget marks cost, or "" when none was paid for.
 
     The tokens come only when the hosts itemised every call of the step; a partial sum would read as the
     whole. An explicit cost request names unavailable amounts; otherwise a subscription run has no
-    amount to show. ``total`` adds costs of results taken over from an earlier run.
+    amount to show. The run's spending against its limit closes the text.
     """
     calls = after["calls"] - before["calls"]
     if calls <= 0:
@@ -159,17 +167,16 @@ def usage_text(before: dict, after: dict, total: bool = False, *, show_costs: bo
         show_costs = after["usd"] is not None and before["usd"] is not None
     parts = []
     if show_costs:
-        text = (
+        parts.append(
             "USD cost unavailable"
             if after["usd"] is None or before["usd"] is None
             else f"≈ USD {after['usd'] - before['usd']:.2f}"
         )
-        if total and after.get("total_usd") is not None:
-            text += f" (USD {after['total_usd']:.2f} in total)"
-        parts.append(text)
     tokens = after["tokens"] - before["tokens"]
     if tokens > 0 and after["itemised"] - before["itemised"] == calls:
         parts.append(f"{_tokens(tokens)} tokens")
+    if show_costs and (spent := spent_text(after)):
+        parts.append(spent)
     return " · ".join(parts)
 
 
@@ -314,11 +321,8 @@ class _AssessmentProgress:
             return None
         if budget.subscription or not cls.show_costs:
             return ("Used", f"{budget.calls} model calls")
-        basis = "used at API prices" if budget.api_prices else "spent"
-        return (
-            "Used",
-            f"USD {budget.spent_usd:.2f} of {budget.max_usd:.2f} {basis}; a call still running is not counted",
-        )
+        mark = {"total_usd": budget.spent_usd, "max_usd": budget.max_usd, "api_prices": budget.api_prices}
+        return ("Used", f"{spent_text(mark)}; a call still running is not counted")
 
     @classmethod
     def note_retry(cls, message: str) -> None:
@@ -574,6 +578,8 @@ class _AssessmentConsole:
     _FOUND = re.compile(r" · (\d+ findings?)$")
     # What the survey found, said when it ends; the console adds its duration and component count.
     _SURVEY_DONE = "Survey done · "
+    # The budget figure `spent_text` writes; a terminal shows it in its own colour.
+    _SPENT = re.compile(r"USD \d+\.\d{2} of \d+\.\d{2} (?:spent|used at API prices)")
     # A component's jobs are its parts; the console shows one step per component.
     _VERIFY_JOB = re.compile(
         r"(Verifying|Finished verifying) component (\d+)/\d+, part \d+/(\d+), (\S+): (.*?)"
@@ -1087,7 +1093,7 @@ class _AssessmentConsole:
             if unit["reused"] >= total:
                 self.method_reused["Verify"] += 1
             else:
-                parts.append(_duration(now - unit["started"]))
+                parts.append(_duration(now - unit["started"]) + self._spent())
             self.record("⚠" if gaps else "✓", " · ".join(parts), now)
             self.shown = (self.current, round(100 * self.done))
             return True
@@ -1124,6 +1130,11 @@ class _AssessmentConsole:
         before = self.step_usage.pop(step, None)
         cost = usage_text(before, self.usage_mark(), show_costs=self.show_costs) if before and self.usage_mark else ""
         return f" · {cost}" if cost else ""
+
+    def _spent(self) -> str:
+        """`` · USD 7.90 of 20.00 spent`` for a finished component; "" when the run shows no USD amounts."""
+        text = spent_text(self.usage_mark()) if self.show_costs and self.usage_mark else ""
+        return f" · {text}" if text else ""
 
     def _advance(self, fraction: float) -> None:
         """Record ``fraction`` of the current phase as finished."""
@@ -1248,8 +1259,11 @@ class _AssessmentConsole:
         head = f"{phase_cell}  {event_cell}  {run_cell}  {st(lead, 'bold') if lead else ''}"
         # A long detail wraps under its own column instead of at the screen
         # edge; the status line is cut by `_status` instead.
-        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), detail, now, live)
-        cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in pieces]
+        # The budget figure stays whole across a wrap, which splits only at plain spaces.
+        kept = self._SPENT.sub(lambda found: found[0].replace(" ", "\xa0"), detail)
+        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now, live)
+        cells = [self._SPENT.sub(lambda found: st(found[0], "accent"), p.replace("\xa0", " ")) for p in pieces]
+        cells = [st(piece, "warn") if event == "⚠" and piece else piece for piece in cells]
         if event == "start" or (method and detail.startswith("start")):
             # The models of the phase's or the method's roles carry the colour the header gives its models.
             key = method or self.phase or ""
@@ -1645,7 +1659,7 @@ class _AssessmentConsole:
                 if reused:
                     self.method_reused["Survey"] += 1
                 elif unit:
-                    finished += f" · {_duration(now - unit['started'])}"
+                    finished += f" · {_duration(now - unit['started'])}{self._spent()}"
             total = self.count[0] if self.count else 0
             if total:
                 running = sum(self._unit_progress(unit) / 100 for unit in self.units.values())
@@ -1767,13 +1781,8 @@ class _AssessmentConsole:
                     produced.append(
                         f"partly from {self._source()}" if ran else f"from {self._source()}, no model calls"
                     )
-            # A continued run also says what all its results cost, those taken over included.
             mark = self.usage_mark() if self.usage_mark else None
-            if (
-                self.phase_usage
-                and mark
-                and (cost := usage_text(self.phase_usage, mark, bool(self.worked_before), show_costs=self.show_costs))
-            ):
+            if self.phase_usage and mark and (cost := usage_text(self.phase_usage, mark, show_costs=self.show_costs)):
                 produced.append(cost)
             self._advance(1.0)
             if self.phase == self.plan[-1]:
