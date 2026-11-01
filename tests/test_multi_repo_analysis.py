@@ -883,6 +883,144 @@ def test_evidence_review_cannot_forge_completion(tmp_path, kind):
         assert expected in str(raised.value)
 
 
+def _mechanism_review(tmp_path):
+    """A producer-valid claim with distinct entry, control and sink locations."""
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    repo = scope.repositories[1]
+    data = b"query = request.args['input']\nresult = execute(query)\n"
+    replacement = RepositoryView(repo.repository_id, repo.root, "b" * 40, "c" * 64, {"app.py": data})
+    scope = AssessmentScope((scope.repositories[0], replacement), scope.output)
+    digest = hashlib.sha256(data).hexdigest()
+    components[1]["paths"][0]["sha256"] = digest
+    evidence[1].update(line=2, sha256=digest)
+    ranges[1].update(end_line=2, sha256=digest)
+    identity["source_scope_sha256"] = scope.inventory()["scope_sha256"]
+    control = dict(evidence[1], line=1)
+    document = stride(components[1], evidence[1], identity)
+    finding = document["threats"][0]
+    finding.update(
+        cwe="CWE-89",
+        evidence_tier="confirmed-exploitable",
+        mechanism_trace=dict(
+            input=evidence[0],
+            sink=evidence[1],
+            connection="The sender's request reaches the receiver's query without parameterization.",
+            control=dict(
+                status="ineffective",
+                location=control,
+                explanation="The input check does not reject the value sent to the query.",
+            ),
+        ),
+    )
+    flows = dict(
+        component_inventory_fingerprint=FP,
+        data_flows=[{"from": components[0]["id"], "to": components[1]["id"]}],
+    )
+    stage.validate_stride(scope, components[1], components, flows, document, ranges)
+    review = dict(
+        **identity,
+        decisions=[
+            dict(
+                local_id="issue-1",
+                verdict="verified",
+                reason="Independent source review.",
+                evidence=[*evidence, control],
+            )
+        ],
+    )
+    return scope, components, finding, ranges, review
+
+
+@pytest.mark.parametrize("risk", ["Medium", "High", "Critical"])
+@pytest.mark.parametrize("served", [False, True])
+@pytest.mark.parametrize("omitted", ["input", "control", "input, control"])
+def test_exploitation_review_requires_cited_input_and_control_even_when_preloaded(tmp_path, risk, served, omitted):
+    scope, components, finding, ranges, review = _mechanism_review(tmp_path)
+    finding["risk"] = risk
+    decision = review["decisions"][0]
+    locations = {
+        "input": finding["mechanism_trace"]["input"],
+        "control": finding["mechanism_trace"]["control"]["location"],
+    }
+    decision["evidence"] = [
+        row for row in decision["evidence"] if row not in [locations[key] for key in omitted.split(", ")]
+    ]
+    delivered = ranges if served or "input" not in omitted else ranges[1:]
+    with pytest.raises(Rejection, match="independent mechanism evidence") as caught:
+        stage.validate_evidence_review(
+            scope, [finding], FP, review, delivered, stage.source_selection(components), depth="thorough"
+        )
+    assert "issue-1" in caught.value.errors[0]
+    assert omitted in caught.value.errors[0]
+    assert "ambiguous" in " ".join(caught.value.errors)
+
+
+def test_exploitation_review_returns_every_incomplete_finding_for_correction(tmp_path):
+    scope, components, finding, ranges, review = _mechanism_review(tmp_path)
+    findings = [dict(finding, local_id=f"issue-{number}") for number in range(1, 4)]
+    review["decisions"] = [
+        dict(review["decisions"][0], local_id=row["local_id"], evidence=[row["evidence"]]) for row in findings
+    ]
+    with pytest.raises(Rejection) as caught:
+        stage.validate_evidence_review(
+            scope, findings, FP, review, ranges, stage.source_selection(components), depth="thorough"
+        )
+    assert len(caught.value.errors) == 4
+    for row, error in zip(findings, caught.value.errors, strict=False):
+        assert row["local_id"] in error and "input, control" in error
+
+
+@pytest.mark.parametrize("kind", ["unread", "unauthorized", "stale"])
+def test_exploitation_review_cannot_borrow_the_producers_source_reads(tmp_path, kind):
+    from validators.validate_assessment_architecture import AssessmentArchitectureError
+
+    scope, components, finding, ranges, review = _mechanism_review(tmp_path)
+    allowed = stage.source_selection(components)
+    if kind == "unread":
+        ranges = ranges[1:]
+    elif kind == "unauthorized":
+        allowed = stage.source_selection(components[1:])
+    else:
+        review = copy.deepcopy(review)
+        review["decisions"][0]["evidence"][0]["sha256"] = "0" * 64
+    expected = AssessmentArchitectureError if kind == "stale" else Rejection
+    with pytest.raises(expected):
+        stage.validate_evidence_review(scope, [finding], FP, review, ranges, allowed, depth="thorough")
+
+
+@pytest.mark.parametrize("verdict", ["verified", "ambiguous", "refuted"])
+def test_exploitation_review_accepts_full_evidence_or_a_bounded_nonconfirmation(tmp_path, verdict):
+    scope, components, finding, ranges, review = _mechanism_review(tmp_path)
+    review["decisions"][0]["verdict"] = verdict
+    if verdict != "verified":
+        review["decisions"][0]["evidence"] = [finding["evidence"]]
+        ranges = ranges[1:]
+    original = copy.deepcopy(finding)
+    stage.validate_evidence_review(
+        scope, [finding], FP, review, ranges, stage.source_selection(components), depth="thorough"
+    )
+    assert finding == original
+
+
+def test_exploitation_review_allows_one_location_to_support_every_trace_role(tmp_path):
+    scope, components, finding, ranges, review = _mechanism_review(tmp_path)
+    finding["mechanism_trace"]["input"] = finding["evidence"]
+    finding["mechanism_trace"]["control"].update(status="absent-at-sink", location=finding["evidence"])
+    review["decisions"][0]["evidence"] = [finding["evidence"]]
+    stage.validate_evidence_review(
+        scope, [finding], FP, review, ranges[1:], stage.source_selection(components), depth="thorough"
+    )
+
+
+def test_verified_practice_does_not_need_to_confirm_its_proposed_attack_path(tmp_path):
+    scope, components, finding, ranges, review = _mechanism_review(tmp_path)
+    finding["evidence_tier"] = "insecure-practice"
+    review["decisions"][0]["evidence"] = [finding["evidence"]]
+    stage.validate_evidence_review(
+        scope, [finding], FP, review, ranges[1:], stage.source_selection(components), depth="thorough"
+    )
+
+
 @pytest.mark.parametrize("repositories", [1, 2])
 def test_a_sole_repository_must_name_a_protected_asset(tmp_path, repositories):
     combined, components, evidence, ranges, _identity = sources(tmp_path)

@@ -2272,6 +2272,7 @@ def _assessment_stride(
                         selector,
                         targets=row_targets,
                         component_sources=analysis.source_selection(components["components"]),
+                        depth=depth,
                     )
 
                 reviewers.append((selector, review_batch))
@@ -2519,7 +2520,7 @@ def _assessment_stride(
         review_groups=review_groups,
         combine_texts=lambda requests: _assessment_finding_combination(jobs, requests, progress=progress),
         review_verification=lambda ids: _assessment_verification_review(
-            jobs, analysis, scope, components, envelopes, verified, ids, label=label, progress=progress
+            jobs, analysis, scope, components, envelopes, verified, ids, label=label, progress=progress, depth=depth
         ),
     )
     findings = sum(len(rows) for rows in verified.values())
@@ -2743,12 +2744,39 @@ def _assessment_evidence_review(
     *,
     targets=(),
     component_sources=frozenset(),
+    depth="standard",
 ):
     """Run one independent evidence review over a batch of one component's findings."""
     from runtime.assessment_host import MAX_PRELOAD_WINDOWS, preload_room
 
+    schema = analysis.evidence_review_contract(depth)
+    extended_instructions = (
+        (
+            "For a confirmed-exploitable finding with mechanism_trace, verified must also cite its input, "
+            "sink and control.location from served source slices, even when they were read by the survey. "
+            "One citation may cover several roles at the same location. Those citations alone do not prove "
+            "the connection or control failure: explain why the source supports them. A verified insecure "
+            "practice does not confirm exploitation and need not establish an attack path. "
+            "For a confirmed-exploitable finding WITHOUT mechanism_trace, a verified decision must provide "
+            "exploit_conditions: access explains which attacker can trigger or access the behavior and its "
+            "prerequisites; effect explains the concrete unauthorized disclosure, change or disruption; "
+            "controls explains the relevant enforcement and why it does not prevent this attack. Each has "
+            "a reason and evidence_indices (zero-based indices into this decision's evidence array). "
+            "Use evidence appropriate to the claim: for authorization, the route, caller/resource identity "
+            "and ownership/permission check; for disclosure, what is exposed and who receives it; for "
+            "configuration, the setting and evidence that the affected deployment uses it. A network route "
+            "is not required for a local, build or insider attack. Shared locations may support several "
+            "conditions. Do not invent a data-flow trace or assume a helper is called. Missing upstream "
+            "enforcement, runtime configuration or use remains ambiguous; an evidenced effective control "
+            "refutes the claimed path only. A secret literal alone does not prove its validity or access "
+            "to a live service. Do not execute code or exploits to establish any condition. "
+        )
+        if depth == "thorough"
+        else ""
+    )
     review_context = {
         **identity,
+        "assessment_depth": depth,
         "component": analysis.model_components([component])[0],
         "findings": findings,
         "incident_flows": incident,
@@ -2778,7 +2806,9 @@ def _assessment_evidence_review(
             "evidence_verifier",
             "Independently read and decide every supplied finding. Cite retrieved qualified evidence "
             "for each decision. Verify the actual implementation and claimed exploit conditions, not "
-            "only whether the line exists. A verified decision must cite the original anchor. Cross-repo "
+            "only whether the line exists. A verified decision must cite the original anchor. "
+            + extended_instructions
+            + "Cross-repo "
             "claims require both endpoints and demonstrated payload or identity continuity. Matching "
             "names alone prove neither. Use ambiguous when the insecure practice is observed but the "
             "claimed exploit is unproven; use refuted when source contradicts the finding. Decisions "
@@ -2789,14 +2819,14 @@ def _assessment_evidence_review(
             "deciding that the evidence is ambiguous.",
         ),
         context=review_context,
-        schema=analysis.contract("multi-repo-evidence-review.schema.json"),
+        schema=schema,
         normalize=analysis.identity_normalizer(identity),
         allowed_sources=review_sources,
         # The anchors are fixed before the review; serving them saves the call
         # that would only request them. The bytes are the same either way.
         preload=preload,
         validate=lambda artifact, ranges: analysis.validate_evidence_review(
-            scope, findings, fingerprint, artifact, ranges, review_sources
+            scope, findings, fingerprint, artifact, ranges, review_sources, depth=depth
         ),
         on_failure=lambda reason: _unreviewed_evidence(identity, findings),
     )
@@ -2825,7 +2855,9 @@ def _unreviewed_evidence(identity: dict, findings: list[dict]) -> dict:
     }
 
 
-def _assessment_verification_review(jobs, analysis, scope, components, envelopes, findings, ids, *, label, progress):
+def _assessment_verification_review(
+    jobs, analysis, scope, components, envelopes, findings, ids, *, label, progress, depth="standard"
+):
     """Run the evidence review over the verification findings that no other review covers (REQ-040).
 
     ``findings`` holds each component's verification findings as verification returned them, and ``ids``
@@ -2872,6 +2904,7 @@ def _assessment_verification_review(jobs, analysis, scope, components, envelopes
                 "evidence-verification:" + component["id"] + (f":{number}/{len(batches)}" if len(batches) > 1 else ""),
                 targets=envelope["targets"],
                 component_sources=analysis.source_selection(components["components"]),
+                depth=depth,
             )
             for number, batch in enumerate(batches, 1)
         ]

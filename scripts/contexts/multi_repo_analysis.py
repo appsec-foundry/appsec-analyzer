@@ -1171,6 +1171,17 @@ def component_stride_contract(jobs: int | None) -> dict:
     return schema
 
 
+def evidence_review_contract(depth: str = "standard") -> dict:
+    """Only thorough asks for structured exploit conditions in the model reply."""
+    if depth not in ("quick", "standard", "thorough"):
+        raise ExchangeError("Unsupported evidence review depth")
+    schema = contract("multi-repo-evidence-review.schema.json")
+    if depth != "thorough":
+        del schema["properties"]["decisions"]["items"]["properties"]["exploit_conditions"]
+        schema.pop("$defs", None)
+    return schema
+
+
 def component_evidence_review_contract() -> dict:
     """The evidence-review contract of a component reviewed in several bounded jobs.
 
@@ -2037,8 +2048,10 @@ def served_bytes(scope, keys) -> int:
     return sum(len(json.dumps(read_slice(scope, *key), ensure_ascii=False).encode()) for key in keys)
 
 
-def validate_evidence_review(scope, findings, component_fingerprint, artifact, ranges, allowed_sources):
-    if not Draft202012Validator(contract("multi-repo-evidence-review.schema.json")).is_valid(artifact):
+def validate_evidence_review(
+    scope, findings, component_fingerprint, artifact, ranges, allowed_sources, *, depth="standard"
+):
+    if not Draft202012Validator(evidence_review_contract(depth)).is_valid(artifact):
         raise ExchangeError("Evidence review violates its versioned contract")
     validate_identity(scope, artifact, component_fingerprint)
     expected = {finding["local_id"] for finding in findings}
@@ -2055,6 +2068,7 @@ def validate_evidence_review(scope, findings, component_fingerprint, artifact, r
             + "; ".join(f"{label}: {', '.join(ids[:20])}" for label, ids in gaps.items() if ids)
         )
     validate_retrieved_sources(scope, artifact, ranges, allowed_sources)
+    mechanism_errors = []
     for decision in artifact["decisions"]:
         original = next(finding for finding in findings if finding["local_id"] == decision["local_id"])
         anchor = original["evidence"]
@@ -2065,6 +2079,54 @@ def validate_evidence_review(scope, findings, component_fingerprint, artifact, r
             tuple(row[key] for key in fields) == tuple(anchor[key] for key in fields) for row in decision["evidence"]
         ):
             raise ExchangeError("Verified finding lacks an independent reading of its anchor")
+        if depth != "thorough":
+            continue
+        trace = original.get("mechanism_trace")
+        conditions = decision.get("exploit_conditions")
+        if conditions:
+            for role, condition in conditions.items():
+                if any(index >= len(decision["evidence"]) for index in condition["evidence_indices"]):
+                    mechanism_errors.append(
+                        f"{decision['local_id']}: {role} references evidence absent from this decision"
+                    )
+        if (
+            decision["verdict"] == "verified"
+            and original.get("evidence_tier") == "confirmed-exploitable"
+            and not trace
+            and not conditions
+        ):
+            mechanism_errors.append(
+                f"{decision['local_id']}: provide exploit_conditions for access, effect and controls, "
+                "each with a reason and evidence_indices into this decision's served evidence"
+            )
+        if decision["verdict"] == "verified" and original.get("evidence_tier") == "confirmed-exploitable" and trace:
+            # The producer's reading is not the independent review's reading.
+            # Requiring citations also subjects every endpoint to the source
+            # authority, hash and served-range checks above. A shared location
+            # may support several roles; it need not be cited more than once.
+            locations = {
+                "input": trace.get("input"),
+                "sink": trace.get("sink"),
+                "control": (trace.get("control") or {}).get("location"),
+            }
+            fields = ("repository_id", "file", "line", "sha256")
+            cited = {tuple(row.get(key) for key in fields) for row in decision["evidence"]}
+            missing = [
+                role
+                for role, location in locations.items()
+                if not location or tuple(location.get(key) for key in fields) not in cited
+            ]
+            if missing:
+                mechanism_errors.append(f"{decision['local_id']}: missing mechanism citations for {', '.join(missing)}")
+    if mechanism_errors:
+        raise Rejection(
+            "Verified exploitation lacks independent mechanism evidence",
+            [
+                *mechanism_errors,
+                "Cite the supplied locations from authorized source slices and verify the connection and control "
+                "outcome; use ambiguous if they cannot be established, or refuted if source contradicts the claim.",
+            ],
+        )
     validate_executable_evidence(
         scope,
         artifact,

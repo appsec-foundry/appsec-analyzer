@@ -211,6 +211,10 @@ In a pilot run on Juice Shop, the survey reported that a user can change another
 
 ### How the results come together
 
+Every depth independently reviews findings against source. At `thorough` depth, the evidence verifier also requires explicit support for exploitation: findings with an input-to-operation trace must cite the input, operation, and control locations from source supplied to that review. For findings without such a trace, such as missing authorization, the review must explain and cite who can trigger the problem, what unauthorized effect follows, and why the relevant controls do not prevent it. These additional requirements apply at every severity in thorough mode. Quick and standard keep the existing review without these extra requirements.
+
+The reviewer still judges whether the evidence establishes the attack; incomplete evidence leaves it unproven. An observed insecure practice can be verified without confirming exploitation. The extended check uses the existing review and its source and call limits, with no separate investigation round or live exploit execution. Longer answers and corrections may consume more tokens; the additional cost has not been measured. The built-in Claude profile uses Sonnet for the evidence verifier, including thorough mode. Custom model settings can override this choice.
+
 The survey and verification work independently. Verification starts from routes and scanner results, without seeing survey findings. After both finish, Analyzer combines findings and compares source locations and CWE weakness categories:
 
 | Case | What the report shows |

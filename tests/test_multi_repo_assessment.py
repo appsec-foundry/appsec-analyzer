@@ -325,8 +325,17 @@ def test_publication_keeps_the_rendered_figure_1a_detail_and_its_stamped_link(tm
 
 @pytest.mark.parametrize(("names", "depth"), [(("edge", "service"), "standard"), (("west", "east"), "thorough")])
 def test_combined_assessment_publishes_one_qualified_model(tmp_path, monkeypatch, names, depth):
+    review_depths = []
+    review = controller._assessment_evidence_review
+
+    def record_review_depth(*args, **kwargs):
+        review_depths.append(kwargs.get("depth"))
+        return review(*args, **kwargs)
+
+    monkeypatch.setattr(controller, "_assessment_evidence_review", record_review_depth)
     outcome, host, out = _assess(tmp_path, monkeypatch, names, ("--assessment-depth", depth))
     assert outcome["status"] == "complete"
+    assert review_depths and set(review_depths) == {depth}
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
     assert model["meta"]["schema_version"] == 2
     labels = {row["label"] for row in model["source_inventory"]["repositories"]}
@@ -1922,7 +1931,9 @@ def _component(scope, path):
 
 
 @pytest.mark.parametrize("verdict", ["verified", "ambiguous", "refuted"])
-def test_evidence_review_supplies_controls_and_trace_without_changing_verdict(tmp_path, verdict):
+@pytest.mark.parametrize("traced", [False, True])
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+def test_evidence_review_supplies_controls_and_trace_without_changing_verdict(tmp_path, verdict, traced, depth):
     from contexts import multi_repo_analysis as analysis
     from runtime.assessment_host import run_exchange
 
@@ -1944,6 +1955,20 @@ def test_evidence_review_supplies_controls_and_trace_without_changing_verdict(tm
 
     anchor = evidence("routes/read.ts", 1)
     finding = {"local_id": "issue-1", "evidence": anchor, "mechanism_trace": {"sink": evidence("lib/parser.ts", 1)}}
+    if traced:
+        finding.update(
+            evidence_tier="confirmed-exploitable",
+            mechanism_trace={
+                "input": evidence("entry.ts", 602),
+                "sink": anchor,
+                "connection": "The registered handler receives the request body.",
+                "control": {
+                    "status": "ineffective",
+                    "location": evidence("entry.ts", 1),
+                    "explanation": "The guard authenticates without validating the request body.",
+                },
+            },
+        )
     original = copy.deepcopy(finding)
     identity = dict(
         schema_version=2,
@@ -1966,11 +1991,21 @@ def test_evidence_review_supplies_controls_and_trace_without_changing_verdict(tm
         def invoke(self, system, prompt, schema, timeout_s, should_stop):
             packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
             calls.append(packet)
-            return HostReply(dict(action="complete", reads=[], artifact={**identity, "decisions": [decision]}), 0)
+            answer = copy.deepcopy(decision)
+            # First try only the anchor, even though all trace locations are
+            # already served. The controller must request a corrected review.
+            if traced and verdict == "verified" and len(calls) > 1:
+                assert "independent mechanism evidence" in json.dumps(packet["rejected_result"])
+                answer["evidence"] += [evidence("entry.ts", 602), evidence("entry.ts", 1)]
+            return HostReply(dict(action="complete", reads=[], artifact={**identity, "decisions": [answer]}), 0)
 
     class Jobs:
         def execute(self, **kwargs):
             assert kwargs["role"] == "evidence_verifier" and kwargs["allowed_sources"] == allowed
+            assert kwargs["context"]["assessment_depth"] == depth
+            assert ("exploit_conditions" in kwargs["instructions"]) == (depth == "thorough")
+            fields = kwargs["schema"]["properties"]["decisions"]["items"]["properties"]
+            assert ("exploit_conditions" in fields) == (depth == "thorough")
             return run_exchange(
                 Host(),
                 scope,
@@ -1993,21 +2028,29 @@ def test_evidence_review_supplies_controls_and_trace_without_changing_verdict(tm
         component,
         [finding],
         [],
-        {},
+        {"assessment_depth": "standard" if depth == "thorough" else "thorough"},
         identity["component_inventory_fingerprint"],
         allowed,
         "evidence:component-1",
         targets=[target],
+        depth=depth,
     )
-    assert len(calls) == 1 and result["decisions"] == [decision]
+    if depth == "thorough" and traced and verdict == "verified":
+        assert len(calls) == 2
+        assert result["decisions"][0]["evidence"] == [anchor, evidence("entry.ts", 602), evidence("entry.ts", 1)]
+        assert result["decisions"][0]["verdict"] == verdict
+    else:
+        assert len(calls) == 1 and result["decisions"] == [decision]
     slices = calls[0]["source_slices"]
-    assert {s["path"] for s in slices} == {"routes/read.ts", "entry.ts", "lib/parser.ts"}
+    expected_paths = {"routes/read.ts", "entry.ts"} if traced else {"routes/read.ts", "entry.ts", "lib/parser.ts"}
+    assert {s["path"] for s in slices} == expected_paths
     assert any(s["path"] == "entry.ts" and s["start_line"] <= 1 <= s["end_line"] for s in slices)
     assert finding == original
 
 
 @pytest.mark.parametrize("fails", [False, True], ids=["reviewed", "failed or unaffordable"])
-def test_verification_findings_of_their_own_get_their_components_evidence_review(tmp_path, fails):
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+def test_verification_findings_of_their_own_get_their_components_evidence_review(tmp_path, fails, depth):
     """REQ-040: the selected verification findings are reviewed with the sources verification could read."""
     from types import SimpleNamespace
 
@@ -2079,12 +2122,15 @@ def test_verification_findings_of_their_own_get_their_components_evidence_review
             ids,
             label=lambda c: c["name"],
             progress=said.append,
+            depth=depth,
         )
 
     decisions = review(["TCF-002"])
     (call,) = calls
     assert call["role"] == "evidence_verifier" and call["selector"] == "evidence-verification:" + component["id"]
     assert call["allowed_sources"] == allowed
+    assert call["context"]["assessment_depth"] == depth
+    assert ("exploit_conditions" in call["instructions"]) == (depth == "thorough")
     # The reviewer gets the finding as a survey finding looks, without the IDs that join it.
     (finding,) = call["context"]["findings"]
     assert finding["local_id"] == "TCF-002" and finding["cwe"] == "CWE-639"

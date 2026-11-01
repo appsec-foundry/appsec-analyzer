@@ -868,6 +868,10 @@ requirements:
 
   REQ-008:
     applies_to:
+      - data/model-profiles/claude.yaml
+      - schemas/multi-repo-evidence-review.schema.json
+      - scripts/contexts/multi_repo_analysis.py
+      - scripts/orchestrator/orchestration_controller.py
       - scripts/model/merge_threats.py
       - scripts/validators/validate_intermediate.py
       - scripts/contexts/build_threat_modeling_context.py
@@ -898,6 +902,27 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_evidence_exploit_conditions.py::test_lighter_depths_keep_the_existing_review_contract
+      - tests/test_evidence_exploit_conditions.py::test_unknown_review_depth_fails_closed
+      - tests/test_profiles.py::test_builtins_have_complete_roles_without_output_caps
+      - tests/test_profiles.py::test_operator_can_override_thorough_evidence_verifier
+      - tests/test_multi_repo_assessment.py::test_verification_findings_of_their_own_get_their_components_evidence_review
+      - tests/test_evidence_exploit_conditions.py::test_authorization_exploitation_has_independently_cited_conditions
+      - tests/test_evidence_exploit_conditions.py::test_a_confirmed_nonflow_claim_cannot_skip_its_conditions
+      - tests/test_evidence_exploit_conditions.py::test_conditions_are_closed_bounded_and_cite_this_decision
+      - tests/test_evidence_exploit_conditions.py::test_a_condition_cannot_cite_an_unread_guard
+      - tests/test_evidence_exploit_conditions.py::test_conditions_cannot_borrow_another_findings_evidence
+      - tests/test_evidence_exploit_conditions.py::test_an_open_or_contradicted_path_and_a_practice_need_no_exploit_proof
+      - tests/test_evidence_exploit_conditions.py::test_one_location_can_support_all_nonflow_conditions
+      - tests/test_evidence_exploit_conditions.py::test_conditions_do_not_replace_a_claimed_mechanism_trace
+      - tests/test_evidence_exploit_conditions.py::test_nonflow_review_corrects_or_stays_unconfirmed_within_existing_limits
+      - tests/test_evidence_exploit_conditions.py::test_conditions_keep_current_and_legacy_review_shapes_readable
+      - tests/test_multi_repo_analysis.py::test_exploitation_review_requires_cited_input_and_control_even_when_preloaded
+      - tests/test_multi_repo_analysis.py::test_exploitation_review_cannot_borrow_the_producers_source_reads
+      - tests/test_multi_repo_analysis.py::test_exploitation_review_accepts_full_evidence_or_a_bounded_nonconfirmation
+      - tests/test_multi_repo_analysis.py::test_exploitation_review_allows_one_location_to_support_every_trace_role
+      - tests/test_multi_repo_analysis.py::test_verified_practice_does_not_need_to_confirm_its_proposed_attack_path
+      - tests/test_multi_repo_assessment.py::test_evidence_review_supplies_controls_and_trace_without_changing_verdict
       - tests/test_merge_threats.py::TestWeaknessRegister::test_known_vuln_becomes_vulnerability_management_weakness
       - tests/test_merge_threats.py::TestConsolidateByGroup::test_distinct_sql_sinks_in_one_component_stay_separate
       - tests/test_merge_threats.py::TestConsolidateByGroup::test_distinct_xss_sinks_need_explicit_shared_control

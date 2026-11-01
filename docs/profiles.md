@@ -158,6 +158,8 @@ Each assessment depth has default settings, which Analyzer ships in [data/assess
 | `actor_discovery` | false | true | true | The assessment identifies the users and systems that interact with the application. |
 | `budget` | 10 | 20 | 40 | USD of a run started through the Claude Code assessment dialogue without a budget. `assess` uses a depth budget only when your scan profile sets it. |
 
+Only thorough requires the [additional exploitation evidence](security-assessment.md#how-the-results-come-together) in the independent evidence review. This uses the existing review limits; it is selected by assessment depth and is not a separate profile setting. The built-in Claude profile keeps the evidence verifier on Sonnet, subject to operator model overrides.
+
 Each verified aspect, abuse case, and the architect review add model calls. Which model each step uses is set in the model profiles; technical limits, such as how often a model may read more code before it answers, are not settings.
 
 A scan profile changes single values for single depths under `depths`. Values it does not name keep the default:

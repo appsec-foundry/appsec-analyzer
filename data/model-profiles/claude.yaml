@@ -46,6 +46,8 @@ depths:
         model: claude-sonnet-5-5
   thorough:
     roles:
+      evidence_verifier:
+        model: claude-sonnet-5-5
       abuse_case_deriver:
         model: claude-sonnet-5-5
       abuse_case_verifier:

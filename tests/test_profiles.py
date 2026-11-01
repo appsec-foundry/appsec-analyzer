@@ -449,6 +449,10 @@ def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
     assert set(resolved["models"]) == set(profiles.ROLES)
     assert all("max_output_tokens" not in row for row in resolved["models"].values())
     assert resolved["qualified"] is False
+    if name == "claude":
+        verifier = resolved["models"]["evidence_verifier"]
+        assert verifier["model"] == "claude-sonnet-5-5"
+        assert verifier["reasoning_effort"] == "medium"
     if name in ("codex", "codex-cli"):
         assert resolved["models"]["recon_scanner"]["model"] == "gpt-6-luna"
         assert resolved["models"]["recon_scanner"]["reasoning_effort"] == "low"
@@ -456,6 +460,17 @@ def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
             if role != "recon_scanner":
                 assert settings["model"] == "gpt-6.1-sol"
                 assert settings["reasoning_effort"] == {"quick": "low", "standard": "medium", "thorough": "high"}[depth]
+
+
+@pytest.mark.parametrize("override", ["defaults", "roles"])
+def test_operator_can_override_thorough_evidence_verifier(home, override):
+    definition = {"schema_version": 1, "base": "claude"}
+    settings = {"model": "opus"}
+    definition[override] = settings if override == "defaults" else {"evidence_verifier": settings}
+    write(home, "model", "team", definition)
+    write(home, "scan", "team", {"schema_version": 1, "model_profile": "team"})
+    resolved = profiles.resolve_scan("team", depth="thorough")
+    assert resolved["models"]["evidence_verifier"]["model"] == "opus"
 
 
 @pytest.mark.parametrize("base", ["codex", "codex-cli"])

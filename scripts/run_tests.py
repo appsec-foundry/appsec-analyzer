@@ -193,6 +193,7 @@ GROUPS = {
         assessment_sources
         assessment_stage2
         assessment_state
+        evidence_exploit_conditions
         multi_repo_analysis
         multi_repo_builder
         multi_repo_figures
@@ -616,7 +617,7 @@ SOURCE_TESTS = {
         "assessment_sources multi_repo_analysis multi_repo_boundaries multi_repo_controller schemas schema_integrity check_target_specificity multi_repo_builder multi_repo_figures multi_repo_exports"
     ),
     "scripts/contexts/multi_repo_analysis.py": _tests(
-        "multi_repo_analysis serving_units multi_repo_boundaries multi_repo_controller check_target_specificity finding_state gate_preconditions shared_paths stride_outputs multi_repo_builder multi_repo_exports threat_fixture"
+        "multi_repo_analysis evidence_exploit_conditions serving_units multi_repo_boundaries multi_repo_controller check_target_specificity finding_state gate_preconditions shared_paths stride_outputs multi_repo_builder multi_repo_exports threat_fixture"
     ),
     "schemas/multi-repo-architecture.schema.json": _tests(
         "multi_repo_analysis multi_repo_boundaries multi_repo_controller schemas check_target_specificity multi_repo_builder multi_repo_exports"
@@ -628,7 +629,7 @@ SOURCE_TESTS = {
         "multi_repo_analysis multi_repo_boundaries multi_repo_controller schemas check_target_specificity multi_repo_builder multi_repo_exports"
     ),
     "schemas/multi-repo-evidence-review.schema.json": _tests(
-        "multi_repo_analysis multi_repo_boundaries multi_repo_controller schemas check_target_specificity multi_repo_builder multi_repo_exports"
+        "multi_repo_analysis evidence_exploit_conditions multi_repo_boundaries multi_repo_controller schemas check_target_specificity multi_repo_builder multi_repo_exports"
     ),
     "schemas/threats-merged-v2.schema.json": _tests(
         "multi_repo_analysis multi_repo_boundaries multi_repo_controller schemas check_target_specificity multi_repo_builder multi_repo_exports"

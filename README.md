@@ -434,7 +434,7 @@ These options apply to `assess`. Command-line options override the defaults from
 
 - `quick` runs no verification and no business-logic checks.
 - `standard` also verifies authentication, authorization, input validation and, where the application calls a language model, its AI features.
-- `thorough` also checks data protection. With Claude, it uses Opus for the survey and verification. It costs about 2.7× as much as `standard` and can exceed the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
+- `thorough` also checks data protection and requires additional evidence for exploitation in the independent evidence review. The built-in Claude profile keeps this evidence verifier on Sonnet; the survey and security-aspect verification use Opus. It costs about 2.7× as much as `standard` and can exceed the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
 
 Typical cost and duration with API billing, measured on OWASP Juice Shop (about 820 source files) with the `claude` profile:
 
