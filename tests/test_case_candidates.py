@@ -1039,6 +1039,12 @@ def sites(tmp_path_factory):
     return cc.route_facts(root, build_inventory(root), [], components={"api": list(SITES)})
 
 
+def test_only_a_request_chosen_destination_is_an_outbound_site(tmp_path):
+    files = {"svc/hook.ts": "await fetch(process.env.ALERT_HOOK)\n", "svc/proxy.ts": "await fetch(req.query.next)\n"}
+    _, code_sites = cc._code_facts(write_repo(tmp_path, files), list(files))
+    assert code_sites["outbound_request"] == [["svc/proxy.ts", 1]]
+
+
 def test_code_sites_are_lines_of_code_their_patterns_mark(sites):
     found = sites["sites"]
     assert found["raw_query"] == [["lib/db.js", 1], ["routes/search.js", 2]]

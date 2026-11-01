@@ -461,6 +461,16 @@ def test_a_projection_its_schema_rejects_is_a_projection_error() -> None:
         context._checked(context.RECON_SCHEMA, {"schema_version": 1})  # noqa: SLF001
 
 
+def test_egress_projection_passes_a_configured_destination_without_a_host(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/notify.ts").write_text("await fetch(process.env.ALERT_HOOK)\n", encoding="utf-8")
+
+    (row,) = context.project_egress(tmp_path)["destinations"]
+
+    assert (row["kind"], row["host"]) == ("configured", None)
+    assert row["evidence"] == [{"file": "src/notify.ts", "line": 1}]
+
+
 def test_egress_projection_is_bounded_and_counts_what_it_drops(tmp_path, monkeypatch):
     from analyzers import egress_clients
 

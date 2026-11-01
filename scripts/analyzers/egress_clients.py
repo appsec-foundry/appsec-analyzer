@@ -6,15 +6,20 @@ Inspected signal: one source line that calls an HTTP, WebSocket, or RPC client
 ``httpx``, ``urlopen``, Go ``http.Get/NewRequest``, ``new WebSocket``,
 ``websockets.connect``, ethers or web3 providers).
 
-Trigger: the call names either a literal absolute URL to a non-local host, or
-a URL taken from the incoming request on that line or in an assignment shortly
-before it. The first is a fixed external service; the second lets the caller
-choose the destination.
+Trigger: the call names a literal absolute URL to a non-local host, a URL taken
+from the incoming request on that line or in an assignment shortly before it,
+or a URL that starts with an environment or application setting, on that line
+or through a name the file assigns from one. The first is a fixed external
+service, the second lets the caller choose the destination, and the third is a
+service the deployment selects.
 
 False-positive exclusions: relative URLs (same-origin calls of a client to its
 own backend), loopback, ``*.local``, reserved example domains, calls whose
-destination is neither literal nor request-derived, minified lines, and every
-path the shared scan-exclude policy removes (tests, fixtures, vendored code).
+destination is none of the above, settings read for anything but the
+destination, settings of a client bundle (``REACT_APP_*``, ``NEXT_PUBLIC_*``,
+``import.meta.env``), whose base URL is normally the client's own backend,
+minified lines, and every path the shared scan-exclude policy removes (tests,
+fixtures, vendored code).
 
 Evidence: repository-relative file and line of each call. The result is a lead
 for the architecture analyst, not a finding; CWE and severity stay with the
@@ -65,14 +70,42 @@ _REQUEST_SOURCE = re.compile(
     r"|\$_(?:GET|POST|REQUEST)\b"
 )
 _FIRST_ARG = re.compile(r"\(\s*([A-Za-z_$][\w$]*)\s*[,)]")
+_CONFIG_SOURCE = re.compile(
+    r"\bprocess\.env(?:\[|\.(?!(?:REACT_APP|VUE_APP|NEXT_PUBLIC|NUXT_PUBLIC|VITE|GATSBY|EXPO_PUBLIC)_))"
+    r"|\bos\.(?:environ|getenv|Getenv)\b"
+    r"|\bENV(?:\[|\.fetch\b)"
+    r"|\bgetenv\s*\("
+    r"|\$_ENV\b"
+    r"|\bconfig(?:\.get\b|\[)"
+    r"|\bsettings\.[A-Z]"
+)
+# The name before a setting: `url =`, `url: string =`, `url :=`. Searched only in
+# the text just before the setting, so a long line costs no more than a short one.
+_ASSIGNED_NAME = re.compile(r"([A-Za-z_$][\w$]*)\s*(?::[^=]{0,60})?:?=\s*(?:await\s+)?$")
+_ASSIGNMENT_WINDOW = 100
+_FIRST_ARG_TEXT = re.compile(r"\(\s*([^,)]*)")
+# What decides the host is the start of the URL: `base`, `base + '/x'`, `${base}/x`, `f"{self.base}/x"`.
+_LEADING_NAME = re.compile(r"""(?:f?["'`]\$?\{\s*)?(?:(?:self|this)\.)?([A-Za-z_$][\w$]*)""")
 _LOCAL_HOST = re.compile(
     r"^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|host\.docker\.internal)$"
     r"|\.(?:local|localhost|test|invalid)$|(?:^|\.)example\.(?:com|org|net)$"
 )
 
 
-def _destination(lines: list[str], index: int, call_at: int) -> tuple[str, str] | None:
-    """``(kind, host)`` of the call on ``lines[index]``, or None when neither literal nor request-derived."""
+def _configured_names(lines: list[str]) -> set[str]:
+    """The names a file assigns directly from a setting."""
+    names = set()
+    for line in lines:
+        source = _CONFIG_SOURCE.search(line) if len(line) <= _MAX_LINE_CHARS else None
+        if source:
+            assigned = _ASSIGNED_NAME.search(line[max(0, source.start() - _ASSIGNMENT_WINDOW) : source.start()])
+            if assigned:
+                names.add(assigned.group(1))
+    return names
+
+
+def _destination(lines: list[str], index: int, call_at: int, configured: set[str]) -> tuple[str, str] | None:
+    """``(kind, host)`` of the call on ``lines[index]``, or None when it names no external destination."""
     rest = lines[index][call_at:]
     literal = _URL_LITERAL.search(rest)
     if literal:
@@ -87,6 +120,11 @@ def _destination(lines: list[str], index: int, call_at: int) -> tuple[str, str] 
             match = assigned.search(previous)
             if match and _REQUEST_SOURCE.search(match.group(0)):
                 return ("user-controlled", "")
+    url = _FIRST_ARG_TEXT.match(rest[rest.find("(") :])
+    if url:
+        leading = _LEADING_NAME.match(url.group(1))
+        if _CONFIG_SOURCE.search(url.group(1)) or (leading and leading.group(1) in configured):
+            return ("configured", "")
     return None
 
 
@@ -101,6 +139,7 @@ def scan(repo_root: Path) -> list[dict[str, Any]]:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
+        configured = _configured_names(lines)
         for index, line in enumerate(lines):
             if len(line) > _MAX_LINE_CHARS:
                 continue
@@ -108,7 +147,7 @@ def scan(repo_root: Path) -> list[dict[str, Any]]:
                 call = pattern.search(line)
                 if not call:
                     continue
-                destination = _destination(lines, index, call.start())
+                destination = _destination(lines, index, call.start(), configured)
                 if destination is not None:
                     kind, host = destination
                     row = rows.setdefault(

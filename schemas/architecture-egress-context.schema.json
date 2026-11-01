@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://appsec-advisor/schemas/architecture-egress-context.schema.json",
   "title": "Outbound destinations the architecture data flows must account for",
-  "description": "Deterministic call sites of HTTP, WebSocket and RPC clients, grouped by destination. A fixed-host destination is an external service the code calls; a user-controlled destination is chosen by the request. The architecture analyst receives them before it writes data flows.",
+  "description": "Deterministic call sites of HTTP, WebSocket and RPC clients, grouped by destination. A fixed-host destination is an external service the code calls; a user-controlled destination is chosen by the request; a configured destination is selected by an environment or application setting. The architecture analyst receives them before it writes data flows.",
   "type": "object",
   "required": ["schema_version", "limits", "destinations"],
   "additionalProperties": false,
@@ -26,7 +26,7 @@
         "required": ["kind", "host", "transport", "clients", "evidence", "omitted_evidence"],
         "additionalProperties": false,
         "properties": {
-          "kind": {"enum": ["fixed-host", "user-controlled"]},
+          "kind": {"enum": ["fixed-host", "user-controlled", "configured"]},
           "host": {"type": ["string", "null"], "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$"},
           "transport": {"enum": ["http", "websocket", "rpc"]},
           "clients": {

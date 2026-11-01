@@ -89,6 +89,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- Outbound calls to a URL from an environment or application setting, such as a webhook, now count as leads for the data flows and the survey. They used to be ignored, so such a call could stay out of the report. Settings of a client bundle, whose base URL is normally the client's own backend, stay excluded.
 - Budget figures in `assess` progress and on a stopped run count finished model calls only, as the stop message always said. They used to include what running calls had reserved, so the amount rose too high and then fell. The spending limit still counts those reservations.
 - The live status line of `assess` wraps instead of ending in `…` and continues after the time stamp, so the running step, its age and the model's state stay readable. Between model calls it names a step once and adds only its age.
 - Reports keep only a fixed set of formatting tags, in the Markdown report and in the HTML and PDF exports. Other HTML from a repository or a model appears as text, and a remote image becomes a link, so opening a report requests nothing from other hosts.

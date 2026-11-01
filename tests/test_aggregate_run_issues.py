@@ -1999,6 +1999,15 @@ def test_an_egress_destination_without_a_flow_from_its_owner_is_surfaced(tmp_pat
     assert "rpc.ledgerco.io" in issue["title"]
 
 
+def test_a_configured_egress_destination_is_not_called_request_chosen(tmp_path):
+    destination = {"kind": "configured", "host": None, "evidence": [{"file": "src/wallet/w.ts", "line": 3}]}
+    flows = [{"id": "df-001", "from": "api", "to": "external"}]
+
+    (issue,) = agg._extract_egress_without_flow(_architecture_run(tmp_path, [_API, _WALLET], flows, [destination]))
+
+    assert "a configured URL" in issue["title"] and "request-chosen" not in issue["title"]
+
+
 def test_an_egress_destination_modelled_as_a_flow_produces_no_issue(tmp_path):
     destination = {"kind": "user-controlled", "host": None, "evidence": [{"file": "src/api/u.ts", "line": 9}]}
     flows = [{"id": "df-001", "from": "api", "to": "external"}]

@@ -1774,7 +1774,7 @@ def _extract_egress_without_flow(output_dir: Path) -> list[dict]:
         owners = {owner[0] for e in evidence if (owner := resolve_owner(e["file"], components))}
         if not evidence or owners & leaving:
             continue
-        target = row.get("host") or "a request-chosen URL"
+        target = row.get("host") or ("a configured URL" if row.get("kind") == "configured" else "a request-chosen URL")
         first = evidence[0]
         issues.append(
             {
