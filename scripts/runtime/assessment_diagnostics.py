@@ -139,6 +139,37 @@ def failure_fields(error: BaseException) -> dict:
             value = getattr(error, key, None)
             if type(value) is int and -255 <= value <= 599:
                 result[key] = value
+        issue = getattr(error, "response_issue", None)
+        if error.reason == "invalid_response_payload" and type(issue) is dict:
+            kind, path, rule = issue.get("kind"), issue.get("path"), issue.get("rule")
+            if (
+                type(kind) is str
+                and kind
+                in {"schema", "ambiguous_union", "duplicate_member", "duplicate_declared_member", "nesting_limit"}
+                and (
+                    type(path) is str
+                    and len(path) <= 512
+                    and re.fullmatch(r"/[A-Za-z0-9_*/~.-]*", path)
+                    and mask_text(path)[0] == path
+                )
+            ):
+                result["response_issue"] = {"kind": kind, "path": path}
+                if type(rule) is str and rule in {
+                    "type",
+                    "enum",
+                    "pattern",
+                    "required",
+                    "additionalProperties",
+                    "anyOf",
+                    "minItems",
+                    "maxItems",
+                    "minLength",
+                    "maxLength",
+                    "minimum",
+                    "maximum",
+                    "multipleOf",
+                }:
+                    result["response_issue"]["rule"] = rule
         return result
     if isinstance(error, HostTimeout):
         return {"reason": "timeout"}
@@ -228,8 +259,14 @@ def transport_summary(error: TransportError) -> str:
         "error": "the host ended the call with an unnamed error; check the host login and the private diagnostic feed",
         "unclassified": "the failure has no known cause; check the private diagnostic feed",
     }
+    issue = failure_fields(error).get("response_issue")
+    detail = f"; {issue['kind']} ({issue.get('rule', 'decode')}) at {issue['path']}" if issue else ""
     return (
-        reason + "; " + hints.get(reason, "check the selected host") + "; then continue compatible work with --resume"
+        reason
+        + "; "
+        + hints.get(reason, "check the selected host")
+        + detail
+        + "; then continue compatible work with --resume"
     )
 
 

@@ -1165,6 +1165,7 @@ def test_the_budget_itemises_reported_usage_per_model_and_names_what_no_host_rep
         "api_prices": False,
         "itemised": 1,
         "tokens": 370,
+        "subscription": False,
     }
     # A job reused from an earlier run made no call in this one: its charge is not a step's cost,
     # but it is part of what the run cost in total.

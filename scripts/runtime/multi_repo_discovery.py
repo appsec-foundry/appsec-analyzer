@@ -550,6 +550,7 @@ class DiscoveryBudget:
                     usd=exc.usd,
                     exit_code=exc.exit_code,
                     http_status=exc.http_status,
+                    response_issue=exc.response_issue,
                 ) from None
             raise TransportError(
                 f"{exc}; the run can continue: rerun the same command with --resume",
@@ -559,6 +560,7 @@ class DiscoveryBudget:
                 exit_code=exc.exit_code,
                 http_status=exc.http_status,
                 usage_window=exc.usage_window,
+                response_issue=exc.response_issue,
             ) from None
         except HostCancelled:
             # A timed-out or cancelled call's process group is stopped; its

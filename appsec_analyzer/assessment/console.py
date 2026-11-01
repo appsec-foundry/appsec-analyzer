@@ -168,7 +168,7 @@ def usage_text(before: dict, after: dict, *, show_costs: bool | None = None) -> 
     parts = []
     if show_costs:
         parts.append(
-            "USD cost unavailable"
+            ("USD cost unavailable (subscription host)" if after.get("subscription") else "USD cost unavailable")
             if after["usd"] is None or before["usd"] is None
             else f"≈ USD {after['usd'] - before['usd']:.2f}"
         )

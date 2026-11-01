@@ -136,6 +136,77 @@ def test_commentary_before_final_structured_reply_is_accepted(transport, monkeyp
     assert transport.invoke("trusted", "source", {}, 5, lambda: False).payload == {"ok": True}
 
 
+@pytest.mark.parametrize("cached", [0, 6, 10])
+def test_token_usage_reaches_budget_and_console_without_inventing_usd(transport, monkeypatch, cached):
+    from appsec_analyzer.assessment.console import usage_text
+
+    rows = [json.loads(line) for line in events({"ok": True}).splitlines()]
+    rows[-1]["usage"]["cached_input_tokens"] = cached
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, b"\n".join(json.dumps(r).encode() for r in rows), b""))
+    budget = subscription_budget()
+    before = budget.usage_mark()
+    reply = budget.invoke(lambda _: transport, "trusted", "source", {}, 5, lambda: False)
+    assert reply.usd is None
+    assert reply.usage == {transport.model: {"input": 10 - cached, "output": 10, "cache_read": cached}}
+    assert budget.tokens(reply.usage[transport.model]) == 20
+    text = usage_text(before, budget.usage_mark(), show_costs=True)
+    assert "20 tokens" in text and "USD cost unavailable" in text
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        {},
+        {"input_tokens": True, "output_tokens": 1},
+        {"input_tokens": -1, "output_tokens": 1},
+        {"input_tokens": 1, "output_tokens": 1, "cached_input_tokens": 2},
+        {"input_tokens": 1, "output_tokens": "private"},
+        {"input_tokens": 2**54, "output_tokens": 1},
+    ],
+)
+def test_invalid_optional_usage_does_not_break_a_valid_answer(transport, monkeypatch, usage):
+    rows = [json.loads(line) for line in events({"ok": True}).splitlines()]
+    rows[-1]["usage"] = usage
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, b"\n".join(json.dumps(r).encode() for r in rows), b""))
+    reply = transport.invoke("trusted", "source", {}, 5, lambda: False)
+    assert reply.payload == {"ok": True} and reply.usage is None and reply.usd is None
+
+
+def test_payload_failure_retains_structural_detail_through_budget_and_diagnostics(transport, monkeypatch, tmp_path):
+    from runtime.assessment_diagnostics import DiagnosticLog, failure_fields, transport_summary
+
+    rows = [json.loads(line) for line in events({}).splitlines()]
+    rows[2]["item"]["text"] = json.dumps({"payload": {"identifier": "PRIVATE_MODEL_TEXT"}})
+    monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, b"\n".join(json.dumps(r).encode() for r in rows), b""))
+    log = DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
+    budget = subscription_budget()
+    schema = {
+        "type": "object",
+        "required": ["identifier"],
+        "additionalProperties": False,
+        "properties": {"identifier": {"type": "string", "pattern": "^id-[0-9]+$"}},
+    }
+    with pytest.raises(TransportError) as caught:
+        budget.invoke(
+            lambda _: log.job("architecture_analyst", "synthetic").wrap(transport),
+            "trusted",
+            "source",
+            schema,
+            5,
+            lambda: False,
+        )
+    assert failure_fields(caught.value)["response_issue"] == {
+        "kind": "schema",
+        "rule": "pattern",
+        "path": "/payload/identifier",
+    }
+    assert "pattern" in transport_summary(caught.value) and "/payload/identifier" in transport_summary(caught.value)
+    text = log.path.read_text()
+    assert '"rule": "pattern"' in text and "PRIVATE" not in text
+    assert budget.calls == 1  # Malformed replies are still never blindly retried.
+
+
 @pytest.mark.parametrize(
     "change,reason",
     [
@@ -177,7 +248,10 @@ def test_response_failure_classification_is_safe_and_never_uses_earlier_answer(t
     monkeypatch.setattr(codex_cli, "_run", lambda *a, **k: (0, reply, b"PRIVATE_STDERR"))
     with pytest.raises(TransportError) as caught:
         transport.invoke("trusted", "source", {}, 5, lambda: False)
-    assert failure_fields(caught.value) == {"reason": reason, "exit_code": 0}
+    expected = {"reason": reason, "exit_code": 0}
+    if change == "payload":
+        expected["response_issue"] = {"kind": "duplicate_member", "path": "/payload/entries/1"}
+    assert failure_fields(caught.value) == expected
     assert reason in transport_summary(caught.value)
     assert "PRIVATE" not in str(caught.value) + transport_summary(caught.value)
 

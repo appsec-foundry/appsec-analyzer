@@ -110,9 +110,11 @@ class TransportError(Exception):
         exit_code: int | None = None,
         http_status: int | None = None,
         usage_window: bool = False,
+        response_issue: dict | None = None,
     ):
         super().__init__(message)
         self.reason = reason
+        self.response_issue = response_issue
         self.usage_window = usage_window
         self.usd = usd
         self.exit_code = exit_code

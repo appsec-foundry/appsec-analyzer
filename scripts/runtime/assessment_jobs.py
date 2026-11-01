@@ -241,6 +241,7 @@ class AssessmentBudget(DiscoveryBudget):
                 "total_usd": None if self.subscription else self.settled_usd,
                 "max_usd": None if self.subscription else self.max_usd,
                 "api_prices": self.api_prices,
+                "subscription": self.subscription,
                 "itemised": sum(row["calls"] for row in self.ledger.values()),
                 "tokens": sum(self.tokens(row) for row in self.ledger.values()),
             }

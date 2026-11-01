@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 from jsonschema import Draft202012Validator
 
@@ -19,6 +20,22 @@ def _object(properties):
 
 def _entries(value):
     return {"type": "array", "items": _object({"key": {"type": "string"}, "value": value})}
+
+
+class CodexPayloadError(ValueError):
+    """Only structural metadata, never validation messages or response values."""
+
+    def __init__(self, kind, path=(), rule=None):
+        pointer = "/" + "/".join(str(p).replace("~", "~0").replace("/", "~1") for p in path)
+        self.issue = {"kind": kind, "path": pointer[:512]}
+        if rule is not None:
+            self.issue["rule"] = rule
+        label = {
+            "ambiguous_union": "Ambiguous union",
+            "duplicate_member": "Duplicate member",
+            "duplicate_declared_member": "Duplicate declared member",
+        }.get(kind, kind)
+        super().__init__(f"Codex response violates its structured wire schema: {label} at {pointer[:512]}")
 
 
 class CodexSchema:
@@ -40,10 +57,17 @@ class CodexSchema:
         local_schema = copy.deepcopy(self.schema)
         self.validation_definitions = local_schema["$defs"]
         self.validator = Draft202012Validator(local_schema)
-        # Keep the original wire validation locally. Host regex dialects reject
-        # expressions such as the Management Summary's negative lookahead.
+        # Preserve supported patterns at generation time as well as locally.
+        # Lookarounds, named groups and backreferences are not portable to the
+        # host regex dialect. Keep those checks local and describe them to the
+        # model; removing every pattern hid IDs and fingerprints from it.
         for node in self.definitions.values():
-            node.pop("pattern", None)
+            pattern = node.get("pattern")
+            if pattern is not None and re.search(r"\(\?(?!:)|\\[1-9]", pattern):
+                node.pop("pattern")
+                node["description"] = (
+                    node.get("description", "") + "\nMust also match this locally validated pattern: " + pattern
+                ).lstrip()
 
     def _index(self, node, depth=0):
         if depth > 64:
@@ -169,35 +193,46 @@ class CodexSchema:
         return ref
 
     def decode(self, wire):
-        if not self.validator.is_valid(wire):
-            raise ValueError("Codex response violates its structured wire schema")
-        return self._decode(self.schema["properties"]["payload"], wire["payload"])
+        error = next(self.validator.iter_errors(wire), None)
+        if error is not None:
+            # Prefer a leaf over a generic anyOf error. Paths contain only
+            # declared wire fields and array indices, never dynamic map keys.
+            while error.context:
+                error = max(error.context, key=lambda child: len(child.absolute_path))
+            fields = {"payload"}
+            for node in self.validation_definitions.values():
+                fields.update(node.get("properties", {}))
+            path = tuple(p if type(p) is int or p in fields else "*" for p in error.absolute_path)
+            raise CodexPayloadError("schema", path, error.validator)
+        return self._decode(self.schema["properties"]["payload"], wire["payload"], path=("payload",))
 
-    def _decode(self, ref, value, depth=0):
+    def _decode(self, ref, value, depth=0, path=()):
         if depth > 64:
-            raise ValueError("Codex response exceeds nesting limit")
+            raise CodexPayloadError("nesting_limit", path)
         kind, plan = self.plans[ref["$ref"].rsplit("/", 1)[1]]
         if kind == "scalar":
             return value
         if kind == "alias":
-            return self._decode(plan, value, depth + 1)
+            return self._decode(plan, value, depth + 1, path)
         if kind == "array":
-            return [self._decode(plan, v, depth + 1) for v in value]
+            return [self._decode(plan, v, depth + 1, (*path, i)) for i, v in enumerate(value)]
         if kind == "union":
             candidates = []
             for child in plan:
                 validator = Draft202012Validator({**child, "$defs": self.validation_definitions})
                 if validator.is_valid(value):
-                    candidates.append(self._decode(child, value, depth + 1))
+                    candidates.append(self._decode(child, value, depth + 1, path))
             if not candidates or len({json.dumps(v, sort_keys=True, allow_nan=False) for v in candidates}) != 1:
-                raise ValueError("Ambiguous Codex wire union")
+                raise CodexPayloadError("ambiguous_union", path)
             return candidates[0]
         if kind == "generic":
             if isinstance(value, list):
-                return [self._decode({"$ref": "#/$defs/json_value"}, v, depth + 1) for v in value]
+                return [
+                    self._decode({"$ref": "#/$defs/json_value"}, v, depth + 1, (*path, i)) for i, v in enumerate(value)
+                ]
             if not isinstance(value, dict):
                 return value
-            return self._decode_entries(value["entries"], {"$ref": "#/$defs/json_value"}, {}, depth)
+            return self._decode_entries(value["entries"], {"$ref": "#/$defs/json_value"}, {}, depth, (*path, "entries"))
         children, extra = plan
         decoded = {}
         for field, (child, optional) in children.items():
@@ -206,17 +241,19 @@ class CodexSchema:
                 if not member["present"]:
                     continue
                 member = member["value"]
-            decoded[field] = self._decode(child, member, depth + 1)
+            decoded[field] = self._decode(
+                child, member, depth + 1, (*path, field, "value") if optional else (*path, field)
+            )
         if extra:
             field, child = extra
             if any(entry["key"] in children for entry in value[field]):
-                raise ValueError("Duplicate Codex declared object member")
-            return self._decode_entries(value[field], child, decoded, depth)
+                raise CodexPayloadError("duplicate_declared_member", (*path, field))
+            return self._decode_entries(value[field], child, decoded, depth, (*path, field))
         return decoded
 
-    def _decode_entries(self, entries, child, decoded, depth):
-        for entry in entries:
+    def _decode_entries(self, entries, child, decoded, depth, path):
+        for i, entry in enumerate(entries):
             if entry["key"] in decoded:
-                raise ValueError("Duplicate Codex object member")
-            decoded[entry["key"]] = self._decode(child, entry["value"], depth + 1)
+                raise CodexPayloadError("duplicate_member", (*path, i))
+            decoded[entry["key"]] = self._decode(child, entry["value"], depth + 1, (*path, i, "value"))
         return decoded

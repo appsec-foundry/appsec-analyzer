@@ -31,7 +31,7 @@ if _scripts not in sys.path:
 
 from runtime.analyst_host import HostCancelled, HostReply, HostTimeout, TransportError, contains_marker
 
-from appsec_analyzer.codex_schema import CodexSchema
+from appsec_analyzer.codex_schema import CodexPayloadError, CodexSchema
 
 MINIMUM_VERSION = "0.163.0"
 REQUIRED_EXEC_FLAGS = frozenset(
@@ -109,6 +109,21 @@ def _json(data):
         return number
 
     return json.loads(data, object_pairs_hook=unique, parse_constant=invalid_constant, parse_float=finite)
+
+
+def _usage(event, model):
+    """Optional CLI token telemetry; cached input is part of input_tokens."""
+    usage = event.get("usage")
+    if type(usage) is not dict:
+        return None
+    incoming, outgoing, cached = (
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+        usage.get("cached_input_tokens", 0),
+    )
+    if any(type(v) is not int or not 0 <= v <= 2**53 - 1 for v in (incoming, outgoing, cached)) or cached > incoming:
+        return None
+    return {model: {"input": incoming - cached, "output": outgoing, "cache_read": cached}}
 
 
 def _stop(proc):
@@ -461,8 +476,11 @@ class CodexCliTransport:
                 raise ValueError
             response_reason = "invalid_response_payload"
             payload = wire_schema.decode(wire)
-        except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
+        except (ValueError, KeyError, TypeError, UnicodeError, RecursionError) as exc:
             raise TransportError(
-                "Invalid Codex structured response: " + response_reason, reason=response_reason, exit_code=code
+                "Invalid Codex structured response: " + response_reason,
+                reason=response_reason,
+                exit_code=code,
+                response_issue=exc.issue if isinstance(exc, CodexPayloadError) else None,
             ) from None
-        return HostReply(payload=payload, usd=None)
+        return HostReply(payload=payload, usd=None, usage=_usage(completed[0], self.model))
