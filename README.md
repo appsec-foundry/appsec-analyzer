@@ -50,7 +50,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) for details.
 
 > [!NOTE]
-> With API billing, the Juice Shop scan costs about USD 15 and takes about 40 minutes. Analyzer asks before it exceeds the default limit of USD 20. Costs of the other depths are listed under [Assessment options](#assessment-options).
+> With API billing, the Juice Shop assessment costs about USD 15 and takes about 40 minutes. Analyzer asks before it exceeds the default limit of USD 20. Costs of the other depths are listed under [Assessment options](#assessment-options).
 
 ## Reports and exports
 
@@ -76,7 +76,7 @@ The build pipeline and the most severe supply-chain attacks on it:
 </picture>
 </a>
 
-Request more formats when you start the scan, for example `assess --repo /path/to/project --sarif --html`:
+Request more formats when you start the assessment, for example `assess --repo /path/to/project --sarif --html`:
 
 | Flag | Output |
 | --- | --- |
@@ -192,9 +192,9 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `as
 
 **Quick checks without model calls**
 
-- [`score`](#score-deterministic-security-rating): Quick security rating from 0 to 100.
-- [`scan-sources`](#scan-sources-raw-scanner-observations): Raw scanner observations without a rating.
-- [`repo-profile`](#repo-profile-size-languages-and-layout): Size, languages, and build manifests of a local directory before a scan.
+- [`score`](#score-deterministic-security-score): Quick security score from 0 to 100.
+- [`scan-sources`](#scan-sources-raw-scanner-observations): Raw scanner observations without a score. It runs other checks than `score`.
+- [`repo-profile`](#repo-profile-size-languages-and-layout): Size, languages, and build manifests of a local directory before an assessment.
 
 **Focused analysis with model calls**
 
@@ -215,7 +215,7 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `as
 - [`platform-settings`](#platform-settings-github-and-gitlab-security-settings): Security settings of a GitHub or GitLab repository, such as branch protection.
 - [`distribution`](#distribution-start-your-organizations-own-command): Create the files for your organization's own command, and align its engine pins after an engine update.
 - [`update`](#install): Update a pipx installation of Analyzer after your yes.
-- `capabilities`: Show the available scanners and provider qualification.
+- `capabilities`: List the available commands and provider qualification as JSON.
 
 ### `assess`: full security assessment
 
@@ -242,22 +242,35 @@ appsec-analyzer assess --repo /path/to/project \
 
 #### How `assess` finds weaknesses
 
-After mapping the architecture and its controls, `assess` runs four methods, in this order:
+With scripts and a model, `assess` splits your system into components, such as the API server and the web frontend. It then runs these steps in order:
 
-| Method | What it does | What runs at each [depth](#assessment-options) |
-| --- | --- | --- |
-| Scanners | Deterministic Python scanners apply fixed rules to source code, routes, and configuration files. They make no model calls. | `quick`: all source rules, configuration rules on up to 5 files of each type<br>`standard`: also all other configuration files<br>`thorough`: also database privilege separation |
-| Survey | A model searches each component on its own for any weakness, with the six STRIDE threat categories (such as Spoofing and Tampering) as its checklist. The result is a list of weaknesses with evidence in the code, not a STRIDE threat model of possible threats. | `quick`, `standard`: code that routes, scanner hits, or security signals point to<br>`thorough`: also every other program file, after verification and within the budget |
-| Verification | A catalog holds fixed questions per security aspect. Analyzer collects the places where they apply, and a model answers each question at each place. For example, one authorization question asks at each route whether object access checks the owner. | `quick`: none<br>`standard`: authentication, authorization, input validation, AI features<br>`thorough`: also data protection |
-| [Abuse cases](#abuse-cases) | Each case describes one attacker goal, possibly across several steps or components. Cases are technical (account takeover through XSS), business (a user bypasses a required approval), or custom (cases from your organization, repository, or a selected file). Analyzer selects the cases that fit the application. A model then checks step by step, starting from the consolidated findings of the three methods above and the code, whether an attacker can reach the goal. | `quick`: only on request, such as with `--abuse-cases`<br>`standard`: technical cases that fit the code, built-in business rules, custom cases<br>`thorough`: also up to 3 rules derived from the application |
+| Step | Reads | Produces | Done by |
+| --- | --- | --- | --- |
+| 1. Scanners | Code | Unconfirmed hits | Scripts only, no model |
+| 2. Survey | Code, scanner hits | Findings | Script picks the files, model analyzes them |
+| 3. Verification | Code, routes, scanner hits, but not the survey's findings | Findings and controls | Script collects the places, model answers the questions |
+| Evidence review and merge | All results so far | One list of findings | Model reviews the evidence, script merges, model decides unclear merges |
+| 4. Abuse cases | Merged findings, code | New findings, higher severity | Script picks the cases, model checks the steps, script records the result |
 
-Scanner hits show the survey and verification where to start. Verification does not see the survey's findings, so it can confirm them, contradict them, or find what the survey missed. A confirmed abuse case can add a finding.
+This route shows what each method adds. Any logged-in user can read any order, because the lookup does not check the owner:
 
-An independent evidence review checks scanner and survey findings against the source code, and also verification findings that no automatic check has confirmed. A weakness that several methods found appears once and names each method. See [Survey and verification](docs/security-assessment.md#survey-and-verification) for details.
+```js
+app.get('/api/orders/:id', requireLogin, async (req, res) => {
+  const order = await Order.findByPk(req.params.id);
+  res.json(order);
+});
+```
+
+1. **Scanners** apply fixed rules without a model. Rule `AUTHZ-002` flags this lookup as using a URL parameter without an ownership filter. The hit is unconfirmed, because the check could sit in code the rule cannot see.
+2. **Survey:** a model reads each component and looks for any weakness, with the six STRIDE threat categories, such as Spoofing and Tampering, as its checklist. It reports weaknesses it can show in the code, not possible threats. It also finds problems no rule covers, such as a password reset without throttling. It does not go route by route, so it often reports only a few examples of a shared weakness.
+3. **Verification:** a model answers a fixed list of questions at every place they apply. For this route it answers `TC-AUTHZ-01`: does object access check the owner? A control it finds there contradicts a survey finding. In Juice Shop, the survey reported the problem for `PUT /api/BasketItems/:id`, and verification also found it for `GET` and `DELETE`.
+4. **[Abuse cases](#abuse-cases):** a model checks one attacker goal step by step. Case `AC-T-002` asks whether a normal user can read other users' records and then gain rights through mass assignment. This route is step 1, and the model looks for step 2 in the code. If all steps hold, the case can add a finding or raise the severity of the findings involved.
+
+The evidence review is a separate model job. It checks scanner and survey findings against the source code, and verification findings that no scripted check has confirmed. A script merges findings when its rules decide, such as the same line and the same or a related CWE. A model decides the groups no rule settles. See [Survey and verification](docs/security-assessment.md#survey-and-verification) for details and [Assessment options](#assessment-options) for what runs at each depth.
 
 ### `review`: discuss an assessment with your coding agent
 
-`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
+`review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the assessment budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).
 
 ```sh
 # Discuss the findings with the assistant recorded in the assessment
@@ -267,26 +280,28 @@ appsec-analyzer review /path/to/assessment
 appsec-analyzer review /path/to/assessment --with codex
 ```
 
-### `score`: deterministic security rating
+### `score`: deterministic security score
 
-`score` rates a local directory or Git URL from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
+`score` gives a local directory or Git URL a score from 0 to 100 and lists findings, coverage, and limits. It sees only what its rules cover and reports `undetermined` when coverage is too low. It does not replace `assess`. See [Security score](docs/security-score.md).
 
 ```sh
-# Rate a local checkout
+# Score a local checkout
 appsec-analyzer score /path/to/project
 
-# Rate a remote repository and print JSON for scripts
+# Score a remote repository and print JSON for scripts
 appsec-analyzer score https://github.com/your-org/your-project.git --json
 ```
 
 ### `scan-sources`: raw scanner observations
 
-`scan-sources` lists unverified observations from the authorization, mass-assignment, and configuration scanners, with their coverage. It does not replace `assess`.
+`scan-sources` lists unverified hits from the source rules (authorization, injection, mobile apps), a per-route authorization check, a Spring mass-assignment check, and the configuration rules. It shows no score and does not replace `assess`. `score` runs a different set: it adds architecture rules and leaves out the per-route and mass-assignment checks.
+
+`--assessment-depth` only changes the configuration files: `quick` checks the first 5 files of each type, `standard` (the default) all of them, and `thorough` gives the same result as `standard`. `--json` prints the complete result, including the scanner list. `--output DIR` also saves it as `scan-result.json`.
 
 Configuration files that cannot be parsed, such as Helm templates, are named in the result, because their resource checks do not run.
 
 ```sh
-# Show what the scanners found, without a rating
+# Show what the scanners found, without a score
 appsec-analyzer scan-sources --repo /path/to/project
 ```
 
@@ -449,11 +464,16 @@ These options apply to `assess`. Command-line options override the defaults from
 | `--verbose` | Show job and call identities and detailed correction messages. |
 | `--show-costs` | Show costs even with subscription billing; default cost display is API billing only. |
 
-`--assessment-depth` sets what `assess` checks beside the [survey](docs/security-assessment.md#survey-and-verification), which always runs:
+`--assessment-depth` sets how much [each method](#how-assess-finds-weaknesses) checks:
 
-- `quick` runs no verification and no business-logic checks.
-- `standard` also verifies authentication, authorization, input validation and, where the application calls a language model, its AI features.
-- `thorough` also checks data protection and requires additional evidence for exploitation in the independent evidence review. The built-in Claude profile keeps this evidence verifier on Sonnet; the survey and security-aspect verification use Opus. It costs about 2.7× as much as `standard` and can exceed the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
+| Method | `quick` | `standard` | `thorough` |
+| --- | --- | --- | --- |
+| Scanners | All source rules; first 5 config files per type, AI assistant settings in full | All config files | Also a check for shared database accounts |
+| Survey | Files with routes, scanner hits, or security keywords | Same as `quick` | Also all other program files, within the [cost limit](#cost-limits) |
+| Verification | None | Authentication, authorization, input validation, AI features | Also data protection |
+| Abuse cases | Only with `--abuse-cases` or your own cases | Cases that fit the code, built-in business rules, your own cases | Also up to 3 business rules a model derives from the application |
+
+AI features are verified only where the application calls a language model. `thorough` also requires evidence of exploitation in the evidence review and can exceed the default budget. See [choosing a depth](docs/model-selection.md#choosing-a-depth).
 
 Typical cost and duration with API billing, measured on OWASP Juice Shop (about 820 source files) with the `claude` profile:
 

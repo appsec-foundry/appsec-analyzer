@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- A mistyped command now shows the grouped command overview with a short description of each command, and the error last, instead of a bare list of names.
 - The survey instructions now match what the survey actually receives and may return. Rules for inputs and fields that no longer exist were removed, and the survey leaves `cvss_v4` empty, as it already did in saved runs. Findings can shift slightly between runs.
 - `assess` checks up to 16 optional business abuse cases at `standard` and `thorough` depth instead of three and eight, so all seven built-in business rules run. To check fewer, set `abuse_cases` per depth in a scan or organization profile.
 - The `assess` header names skipped abuse cases once, in its Scope block, with the reason.

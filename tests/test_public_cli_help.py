@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -98,6 +99,40 @@ def test_missing_command_still_fails_and_shows_examples(capsys):
     assert "name a command" in err
     assert "appsec-analyzer assess --repo /path/to/project" in err and "appsec-analyzer score " in err
     assert "All commands: appsec-analyzer --help" in err
+
+
+def _refused(capsys, *args: str, **kwargs) -> str:
+    with pytest.raises(SystemExit) as stop:
+        cli.main(list(args), **kwargs)
+    assert stop.value.code == 2
+    return capsys.readouterr().err
+
+
+def test_unknown_command_describes_every_command_and_ends_with_the_error(capsys):
+    err = _refused(capsys, "udpate")
+    summaries = dict(entry for _, entries in cli._COMMAND_GROUPS for entry in entries)
+    for name in _registered(cli._parser()):
+        assert f"  {name:<21}{summaries[name]}" in err
+    assert "choose from" not in err
+    assert err.splitlines()[-1] == "appsec-analyzer: error: invalid choice: 'udpate'"
+
+
+def test_unknown_command_lists_only_the_commands_of_an_organization_distribution(capsys):
+    err = _refused(capsys, "udpate", organization=SimpleNamespace(command="northstar"))
+    assert "  organization " in err and "  distribution " not in err
+    assert err.splitlines()[-1] == "northstar: error: invalid choice: 'udpate'"
+
+
+def test_unknown_command_cannot_write_control_characters_to_the_terminal(capsys):
+    err = _refused(capsys, "bad\x1b]0;title\x07\nname")
+    assert "\x1b" not in err and "\x07" not in err
+    assert err.splitlines()[-1].endswith(r"invalid choice: 'bad\x1b]0;title\x07\nname'")
+
+
+def test_unknown_subcommand_keeps_its_own_short_choice_list(capsys):
+    err = _refused(capsys, "profiles", "udpate")
+    assert "invalid choice: 'udpate' (choose from 'list', 'show', 'validate')" in err
+    assert "Start here:" not in err
 
 
 def test_package_module_starts_the_same_command(tmp_path):

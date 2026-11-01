@@ -78,7 +78,7 @@ _COMMAND_GROUPS = (
         "Quick checks without model calls",
         (
             ("score", "Security score from 0 to 100"),
-            ("scan-sources", "Raw scanner observations without a rating"),
+            ("scan-sources", "Raw scanner observations without a score"),
             ("repo-profile", "Size, languages, and build manifests of a repository"),
         ),
     ),
@@ -114,7 +114,7 @@ _COMMAND_GROUPS = (
             ("organization-config", "Validate, inspect, or run an engine-only organization projection"),
             ("assessment-entry", "Prepare an existing host assessment"),
             ("analyst", "Focused design, change, and hypothesis analysis"),
-            ("capabilities", "Show scanner and provider qualification"),
+            ("capabilities", "List available commands and provider qualification as JSON"),
             ("version", "Show engine and public interface versions"),
         ),
     ),
@@ -158,8 +158,18 @@ class _Version(argparse.Action):
         parser.exit()
 
 
+class _CommandParser(argparse.ArgumentParser):
+    """Answer an unknown command with the described overview; argparse would list bare names."""
+
+    def _check_value(self, action, value):
+        if action.dest == "command" and value not in action.choices:
+            # The error comes last so that it stays visible below the long overview.
+            self.exit(2, f"{self.format_help()}\n{self.prog}: error: invalid choice: {value!r}\n")
+        super()._check_value(action, value)
+
+
 def _parser(*, organization=None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _CommandParser(
         prog=organization.command if organization else "appsec-analyzer",
         usage="%(prog)s [-h] <command> [options]",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -217,7 +227,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     if organization is None:
         commands.add_parser("update", help="Update the installed Analyzer with pipx, after your yes")
     commands.add_parser("version", help="Show engine and public interface versions")
-    commands.add_parser("capabilities", help="Show scanner and provider qualification")
+    commands.add_parser("capabilities", help="List available commands and provider qualification as JSON")
     from appsec_analyzer.assessment_entry import add_arguments as entry_arguments
 
     entry_arguments(commands)
