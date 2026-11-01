@@ -1327,9 +1327,11 @@ class _AssessmentConsole:
 
             def wrap(line, width):
                 if wrapped and width >= 20:
-                    # A long entry continues under its title, other text two columns further in.
+                    # A long entry continues under its title, other text under itself.
                     found = self._LIST_ENTRY.match(line)
-                    hang = min(len(found[0]), width // 2) if found else 2
+                    if not found:
+                        return self._wrap_parts(line, width, width)
+                    hang = min(len(found[0]), width // 2)
                     return textwrap.wrap(line, width, subsequent_indent=" " * hang, break_on_hyphens=False)
                 return [line]
 
@@ -1348,15 +1350,12 @@ class _AssessmentConsole:
                 start = len(self._stamp(now)) + 2
             return start, self._wrap_parts(detail, fit, self.columns() - 1 - start)
         if fit >= 20:
-            return indent, textwrap.wrap(detail, fit, break_on_hyphens=False)
+            return indent, self._wrap_parts(detail, fit, fit)
         if not self.wraps():
             return indent, [detail]
         indent = len(self._stamp(now)) + 2
         width = self.columns() - 1 - indent
-        pieces = (
-            self._wrap_parts(detail, width, width) if live else textwrap.wrap(detail, width, break_on_hyphens=False)
-        )
-        return indent, ["", *pieces]
+        return indent, ["", *self._wrap_parts(detail, width, width)]
 
     @staticmethod
     def _wrap_parts(detail: str, first: int, rest: int) -> list[str]:
@@ -1371,7 +1370,7 @@ class _AssessmentConsole:
                 lines[-1] = joined
             else:
                 lines += textwrap.wrap(part, rest, break_on_hyphens=False)
-        return lines
+        return lines if lines[0] or first < rest else lines[1:]
 
     @staticmethod
     def _join(head: str, indent: int, pieces: list[str]) -> str:

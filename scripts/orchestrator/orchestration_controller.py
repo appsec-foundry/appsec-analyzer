@@ -3314,10 +3314,11 @@ class _ReportedTransport:
             return f"host connection interrupted; reconnecting; no progress update for {quiet} s"
         if quiet >= self.SILENT_SECONDS:
             return f"no progress update for {quiet} s; model call is still running"
+        # Short enough to stay on one line with a call's name and age in the narrowest column of a 140-column window.
         if self.phase == "writing":
-            return f"model is writing its result (~{self.written:,} characters)"
+            return f"writing (~{self.written:,} chars)"
         if self.phase == "thinking":
-            return f"model is thinking (~{self.thinking:,} tokens)" if self.thinking else "model is thinking"
+            return f"thinking (~{self.thinking:,} tokens)" if self.thinking else "thinking"
         # Some hosts report nothing until a call ends, so no event does not mean no response yet.
         return "model call is running"
 

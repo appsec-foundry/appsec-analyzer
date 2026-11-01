@@ -9,6 +9,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -2873,9 +2874,24 @@ def test_a_long_first_line_of_a_list_keeps_its_column(monkeypatch):
     console.step("Scanners · " + "finding " * 12 + "\nroutes checked")
     first, *rest = lines[-1].splitlines()
     column = first.index("finding")
-    assert rest[0].startswith(" " * (column + 2) + "finding")
+    assert rest[0].startswith(" " * column + "finding")
     # Outside the abuse cases a further line belongs to the text, and stays under it.
     assert rest[-1] == " " * column + "routes checked"
+
+
+def test_a_list_line_breaks_between_its_parts_and_stays_in_its_column(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.phase, console.method = "Threat analysis", "Scanners"
+    tally = "Source auth 53 · Authz confirm 5 · Mass assignment 0 · Config/IaC 24 · Architecture 0"
+    console.step(f"Scanners · 82 hits\n{tally}")
+    first, *rest = lines[-1].splitlines()
+    column = " " * first.index("82 hits")
+    assert rest == [
+        column + "Source auth 53 · Authz confirm 5 · Mass assignment 0",
+        column + "Config/IaC 24 · Architecture 0",
+    ]
 
 
 def test_a_group_line_leaves_the_threat_analysis_columns_and_a_later_line_alone():
@@ -4014,6 +4030,46 @@ def test_a_fixed_row_still_wraps_under_its_own_text(monkeypatch):
     assert indent == 90 and " ".join(pieces) == detail and all(len(piece) <= 42 for piece in pieces)
 
 
+def test_a_fixed_row_breaks_between_its_parts(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    console.phase = "Architecture"
+
+    first, *rest = console._row(
+        "done",
+        "1m24s · 1 repository · 9 components · 16 data flows · ≈ USD 0.29 · 176k tokens"
+        " · USD 0.30 of 20.00 used at API prices",
+    ).split("\n")
+
+    # The status adds the time stamp before the first line only.
+    assert first.endswith("· ≈ USD 0.29")
+    assert rest == [" " * (10 + first.index("1m24s")) + "176k tokens · USD 0.30 of 20.00 used at API prices"]
+
+
+def test_a_row_too_long_for_its_column_keeps_a_model_name_whole(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    console.phase, console.method = "Threat analysis", "Survey"
+
+    first, *rest = console._row("·", "start · 9 components (survey: Opus 5.5, evidence review: Sonnet 5.5)").split("\n")
+
+    assert first.endswith("Survey    start")
+    assert rest == [" " * (10 + first.index("start")) + "9 components (survey: Opus 5.5, evidence review: Sonnet 5.5)"]
+
+
+def test_a_running_call_stays_on_one_line_at_the_default_width(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", controller._AssessmentConsole.DEFAULT_COLUMNS)
+    console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
+    console.phase, console.method, console.components = "Threat analysis", "Survey", 9
+    reported = controller._ReportedTransport(SimpleNamespace(on_event=None), lambda text: None)
+    reported.phase, reported.written = "writing", 12_426
+    call = f"evidence review (Sonnet 5.5) 11m25s {reported.state()}"
+
+    _, *rest = console._row("·", f"0/9 components done · {call}", live=True).split("\n")
+
+    assert [row.strip() for row in rest] == [call]
+
+
 def test_a_status_part_too_wide_for_a_line_wraps_at_its_spaces():
     wrap = controller._AssessmentConsole._wrap_parts
     long = "management summary 3m20s model is thinking"
@@ -4025,6 +4081,8 @@ def test_a_status_part_too_wide_for_a_line_wraps_at_its_spaces():
         "thinking · +2 more",
     ]
     assert wrap(long, 10, 30) == ["", "management summary 3m20s model", "is thinking"]
+    # Only a narrower first line stays empty; at one width the text starts on it.
+    assert wrap(long, 30, 30) == ["management summary 3m20s model", "is thinking"]
 
 
 def test_the_status_line_names_a_step_once_and_keeps_its_age(capsys, monkeypatch):

@@ -366,7 +366,7 @@ def test_activity_is_streamed_before_completion_without_model_text(transport, mo
         statuses.append(event)
         reported._observe(event)
         if event["phase"] == "thinking":
-            assert reported.state() == "model is thinking"
+            assert reported.state() == "thinking"
             release.touch()
 
     transport.on_event = observe
@@ -380,7 +380,7 @@ def test_activity_is_streamed_before_completion_without_model_text(transport, mo
     }
     assert len(statuses) == 2
     assert "PRIVATE_SOURCE" not in json.dumps(statuses)
-    assert "model is writing its result" in reported.state()
+    assert reported.state().startswith("writing (~")
 
 
 def test_activity_ignores_invalid_untrusted_and_stderr_events(tmp_path):
