@@ -38,6 +38,22 @@ def test_a_failure_code_nobody_declared_is_reported_as_unclassified():
     assert message.startswith("unclassified; ") and "transport" not in message
 
 
+@pytest.mark.parametrize(
+    "issue",
+    [
+        None,
+        "PRIVATE",
+        {"kind": []},
+        {"kind": "schema", "path": "/payload/PRIVATE\n\x1b[31m", "rule": "pattern"},
+        {"kind": "schema", "path": "/" + "a" * 600, "rule": "pattern"},
+    ],
+)
+def test_payload_diagnostics_reject_malformed_metadata(issue):
+    error = TransportError("PRIVATE_PROVIDER_TEXT", reason="invalid_response_payload", response_issue=issue)
+    assert diagnostics.failure_fields(error) == {"reason": "invalid_response_payload"}
+    assert "PRIVATE" not in diagnostics.transport_summary(error)
+
+
 def test_parallel_calls_keep_job_identity_and_never_log_inputs_or_answers(tmp_path):
     log = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
 

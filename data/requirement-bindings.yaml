@@ -1551,6 +1551,8 @@ requirements:
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
+      - tests/test_codex_schema.py::test_supported_patterns_reach_the_host_instead_of_only_failing_after_generation
+      - tests/test_codex_schema.py::test_payload_diagnostics_identify_the_constraint_and_path_without_values
       - tests/test_assessment_state.py::test_runtime_change_cannot_reset_exhausted_resume_limits
       - tests/test_assessment_state.py::test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_jobs
       - tests/test_assessment_state.py::test_resume_after_a_plugin_change_still_stops_on_a_changed_artifact
@@ -1589,6 +1591,7 @@ requirements:
       - tests/test_codex_cli.py::test_provider_failure_is_classified_from_events_or_stderr
       - tests/test_codex_cli.py::test_reconnect_activity_is_visible_and_contains_no_provider_text
       - tests/test_codex_cli.py::test_response_failure_classification_is_safe_and_never_uses_earlier_answer
+      - tests/test_codex_cli.py::test_payload_failure_retains_structural_detail_through_budget_and_diagnostics
       - tests/test_startup_preflight.py::test_failed_remote_stops_before_any_clone_or_assessment
       - tests/test_startup_preflight.py::test_assess_makes_no_model_call_before_the_run_and_says_so
       - tests/test_startup_preflight.py::test_copilot_assess_has_no_model_test
@@ -2025,6 +2028,8 @@ requirements:
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
+      - tests/test_codex_schema.py::test_supported_patterns_reach_the_host_instead_of_only_failing_after_generation
+      - tests/test_codex_schema.py::test_payload_diagnostics_identify_the_constraint_and_path_without_values
       - tests/test_copilot_cli.py::test_bounded_process_execution
       - tests/test_assessment_state.py::test_a_new_run_after_a_plugin_change_reuses_only_unchanged_jobs
       - tests/test_assessment_state.py::test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_jobs
@@ -2052,6 +2057,8 @@ requirements:
       - tests/test_multi_repo_analysis.py::test_shared_window_targets_split_by_actual_utf8_bytes_and_keep_first_job_reserve
       - tests/test_multi_repo_analysis.py::test_unserved_windows_stay_bounded_and_oversized_target_metadata_is_rejected
       - tests/test_codex_cli.py::test_subscription_counts_calls_and_preserves_completion_reserve
+      - tests/test_codex_cli.py::test_token_usage_reaches_budget_and_console_without_inventing_usd
+      - tests/test_codex_cli.py::test_invalid_optional_usage_does_not_break_a_valid_answer
       - tests/test_codex_cli.py::test_subscription_rejects_monetary_reply_and_counts_failure
       - tests/test_codex_cli.py::test_subscription_controller_publishes_validated_reports
       - tests/test_codex_cli.py::test_bounded_process_execution
@@ -2393,6 +2400,8 @@ requirements:
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
+      - tests/test_codex_schema.py::test_supported_patterns_reach_the_host_instead_of_only_failing_after_generation
+      - tests/test_codex_schema.py::test_payload_diagnostics_identify_the_constraint_and_path_without_values
       - tests/test_public_scan_cli.py::test_preflight_never_discloses_external_declaration
       - tests/test_public_export_cli.py::test_document_export_rejects_external_resources_before_embedding
       - tests/test_startup_preflight.py::test_failed_metadata_never_reads_error_body_or_follows_redirect
@@ -2464,6 +2473,8 @@ requirements:
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent
       - tests/test_codex_schema.py::test_ambiguous_wire_unions_cannot_choose_a_different_canonical_object
+      - tests/test_codex_schema.py::test_supported_patterns_reach_the_host_instead_of_only_failing_after_generation
+      - tests/test_codex_schema.py::test_payload_diagnostics_identify_the_constraint_and_path_without_values
       - tests/test_public_export_cli.py::test_export_secret_rejection_does_not_disclose_input
       - tests/test_public_scan_cli.py::test_preflight_diagnostics_never_echo_declaration_values
       - tests/test_startup_preflight.py::test_connection_failure_is_redacted

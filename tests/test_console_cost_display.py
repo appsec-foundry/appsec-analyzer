@@ -156,6 +156,9 @@ def test_usage_hides_only_costs_and_never_invents_unavailable_amounts():
     assert usage_text(before, {**after, "itemised": 2}, show_costs=False) == ""
     unknown = {**after, "usd": None, "total_usd": None}
     assert usage_text({**before, "usd": None}, unknown, show_costs=True) == "USD cost unavailable · 2k tokens"
+    assert usage_text({**before, "usd": None}, {**unknown, "subscription": True}, show_costs=True) == (
+        "USD cost unavailable (subscription host) · 2k tokens"
+    )
     assert usage_text(before, before, show_costs=True) == ""
 
 

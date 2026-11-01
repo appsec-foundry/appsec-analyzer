@@ -33,7 +33,8 @@ def test_management_summary_regex_is_local_and_still_enforced():
 
     # Use the actual summary restriction, rather than a schema invented for the test.
     complete = CodexSchema(host_schema(response_schema(ms_schema())))
-    assert all("pattern" not in node for node in complete.definitions.values())
+    assert any("pattern" in node for node in complete.definitions.values())
+    assert all("(?!" not in node.get("pattern", "") for node in complete.definitions.values())
     canonical = ms_schema()["properties"]["verdict"]["properties"]["opening"]
     schema = CodexSchema(closed({"headline": canonical}))
     assert all("pattern" not in node for node in schema.definitions.values())
@@ -226,3 +227,90 @@ def test_extra_wire_field_does_not_collide_with_a_declared_name():
         "__extra": "declared",
         "present": None,
     }
+
+
+def test_supported_patterns_reach_the_host_instead_of_only_failing_after_generation():
+    from contexts.multi_repo_analysis import contract
+    from runtime.assessment_host import host_schema, response_schema
+
+    schema = CodexSchema(host_schema(response_schema(contract("multi-repo-architecture.schema.json"))))
+    wire = {
+        "payload": {
+            "action": "read",
+            "reads": [
+                {
+                    "repository_id": "repo-0123456789abcdef",
+                    "path": "app.py",
+                    "start_line": 1,
+                    "end_line": 2,
+                }
+            ],
+            "artifact": None,
+        }
+    }
+    host = Draft202012Validator(schema.schema)
+    assert host.is_valid(wire)
+    wire["payload"]["reads"][0]["repository_id"] = "invalid-repository"
+    # Previously the host accepted this but decode stopped the entire run.
+    assert not host.is_valid(wire)
+    assert {n.get("pattern") for n in schema.definitions.values()} >= {
+        "^repo-[a-f0-9]{16}$",
+        "^df-[0-9]{3,}$",
+        "^sha256:[a-f0-9]{64}$",
+    }
+    wire["payload"].update(
+        action="complete",
+        reads=[],
+        artifact={
+            "schema_version": 2,
+            "source_scope_sha256": "a" * 64,
+            "component_inventory_fingerprint": "sha256:" + "b" * 64,
+            "repository_id": "repo-0123456789abcdef",
+            "data_flows": [],
+            "external_entities": [],
+            "assets": [],
+        },
+    )
+    assert host.is_valid(wire)
+    assert schema.decode(wire) == wire["payload"]
+    wire["payload"]["artifact"]["component_inventory_fingerprint"] = "wrong-fingerprint"
+    assert not host.is_valid(wire)
+
+
+def test_payload_diagnostics_identify_the_constraint_and_path_without_values():
+    from appsec_analyzer.codex_schema import CodexPayloadError
+
+    schema = CodexSchema(closed({"identifier": {"type": "string", "pattern": "^id-[0-9]+$"}}))
+    with pytest.raises(CodexPayloadError) as caught:
+        schema.decode({"payload": {"identifier": "PRIVATE_MODEL_VALUE\n\x1b[31m"}})
+    assert caught.value.issue == {"kind": "schema", "rule": "pattern", "path": "/payload/identifier"}
+    assert "PRIVATE" not in str(caught.value)
+
+
+def test_local_only_patterns_are_also_described_to_the_model():
+    schema = CodexSchema(closed({"name": {"type": "string", "pattern": "^(?!forbidden).+$"}}))
+    assert "^(?!forbidden).+$" in json.dumps(schema.schema)
+    assert all("pattern" not in n for n in schema.definitions.values())
+    with pytest.raises(ValueError, match="wire schema"):
+        schema.decode({"payload": {"name": "forbidden"}})
+
+
+@pytest.mark.parametrize("pattern", [r"^(?=allowed)allowed$", r"^(?!forbidden).+$", r"^(a)\1$", r"(?P<name>a)"])
+def test_nonportable_patterns_keep_local_validation_and_model_guidance(pattern):
+    schema = CodexSchema(closed({"name": {"type": "string", "pattern": pattern}}))
+    assert all("pattern" not in n for n in schema.definitions.values())
+    assert any(pattern in n.get("description", "") for n in schema.definitions.values())
+    with pytest.raises(ValueError):
+        schema.decode({"payload": {"name": "forbidden"}})
+
+
+def test_duplicate_map_key_diagnostic_never_includes_the_key():
+    from appsec_analyzer.codex_schema import CodexPayloadError
+
+    schema = CodexSchema({})
+    with pytest.raises(CodexPayloadError) as caught:
+        schema.decode(
+            {"payload": {"entries": [{"key": "PRIVATE_KEY", "value": 1}, {"key": "PRIVATE_KEY", "value": 2}]}}
+        )
+    assert caught.value.issue == {"kind": "duplicate_member", "path": "/payload/entries/1"}
+    assert "PRIVATE" not in str(caught.value)
