@@ -902,6 +902,10 @@ class _AssessmentConsole:
     # The widest a terminal line gets without --width; longer lines are hard to read on a wide window.
     DEFAULT_COLUMNS = 140
 
+    # The narrowest column a list stays in, and the ``ID  `` that starts one of its entries.
+    _LIST_MIN_WIDTH = 40
+    _LIST_ENTRY = re.compile(r"\S+ {2,}")
+
     @staticmethod
     def wraps() -> bool:
         """Whether lines wrap: on a terminal, and off it only under --width."""
@@ -1261,6 +1265,8 @@ class _AssessmentConsole:
         method = self.method if event not in ("start", "done") else ""
         width = self._CASE_GROUP_WIDTH if self.phase == "Abuse cases" else self._METHOD_WIDTH
         lead = f"{method:<{width}}  " if method else ""
+        # A list of abuse cases starts under its group's name, so the name takes no width from the titles.
+        label = len(lead) if self.phase == "Abuse cases" else 0
         run = self._run(now)
         bar = ""
         if live:
@@ -1273,7 +1279,7 @@ class _AssessmentConsole:
             if not self.wraps() and "\n" not in detail:
                 return row.rstrip()
             head = row[: len(row) - len(detail)]
-            indent, pieces = self._wrap_detail(len(head), detail, now, live)
+            indent, pieces = self._wrap_detail(len(head), detail, now, live, label)
             return self._join(head, indent, pieces)
         # Colour wraps each padded column, so the grid keeps its widths.
         st, role = self.st, ("accent" if live else self.EVENT_ROLES.get(event))
@@ -1287,7 +1293,7 @@ class _AssessmentConsole:
         # A long detail wraps under its own column instead of at the screen edge.
         # The budget figure stays whole across a wrap, which splits only at plain spaces.
         kept = self._SPENT.sub(lambda found: found[0].replace(" ", "\xa0"), detail)
-        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now, live)
+        indent, pieces = self._wrap_detail(len(ANSI_RE.sub("", head)), kept, now, live, label)
         # The amount's colour ends with a reset, so a warning line takes its colour up again after it.
         rest = ("warn",) if event == "⚠" else ()
         cells = [
@@ -1302,14 +1308,17 @@ class _AssessmentConsole:
                 cells = [piece.replace(name, st(name, "agent")) for piece in cells]
         return self._join(head, indent, cells)
 
-    def _wrap_detail(self, head: int, detail: str, now: float, live: bool = False) -> tuple[int, list[str]]:
+    def _wrap_detail(
+        self, head: int, detail: str, now: float, live: bool = False, label: int = 0
+    ) -> tuple[int, list[str]]:
         """(indent, pieces) of a detail after a `head` columns wide grid head.
 
         A long detail continues under its own column. The status line's bar leaves
-        that column narrow, so `live` continues after the time stamp instead, and
-        so do the entries of a list, which would otherwise wrap at half the screen.
-        Where --width leaves the column too narrow, the detail starts on the next
-        line after the time stamp.
+        that column narrow, so `live` continues after the time stamp instead. The
+        entries of a list start `label` columns before the detail; where the window
+        leaves that column narrower than `_LIST_MIN_WIDTH`, they start after the
+        time stamp. Where --width leaves the column too narrow, the detail starts
+        on the next line after the time stamp.
         """
         indent = len(self._stamp(now)) + 2 + head
         fit = self.columns() - 1 - indent
@@ -1318,11 +1327,15 @@ class _AssessmentConsole:
 
             def wrap(line, width):
                 if wrapped and width >= 20:
-                    # A long line continues two columns further in.
-                    return textwrap.wrap(line, width, subsequent_indent="  ", break_on_hyphens=False)
+                    # A long entry continues under its title, other text two columns further in.
+                    found = self._LIST_ENTRY.match(line)
+                    hang = min(len(found[0]), width // 2) if found else 2
+                    return textwrap.wrap(line, width, subsequent_indent=" " * hang, break_on_hyphens=False)
                 return [line]
 
-            start = len(self._stamp(now)) + 2
+            start = indent - label
+            if wrapped and self.columns() - 1 - start < self._LIST_MIN_WIDTH:
+                start = len(self._stamp(now)) + 2
             first, *entries = detail.split("\n")
             pieces = wrap(first, fit)
             pieces[1:] = [" " * (indent - start) + piece for piece in pieces[1:]]

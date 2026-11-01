@@ -2777,8 +2777,8 @@ def test_every_stride_component_gets_its_own_line_and_the_abuse_cases_one_list(c
     assert listed == [
         "Survey    start · 2 components",
         *([] if live else started),
-        # The concurrent cases are named once, listed after the time stamp; a start prints no line.
-        "Technical  2 cases to verify\n" + " " * 10 + "AC-901  Replay a signed callback\n" + " " * 10 + "AC-902?[2J",
+        # The concurrent cases are named once, listed under their group's name; a start prints no line.
+        "Technical  2 cases to verify\n" + " " * 66 + "AC-901  Replay a signed callback\n" + " " * 66 + "AC-902?[2J",
     ]
     # A finish counts completions, never a start slot: Ledger started second but finished first.
     assert [row[5] for row in rows if row[1] == "✓"] == [
@@ -2805,7 +2805,7 @@ def test_abuse_case_lines_name_their_group_in_a_column_of_their_own():
     console.step("Abuse case result · Custom: 1 unresolved · 1 mitigated")
     console.step("Phase result: Abuse cases: 1 confirmed · 1 unresolved · 1 mitigated")
     console.close()
-    column = " " * 10
+    column = " " * 66
     assert [(row[1], row[5]) for row in _rows(lines)] == [
         ("start", "Technical, Business and Custom"),
         ("·", f"Technical  1 case to verify\n{column}AC-T-001    Read foreign data"),
@@ -2823,7 +2823,24 @@ def test_abuse_case_lines_name_their_group_in_a_column_of_their_own():
     ]
 
 
-def test_list_entries_use_the_width_after_the_time_stamp(monkeypatch):
+def test_a_list_of_abuse_cases_starts_under_its_group_and_continues_under_its_title(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.step("Matching abuse cases")
+    fits = "AC-T-001  " + "x" * 63
+    console.step(f"Abuse cases to verify · Technical\n{fits}\nAC-T-002  " + "word " * 21)
+    head, *shown = lines[-1].splitlines()
+    column = " " * head.index("Technical")
+    # The group's name takes no width from a title, which therefore stays on one line.
+    assert shown[0] == column + fits
+    # A longer title continues under itself, and no line passes the width.
+    assert shown[1].startswith(column + "AC-T-002  word")
+    assert shown[2].startswith(column + " " * 10 + "wo")
+    assert max(map(len, [head, *shown])) < 140
+
+
+def test_a_narrow_window_lists_entries_after_the_time_stamp(monkeypatch):
     monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 100)
     lines = []
     console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
@@ -2831,12 +2848,22 @@ def test_list_entries_use_the_width_after_the_time_stamp(monkeypatch):
     fits = "AC-T-001  " + "x" * 75
     console.step(f"Abuse cases to verify · Technical\n{fits}\nAC-T-002  " + "word " * 21)
     shown = lines[-1].splitlines()
-    # A title too long for the detail column stays on one line.
     assert shown[1] == " " * 10 + fits
-    # A longer entry continues two columns further in, and no line passes the width.
     assert shown[2].startswith(" " * 10 + "AC-T-002  word")
-    assert shown[3].startswith(" " * 12 + "wo")
+    assert shown[3].startswith(" " * 20 + "wo")
     assert max(map(len, shown)) < 100
+
+
+def test_a_very_long_case_id_keeps_room_for_its_title(monkeypatch):
+    """A case ID may have 100 characters, and the list pads every entry to the longest one."""
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.step("Matching abuse cases")
+    console.step("Abuse cases to verify · Custom\n" + "X" * 60 + "  " + "title " * 6)
+    head, *shown = lines[-1].splitlines()
+    column = head.index("Custom")
+    assert len(shown) == 2 and shown[1].startswith(" " * (column + 36) + "title")
 
 
 def test_a_long_first_line_of_a_list_keeps_its_column(monkeypatch):
@@ -2845,8 +2872,10 @@ def test_a_long_first_line_of_a_list_keeps_its_column(monkeypatch):
     console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
     console.step("Scanners · " + "finding " * 12 + "\nroutes checked")
     first, *rest = lines[-1].splitlines()
-    assert rest[0].startswith(" " * (first.index("finding") + 2) + "finding")
-    assert rest[-1] == " " * 10 + "routes checked"
+    column = first.index("finding")
+    assert rest[0].startswith(" " * (column + 2) + "finding")
+    # Outside the abuse cases a further line belongs to the text, and stays under it.
+    assert rest[-1] == " " * column + "routes checked"
 
 
 def test_a_group_line_leaves_the_threat_analysis_columns_and_a_later_line_alone():
