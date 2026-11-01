@@ -240,6 +240,21 @@ appsec-analyzer assess --repo /path/to/project \
   --profile claude --non-interactive
 ```
 
+#### How `assess` finds weaknesses
+
+After mapping the architecture and its controls, `assess` runs four methods, in this order:
+
+| Method | What it does | What runs at each [depth](#assessment-options) |
+| --- | --- | --- |
+| Scanners | Deterministic Python scanners apply fixed rules to source code, routes, and configuration files. They make no model calls. | `quick`: all source rules, configuration rules on up to 5 files of each type<br>`standard`: also all other configuration files<br>`thorough`: also database privilege separation |
+| Survey | A model searches each component on its own for any weakness, with the six STRIDE threat categories (such as Spoofing and Tampering) as its checklist. The result is a list of weaknesses with evidence in the code, not a STRIDE threat model of possible threats. | `quick`, `standard`: code that routes, scanner hits, or security signals point to<br>`thorough`: also every other program file, after verification and within the budget |
+| Verification | A catalog holds fixed questions per security aspect. Analyzer collects the places where they apply, and a model answers each question at each place. For example, one authorization question asks at each route whether object access checks the owner. | `quick`: none<br>`standard`: authentication, authorization, input validation, AI features<br>`thorough`: also data protection |
+| [Abuse cases](#abuse-cases) | Each case describes one attacker goal, possibly across several steps or components. Cases are technical (account takeover through XSS), business (a user bypasses a required approval), or custom (cases from your organization, repository, or a selected file). Analyzer selects the cases that fit the application. A model then checks step by step, starting from the consolidated findings of the three methods above and the code, whether an attacker can reach the goal. | `quick`: only on request, such as with `--abuse-cases`<br>`standard`: technical cases that fit the code, built-in business rules, custom cases<br>`thorough`: also up to 3 rules derived from the application |
+
+Scanner hits show the survey and verification where to start. Verification does not see the survey's findings, so it can confirm them, contradict them, or find what the survey missed. A confirmed abuse case can add a finding.
+
+An independent evidence review checks scanner and survey findings against the source code, and also verification findings that no automatic check has confirmed. A weakness that several methods found appears once and names each method. See [Survey and verification](docs/security-assessment.md#survey-and-verification) for details.
+
 ### `review`: discuss an assessment with your coding agent
 
 `review` opens a finished assessment in Claude Code or Codex so you can discuss findings and plan fixes. The assistant starts in read-only mode and uses its own account, not the scan budget. `--preview` shows what the assistant would receive, without starting it. See [Review guide](docs/security-assessment.md#review-an-assessment-with-ai).

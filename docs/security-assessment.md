@@ -184,11 +184,11 @@ Accepted jobs stay in the output directory. After you correct the cause, repeat 
 
 ## Survey and verification
 
-An assessment examines the code with two methods. The survey looks at each component openly and reports any weakness it finds. Verification works through a fixed list of questions for selected security aspects, such as authorization, and answers each question at every place in the code where it applies. The survey always runs. Verification runs after it for the aspects that the assessment depth or your profiles select.
+Besides scanners and abuse cases, an assessment examines the code with two methods. The survey looks at each component openly and reports any weakness it finds. Verification works through a fixed list of questions for selected security aspects, such as authorization, and answers each question at every place in the code where it applies. The survey always runs. Verification runs after it for the aspects that the assessment depth or your profiles select.
 
 ### The survey
 
-A model reads one component at a time, such as the API server or the web frontend, and reports the weaknesses it finds. The six STRIDE categories are its checklist, and each finding carries one of them.
+A model reads one component at a time, such as the API server or the web frontend, and reports the weaknesses it finds. The six STRIDE categories are its checklist, and each finding carries one of them. The result is a list of weaknesses with evidence in the code, not a STRIDE threat model of possible threats.
 
 Every program file and server-side template belongs to a component, in any language or framework. Files that discovery did not read go to the component whose code lies closest in the folder tree. Tests, documentation, top-level examples, and vendored code stay out. A component without its own program code, such as a database or a build pipeline, gets no files. If code still belongs to no component, for example because no component holds program code, the final summary says how many files. The report lists them by folder. At quick and standard depth, the survey picks the files with entry points, scanner hits, or security-relevant keywords within a component. Client code has its own signals, such as raw HTML bindings, HTTP interceptors, route guards, and browser storage. The report counts, per component, the files the survey did not examine individually. At thorough depth, the survey also examines every other program file, in extra jobs that run after verification and side by side. These jobs send more source code to the model host and cost more. They stop first when the budget runs short: they leave a share of it for the steps after them and never ask for more. The report names the files they did not reach as unexamined.
 
