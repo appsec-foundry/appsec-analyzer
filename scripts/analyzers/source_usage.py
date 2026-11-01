@@ -1,9 +1,12 @@
 """Bounded source-use evidence for route extraction, never source admission.
 
-Only module-relative text reads ending in a recognized JSON response can
-exclude a file's apparent server registrations. Imports, entry points and
-ambiguous loading take precedence. Other analyses retain every source file.
-No repository code, manifest command or model response is executed here.
+Only module-relative text reads ending in a recognized JSON response, or a
+TypeScript build that leaves a file out of the compiled program the manifest
+starts, can exclude a file's apparent server registrations. Imports, entry
+points and ambiguous loading take precedence over a text read; imports, entry
+points and other build configurations take precedence over a build exclusion.
+Other analyses retain every source file. No repository code, manifest command
+or model response is executed here.
 """
 
 from __future__ import annotations
@@ -31,7 +34,14 @@ MAX_HELPERS = 32
 MAX_HELPER_DEPTH = 3
 MAX_HELPER_BODY = 4096
 MAX_DELEGATED_HELPERS = 64
+#: Exclude entries of the root tsconfig.json that are looked at.
+MAX_BUILD_EXCLUDES = 64
+#: Roles of files whose apparent registrations are no server routes.
+NOT_EXECUTED = frozenset({"text-data", "not-built"})
 _JS = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"}
+_TYPESCRIPT = {".ts", ".tsx", ".mts", ".cts"}
+# Comments and trailing commas of a tsconfig.json; the first group keeps strings such as "./*" intact.
+_JSONC_NOISE = re.compile(r"""("(?:[^"\\\n]|\\.)*")|//[^\n]*|/\*[\s\S]*?\*/|,(?=\s*[}\]])""")
 METADATA_EXTS = {
     ".md",
     ".markdown",
@@ -1085,6 +1095,94 @@ def classify(sources: Mapping[str, str], *, entries: Iterable[str] = (), complet
     return roles
 
 
+def _tsconfig(root: Path) -> dict | None:
+    """The root tsconfig.json, which may hold comments and trailing commas; None when it cannot be read."""
+    path = root / "tsconfig.json"
+    if path.is_symlink() or not is_safe_to_read(path, root) or not path.is_file():
+        return None
+    try:
+        with path.open("rb") as stream:
+            content = stream.read(MAX_FILE_BYTES + 1)
+        if len(content) > MAX_FILE_BYTES:
+            return None
+        document = json.loads(_JSONC_NOISE.sub(lambda match: match.group(1) or "", content.decode("utf-8")))
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def _build_excluded_folders(root: Path, manifest) -> tuple[str, ...]:
+    """Folders the TypeScript build leaves out of the compiled program the manifest starts.
+
+    Only a `start` script that runs `node` on the build's `outDir`, beside a script that runs `tsc`,
+    shows that production runs compiled output: a source file compilation skips then has no module
+    to load, not even through a dynamic import. A project that starts from TypeScript source shows
+    nothing, nor does an `outDir` from a base configuration, or a `files` list, which `exclude` does
+    not bind. Only literal folders count, so repository text never becomes a pattern, and a folder a
+    script names stays out, because that script may build or run it.
+    """
+    config = _tsconfig(root)
+    scripts = manifest.get("scripts") if isinstance(manifest, dict) else None
+    options = config.get("compilerOptions") if config else None
+    excludes = config.get("exclude") if config else None
+    if "files" in (config or {}) or not (
+        isinstance(scripts, dict) and isinstance(options, dict) and isinstance(excludes, list)
+    ):
+        return ()
+    commands = [command for command in scripts.values() if isinstance(command, str)]
+    start, output = scripts.get("start"), options.get("outDir")
+    if not (isinstance(start, str) and isinstance(output, str)):
+        return ()
+    if not any("tsc" in re.split(r"[\s;&|]+", command) for command in commands):
+        return ()
+    words = start.split()
+    target = next((word for word in words[1:] if not word.startswith("-")), None) if words[:1] == ["node"] else None
+    output = _relative("", output)
+    if not target or not output or output == "." or not (_relative("", target) or "").startswith(output + "/"):
+        return ()
+    folders = []
+    for value in excludes[:MAX_BUILD_EXCLUDES]:
+        if not isinstance(value, str):
+            continue
+        for suffix in ("/**/*", "/**", "/*", "/"):
+            value = value.removesuffix(suffix)
+        folder = _relative("", value) if value and not re.search(r"[*?\[\]{}!]", value) else None
+        if folder and folder != "." and not any(folder in command for command in commands):
+            folders.append(folder)
+    return tuple(folders)
+
+
+def _mark_unbuilt(root: Path, roles: dict[str, dict], manifest) -> dict[str, dict]:
+    """Mark as `not-built` the TypeScript files of an excluded folder that nothing else claims.
+
+    A file keeps its role when something imports or starts it, as `exclude` binds only the files
+    compilation starts from, and when a tsconfig in a folder above it may compile it, as the
+    frontend's own configuration does for a folder the root configuration leaves to it.
+    """
+    folders = _build_excluded_folders(root, manifest)
+    if not folders:
+        return roles
+    configured: dict[str, bool] = {}
+
+    def has_configuration(folder: str) -> bool:
+        if folder not in configured:
+            try:
+                configured[folder] = any((root / folder).glob("tsconfig*.json"))
+            except OSError:
+                configured[folder] = True
+        return configured[folder]
+
+    for file, role in roles.items():
+        if (
+            role["kind"] == "unknown"
+            and Path(file).suffix.lower() in _TYPESCRIPT
+            and any(file.startswith(folder + "/") for folder in folders)
+            and not any(has_configuration(parent.as_posix()) for parent in Path(file).parents if parent != Path("."))
+        ):
+            roles[file] = _role("not-built", "The TypeScript build leaves it out of the program", "tsconfig.json")
+    return roles
+
+
 def classify_paths(root: Path, paths: Iterable[Path]) -> dict[str, dict]:
     """Read only caller-selected regular sources, with whole-analysis fallback on limits or unreadable files."""
     sources, complete, used = {}, True, 0
@@ -1111,6 +1209,7 @@ def classify_paths(root: Path, paths: Iterable[Path]) -> dict[str, dict]:
         except (OSError, UnicodeError, ValueError):
             complete = False
     entries = set()
+    document = None
     manifest = root / "package.json"
     if manifest.is_symlink():
         complete = False
@@ -1158,4 +1257,4 @@ def classify_paths(root: Path, paths: Iterable[Path]) -> dict[str, dict]:
                             complete = False
         except (OSError, UnicodeError, ValueError, AttributeError, RecursionError):
             complete = False
-    return classify(sources, entries=entries, complete=complete)
+    return _mark_unbuilt(root, classify(sources, entries=entries, complete=complete), document)

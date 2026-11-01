@@ -133,8 +133,11 @@ class AssessmentBudget(DiscoveryBudget):
         self.init_retries()
         self.required = {}
         self.observed = {}
-        # The most one accepted job of each role cost; it bounds the role's calls near the limit.
+        # The most one accepted job of each role cost; the report reserve reads the survey's,
+        # and it stands in for a role whose calls this session has not measured, as after a resume.
         self.largest_job = {}
+        # The most one finished call of each role cost; it bounds the role's calls near the limit.
+        self.largest_call = {}
         self.reserve_completion = False
         self.on_budget_increase = None
         # Controller-set shares of optional work, {group: (usd, calls)}. They
@@ -259,17 +262,24 @@ class AssessmentBudget(DiscoveryBudget):
         """The ceiling of the next call: the full one while it fits every free worker, else what the role measured.
 
         A running call holds its ceiling in `spent_usd`, so a flat ceiling far above what calls cost stops
-        the run's parallelism long before the money ends. A role without an accepted job keeps the full
-        ceiling, and an API host's worst case stays the lower bound. Every ceiling is still reserved in
-        full and enforced by the host; a call stopped at a measured one is repeated once (`invoke`).
+        the run's parallelism long before the money ends. The ceiling binds one call, so one call is the
+        measure; a job's several calls would hold two to three times what a call costs. A role without a
+        measurement keeps the full ceiling, and an API host's worst case stays the lower bound. Every
+        ceiling is still reserved in full and enforced by the host; a call stopped at a measured one is
+        repeated once (`invoke`).
         """
         _group, role, _optional = getattr(self._local, "job", (None, None, False))
-        largest = self.largest_job.get(role)
+        largest = self.largest_call.get(role) or self.largest_job.get(role)
         if not largest or getattr(self._local, "full_ceiling", False):
             return self.call_usd
         if self.available_usd() >= max(1, self.workers - self._inflight) * self.call_usd:
             return self.call_usd
         return min(self.call_usd, max(self.call_floor_usd, MIN_MEASURED_CALL_USD, COST_HEADROOM * largest))
+
+    def _measured_call(self, usd):
+        _group, role, _optional = getattr(self._local, "job", (None, None, False))
+        with self._lock:
+            self.largest_call[role] = max(self.largest_call.get(role, 0.0), usd)
 
     def _report_usd(self, role, usd):
         """What the report reserves: its own measurement, else what the survey's jobs say about the run's size."""

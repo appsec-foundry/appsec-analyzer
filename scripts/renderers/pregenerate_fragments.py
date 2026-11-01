@@ -433,6 +433,10 @@ _UNANALYSED_REASONS = {
         "configuration file that could not be parsed, so its resource checks did not run",
         "configuration files that could not be parsed, so their resource checks did not run",
     ),
+    "not-built": (
+        "TypeScript file the build leaves out, so its routes and code sites were not checked",
+        "TypeScript files the build leaves out, so their routes and code sites were not checked",
+    ),
 }
 
 

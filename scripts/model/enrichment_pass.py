@@ -87,7 +87,7 @@ def main() -> int:
     if not is_safe_to_read(path, args.output_dir):
         parser.error("threat-model.yaml must be a regular file contained in output_dir")
     try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        document = yaml.load(path.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
         if not isinstance(document, dict):
             parser.error("threat-model.yaml must be a mapping")
         stamp(document)

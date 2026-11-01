@@ -543,3 +543,42 @@ def test_finalization_assigns_the_code_discovery_did_not_read(tmp_path):
     # Only code that stays out by design is left; the report still names it.
     left = {path for _, path in analysis.unowned_sources(scope, result["components"])}
     assert left <= {"docs/example.php", "examples/demo.php", "vendor/lib/parser.php"}
+
+
+def test_a_library_named_as_vendored_stays_out_wherever_a_build_places_it(tmp_path):
+    """REQ-004: vendored code stays out; a client's assets folder names no vendor directory."""
+    files = {
+        **{key: value for key, value in NODE.items() if key.startswith(("package.json", "web/"))},
+        "web/src/assets/three.js": "export const REVISION = '1'\n",
+        "web/src/assets/stats.min.js": "var s=1\n",
+        "web/src/assets/scene.js": "export const scene = {}\n",
+    }
+    root = write(tmp_path / "shop", files)
+    [unit] = [row for row in units_of(root) if row["kind"] == "client-app"]
+    component = {"id": "web", "tier": "client", "paths": ["web/src/main.ts"]}
+    serving_units.adopt([unit], [component], root, [])
+    assert "web/src/assets/scene.js" in component["paths"]
+    assert not {"web/src/assets/three.js", "web/src/assets/stats.min.js"} & set(component["paths"])
+    serving_units.adopt_remaining([component], root, limit=100)
+    assert not {"web/src/assets/three.js", "web/src/assets/stats.min.js"} & set(component["paths"])
+
+
+def test_an_api_keeps_its_own_files_that_are_named_like_a_library(tmp_path):
+    """An API needs its entry file or the run stops, and `bootstrap.js` is a common name for one."""
+    files = {
+        "package.json": NODE["package.json"],
+        "bootstrap.js": "const app = require('express')()\napp.get('/orders', (req, res) => res.end())\n",
+        "lib/moment.js": "module.exports = () => new Date()\n",
+    }
+    root = write(tmp_path / "api", files)
+    unit = {
+        "id": "http-api:.",
+        "kind": "http-api",
+        "root": "",
+        "entry_files": ["bootstrap.js"],
+        "source_files": ["bootstrap.js", "lib/moment.js"],
+    }
+    component = {"id": "api", "tier": "application", "paths": ["bootstrap.js"]}
+    serving_units.adopt([unit], [component], root, [])
+    assert serving_units.carriers(unit, [component]) == [component]
+    assert component["paths"] == ["bootstrap.js", "lib/moment.js"]

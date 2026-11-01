@@ -764,7 +764,8 @@ def _mask_structured_text(text: str, suffix: str) -> tuple[str, list[str]]:
     import yaml
 
     try:
-        doc = json.loads(text) if suffix == ".json" else yaml.safe_load(text)
+        loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+        doc = json.loads(text) if suffix == ".json" else yaml.load(text, Loader=loader)
     except (ValueError, yaml.YAMLError):
         return text, []
     masked_doc, applied = mask_structure(doc)

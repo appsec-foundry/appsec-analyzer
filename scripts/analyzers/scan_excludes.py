@@ -259,6 +259,18 @@ def is_always_included(rel_path: str, excludes: dict | None = None) -> bool:
     return False
 
 
+def is_excluded_name(rel_path: str, excludes: dict | None = None) -> bool:
+    """Whether the file's name alone excludes it, such as a minified or vendored library.
+
+    Unlike `is_excluded` this ignores folders, which component assignment decides by its own rule: a
+    folder such as `example` excludes code only at the top level of a repository (REQ-004).
+    """
+    excludes = excludes or load_excludes()
+    if is_always_included(rel_path, excludes):
+        return False
+    return _matches_file_pattern(_basename(rel_path), excludes.get("file_patterns", []))
+
+
 def is_excluded(
     rel_path: str,
     opt_ins: Iterable[str] = (),

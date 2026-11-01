@@ -193,7 +193,7 @@ def _load_threat_artifact(output_dir: Path) -> tuple[Path, dict] | None:
         if path.suffix == ".json":
             data = json.loads(path.read_text(encoding="utf-8"))
         else:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            data = yaml.load(path.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
         print(f"guard_evidence_verification: could not parse {path}: {exc}", file=sys.stderr)
         return None

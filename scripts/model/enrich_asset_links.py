@@ -453,7 +453,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        data = yaml.load(yaml_path.read_text(encoding="utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     except (yaml.YAMLError, OSError) as exc:
         print(f"enrich_asset_links: could not parse {yaml_path}: {exc}", file=sys.stderr)
         return 1
