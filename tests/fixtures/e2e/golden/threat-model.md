@@ -721,9 +721,7 @@ _No abuse cases were identified or mandated for this assessment._
 
 ## 10. Mitigation Register
 
-Each mitigation block lists the findings it **Addresses**, the CWEs it **Prevents**, and the **Priority** (P1 = before deployment, P2 = current sprint, P3 = next quarter, P4 = backlog). **Why**, **How**, and **Verification** appear when written; every P1 or P2 mitigation that changes code gives **How** and **Verification**. If a field is omitted, refer to the linked finding's *Evidence* line for file:line context and to the threat-category description in [§8 Findings Register](#8-findings-register) for the underlying weakness.
-
-**Mitigations index:**<br/>● [M-001](#m-001) — Parameterize SQL queries<br/>● [M-002](#m-002) — Externalize RSA key<br/>◕ [M-003](#m-003) — Remove DomSanitizer bypasses
+Changes are ordered by priority: P1 before deployment, P2 this sprint, P3 next quarter, P4 backlog. Each entry links its findings and gives the available implementation steps and checks.
 
 ### P1 — Immediate
 

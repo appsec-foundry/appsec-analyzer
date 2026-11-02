@@ -1205,6 +1205,15 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_mitigation_register.py::test_a_weakness_category_never_invents_code_or_a_verification
+      - tests/test_mitigation_register.py::test_authored_examples_and_verification_remain_available
+      - tests/test_mitigation_register.py::test_a_finding_can_supply_the_concrete_example_and_check
+      - tests/test_mitigation_register.py::test_shared_findings_contribute_each_distinct_instruction_once
+      - tests/test_mitigation_register.py::test_a_deliberately_repeated_step_keeps_its_place_in_the_procedure
+      - tests/test_mitigation_register.py::test_a_shared_fix_preserves_repeated_checks_from_its_findings
+      - tests/test_mitigation_register.py::test_similar_instructions_with_distinct_identifiers_or_values_are_preserved
+      - tests/test_mitigation_register.py::test_non_fix_tasks_keep_uncertainty_without_inheriting_finding_fixes
+      - tests/test_mitigation_register.py::test_a_review_keeps_its_own_steps_and_check
       - tests/test_emit_finding_fix_mitigations.py::test_a_fix_for_a_finding_the_ranking_raised_moves_to_its_band
       - tests/test_triage_compute_ranking.py::test_write_outputs_brings_the_critical_list_and_fix_bands_in_line_with_the_ranking
       - tests/test_compose_threat_model.py::test_a_higher_risk_never_stands_below_a_lower_one
@@ -1391,6 +1400,12 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_mitigation_register.py::test_register_starts_with_priority_cards_and_preserves_every_link_target
+      - tests/test_mitigation_register.py::test_how_lists_and_steps_form_one_ordered_sequence
+      - tests/test_mitigation_register.py::test_how_prose_does_not_repeat_as_an_extra_step
+      - tests/test_mitigation_register.py::test_mixed_prose_and_fenced_code_remain_intact
+      - tests/test_mitigation_register.py::test_mitigation_register_matches_its_focused_golden
+      - tests/test_mitigation_register.py::test_frozen_report_mitigation_chapter_matches_its_golden
       - tests/test_case_outcomes.py::test_appendix_keeps_result_links_without_catalog_instructions_or_duplicate_details
       - tests/test_case_outcomes.py::test_mixed_results_keep_protection_uncertainty_and_coverage_without_details
       - tests/test_compact_tables.py::test_critical_and_high_always_stay_visible_however_many_there_are

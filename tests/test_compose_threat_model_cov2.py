@@ -1053,14 +1053,13 @@ class TestRenderMitigationRegisterBranches:
         assert "**Verification:**" in rendered
         assert "Example implementation in `" in rendered
 
-    def test_multi_cwe_extra_snippets_and_prevents_cwes(self, tmp_path):
+    def test_multiple_cwes_keep_authored_checks_without_inventing_code(self, tmp_path):
         out = _prepare_output_dir(tmp_path)
         data = _load_fixture_yaml(out)
-        # Give the two addressed threats distinct snippet-eligible CWEs.
+        # A shared fix can address several CWE classes without a generic example for each.
         data["threats"][0]["cwe"] = "CWE-89"  # T-001
         data["threats"][1]["cwe"] = "CWE-79"  # T-002
-        # M-001 addresses T-001 + T-002, no how_code/code_example, but has
-        # verification → has_actionable True → auto-derive CWEs + extra snippets.
+        # Authored verification still makes the derived CWE references useful.
         data["mitigations"][0].update(
             {
                 "addresses": ["T-001", "T-002"],
@@ -1069,13 +1068,19 @@ class TestRenderMitigationRegisterBranches:
         )
         data["mitigations"][0].pop("how_code", None)
         data["mitigations"][0].pop("how", None)
+        data["mitigations"][0].pop("code_example", None)
+        for threat in data["threats"][:2]:
+            threat.pop("code_example", None)
+            if isinstance(threat.get("remediation"), dict):
+                threat["remediation"].pop("code_example", None)
         _write_yaml(out, data)
         rendered, _ = compose.render(CONTRACT, out)
         assert "Prevents CWEs" in rendered
-        # extra-snippet block label for the second CWE class
-        assert "Additional example implementation" in rendered
-        # A catalog snippet never claims to be code from the reported location.
-        assert "_Generic CWE-89 pattern, not code from this repository:_" in rendered
+        card = rendered.split("#### M-001", 1)[1].split("\n#### ", 1)[0]
+        assert "CWE-89" in card and "CWE-79" in card
+        assert "Run sqlmap and a stored-XSS probe; both must fail." in card
+        assert "Additional example implementation" not in card and "_Generic CWE-" not in card
+        assert "```" not in card
 
     def test_operational_strengths_all_demoted_empty_banner(self, tmp_path):
         out = _prepare_output_dir(tmp_path)
@@ -1094,7 +1099,7 @@ class TestRenderMitigationRegisterBranches:
             m.pop("priority", None)
         _write_yaml(out, data)
         rendered, _ = compose.render(CONTRACT, out)
-        # mitigation register still renders chips/circles
+        # Other report sections can still link mitigations without an explicit priority.
         assert "Mitigation" in rendered
 
 

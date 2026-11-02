@@ -3669,261 +3669,6 @@ _CWE_TO_ROOT_CAUSE: dict[str, str] = {
 }
 
 
-# Per-CWE deterministic Mitigation snippets used as the quick-depth
-# backstop when the orchestrator did not author a code example. Keep
-# each snippet short (5-12 lines) and idiomatic: TypeScript / JavaScript
-# unless the CWE is specific to another stack. The `verification` line
-# is a single-sentence check that proves the fix landed.
-_MITIGATION_CWE_SNIPPETS: dict[str, dict[str, str]] = {
-    "CWE-89": {
-        "lang": "typescript",
-        "code": (
-            "// Reject string interpolation; use parameter binding.\n"
-            "await sequelize.query(\n"
-            "  'SELECT * FROM Users WHERE email = :email AND password = :password',\n"
-            "  { replacements: { email, password: hash(password) }, type: QueryTypes.SELECT }\n"
-            ")"
-        ),
-        "verification": (
-            "Submit `' OR 1=1 --` in the affected field and confirm the request returns 401 "
-            "(or zero rows) instead of an authenticated session."
-        ),
-    },
-    "CWE-943": {
-        "lang": "javascript",
-        "code": (
-            "// Reject `$where` and operator keys from user-controlled input.\n"
-            "function safeQuery(filter) {\n"
-            "  for (const k of Object.keys(filter)) {\n"
-            "    if (k.startsWith('$')) throw new Error('operator not allowed')\n"
-            "  }\n"
-            "  return collection.find(filter)\n"
-            "}"
-        ),
-        "verification": (
-            'Send `{ "$where": "sleep(5000) || true" }` and confirm the request is rejected '
-            "(HTTP 400) within 100 ms instead of taking ~5 s."
-        ),
-    },
-    "CWE-79": {
-        "lang": "typescript",
-        "code": (
-            "// Never call bypassSecurityTrust*; let Angular sanitize.\n"
-            '// template:  <div [innerHTML]="product.description"></div>\n'
-            "// component: no DomSanitizer.bypassSecurityTrustHtml(...)\n"
-            "this.product.description = raw  // bound directly; Angular escapes"
-        ),
-        "verification": (
-            "Insert `<img src=x onerror=alert(1)>` via the affected field and confirm the "
-            "browser renders the escaped text, not an alert dialog."
-        ),
-    },
-    "CWE-94": {
-        "lang": "javascript",
-        "code": (
-            "// Replace `eval()` / sandbox with a strict whitelist parser.\n"
-            "import { evaluate } from 'mathjs'\n"
-            "const allowed = /^[\\d+\\-*/().\\s]+$/\n"
-            "if (!allowed.test(expr)) throw new Error('invalid expression')\n"
-            "return evaluate(expr)"
-        ),
-        "verification": (
-            "POST `require('child_process').exec('id')` to the affected endpoint and confirm "
-            "HTTP 400 instead of OS command execution."
-        ),
-    },
-    "CWE-611": {
-        "lang": "javascript",
-        "code": (
-            "// libxmljs2 — disable external entities and network fetch.\n"
-            "const doc = libxmljs.parseXml(xmlBuf, { noent: false, nonet: true, recover: false })\n"
-            "if (doc.errors.length) throw new Error('xml rejected')"
-        ),
-        "verification": (
-            "Upload a SYSTEM-entity payload referencing `file:///etc/passwd` and confirm the "
-            "parser rejects it instead of resolving the entity."
-        ),
-    },
-    "CWE-321": {
-        "lang": "typescript",
-        "code": (
-            "// Load the RSA private key from an environment variable / KMS — never\n"
-            "// the source tree. Rotate the prior key and revoke outstanding tokens.\n"
-            "const privateKey = process.env.JWT_PRIVATE_KEY\n"
-            "if (!privateKey) throw new Error('JWT_PRIVATE_KEY not set')\n"
-            "const token = jwt.sign(claims, privateKey, { algorithm: 'RS256' })"
-        ),
-        "verification": ("`git grep -- 'BEGIN RSA PRIVATE KEY'` returns no matches in the working tree."),
-    },
-    "CWE-798": {
-        "lang": "typescript",
-        "code": (
-            "// Read secrets from env / vault, not the source.\n"
-            "const hmacKey = process.env.ORDER_HMAC_KEY\n"
-            "if (!hmacKey) throw new Error('ORDER_HMAC_KEY not set')\n"
-            "const sig = createHmac('sha256', hmacKey).update(payload).digest('hex')"
-        ),
-        "verification": (
-            "Run a secret-scanner (trufflehog / git-secrets) on HEAD and confirm zero hits in `lib/` and `routes/`."
-        ),
-    },
-    "CWE-327": {
-        "lang": "typescript",
-        "code": (
-            "// jsonwebtoken@9+: pin algorithm whitelist; reject `alg:none`.\n"
-            "jwt.verify(token, publicKey, { algorithms: ['RS256'] })"
-        ),
-        "verification": (
-            "Submit a token with `alg:none` (no signature) and confirm `jwt.verify()` "
-            "throws instead of returning the decoded claims."
-        ),
-    },
-    "CWE-916": {
-        "lang": "typescript",
-        "code": (
-            "// Replace md5/sha1 password hashes with bcrypt or argon2.\n"
-            "import bcrypt from 'bcrypt'\n"
-            "const hash = await bcrypt.hash(plaintext, 12)\n"
-            "const ok = await bcrypt.compare(plaintext, storedHash)"
-        ),
-        "verification": (
-            "`select password from Users limit 1;` returns a `$2b$12$...` bcrypt prefix, not a 32-hex md5 string."
-        ),
-    },
-    "CWE-347": {
-        "lang": "typescript",
-        "code": (
-            "// Always verify on the public key; never trust the unsigned header.\n"
-            "const decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] })"
-        ),
-        "verification": ("Tamper one byte in a valid token's payload and confirm `jwt.verify()` throws."),
-    },
-    "CWE-862": {
-        "lang": "typescript",
-        "code": (
-            "// Add server-side role check on every admin route.\n"
-            "router.use('/admin/*', (req, res, next) => {\n"
-            "  if (req.user?.role !== 'admin') return res.status(403).end()\n"
-            "  next()\n"
-            "})"
-        ),
-        "verification": ("Hit `/admin/...` with a non-admin JWT and confirm 403 (not 200)."),
-    },
-    "CWE-284": {
-        "lang": "typescript",
-        "code": (
-            "// Centralize access decisions in a single middleware.\n"
-            "function requireRole(role: 'admin' | 'user') {\n"
-            "  return (req, res, next) =>\n"
-            "    req.user?.role === role ? next() : res.status(403).end()\n"
-            "}"
-        ),
-        "verification": ("Cross-check every `/api/*` route for an explicit `requireRole(...)` call; gaps fail CI."),
-    },
-    "CWE-639": {
-        "lang": "typescript",
-        "code": (
-            "// Ownership check before touching a resource.\n"
-            "const basket = await Basket.findByPk(req.params.id)\n"
-            "if (!basket || basket.UserId !== req.user.id) return res.status(403).end()"
-        ),
-        "verification": ("Authenticate as user A; request `/api/Baskets/<B's id>` and confirm 403."),
-    },
-    "CWE-918": {
-        "lang": "typescript",
-        "code": (
-            "// Allowlist external image hosts; block private IP ranges.\n"
-            "const ALLOWED_HOSTS = new Set(['images.example.com', 'cdn.example.com'])\n"
-            "const url = new URL(input)\n"
-            "if (!ALLOWED_HOSTS.has(url.hostname)) throw new Error('host not allowed')\n"
-            "if (/^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.|127\\.)/.test(url.hostname))\n"
-            "  throw new Error('private range blocked')"
-        ),
-        "verification": ("POST a URL pointing at `http://169.254.169.254/` and confirm HTTP 400."),
-    },
-    "CWE-352": {
-        "lang": "typescript",
-        "code": (
-            "// Use double-submit cookie / SameSite=Strict for state-changing routes.\n"
-            "app.use(csrf({ cookie: { sameSite: 'strict', httpOnly: true, secure: true } }))"
-        ),
-        "verification": ("Replay a state-changing POST without the CSRF token from a foreign origin and confirm 403."),
-    },
-    "CWE-434": {
-        "lang": "typescript",
-        "code": (
-            "// Validate MIME, extension, and magic bytes; cap size.\n"
-            "const ALLOWED = new Set(['image/png', 'image/jpeg'])\n"
-            "if (!ALLOWED.has(file.mimetype)) throw new Error('mime not allowed')\n"
-            "if (file.size > 2 * 1024 * 1024) throw new Error('too large')"
-        ),
-        "verification": ("Upload a `.html` file with `image/png` mimetype and confirm rejection."),
-    },
-    "CWE-922": {
-        "lang": "typescript",
-        "code": (
-            "// Move the JWT out of localStorage into an httpOnly cookie.\n"
-            "res.cookie('session', token, {\n"
-            "  httpOnly: true, secure: true, sameSite: 'lax', maxAge: 3600_000\n"
-            "})"
-        ),
-        "verification": ("Open browser DevTools, run `localStorage.getItem('token')` and confirm `null`."),
-    },
-    "CWE-200": {
-        "lang": "typescript",
-        "code": (
-            "// Remove directory-listing middleware; require auth on management endpoints.\n"
-            "// app.use('/ftp', serveIndex(...))   // delete\n"
-            "app.use('/metrics', requireRole('admin'), promBundle())"
-        ),
-        "verification": ("Unauthenticated `GET /metrics` returns 401; `GET /ftp/` returns 404."),
-    },
-    "CWE-1104": {
-        "lang": "bash",
-        "code": (
-            "# Pin and audit dependencies; fail CI on known vulns.\n"
-            "npm audit --omit=dev --audit-level=high\n"
-            "# Upgrade unmaintained packages in package.json, then:\n"
-            "npm install && npm test"
-        ),
-        "verification": ("`npm audit --omit=dev --audit-level=high` exits 0."),
-    },
-    "CWE-915": {
-        "lang": "typescript",
-        "code": (
-            "// Whitelist mutable fields server-side; never trust the body.\n"
-            "const ALLOWED = ['email', 'username'] as const\n"
-            "const patch = Object.fromEntries(\n"
-            "  Object.entries(req.body).filter(([k]) => ALLOWED.includes(k as any))\n"
-            ")\n"
-            "await user.update(patch)"
-        ),
-        "verification": (
-            'POST `{ "role": "admin" }` to the register/update endpoint; confirm the stored row keeps the default role.'
-        ),
-    },
-    "CWE-307": {
-        "lang": "typescript",
-        "code": (
-            "// Per-IP + per-account rate limiting on auth endpoints.\n"
-            "import rateLimit from 'express-rate-limit'\n"
-            "app.use('/rest/user/login',\n"
-            "  rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true }))"
-        ),
-        "verification": ("Send 10 invalid login attempts from one IP and confirm the 6th returns 429."),
-    },
-    "CWE-778": {
-        "lang": "typescript",
-        "code": (
-            "// Log authn / authz outcomes with stable correlation ids.\n"
-            "logger.info({ event: 'auth.login.fail', userId, ip: req.ip, reqId })\n"
-            "logger.info({ event: 'authz.deny', userId, route: req.path, reqId })"
-        ),
-        "verification": ("A failed admin probe leaves an `authz.deny` line in the central log within 1 s."),
-    },
-}
-
-
 _TIER_RC_SEVERITY_WEIGHT: dict[str, int] = {
     "critical": 8,
     "high": 4,
@@ -5154,20 +4899,9 @@ def _build_register_index(
 ) -> str:
     """Render a `**<label>:**<br/>🔴 [P-NNN](#p-nnn) — <title><br/>…` jump list.
 
-    ``icon_tbl`` defaults to the severity-circle table (§8 Findings index);
-    pass ``_PRIO_ICON_TBL`` for the §9 Mitigations index so the circle keys
-    on remediation priority (p1..p4) instead of finding severity.
-
-    ``key_label_tbl`` (optional) renders an explicit text tag after the circle
-    — e.g. ``{"p1": "P1", …}`` so the §9 Mitigations index reads
-    ``🔴 P1 · [M-001](#m-001) — …``. Without it the circle is ambiguous with
-    the §8 severity palette (both use 🔴/🟠/🟡); the tag disambiguates priority
-    from severity at a glance.
-
-    ``show_icon=False`` suppresses the leading colour circle and renders the
-    text tag only — used by the §10 Mitigations index where the priority is
-    the sole signal and the circle was visual noise (2026-06-02 user request:
-    show only the priority, not the coloured circle).
+    ``icon_tbl`` defaults to the severity circles used by the Findings index.
+    ``key_label_tbl`` adds optional text labels after the markers, and
+    ``show_icon=False`` suppresses the markers while retaining those labels.
     """
     icon_tbl = icon_tbl if icon_tbl is not None else _SEV_ICON_TBL
     chips = []
@@ -17985,15 +17719,38 @@ def sev_label_strict(sev_key: str) -> str:
 def _norm_step(text: object) -> str:
     """Normalise a remediation line for duplicate comparison.
 
-    Collapses whitespace, casefolds, and drops trailing punctuation so a step
-    is recognised as a restatement of `how` when the two differ only in how
-    the emitter happened to terminate the sentence. Deliberately no deeper
-    fuzzing: this decides whether a line is DROPPED, so a near-miss must fail
-    closed and keep the step.
+    Ignore surrounding whitespace and sentence punctuation. Preserve case and
+    internal whitespace: different identifiers, paths and literal values can
+    describe different changes, so a near-match must keep both instructions.
     """
     if not isinstance(text, str):
         return ""
-    return " ".join(text.split()).casefold().rstrip(".;: ")
+    return text.strip().rstrip(".;: ")
+
+
+def _merge_action_lists(first: list[str], second: list[str]) -> list[str]:
+    """Combine matching introductions without dropping later repetitions in a procedure."""
+    overlap = 0
+    for left, right in zip(first, second):
+        if _norm_step(left) != _norm_step(right):
+            break
+        overlap += 1
+    return first + second[overlap:]
+
+
+def _mitigation_actions(how: str, steps: list) -> tuple[str, list[str]]:
+    """Combine repeated How/steps introductions, keeping the order of each procedure."""
+    list_item = re.compile(r"^\s*(?:\d+[.)]|[-*+])\s+(.+)$")
+    how_lines = [line for line in how.splitlines() if line.strip()]
+    matches = [list_item.fullmatch(line) for line in how_lines]
+    actions = [step.strip() for step in steps if isinstance(step, str) and step.strip()]
+    # Only an entirely list-shaped How can become steps; mixed prose and code stay intact.
+    if matches and all(matches) and "```" not in how and "~~~" not in how:
+        actions = _merge_action_lists([match.group(1) for match in matches], actions)
+        how = ""
+    elif how and actions and _norm_step(how) == _norm_step(actions[0]):
+        actions = actions[1:]
+    return how, actions
 
 
 def _wrap_inline_code(text: str) -> str:
@@ -18150,7 +17907,7 @@ def _render_abuse_cases(ctx: RenderContext, env: jinja2.Environment, section: di
 
 
 def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
-    """Render §9 Mitigation Register.
+    """Render §10 Mitigation Register.
 
     Each M-NNN entry carries the full detail block required by the reference:
         <a id="m-nnn"></a>M-NNN — Title
@@ -18165,93 +17922,16 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
         **Reference:** (optional link)
 
     The `how_code` field (if present in yaml) is rendered as a fenced code
-    block with `how_code_lang` (default `javascript`). Missing free-text
-    fields default to a short auto-generated placeholder so every entry is
-    visibly complete.
+    block with `how_code_lang` (default `javascript`). Missing fields can inherit
+    detail from linked findings; the renderer invents no code or verification.
     """
     mitigations = ctx.yaml_data.get("mitigations") or []
     lines = [section["heading"], ""]
-    # One-shot preamble that explains the per-M-NNN block contract. The
-    # earlier renderer emitted ~3 boilerplate sentences PER mitigation
-    # ("This mitigation closes the root-cause weakness underlying …"
-    # / "Implement the change described above …"); with 25+ mitigations
-    # that produced ~2 KB of repeated text. The same information now
-    # lives once at the top of §10 and per-M-NNN blocks carry only
-    # author-supplied content.
-    lines.append(
-        "Each mitigation block lists the findings it **Addresses**, the CWEs "
-        "it **Prevents**, and the **Priority** (P1 = before deployment, "
-        "P2 = current sprint, P3 = next quarter, P4 = backlog). **Why**, "
-        "**How**, and **Verification** appear when written; every P1 or P2 "
-        "mitigation that changes code gives **How** and **Verification**. "
-        "If a field is omitted, refer to the linked finding's *Evidence* line "
-        "for file:line context and to the threat-category description in "
-        "[§8 Findings Register](#8-findings-register) for the underlying weakness."
-    )
-    lines.append("")
-
-    # ---- Mitigations index (jump-list) -----------------------------------
-    # A compact, ID-ordered list of every M-NNN block so the reader can jump
-    # straight to a mitigation instead of scrolling the priority buckets
-    # (2026-05-30 user request). Each chip targets the `<a id="m-NNN">` anchor
-    # the block below declares.
-    _m_nums = sorted(
-        {
-            int(mm2.group(1))
-            for mm in mitigations
-            if (mm2 := re.search(r"(\d+)$", (mm.get("m_id") or mm.get("id") or "").strip()))
-        }
-    )
-    if _m_nums:
-        # Each chip carries the mitigation title plus a PRIORITY circle
-        # (P1🔴 P2🟠 P3🟡 P4🟢) = the mitigation's own remediation urgency
-        # (2026-05-31 user request: priority instead of criticality).
-        # When a mitigation has no explicit priority, fall back to the
-        # highest severity among the findings it addresses, mapped onto the
-        # P-scale (Critical→P1 … Low→P4) so every chip still carries a circle.
-        _sev_f = _severity_by_finding_num(ctx.yaml_data.get("threats") or [])
-        _sev_to_prio = {"critical": "p1", "high": "p2", "medium": "p3", "low": "p4"}
-        _m_title: dict[int, str] = {}
-        _m_prio: dict[int, str] = {}
-        for mm in mitigations:
-            _mn = re.search(r"(\d+)$", (mm.get("m_id") or mm.get("id") or "").strip())
-            if not _mn:
-                continue
-            _n = int(_mn.group(1))
-            _m_title[_n] = (mm.get("title") or "").strip()
-            _raw_prio = (mm.get("priority") or "").strip().lower()
-            if _raw_prio in _PRIO_ICON_TBL:
-                _m_prio[_n] = _raw_prio
-                continue
-            _best = 9
-            for _a in mm.get("threat_ids") or mm.get("addresses") or []:
-                _am = re.search(r"(\d+)$", str(_a))
-                if _am:
-                    _best = min(_best, _SEV_RANK_TBL.get(_sev_f.get(int(_am.group(1)), ""), 9))
-            _sev_word = next((s for s, r in _SEV_RANK_TBL.items() if r == _best), "")
-            _m_prio[_n] = _sev_to_prio.get(_sev_word, "p3")
-        # Order by rollout priority (P1 first), then by M-ID within a bucket —
-        # the priority is the actionable signal, so the index leads with what
-        # must ship first instead of raw ID order (2026-06-02 user request).
-        _PRIO_SORT = {"p1": 0, "p2": 1, "p3": 2, "p4": 3}
-        _m_nums_by_prio = sorted(_m_nums, key=lambda n: (_PRIO_SORT.get(_m_prio.get(n, "p3"), 2), n))
-        lines.append(
-            _build_register_index(
-                # Variant B (2026-06-04): a single MONOCHROME circled digit
-                # (●◕◑○) whose fill is the priority — the colourless parallel
-                # to the §8 Findings-index severity dots, self-explanatory so no
-                # P-tag is needed (supersedes the fill-ramp+text form).
-                "Mitigations index",
-                "M",
-                _m_nums_by_prio,
-                _m_title,
-                _m_prio,
-                icon_tbl=_PRIO_RAMP_TBL,
-                key_label_tbl=None,
-                show_icon=True,
-            )
-        )
-        lines.append("")
+    lines += [
+        "Changes are ordered by priority: P1 before deployment, P2 this sprint, P3 next quarter, P4 backlog. "
+        "Each entry links its findings and gives the available implementation steps and checks.",
+        "",
+    ]
 
     # Requirements + blueprint provenance for the per-mitigation blocks below.
     # mitigations[] carries neither field, so derive from each mitigation's
@@ -18589,12 +18269,13 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
             # code_example / verification / steps). The per-field harvest
             # respects authored mitigation content — it only fills the
             # specific fields that are missing.
-            if addressed:
+            # A review/investigation/risk decision keeps its own instructions. Inheriting the
+            # finding's fix would repeat a separate fix card and present it as settled guidance.
+            if addressed and (m.get("kind") or "fix").strip().lower() == "fix":
                 threats_idx_for_steps = {
                     (t.get("t_id") or t.get("id") or "").upper(): t for t in (ctx.yaml_data.get("threats") or [])
                 }
                 merged_steps: list[str] = []
-                seen_steps: set[str] = set()
                 harvested_code: str = ""
                 harvested_verification: str = ""
                 for ref in addressed:
@@ -18604,11 +18285,12 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
                     # (older shape) instead of `remediation.code_example`.
                     threat_code = tt.get("code_example") or ""
                     if isinstance(rem, dict):
+                        source_steps = []
                         for st in rem.get("steps") or []:
                             s = (st or "").strip() if isinstance(st, str) else ""
-                            if s and s not in seen_steps:
-                                merged_steps.append(s)
-                                seen_steps.add(s)
+                            if s:
+                                source_steps.append(s)
+                        merged_steps = _merge_action_lists(merged_steps, source_steps)
                         if not mitigation_reference:
                             r = (rem.get("reference") or "").strip() if isinstance(rem.get("reference"), str) else ""
                             # A `remediation.reference` that is actually a
@@ -18654,47 +18336,9 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
             if mit_description and not how and not steps and not how_code and not code_example:
                 how = mit_description
 
-            # Quick-depth code-example backstop. E - Multi-CWE rendering.
-            # Collect every distinct CWE across the addressed findings and
-            # queue a snippet per CWE. The first snippet feeds the existing
-            # `code_example` / `verification_field` slots; the rest are
-            # emitted as extra fenced blocks under a CWE label so a
-            # mitigation that spans, say, CWE-943 (NoSQL inj) + CWE-284
-            # (improper access control) + CWE-400 (DoS) does not advertise
-            # a single $where-filter snippet as the cure for all three.
-            extra_cwe_snippets: list[tuple[str, dict]] = []
-            template_cwe = ""
-            if not how_code and not code_example:
-                threats_idx_for_cwe = {
-                    (t.get("t_id") or t.get("id") or "").upper(): t for t in (ctx.yaml_data.get("threats") or [])
-                }
-                seen_cwes: list[str] = []
-                for ref in addressed:
-                    tt = threats_idx_for_cwe.get((ref or "").strip().upper()) or {}
-                    raw_cwe = (tt.get("cwe") or "").strip()
-                    if not raw_cwe:
-                        _cids = tt.get("cwe_ids") or []
-                        if isinstance(_cids, list) and _cids:
-                            raw_cwe = (_cids[0] or "").strip()
-                    if not raw_cwe:
-                        continue
-                    norm = raw_cwe if raw_cwe.upper().startswith("CWE-") else f"CWE-{raw_cwe}"
-                    norm = norm.upper()
-                    if norm in seen_cwes:
-                        continue
-                    if norm in _MITIGATION_CWE_SNIPPETS:
-                        seen_cwes.append(norm)
-                if seen_cwes:
-                    first = seen_cwes[0]
-                    snip = _MITIGATION_CWE_SNIPPETS[first]
-                    code_example = snip.get("code", "").rstrip()
-                    template_cwe = first
-                    if snip.get("lang"):
-                        how_lang = snip["lang"]
-                    if not verification_field:
-                        verification_field = (snip.get("verification") or "").strip()
-                    for c in seen_cwes[1:]:
-                        extra_cwe_snippets.append((c, _MITIGATION_CWE_SNIPPETS[c]))
+            # Examples must come from this mitigation or its findings. A CWE category alone
+            # establishes neither the affected technology nor an appropriate implementation.
+            how, steps = _mitigation_actions(how, steps if isinstance(steps, list) else [])
             if how:
                 # Multi-line `how:` blobs frequently start with a numbered or
                 # bulleted list ("1. Generate a key…\n2. Store it in env…").
@@ -18713,56 +18357,20 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
                 else:
                     lines.append(f"**How:** {_wrap_inline_code(how)}")
                 lines.append("")
-            # `steps[]` is the canonical structured remediation list emitted
-            # by the threat-merger. Each element is a single concrete action.
-            # Render as a bullet list so the user sees an actionable plan
-            # even when no free-prose `how` paragraph is authored. Both can
-            # coexist — the prose `how` introduces the change, the `steps`
-            # enumerate the actions.
-            if isinstance(steps, list) and steps:
+            # Keep the procedure ordered after combining repeated introductions.
+            if steps:
                 if not how:
                     lines.append("**How:**")
                     lines.append("")
-                # `steps[]` are sequential remediation actions — render as an
-                # ORDERED list (1. 2. 3.) so the implied execution order is
-                # explicit (2026-05-29 user request). A bullet list reads as an
-                # unordered set; remediation is a procedure.
-                # A step that merely restates `how` is not a second action —
-                # it ships the same sentence twice under one card, once as the
-                # paragraph and once as item 1. `_remediation_how` already
-                # guards this for finding-derived cards (M-038, 2026-07-02),
-                # but scanner cards resolve `how` and `steps[0]` from the SAME
-                # check `remediation:` string through two independent emitters
-                # (`_resolve_remediation` and `backfill_scanner_remediation`),
-                # so the per-emitter guard never sees them. Drop it here, at
-                # the single point every source funnels through — 5 of 55
-                # cards on juice-shop 2026-08-27 (M-032/33/34/49/51, all
-                # `config_check_id`). The quality gate counts `steps` in the
-                # data, not this rendering, so suppressing a duplicate line
-                # cannot push a card under its minimum.
-                _how_key = _norm_step(how)
-                _step_n = 0
-                for step in steps:
-                    s = (step or "").strip() if isinstance(step, str) else ""
-                    if s and _norm_step(s) == _how_key:
-                        continue
-                    if s:
-                        # Inline-code-fence single-quotes that surround
-                        # short identifiers so list items survive markdown
-                        # renderers (some viewers eat unescaped backticks).
-                        _step_n += 1
-                        lines.append(f"{_step_n}. {_wrap_inline_code(s)}")
+                for number, step in enumerate(steps, 1):
+                    lines.append(f"{number}. {_wrap_inline_code(step)}")
                 lines.append("")
             # Introduce every code example with its source location and the
             # mitigation it demonstrates. A bare fenced block forces the reader
             # to infer both its file and purpose from surrounding prose; this
-            # deterministic sentence keeps examples skimmable. A per-CWE
-            # catalog snippet is captioned as a generic pattern: it is not
-            # code from the reported location and must not claim to be.
+            # deterministic sentence keeps examples skimmable.
             _caption_title = _escape_heading_placeholders(title)
-            if template_cwe:
-                _code_caption = f"_Generic {template_cwe} pattern, not code from this repository:_"
-            elif file_line_inline:
+            if file_line_inline:
                 _code_caption = f"_Example implementation in `{file_line_inline}`: it applies **{_caption_title}**._"
             else:
                 _code_caption = f"_Example implementation for **{_caption_title}**:_"
@@ -18790,31 +18398,6 @@ def _render_mitigation_register(ctx: RenderContext, env: jinja2.Environment, sec
                         lines.append(ce)
                         lines.append("```")
                     lines.append("")
-
-            # E - Extra per-CWE snippets when the mitigation spans multiple
-            # CWE classes. Each block carries a single-line label so the
-            # reader can see which class the snippet addresses.
-            for extra_cwe, extra_snip in extra_cwe_snippets:
-                cwe_num = extra_cwe.split("-", 1)[-1]
-                _extra_loc = f" in `{file_line_inline}`" if file_line_inline else ""
-                lines.append(
-                    f"_Additional example implementation{_extra_loc} for [{extra_cwe}](https://cwe.mitre.org/data/definitions/{cwe_num}.html):_"
-                )
-                lines.append("")
-                lines.append(f"```{extra_snip.get('lang') or how_lang}")
-                lines.append(extra_snip.get("code", "").rstrip())
-                lines.append("```")
-                lines.append("")
-                # If no verification line is set yet and this snippet has
-                # one, attach it -- otherwise multiple snippets compete for
-                # the single verification slot and the reader sees only
-                # one. Concatenate when more than one snippet has a check.
-                extra_ver = (extra_snip.get("verification") or "").strip()
-                if extra_ver:
-                    if not verification_field:
-                        verification_field = extra_ver
-                    elif extra_ver not in verification_field:
-                        verification_field = f"{verification_field} Additionally: {extra_ver}"
 
             # F4.5: prefer the per-field-harvested value (set above when the
             # mitigation entry left this empty but an addressed threat carries
