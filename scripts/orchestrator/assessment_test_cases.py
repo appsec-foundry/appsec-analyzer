@@ -487,7 +487,7 @@ def aspect_line(aspect: str, results, findings, usd) -> str:
     return (
         f"{aspect} · {_count(sum(1 for row in findings if row['aspect'] == aspect), 'finding')}"
         + ("" if usd is None else f" · ≈ USD {usd:.2f}")
-        + f" · {items} in {components}"
+        + f" · {_count(len(rows), 'component check result')} ({items} across {components})"
         + (f": {outcomes}" if outcomes else "")
     )
 

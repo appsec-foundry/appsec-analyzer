@@ -618,7 +618,7 @@ def test_an_architect_correction_is_applied_and_preserved_downstream(architect):
     scripts = []
     shown = []
     receipts = _architect(architect, jobs, scripts, progress=shown.append)
-    assert "Review coverage: architect review: 1 reviewed, 0 unreviewed, 0 unresolved" in shown
+    assert "Review coverage: architect review: 1 reviewed (0 unresolved), 0 unreviewed" in shown
 
     assert [call["allowed"] for call in jobs.calls] == [frozenset({(EDGE, "routes/orders.py")})]
     assert receipts[0].startswith("architect review")
@@ -638,7 +638,7 @@ def test_missing_architect_proposals_are_reported_as_unreviewed(architect):
     jobs = Jobs(lambda role, context: ({"schema_version": 1, "job_id": context["job_id"], "proposals": {}}, []))
     shown = []
     _architect(architect, jobs, progress=shown.append)
-    assert "Review coverage: architect review: 0 reviewed, 1 unreviewed, 0 unresolved" in shown
+    assert "Review coverage: architect review: 0 reviewed (0 unresolved), 1 unreviewed" in shown
 
 
 def test_a_promoted_abuse_finding_is_reviewed_before_rebuild_and_ranking(abuse):

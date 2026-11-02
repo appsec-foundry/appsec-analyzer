@@ -364,7 +364,8 @@ class DiscoveryBudget:
                         raise
                 if repeat and self.on_retry is not None:
                     self.on_retry(
-                        "model call stopped at its measured cost ceiling; repeating it once with the full one"
+                        "model call reached its measured per-call cost ceiling; retrying once with the full "
+                        "per-call allowance, within the run's existing budget and time limits"
                     )
             except AdmissionTimeout:
                 raise

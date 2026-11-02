@@ -329,5 +329,5 @@ def test_quick_depth_names_verify_as_skipped_and_other_depths_without_verificati
 
 def test_the_thorough_survey_row_says_every_program_file_is_sent_in_optional_jobs():
     survey = dict(controller._method_rows(False, "thorough"))["Survey"]
-    assert "every other program file" in survey and "optional jobs" in survey
-    assert "every other program file" not in dict(controller._method_rows(False, "standard"))["Survey"]
+    assert "all remaining program files" in survey and "optional jobs" in survey
+    assert "all remaining program files" not in dict(controller._method_rows(False, "standard"))["Survey"]

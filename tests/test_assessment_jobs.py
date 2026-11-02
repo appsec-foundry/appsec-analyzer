@@ -616,7 +616,7 @@ def test_the_run_warning_counts_retries_and_their_paid_cost():
         {"reason": "no_structured_output", "usd": 0.04, "paid": True},
     ]
     text = _assessment_retry_warning(rows)
-    assert text.startswith("3 model call(s) were repeated")
+    assert text.startswith("3 model calls repeated")
     assert "no_structured_output ×1, rate_limit ×2" in text and "USD 0.04" in text
     assert "USD" not in _assessment_retry_warning(rows[:1])
 
@@ -1272,3 +1272,14 @@ def test_a_reply_outside_the_contract_replaces_an_optional_job_and_still_ends_a_
     with pytest.raises(ExchangeError, match="exchange contract"):
         jobs.execute(**kwargs)
     assert host.calls == 1
+
+
+def test_retry_warning_distinguishes_measured_ceiling_and_api_equivalent_usage():
+    from orchestrator.orchestration_controller import _assessment_retry_warning
+
+    rows = [{"reason": "measured_ceiling", "usd": 0.5, "paid": True}]
+    text = _assessment_retry_warning(rows, api_prices=True)
+    assert text.startswith("1 model call repeated (measured_ceiling ×1)")
+    assert "transient" not in text and "paid" not in text
+    assert "USD 0.50 at API prices (included in the total)" in text
+    assert "USD" not in _assessment_retry_warning(rows, show_costs=False, api_prices=True)

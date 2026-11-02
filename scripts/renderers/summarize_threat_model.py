@@ -736,17 +736,27 @@ def completion_rows(output_dir: Path) -> list[tuple[str, str]]:
     register = summary["register_counts"]
     if register != counts:
         # Without this row the console understates what the report lists, Critical findings included.
-        parts = [f"{sum(register.values())} in the register", *(f"{sev} {n}" for sev, n in register.items() if n)]
-        rows.append(("", " · ".join(parts) + "; insecure-practice findings count under their weakness class"))
+        rows[-1] = ("Findings", rows[-1][1] + " · management-summary basis")
+        parts = [str(sum(register.values())), *(f"{sev} {n}" for sev, n in register.items() if n)]
+        rows.append(("Register", " · ".join(parts)))
+        rows.append(("", "Summary counts practice sites under their weakness; design risks count once."))
     if summary["totals"]["mitigations"]:
         rows.append(("Mitigations", mitigation_line(summary["totals"]["mitigations"], summary["backlog"])))
     if summary.get("test_case_counts"):
         rows.append(("Verification", closing_test_case_line(summary["test_case_counts"])))
-    if summary.get("abuse_case_line"):
-        rows.append(("Abuse cases", summary["abuse_case_line"]))
+        scopes = summary.get("test_case_scopes") or {}
+        parts = [
+            f"{scopes[key]} {label if scopes[key] != 1 else label.removesuffix('s')}"
+            for key, label in (("component", "component checks"), ("repository", "repository rule checks"))
+            if scopes.get(key)
+        ]
+        if parts:
+            rows.append(("", " · ".join(parts)))
     if summary.get("incomplete_aspects"):
         aspects = ", ".join(summary["incomplete_aspects"])
         rows.append(("", f"incomplete for {aspects}: the budget ended before every verification job ran"))
+    if summary.get("abuse_case_line"):
+        rows.append(("Abuse cases", summary["abuse_case_line"]))
     return rows
 
 
@@ -775,23 +785,16 @@ def test_case_line(counts: dict[str, int], unexamined: int = 0) -> str:
     return " · ".join(parts)
 
 
-# What a verification run turned up leads the closing line; the outcomes that need no action follow in brackets.
-_CLOSING_LEAD = ("finding", "control", "partial", "undecidable")
-
-
 def closing_test_case_line(counts: dict[str, int]) -> str:
-    """The closing console's line of verification outcomes (REQ-040): only what needs a look.
-
-    The report states every outcome per item. A run with none of the four leading outcomes shows the
-    others, so that the line never reads empty.
-    """
-    lead, rest = [], []
+    """Check-result counts, distinct from finding counts, including every outcome (REQ-040)."""
+    total = sum(counts.values())
+    parts = [f"{total} check result" + ("s" if total != 1 else "")]
     for key, singular, plural in _TEST_CASE_WORDS:
         if not counts.get(key):
             continue
-        text = f"{counts[key]} {singular if counts[key] == 1 else plural}"
-        (lead if key in _CLOSING_LEAD else rest).append(text)
-    return " · ".join(lead) if lead else ", ".join(rest)
+        word = "with findings" if key == "finding" else singular if counts[key] == 1 else plural
+        parts.append(f"{counts[key]} {word}")
+    return " · ".join(parts)
 
 
 # Chain verdict -> the word the closing lines use, in the order the report groups its cases.
@@ -860,6 +863,7 @@ def _completion_summary(output_dir: Path) -> dict | None:
                 counts[row["outcome"]] = counts.get(row["outcome"], 0) + 1
         if counts:
             summary["test_case_counts"] = counts
+        summary["test_case_scopes"] = collections.Counter(row.get("scope") for row in results if isinstance(row, dict))
         incomplete = [str(value) for value in block.get("incomplete_aspects") or []]
         if incomplete:
             summary["incomplete_aspects"] = incomplete

@@ -178,7 +178,12 @@ def test_a_report_above_snapshot_limits_keeps_normal_resume(prepared, scope, mon
 
 @pytest.mark.parametrize("names", [("solo",), ("caller", "receiver")])
 def test_summary_resume_skips_analysis_and_preparation_but_runs_publication_gates(tmp_path, monkeypatch, names):
+    coverage = {}
+
     def stop_at_summary(text):
+        if text.startswith("Review coverage: "):
+            detail = text.removeprefix("Review coverage: ")
+            coverage[detail.partition(":")[0]] = detail
         if text.startswith("Stage 2: Management Summary"):
             raise HostCancelled("Stopped at the summary")
 
@@ -232,6 +237,7 @@ def test_summary_resume_skips_analysis_and_preparation_but_runs_publication_gate
         progress=progress.append,
     )
     assert outcome["status"] == "complete"
+    assert outcome["review_coverage"] == list(coverage.values())
     assert host.roles == (["ms_renderer"] if len(names) == 1 else [])
     assert any(text.startswith("Resuming at Management Summary") for text in progress)
     assert not any(text.startswith("Stage 2: Security Architecture") for text in progress)

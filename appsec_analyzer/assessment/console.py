@@ -43,7 +43,10 @@ def _elapsed(seconds: float) -> str:
 def _count_noun(count: int, noun: str) -> str:
     """``count`` with ``noun`` in singular or plural, for console result lines."""
     if count != 1:
-        noun = noun[:-1] + "ies" if noun.endswith("y") and noun[-2:-1] not in "aeiou" else noun + "s"
+        if noun.endswith("y") and noun[-2:-1] not in "aeiou":
+            noun = noun[:-1] + "ies"
+        else:
+            noun += "es" if noun.endswith(("s", "x", "z", "ch", "sh")) else "s"
     return f"{count} {noun}"
 
 
@@ -1280,6 +1283,8 @@ class _AssessmentConsole:
         # the text after it.
         method = self.method if event not in ("start", "done") else ""
         width = self._CASE_GROUP_WIDTH if self.phase == "Abuse cases" else self._METHOD_WIDTH
+        if self.phase == "Consolidation" and detail.startswith("Merge · "):
+            method, detail = "Merge", detail.removeprefix("Merge · ")
         lead = f"{method:<{width}}  " if method else ""
         # A list of abuse cases starts under its group's name, so the name takes no width from the titles.
         label = len(lead) if self.phase == "Abuse cases" else 0
@@ -1374,17 +1379,21 @@ class _AssessmentConsole:
         return indent, ["", *self._wrap_parts(detail, width, width)]
 
     @staticmethod
-    def _wrap_parts(detail: str, first: int, rest: int) -> list[str]:
+    def _wrap_parts(
+        detail: str, first: int, rest: int, separator: str = " · ", *, keep_separator: bool = False
+    ) -> list[str]:
         """Lines of a ` · ` separated text, `first` and then `rest` columns wide, ending between its parts.
 
         A part too wide for the first line starts below it, one too wide for any line wraps at its spaces.
         """
         lines = [""]
-        for part in detail.split(" · "):
-            joined = f"{lines[-1]} · {part}" if lines[-1] else part
+        for part in detail.split(separator):
+            joined = f"{lines[-1]}{separator}{part}" if lines[-1] else part
             if len(joined) <= (first if len(lines) == 1 else rest):
                 lines[-1] = joined
             else:
+                if keep_separator and any(lines):
+                    part = separator.lstrip() + part
                 lines += textwrap.wrap(part, rest, break_on_hyphens=False)
         return lines if lines[0] or first < rest else lines[1:]
 
@@ -1464,7 +1473,7 @@ class _AssessmentConsole:
                     "Scope"
                     if key in ("Focus", "Abuse cases", "Coverage", "Excludes", "Trust mode")
                     else "Workflow & results"
-                    if key in ("Pipeline", "Artifacts")
+                    if key in ("Pipeline", "Artifacts", "Estimates")
                     else "Threat analysis methods"
                     if key in self.METHODS
                     else "Run"
@@ -1481,7 +1490,11 @@ class _AssessmentConsole:
                 lines: list[str] = []
                 for part in value.split("\n"):
                     if fit > 20 and len(part) > fit:
-                        pieces = textwrap.wrap(part, fit, break_on_hyphens=False)
+                        pieces = (
+                            self._wrap_parts(part, fit, fit, separator=" → ", keep_separator=True)
+                            if key == "Pipeline"
+                            else textwrap.wrap(part, fit, break_on_hyphens=False)
+                        )
                     else:
                         pieces = [part]
                     lines.append(self._fact(key, pieces[0]))

@@ -822,10 +822,10 @@ def run_architect_review(
         raise AssessmentReviewError("architect review transaction failed") from exc
     run_script("validators/validate_intermediate.py", ["threats_merged", str(workspace / ".threats-merged.json")])
     progress(
-        f"Review coverage: architect review: {coverage['reviewed']} reviewed, "
-        f"{coverage['unreviewed']} unreviewed, {coverage['unresolved']} unresolved"
+        f"Review coverage: architect review: {coverage['reviewed']} reviewed "
+        f"({coverage['unresolved']} unresolved), {coverage['unreviewed']} unreviewed"
     )
     return [
-        f"architect review {coverage['outcome']}: {coverage['reviewed']} reviewed, "
-        f"{coverage['unreviewed']} unreviewed, {coverage['unresolved']} unresolved"
+        f"architect review {coverage['outcome']}: {coverage['reviewed']} reviewed "
+        f"({coverage['unresolved']} unresolved), {coverage['unreviewed']} unreviewed"
     ]

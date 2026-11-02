@@ -570,5 +570,6 @@ def test_a_finished_docs_security_assessment_is_imported_on_request_and_its_hist
     assert Path(outcome["output"]) == destination
     second = yaml.safe_load((destination / "security-assessment.yaml").read_text())["changelog"]
     assert len(second) == len(first) + 1 and second[-len(first) :] == first
+    assert any(note.startswith("imported the earlier assessment") for note in outcome["run_notes"])
     assert any(info.startswith("imported the earlier assessment") for info in outcome["infos"])
     assert sorted(path.name for path in legacy.iterdir() if not path.name.startswith(".")) == before

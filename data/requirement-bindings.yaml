@@ -376,6 +376,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_assessment.py::test_closing_keeps_concrete_coverage_and_run_notes_separate
+      - tests/test_multi_repo_assessment.py::test_closing_summary_aligns_values_keeps_extensions_and_names_review_gaps
       - tests/test_profiles.py::test_controller_dispatches_models_and_publishes_attributes
       - tests/test_build_threat_model_yaml.py::test_business_context_trace_records_safe_provenance_without_prose
       - tests/test_multi_repo_assessment.py::test_combined_assessment_publishes_one_qualified_model
@@ -506,6 +508,7 @@ requirements:
       - docs/profiles.md
     coverage: partial
     guards:
+      - tests/test_summarize_threat_model.py::test_closing_verification_distinguishes_component_results_from_repository_rules
       - tests/test_severity_rollup.py::test_a_contradicted_finding_stays_listed_but_supports_no_verdict_or_total
       - tests/test_merge_threats.py::TestWeaknessRegister::test_a_contradicted_finding_backs_no_weakness
       - tests/test_emit_finding_fix_mitigations.py::test_a_finding_the_evidence_review_contradicted_gets_no_fix_card
@@ -1108,6 +1111,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_assessment.py::test_closing_summary_aligns_values_keeps_extensions_and_names_review_gaps
       - tests/test_assessment_scope.py::test_resolved_organization_settings_reach_startup_and_downstream_case_consumers
       - tests/test_depth_settings.py::test_the_option_checks_business_cases_at_quick_depth_within_a_set_limit
       - tests/test_match_abuse_cases.py::test_quick_depth_selects_business_cases_under_the_limit_the_option_sets
@@ -1588,6 +1592,9 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_assessment.py::test_closing_keeps_concrete_coverage_and_run_notes_separate
+      - tests/test_multi_repo_assessment.py::test_pipeline_wraps_between_phases_and_merge_details_align_with_their_content
+      - tests/test_multi_repo_assessment.py::test_closing_summary_aligns_values_keeps_extensions_and_names_review_gaps
       - tests/test_assessment_checkpoint.py::test_summary_resume_skips_analysis_and_preparation_but_runs_publication_gates
       - tests/test_assessment_checkpoint.py::test_resume_restores_accepted_report_and_coverage_without_recharging
       - tests/test_assessment_checkpoint.py::test_subscription_resume_preserves_call_count_and_unavailable_monetary_cost
@@ -2065,6 +2072,8 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_jobs.py::test_retry_warning_distinguishes_measured_ceiling_and_api_equivalent_usage
+      - tests/test_multi_repo_assessment.py::test_model_cost_columns_align_for_different_name_and_call_lengths
       - tests/test_assessment_budget_ceilings.py::test_measured_ceilings_never_reach_into_the_report_reserve
       - tests/test_assessment_budget_ceilings.py::test_a_call_stopped_at_its_measured_ceiling_is_repeated_once_with_the_full_one
       - tests/test_console_cost_display.py::test_billing_defaults_and_explicit_override

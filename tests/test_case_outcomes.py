@@ -1131,11 +1131,12 @@ def test_an_aspect_line_counts_its_findings_and_each_items_outcome_per_component
     line = assessment_test_cases.aspect_line("AuthZ", results, findings, 3.104)
     # The outcomes add up to the items times the components: 2 x 2 = 4.
     assert (
-        line == "AuthZ · 2 findings · ≈ USD 3.10 · 2 items in 2 components: 1 with a finding, 1 control, 2 no finding"
+        line
+        == "AuthZ · 2 findings · ≈ USD 3.10 · 4 component check results (2 items across 2 components): 1 with a finding, 1 control, 2 no finding"
     )
     # Without monetary accounting the line states no amount.
     assert assessment_test_cases.aspect_line("InputVal", results, findings, None) == (
-        "InputVal · 1 finding · 1 item in 1 component: 1 not applicable"
+        "InputVal · 1 finding · 1 component check result (1 item across 1 component): 1 not applicable"
     )
 
 

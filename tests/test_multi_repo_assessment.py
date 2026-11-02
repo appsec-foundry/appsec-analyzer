@@ -966,7 +966,7 @@ def test_the_merge_detail_splits_what_was_combined_by_its_cause():
     ]
     review = Counter(groups=4, combined=2, reduced=3)
     assert controller._merge_detail(10, threats, review, verified=True) == (
-        "7 combined · 2 by rules · 3 by merge review (2 of 4 groups) · 2 Verify joined"
+        "7 combined · 2 by rules · 3 by merge review (2 of 4 groups combined) · 2 verification findings joined existing findings"
     )
     # Without verification or a merge review their parts say nothing, and without a merge there is no line.
     assert controller._merge_detail(3, threats[2:], Counter(), verified=False) == "2 combined · 2 by rules"
@@ -1008,6 +1008,8 @@ def test_count_noun_inflects_regular_and_y_plurals():
     assert controller._count_noun(3, "trust boundary") == "3 trust boundaries"
     assert controller._count_noun(2, "data flow") == "2 data flows"
     assert controller._count_noun(0, "finding") == "0 findings"
+    assert controller._count_noun(1, "batch") == "1 batch"
+    assert controller._count_noun(7, "batch") == "7 batches"
 
 
 def test_default_console_names_each_discovered_repository():
@@ -2943,21 +2945,6 @@ def test_business_cases_are_planned_by_depth_or_explicit_selection(cfg, planned)
     assert controller._business_cases_planned(cfg) is planned
 
 
-@pytest.mark.parametrize(
-    ("name", "label"),
-    [
-        ("security-assessment.yaml", "yaml"),
-        ("security-assessment.sarif.json", "sarif"),
-        ("security-assessment.threatdragon.json", "threatdragon"),
-        ("security-assessment.pdf", "pdf"),
-        ("security-assessment.html", "html"),
-        ("pentest-tasks.yaml", "pentest-tasks"),
-    ],
-)
-def test_the_closing_summary_names_other_formats_without_the_file_stem(name, label):
-    assert controller._format_label(name, "security-assessment") == label
-
-
 def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path, monkeypatch, capsys):
     delivered = [
         "security-assessment.yaml",
@@ -2980,7 +2967,7 @@ def test_a_completed_assessment_states_its_result_files_and_next_steps(tmp_path,
         "  Mitigations 1 · 1 fix first (P1)",
         "  Cost        ≈ USD 1.00 · 3 model calls",
         # The report first, other exports named beside it; embedded figures are omitted.
-        f"  Report      {tmp_path / 'security-assessment.md'} (also yaml, pdf)",
+        f"  Report      {tmp_path / 'security-assessment.md'} (also security-assessment.yaml, security-assessment.pdf)",
         # The generic advice to triage is left out; the review starts the user's own assistant.
         f"  Next steps  appsec-analyzer review {tmp_path}",
         "              starts your coding assistant; its own account and usage limits apply",
@@ -3055,8 +3042,8 @@ def test_a_run_with_several_models_lists_each_and_what_no_host_itemised(tmp_path
     # Dearest model first; the calls no host itemised close the rows, so the rows add up to the total.
     assert out[cost + 1 : cost + 4] == [
         "              claude-sonnet-5-5  4 calls · ≈ USD 1.50 · 603k tokens",
-        "              claude-haiku-5-5  1 call · ≈ USD 0.20 · 300 tokens",
-        "              not itemised  2 calls · ≈ USD 0.30",
+        "              claude-haiku-5-5   1 call  · ≈ USD 0.20 · 300 tokens",
+        "              not itemised       2 calls · ≈ USD 0.30",
     ]
     assert "  Trust mode  trusted" in out
 
@@ -3170,8 +3157,33 @@ def test_coverage_statements_close_the_run_under_one_heading(tmp_path, monkeypat
     infos = ["3 program files belong to no component", "2 security-relevant code locations stayed open"]
     monkeypatch.setattr(controller, "assess_repositories", lambda argv: {**outcome, "infos": infos})
     assert controller.assess_main(["--repo", "edge"]) == 0
-    err = capsys.readouterr().err.splitlines()
+    captured = capsys.readouterr()
+    assert "Coverage" not in captured.out and "scope note" not in captured.out
+    err = captured.err.splitlines()
     assert err[err.index("ℹ Coverage") :] == ["ℹ Coverage", *(f"  · {info}" for info in infos)]
+
+
+@pytest.mark.parametrize("has_gaps,has_notes", [(False, False), (True, False), (False, True), (True, True)])
+def test_closing_keeps_concrete_coverage_and_run_notes_separate(tmp_path, has_gaps, has_notes):
+    from renderers.term_style import Style
+
+    gap = "5 program files were not analysed"
+    note = "the earlier assessment was not imported"
+    outcome = dict(
+        repositories=["demo"],
+        output=str(tmp_path),
+        deliverables=[],
+        calls=1,
+        spent_usd=0.1,
+        infos=([gap] if has_gaps else []) + ([note] if has_notes else []),
+        run_notes=[note] if has_notes else [],
+    )
+    stdout, stderr = io.StringIO(), io.StringIO()
+    controller._print_closing(outcome, "1m", Style(False), Style(False), stdout, stderr)
+    assert "Coverage" not in stdout.getvalue() and "scope note" not in stdout.getvalue()
+    expected = ["ℹ Coverage", f"  · {gap}"] if has_gaps else []
+    expected += ["ℹ Run notes", f"  · {note}"] if has_notes else []
+    assert stderr.getvalue().splitlines() == expected
 
 
 def test_a_terminal_shows_the_subject_in_work_as_one_rewritten_status_line(capsys, monkeypatch):
@@ -4684,7 +4696,7 @@ def test_the_merge_opens_the_consolidation_and_each_says_what_it_kept():
     consolidation = [row[1:] for row in rows if row[0].endswith("Consolidation")]
     assert consolidation[:3] == [
         ("start", "merges duplicate findings, then reviews and ranks them"),
-        ("·", "Merge · 8 survey findings and 4 scanner hits merged into 9"),
+        ("·", "Merge     8 survey findings and 4 scanner hits merged into 9"),
         ("·", "AuthZ · 2 found by both · 1 only by Verify · 0 only by the survey"),
     ]
     assert consolidation[-1][0] == "done" and consolidation[-1][1].endswith(f" · {result}")
@@ -4792,3 +4804,107 @@ def test_a_failed_evidence_review_keeps_the_exception_out_of_the_reason():
     artifact = controller._unreviewed_evidence({"source_scope_sha256": "0" * 64}, [finding])
     assert artifact["decisions"][0]["verdict"] == "ambiguous"
     assert artifact["decisions"][0]["reason"] == "The independent evidence review did not run."
+
+
+@pytest.mark.parametrize("width", [70, 100, 140])
+def test_closing_summary_aligns_values_keeps_extensions_and_names_review_gaps(tmp_path, monkeypatch, width):
+    """Long labels and slug copies must not shift columns or hide unchecked cases."""
+    from renderers.term_style import Style
+
+    (tmp_path / "security-assessment.yaml").write_text(
+        "threats: []\ntest_case_results:\n  results:\n"
+        "    - {test_case_id: TC-1, scope: component, outcome: undecidable}\n"
+    )
+    names = [
+        "security-assessment.md",
+        "security-assessment.yaml",
+        "security-assessment-thorough.md",
+        "security-assessment-thorough.yaml",
+        "security-assessment.sarif.json",
+        "security-assessment.threatdragon.json",
+        "security-assessment.pdf",
+        "security-assessment.html",
+        "pentest-tasks.yaml",
+    ]
+    review = "abuse-case verification: 14 checked, 0 partial, 3 unchecked"
+    outcome = dict(
+        repositories=["demo"],
+        output=str(tmp_path),
+        deliverables=names,
+        calls=1,
+        spent_usd=0.1,
+        review_coverage=[review],
+        infos=["5 files were not analysed"],
+    )
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", width)
+    stream = io.StringIO()
+    controller._print_completion(outcome, "1m", Style(False), stream)
+    lines = stream.getvalue().splitlines()
+    value_column = 15  # Two spaces, the longest label (Verification), then one space.
+    for label, value in [
+        ("Findings", "0"),
+        ("Verification", "1 check"),
+        ("Abuse checks", "17 planned"),
+        ("Cost", "≈ USD"),
+    ]:
+        line = next(line for line in lines if line.startswith("  " + label + " "))
+        assert line[value_column:].startswith(value)
+    assert all(len(line) < width for line in lines[1:])
+    assert all("Coverage" not in line and "scope note" not in line for line in lines)
+    compact = "".join(line.strip() for line in lines[1:])
+    assert "3 unchecked" in compact
+    for name in names:
+        assert name in compact
+    continuation = next(line for line in lines if "repository rule" not in line and "component check" in line)
+    assert continuation.startswith(" " * value_column)
+
+
+def test_model_cost_columns_align_for_different_name_and_call_lengths():
+    rows = controller._completion_cost_rows(
+        dict(
+            spent_usd=36.87,
+            calls=230,
+            show_costs=True,
+            usage=dict(
+                models={
+                    "long-model-name": dict(calls=104, usd=29.29, input=8_000_000),
+                    "short": dict(calls=123, usd=7.06, input=3_300_000),
+                    "tiny": dict(calls=2, usd=0.01, input=113_000),
+                },
+                unitemised_calls=1,
+                unitemised_usd=0.5,
+            ),
+        )
+    )
+    texts = [value for _, value, _ in rows[1:]]
+    assert len({text.index("call") for text in texts}) == 1
+    assert len({text.index("·") for text in texts}) == 1
+    assert len({re.search(r"USD\s+\d+\.\d{2}", text).end() for text in texts}) == 1
+    assert len({text.rindex("·") for text in texts if "tokens" in text}) == 1
+    assert any("104 calls" in text for text in texts)
+    assert any("not itemised" in text for text in texts)
+
+
+def test_pipeline_wraps_between_phases_and_merge_details_align_with_their_content(monkeypatch):
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", 140)
+    lines = []
+    console = controller._AssessmentConsole(False, lines.append, live=False, clock=_Clock())
+    console.facts(
+        None,
+        [
+            (
+                "Pipeline",
+                "Reconnaissance → Architecture → Trust boundaries → Controls → Threat analysis → Consolidation (+ architect review) → Abuse cases (+ business abuse cases) → Finalization",
+            )
+        ],
+    )
+    assert all("Abuse" not in line or "Abuse cases" in line for line in lines)
+    console.phase = "Consolidation"
+    console.step(
+        "Merge · 132 survey findings · 82 scanner hits · 111 verification findings · 197 remaining\n128 combined"
+    )
+    physical = [piece for line in lines for piece in line.splitlines()]
+    merge = next(line for line in physical if "132 survey" in line)
+    continuation = next(line for line in physical if "128 combined" in line)
+    assert "Merge     132 survey" in merge
+    assert continuation.index("128 combined") == merge.index("132 survey")

@@ -48,7 +48,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import textwrap
 import threading
 import time
 from collections import Counter
@@ -2571,9 +2570,9 @@ def _merge_detail(before: int, threats: list[dict], review: Counter, *, verified
     parts = [f"{combined} combined", f"{combined - review['reduced'] - joined} by rules"]
     if review["groups"]:
         groups = f"{review['combined']} of {_count_noun(review['groups'], 'group')}"
-        parts.append(f"{review['reduced']} by merge review ({groups})")
+        parts.append(f"{review['reduced']} by merge review ({groups} combined)")
     if verified:
-        parts.append(f"{joined} Verify joined")
+        parts.append(f"{joined} verification findings joined existing findings")
     return " · ".join(parts)
 
 
@@ -3503,7 +3502,7 @@ def _method_rows(test_cases, depth: str = "standard") -> list[tuple[str, str]]:
             "Survey",
             methods["Survey"]
             + (
-                "; thorough also sends every other program file of each component to the model host, "
+                "; thorough also sends all remaining program files of each component to the model host, "
                 "in optional jobs that cost extra and stop first when the budget runs short"
                 if depth == "thorough"
                 else ""
@@ -3637,6 +3636,7 @@ def _assessment_intro(
         *(scope_facts or []),
         ("Trust mode", trust),
         ("Pipeline", pipeline),
+        ("Estimates", "Progress is estimated work completed; time left is revised as jobs finish."),
         *(row for row in plan if row[0] and row[1]),
     ]
     if not compact:
@@ -4740,7 +4740,14 @@ def assess_repositories(
     console = None if progress or ns.quiet else _AssessmentConsole(ns.verbose, show_costs=display_costs)
     if console:
         console.start_ticker()
-    say = progress or (console.step if console else (lambda text: None))
+    emit = progress or (console.step if console else (lambda text: None))
+    review_coverage: dict[str, str] = {}
+
+    def say(text: str) -> None:
+        if text.startswith("Review coverage: "):
+            detail = text.removeprefix("Review coverage: ")
+            review_coverage[detail.partition(":")[0]] = detail
+        emit(text)
 
     def report_retry(message: str) -> None:
         _AssessmentProgress.note_retry(message)
@@ -4774,6 +4781,7 @@ def assess_repositories(
     labels = sorted(row["label"] for row in scope.inventory()["repositories"])
     warnings: list[str] = []
     infos: list[str] = []
+    run_notes: list[str] = []
     for reason, description in (
         ("oversized", "over 1 MiB"),
         ("non-utf8-text", "not in UTF-8"),
@@ -4833,6 +4841,7 @@ def assess_repositories(
         imported = _assessment_legacy(ns, scope.output)
         if imported:
             infos.append(imported)
+            run_notes.append(imported)
         try:
             session = _assessment_session(
                 scope,
@@ -4970,6 +4979,7 @@ def assess_repositories(
                 checkpoint_inputs = {"context": captured, "platform": platform}
                 saved_render = assessment_checkpoint.restore(state, jobs, workspace, inputs=checkpoint_inputs)
                 if saved_render is not None:
+                    review_coverage.update(saved_render.get("review_coverage") or {})
                     say("Resuming at Management Summary: saved artifacts and accepted jobs verified")
                     original = saved_render["original"]
                     architecture = saved_render["architecture"]
@@ -5081,6 +5091,7 @@ def assess_repositories(
                                 },
                                 "settings": settings,
                                 "receipts": receipts,
+                                "review_coverage": dict(review_coverage),
                             },
                             inputs=checkpoint_inputs,
                         )
@@ -5131,7 +5142,9 @@ def assess_repositories(
                             skipped, architecture["components"]["components"], budget, show_costs=display_costs
                         )
                     )
-                retry_warning = _assessment_retry_warning(budget.retries, show_costs=display_costs)
+                retry_warning = _assessment_retry_warning(
+                    budget.retries, show_costs=display_costs, api_prices=budget.api_prices
+                )
                 if retry_warning:
                     warnings.append(retry_warning)
                 warnings.extend(
@@ -5170,10 +5183,13 @@ def assess_repositories(
         "deliverables": list(delivered),
         "warnings": warnings,
         "infos": infos,
+        "run_notes": run_notes,
+        "review_coverage": list(review_coverage.values()),
         # The kept workspace serves diagnosis; only --verbose names it.
         **({"runtime_files": str(workspace)} if workspace.is_dir() and ns.verbose else {}),
         "spent_usd": None if budget.subscription else round(budget.spent_usd, 2),
         "show_costs": display_costs,
+        "api_prices": budget.api_prices,
         "calls": budget.calls,
         # Jobs reused from an earlier run count toward this run's limits at their original cost.
         "reused_calls": budget.reused_calls,
@@ -5331,7 +5347,7 @@ def _assessment_legacy(ns, output: Path) -> str | None:
     return f"imported the earlier assessment from {legacy.directory} ({len(delivered)} files); its files there stay"
 
 
-def _assessment_retry_warning(retries: list[dict], *, show_costs=True) -> str | None:
+def _assessment_retry_warning(retries: list[dict], *, show_costs=True, api_prices=False) -> str | None:
     """Name the repeated model calls, so a run that only completed through retries says so."""
     if not retries:
         return None
@@ -5339,8 +5355,9 @@ def _assessment_retry_warning(retries: list[dict], *, show_costs=True) -> str | 
 
     reasons = ", ".join(f"{reason} ×{count}" for reason, count in sorted(Counter(r["reason"] for r in retries).items()))
     paid = sum(row["usd"] for row in retries if row["paid"] and row["usd"] is not None)
-    cost = f"; the failed paid attempts cost ≈ USD {paid:.2f}" if paid and show_costs else ""
-    return f"{len(retries)} model call(s) were repeated after a transient failure ({reasons}){cost}"
+    basis = " at API prices" if api_prices else ""
+    cost = f"; earlier attempts used ≈ USD {paid:.2f}{basis} (included in the total)" if paid and show_costs else ""
+    return f"{_count_noun(len(retries), 'model call')} repeated ({reasons}){cost}"
 
 
 def _assessment_discard_workspace(workspace: Path, repositories: int, cfg: dict[str, Any]) -> None:
@@ -5607,11 +5624,19 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         if value not in (None, "untrusted")
     ]
     rows += [(key, value, None) for key, value in completion_rows(output)]
+    for value in outcome.get("review_coverage") or []:
+        abuse = re.fullmatch(r"abuse-case verification: (\d+) checked, (\d+) partial, (\d+) unchecked", value)
+        if abuse:
+            checked, partial, unchecked = map(int, abuse.groups())
+            value = (
+                f"{checked + partial + unchecked} planned · {checked} checked · "
+                f"{partial} partial checks · {unchecked} unchecked"
+            )
+        rows.append(("Abuse checks" if abuse else "Review", value, None))
     rows += _completion_cost_rows(outcome)
     if files:
-        # The other formats by name, without the report's path and file stem: "yaml", "sarif", "pdf".
-        stem = Path(files[0]).stem
-        also = ", ".join(_format_label(Path(path).name, stem) for path in files[1:])
+        # Keep full filenames: slug-stamped copies of different formats share a stem.
+        also = ", ".join(Path(path).name for path in files[1:])
         rows.append(("Report", files[0] + (f" (also {also})" if also else ""), "accent"))
     if outcome.get("runtime_files"):
         rows.append(("Run files", outcome["runtime_files"], "muted"))
@@ -5624,26 +5649,21 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         output, outcome["deliverables"], shlex.join(["appsec-analyzer", "review", str(output)])
     )
     # Values wrap flush under their column on a terminal, and off it under --width.
-    width = _AssessmentConsole.columns() - 1 - 14 if _AssessmentConsole.wraps() else 0
+    label_width = max(11, *(len(key) for key, _, _ in rows))
+    indent = 2 + label_width + 1
+    width = _AssessmentConsole.columns() - 1 - indent if _AssessmentConsole.wraps() else 0
     for key, value, role in rows:
-        pieces = textwrap.wrap(value, width, break_on_hyphens=False) if 20 < width < len(value) else [value]
+        pieces = _AssessmentConsole._wrap_parts(value, width, width) if 20 < width < len(value) else [value]
         roles = (role,) if role else ()
-        print(f"  {out(f'{key:<11}', 'muted')} {out(pieces[0], *roles)}", file=stream)
+        print(f"  {out(f'{key:<{label_width}}', 'muted')} {out(pieces[0], *roles)}", file=stream)
         for piece in pieces[1:]:
-            print(" " * 14 + out(piece, *roles), file=stream)
+            print(" " * indent + out(piece, *roles), file=stream)
     from renderers.render_completion_summary import extract_run_issues, render_run_issues, render_security_notice
 
     for line in render_run_issues(extract_run_issues(output), plugin_dev=os.environ.get("APPSEC_PLUGIN_DEV") == "1"):
         print(line, file=stream)
     for line in render_security_notice(output):
         print(out(line, "warn") if line.strip() else line, file=stream)
-
-
-def _format_label(name: str, stem: str) -> str:
-    """A delivered file's format, short: ``security-assessment.sarif.json`` is ``sarif``; another file keeps its stem."""
-    if name.startswith(stem + "."):
-        return name[len(stem) + 1 :].removesuffix(".json")
-    return Path(name).stem
 
 
 def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
@@ -5660,7 +5680,8 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
     unitemised = usage.get("unitemised_calls") or 0
     spent = outcome["spent_usd"]
     show_costs = outcome.get("show_costs", spent is not None)
-    parts = [f"≈ USD {spent:.2f}"] if show_costs and spent is not None else []
+    basis = " at API prices" if outcome.get("api_prices") else ""
+    parts = [f"≈ USD {spent:.2f}{basis}"] if show_costs and spent is not None else []
     parts.append(_count_noun(outcome["calls"], "model call"))
     if show_costs and spent is None:
         parts.append(f"{outcome.get('subscription_label') or 'subscription'}; USD cost unavailable")
@@ -5684,20 +5705,32 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
             text += f" (USD {outcome['reused_usd']:.2f} of the total)"
         rows.append(("", text, "muted"))
     if len(models) > 1:
+        model_width = max(*(len(model) for model in models), len("not itemised") if unitemised else 0)
+        amounts = [row["usd"] for row in models.values() if row.get("usd") is not None]
+        if unitemised and usage.get("unitemised_usd") is not None:
+            amounts.append(usage["unitemised_usd"])
+        amount_width = max((len(f"{amount:.2f}") for amount in amounts), default=4)
+        call_width = max(len(str(row["calls"])) for row in models.values())
+        if unitemised:
+            call_width = max(call_width, len(str(unitemised)))
+
+        def calls_cell(count):
+            return f"{count:>{call_width}} {'call' if count == 1 else 'calls':<5}"
+
         for model, row in sorted(models.items(), key=lambda item: -(item[1].get("usd") or 0)):
-            text = f"{model}  {_count_noun(int(row['calls']), 'call')}"
+            text = f"{model:<{model_width}}  {calls_cell(int(row['calls']))}"
             if show_costs:
                 text += (
-                    f" · ≈ USD {row['usd']:.2f}"
+                    f" · ≈ USD {row['usd']:>{amount_width}.2f}"
                     if spent is not None and row.get("usd") is not None
                     else " · USD cost unavailable"
                 )
             tokens = sum(row.get(key, 0) for key in ("input", "output", "cache_read", "cache_write"))
             rows.append(("", text + (f" · {_tokens(int(tokens))} tokens" if tokens else ""), "muted"))
         if unitemised:
-            text = f"not itemised  {_count_noun(unitemised, 'call')}"
+            text = f"{'not itemised':<{model_width}}  {calls_cell(unitemised)}"
             if show_costs and usage.get("unitemised_usd") is not None:
-                text += f" · ≈ USD {usage['unitemised_usd']:.2f}"
+                text += f" · ≈ USD {usage['unitemised_usd']:>{amount_width}.2f}"
             rows.append(("", text, "muted"))
     return rows
 
@@ -5740,10 +5773,14 @@ def _print_closing(outcome: dict, elapsed: str, out: Style, err: Style, stdout=N
     for warning in outcome.get("warnings") or []:
         # Wrapped as plain text; only the leading mark is coloured.
         print(err("⚠", "warn") + fit(f"⚠ {warning}")[1:], file=stderr)
-    if outcome.get("infos"):
-        # Coverage statements, not defects (REQ-003): one heading, one line each.
-        print(err("ℹ Coverage", "muted"), file=stderr)
-        for info in outcome["infos"]:
+    # Keep concrete gaps together (REQ-003); importing an earlier result is a run note.
+    run_notes = outcome.get("run_notes") or []
+    coverage = [info for info in outcome.get("infos") or [] if info not in run_notes]
+    for entries, title in ((coverage, "Coverage"), (run_notes, "Run notes")):
+        if not entries:
+            continue
+        print(err(f"ℹ {title}", "muted"), file=stderr)
+        for info in entries:
             print(err(fit(f"  · {info}", "    "), "muted"), file=stderr)
     if outcome.get("gate_violations"):
         violations = outcome["gate_violations"]

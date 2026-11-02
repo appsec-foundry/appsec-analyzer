@@ -604,8 +604,8 @@ def test_completion_rows_name_the_register_when_practice_sites_fold(tmp_path):
     _write_model(tmp_path, body)
     rows = stm.completion_rows(tmp_path)
     assert rows[:2] == [
-        ("Findings", "1 · High 1"),
-        ("", "2 in the register · High 2; insecure-practice findings count under their weakness class"),
+        ("Findings", "1 · High 1 · management-summary basis"),
+        ("Register", "2 · High 2"),
     ]
     assert all("§8" not in text for _, text in rows)
 
@@ -634,27 +634,58 @@ def test_completion_rows_count_test_case_outcomes_only_when_the_model_has_them(t
             - {test_case_id: TC-INFRA-02, outcome: undecidable}
     """
     _write_model(tmp_path, body)
-    assert ("Verification", "1 finding · 2 controls · 1 undecidable") in stm.completion_rows(tmp_path)
+    assert ("Verification", "4 check results · 1 with findings · 2 controls · 1 undecidable") in stm.completion_rows(
+        tmp_path
+    )
     assert all("incomplete" not in text for _, text in stm.completion_rows(tmp_path))
     # An undecidable item without any candidate location counts as undecidable; the report names its locations.
     nothing = "{test_case_id: TC-AUTHZ-01, outcome: undecidable, candidates: {applicable: 0, undecidable: 0}}"
     some = "{test_case_id: TC-DATA-01, outcome: undecidable, candidates: {applicable: 6, undecidable: 3}}"
     _write_model(tmp_path, body.rstrip(" ") + f"            - {nothing}\n            - {some}\n")
-    assert ("Verification", "1 finding · 2 controls · 3 undecidable") in stm.completion_rows(tmp_path)
+    assert ("Verification", "6 check results · 1 with findings · 2 controls · 3 undecidable") in stm.completion_rows(
+        tmp_path
+    )
     plain = tmp_path / "plain"
     plain.mkdir()
     _write_model(plain, "meta: {project: {name: Demo}}\nthreats:\n  - {t_id: T-001, risk: High}\n")
     assert all(label != "Verification" for label, _ in stm.completion_rows(plain))
 
 
-def test_closing_verification_line_names_only_what_needs_a_look():
+def test_closing_verification_line_counts_checks_and_keeps_every_outcome():
     counts = {"finding": 19, "control": 3, "no_finding": 9, "undecidable": 22, "not_applicable": 55, "disabled": 1}
-    assert stm.closing_test_case_line(counts) == "19 findings · 3 controls · 22 undecidable"
-    assert stm.closing_test_case_line({**counts, "partial": 4}) == (
-        "19 findings · 3 controls · 4 partial · 22 undecidable"
+    assert (
+        stm.closing_test_case_line(counts)
+        == "109 check results · 19 with findings · 3 controls · 9 no finding · 22 undecidable · 55 not applicable · 1 disabled"
     )
-    # Without any of the four, the others stand in for them.
-    assert stm.closing_test_case_line({"not_applicable": 2, "no_finding": 1}) == "1 no finding, 2 not applicable"
+    assert stm.closing_test_case_line({**counts, "partial": 4}) == (
+        "113 check results · 19 with findings · 3 controls · 4 partial · 9 no finding · 22 undecidable · 55 not applicable · 1 disabled"
+    )
+    # Even a run with no actionable result retains its complete denominator.
+    assert (
+        stm.closing_test_case_line({"not_applicable": 2, "no_finding": 1})
+        == "3 check results · 1 no finding · 2 not applicable"
+    )
+
+
+def test_closing_verification_distinguishes_component_results_from_repository_rules(tmp_path):
+    """43 component outcomes plus five rule outcomes are 48 checks with findings, not 48 findings."""
+    import yaml
+
+    component = {"finding": 43, "control": 2, "partial": 1, "no_finding": 17, "undecidable": 30, "not_applicable": 186}
+    repository = {"finding": 5, "no_finding": 2, "not_applicable": 2}
+    results = [
+        {"test_case_id": f"TC-{scope}-{outcome}-{index}", "scope": scope, "outcome": outcome}
+        for scope, counts in (("component", component), ("repository", repository))
+        for outcome, count in counts.items()
+        for index in range(count)
+    ]
+    _write_model(tmp_path, yaml.safe_dump({"threats": [], "test_case_results": {"results": results}}))
+    rows = stm.completion_rows(tmp_path)
+    assert (
+        "Verification",
+        "288 check results · 48 with findings · 2 controls · 1 partial · 19 no finding · 30 undecidable · 188 not applicable",
+    ) in rows
+    assert ("", "279 component checks · 9 repository rule checks") in rows
 
 
 def test_abuse_case_line_names_the_verdicts_as_the_report_groups_them():

@@ -305,7 +305,7 @@ def _qualify(threat: dict, rid: str, repo, owned: list[dict]) -> None:
 # What the run console calls each scanner, in the order its hits are counted.
 SCANNER_LABELS = (
     "Source auth",
-    "Authz confirm",
+    "AuthZ confirm",
     "Mass assignment",
     "Config/IaC",
     "Architecture",
