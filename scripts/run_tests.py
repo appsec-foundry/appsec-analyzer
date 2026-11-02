@@ -48,6 +48,7 @@ GROUPS = {
         walkthrough_renderer
     """),
     "report": _tests("""
+        analysis_contributions
         actor_attribution
         actor_presentation
         component_labels
@@ -589,6 +590,9 @@ SOURCE_TESTS = {
     ),
     "scripts/orchestrator/assessment_checkpoint.py": _tests("assessment_checkpoint assessment_state assessment_stage2"),
     "scripts/orchestrator/assessment_review.py": _tests("assessment_review check_target_specificity"),
+    "scripts/model/analysis_contributions.py": _tests(
+        "analysis_contributions compose_threat_model run_statistics_appendix"
+    ),
     "scripts/orchestrator/assessment_declarations.py": _tests(
         "assessment_declarations assessment_posture multi_repo_boundaries check_target_specificity"
     ),

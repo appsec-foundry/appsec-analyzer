@@ -42,7 +42,9 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-010:** **Include business context.** Teams can supply information about their business and organization, or ask Analyzer to skip stored business context. The report explains how that information affected the analysis and what relevant facts are still missing.
 
-- **REQ-011:** **Look for misuse of business features.** Teams can choose abuse cases for the analysis to examine. The results show which cases are confirmed, unproven, mitigated, unresolved, inapplicable, or unchecked.
+- **REQ-011:** **Look for misuse of business features.** Teams can choose abuse cases for the analysis to examine. The results show which cases are confirmed, unproven, mitigated, unresolved, inapplicable, or unchecked. Abuse-case checks reuse valid evidence from the same assessment and examine attack prerequisites that remain open.
+
+- **REQ-048:** **Understand the contribution of each analysis step.** The assessment shows which steps added distinct problems, additional affected locations, stronger evidence, or contradictions, together with their recorded model cost and any uncertainty in the comparison.
 
 - **REQ-012:** **Explain what to fix.** Findings describe how an attack could work, what damage it could do, and what developers need to change. Recommendations address this system and show what to tackle first. The report's threat overview lists the most severe threats first. When any threat has a Critical or High finding, the threat overview shows only those threats and names the others below it. Without such findings, it shows all threats. Urgent fixes include concrete steps and a way to check the result.
 

@@ -1060,6 +1060,7 @@ requirements:
 
   REQ-011:
     applies_to:
+      - scripts/orchestrator/assessment_review.py
       - appsec_analyzer/assessment/scope.py
       - scripts/orchestrator/orchestration_controller.py
       - appsec_analyzer/cli.py
@@ -1112,6 +1113,14 @@ requirements:
       - tests/test_render_abuse_cases.py::test_missing_verdict_is_unchecked_in_yaml_and_compact_report
       - tests/test_render_abuse_cases.py::test_budget_stub_passes_export_validation_without_claiming_verification
       - tests/test_render_abuse_cases.py::test_reasoned_inconclusive_is_checked_and_retains_its_reason
+      - tests/test_render_abuse_cases.py::test_derived_verdict_reaches_markdown_and_canonical_yaml
+      - tests/test_render_abuse_cases.py::test_invalid_derived_definitions_cannot_silently_drop_a_verdict
+      - tests/test_assessment_review.py::test_case_context_preloads_current_sources_without_expanding_read_authority
+      - tests/test_assessment_review.py::test_case_support_resolves_the_actual_handler_registration_and_guard
+      - tests/test_assessment_review.py::test_case_cannot_close_an_open_claim_with_only_its_original_anchor
+      - tests/test_assessment_review.py::test_finding_review_cannot_cite_a_line_outside_the_served_ranges
+      - tests/test_promote_verified_abuse_cases.py::test_confirmed_case_step_does_not_clear_an_unaddressed_review_condition
+      - tests/test_promote_verified_abuse_cases.py::test_explicit_case_review_propagates_a_contradiction_only_to_its_exact_claim
       - tests/test_match_abuse_cases.py::test_token_role_step_rejects_coupon_even_with_same_cwe_and_file
       - tests/test_validate_intermediate.py::test_unrun_abuse_cases_can_only_preserve_unchecked_results
       - tests/test_resolve_abuse_cases.py::test_unchecked_derived_case_remains_available_for_a_later_check
@@ -2768,3 +2777,21 @@ requirements:
       - tests/test_promote_verified_abuse_cases.py::test_a_step_does_not_verify_a_finding_with_further_locations
       - tests/test_promote_verified_abuse_cases.py::test_a_step_that_verifies_a_finding_clears_the_open_review_reason
       - tests/test_promote_verified_abuse_cases.py::test_a_step_that_settles_an_open_review_restores_the_tier_that_review_lowered
+
+  REQ-048:
+    applies_to:
+      - scripts/model/analysis_contributions.py
+      - scripts/orchestrator/orchestration_controller.py
+      - scripts/renderers/compose_threat_model.py
+      - schemas/threat-model.output.schema.yaml
+    decisions: []
+    documents:
+      - README.md
+      - docs/security-assessment.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_analysis_contributions.py::test_comparison_counts_all_systemic_locations_and_never_claims_semantic_novelty
+      - tests/test_analysis_contributions.py::test_persistence_uses_receipted_jobs_and_charged_cost_without_model_calls
+      - tests/test_compose_threat_model.py::test_run_statistics_include_recorded_analysis_contributions
+      - tests/test_multi_repo_assessment.py::test_root_causes_are_synthesized_after_abuse_verification

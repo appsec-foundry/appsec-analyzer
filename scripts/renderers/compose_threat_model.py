@@ -13737,6 +13737,9 @@ def _render_appendix_run_statistics(ctx: RenderContext, env: jinja2.Environment,
     # Reads `.stage-stats.jsonl`. When the file is absent (older runs, dry-run,
     # partial failure), the section is omitted entirely — no empty skeleton.
     lines += _stage_tables(stage_rows)
+    from model.analysis_contributions import markdown as contribution_markdown
+
+    lines += contribution_markdown(ctx.yaml_data.get("analysis_contributions"))
 
     # --- Per-Phase Duration Breakdown --------------------------------------
     # Omitted when the log carries no phase pairs (the compact runtime logs
@@ -17085,19 +17088,18 @@ def _verification_card(t: dict) -> str:
         if spots
         else ""
     )
+    contradicted = t.get("evidence_review_contradicted")
+    if isinstance(contradicted, dict) and contradicted.get("reason"):
+        contradiction += ("\n\n" if contradiction else "") + (
+            "**Contradicted by the evidence review:** "
+            + _safe_boundary_text(contradicted["reason"])
+            + " Check this finding before acting on it."
+        )
     methods = [_METHOD_NAMES[m] for m in _METHOD_NAMES if m in (t.get("found_by") or [])]
     if len(methods) > 1 or "verification" in methods:
         named = methods[0] if len(methods) == 1 else ", ".join(methods[:-1]) + " and " + methods[-1]
         links = ", ".join(f"[{c}](#{c.lower()})" for c in cases)
         card = f"**Found by:** {named}" + (f" ({links})" if links else "")
-        contradicted = t.get("evidence_review_contradicted")
-        if isinstance(contradicted, dict) and contradicted.get("reason"):
-            # The reason is model text: it stays text and cannot create links or markup.
-            card += (
-                "\n\n**Contradicted by the evidence review:** "
-                + _safe_boundary_text(contradicted["reason"])
-                + " Check this finding before acting on it."
-            )
         return card + (f"\n\n{contradiction}" if contradiction else "")
     found = [
         str(f)

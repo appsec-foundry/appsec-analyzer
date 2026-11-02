@@ -586,10 +586,86 @@ def test_a_step_that_verifies_a_finding_clears_the_open_review_reason(tmp_path: 
         evidence_review_unproven={"reason": "The route registration is not in the supplied source."},
     )
 
+    document = json.loads((tmp_path / ".abuse-case-verdicts.json").read_text())
+    original = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    path = tmp_path / "repo/app/approvals/approve.py"
+    path.write_text(path.read_text() + "app.post('/approve', authorized, handle)\n")
+    document["verdicts"][0]["step_verdicts"][0]["finding_review"] = {
+        "finding_id": "T-001",
+        "verdict": "verified",
+        "reason": "The complete claimed path is present.",
+        "condition_resolution": "The newly read registration establishes the caller's access.",
+        "reviewed_claim": mod.claim_for_review(original),
+        "evidence": [
+            {"file": "app/approvals/approve.py", "line": 12, "excerpt": "request.approve(user)"},
+            {"file": "app/approvals/approve.py", "line": 13, "excerpt": "app.post('/approve', authorized, handle)"},
+        ],
+    }
+    _write(tmp_path / ".abuse-case-verdicts.json", document)
+
     mod.promote(tmp_path)
     finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
     assert finding["evidence_check"] == "verified"
     assert "evidence_review_unproven" not in finding
+
+
+@pytest.mark.parametrize("with_review", [False, True])
+def test_confirmed_case_step_does_not_clear_an_unaddressed_review_condition(tmp_path, with_review):
+    _repo_with_approval(tmp_path)
+    _business(tmp_path, _step("confirmed", matched_finding_id="T-001"), chain_verdict="fully_viable")
+    _with_existing_finding(
+        tmp_path,
+        evidence={"file": "app/approvals/approve.py", "line": 12},
+        evidence_check="ambiguous",
+        evidence_basis="ambiguous",
+        evidence_review_unproven={"reason": "The caller's authorization is unknown."},
+    )
+    if with_review:
+        finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+        document = json.loads((tmp_path / ".abuse-case-verdicts.json").read_text())
+        document["verdicts"][0]["step_verdicts"][0]["finding_review"] = {
+            "finding_id": "T-001",
+            "verdict": "verified",
+            "reason": "The same sink still exists.",
+            "condition_resolution": "The condition is said to be resolved without supporting source.",
+            "reviewed_claim": mod.claim_for_review(finding),
+            "evidence": [{"file": "app/approvals/approve.py", "line": 12, "excerpt": "request.approve(user)"}],
+        }
+        _write(tmp_path / ".abuse-case-verdicts.json", document)
+    mod.promote(tmp_path)
+    finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    assert finding["evidence_check"] == "ambiguous"
+    assert finding["evidence_review_unproven"]["reason"] == "The caller's authorization is unknown."
+
+
+@pytest.mark.parametrize("changed_claim", [False, True])
+def test_explicit_case_review_propagates_a_contradiction_only_to_its_exact_claim(tmp_path, changed_claim):
+    _repo_with_approval(tmp_path)
+    _business(tmp_path, _step("refuted", matched_finding_id="T-001"), chain_verdict="inconclusive")
+    _with_existing_finding(
+        tmp_path,
+        evidence={"file": "app/approvals/approve.py", "line": 12},
+        evidence_check="verified",
+        evidence_basis="llm-verified",
+    )
+    original = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    claim = mod.claim_for_review(original)
+    if changed_claim:
+        claim["scenario"] = "An unrelated operation"
+    document = json.loads((tmp_path / ".abuse-case-verdicts.json").read_text())
+    document["verdicts"][0]["step_verdicts"][0]["finding_review"] = {
+        "finding_id": "T-001",
+        "verdict": "refuted",
+        "reason": "The claimed operation is protected.",
+        "condition_resolution": None,
+        "reviewed_claim": claim,
+        "evidence": [{"file": "app/approvals/approve.py", "line": 12, "excerpt": "request.approve(user)"}],
+    }
+    _write(tmp_path / ".abuse-case-verdicts.json", document)
+    mod.promote(tmp_path)
+    finding = json.loads((tmp_path / ".threats-merged.json").read_text())["threats"][0]
+    assert ("evidence_review_contradicted" in finding) is not changed_claim
+    assert finding["evidence_check"] == ("verified" if changed_claim else "ambiguous")
 
 
 @pytest.mark.parametrize(

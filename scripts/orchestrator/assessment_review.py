@@ -52,6 +52,19 @@ _EVIDENCE = {
     },
 }
 
+_FINDING_REVIEW = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["finding_id", "verdict", "reason", "condition_resolution", "evidence"],
+    "properties": {
+        "finding_id": {"type": "string", "pattern": "^T-[0-9]{3,}$"},
+        "verdict": {"enum": ["verified", "refuted", "ambiguous"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+        "condition_resolution": {"type": ["string", "null"], "minLength": 1, "maxLength": 1000},
+        "evidence": {"type": "array", "minItems": 1, "maxItems": 8, "items": _EVIDENCE},
+    },
+}
+
 
 class AssessmentReviewError(ValueError):
     """A combined review stage cannot run faithfully or its gate failed."""
@@ -94,6 +107,7 @@ def _verdict_schema(candidate: str, steps: list[int]) -> dict:
                             "maxItems": 16,
                             "items": {"type": "string", "minLength": 1, "maxLength": 300},
                         },
+                        "finding_review": {"anyOf": [_FINDING_REVIEW, {"type": "null"}]},
                     },
                     "allOf": [
                         {
@@ -192,15 +206,16 @@ def _validate_retrieved(artifact: dict, ranges: list[dict], allowed: frozenset) 
         if (row["repository_id"], row["path"]) not in allowed:
             raise ExchangeError("Review job read a source outside its authorization")
     for step in artifact.get("step_verdicts") or []:
-        evidence = step.get("evidence")
-        if evidence is None:
-            continue
-        key = (evidence["repository_id"], evidence["file"])
-        if key not in allowed or not any(
-            (row["repository_id"], row["path"]) == key and row["start_line"] <= evidence["line"] <= row["end_line"]
-            for row in ranges
-        ):
-            raise ExchangeError("Abuse-case evidence was not retrieved by its authorized job")
+        evidence_rows = [step.get("evidence"), *((step.get("finding_review") or {}).get("evidence") or [])]
+        for evidence in evidence_rows:
+            if evidence is None:
+                continue
+            key = (evidence["repository_id"], evidence["file"])
+            if key not in allowed or not any(
+                (row["repository_id"], row["path"]) == key and row["start_line"] <= evidence["line"] <= row["end_line"]
+                for row in ranges
+            ):
+                raise ExchangeError("Abuse-case evidence was not retrieved by its authorized job")
 
 
 def _case_matches(workspace: Path) -> dict[str, dict]:
@@ -249,7 +264,48 @@ def _listed_cases(workspace: Path, candidates: list[str]) -> list[str]:
     return steps
 
 
-def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, instructions) -> None:
+def _case_source_support(scope, anchors):
+    """Resolve bounded direct helpers and route guards inside captured sources only."""
+    from analyzers.handler_resolver import HandlerResolver, direct_imports
+    from analyzers.route_inventory import build_inventory
+
+    support = {}
+    for repo in scope.repositories:
+        selected = [row for row in anchors if row["repository_id"] == repo.repository_id and row["file"] in repo.files]
+        if not selected:
+            continue
+        with scope.scanner_snapshot(repo.repository_id) as root:
+            resolver = HandlerResolver(root)
+            routes = build_inventory(root)["routes"]
+            for anchor in selected:
+                rid, path = repo.repository_id, anchor["file"]
+                target = {"evidence": anchor, "related": [], "middleware": [], "guard_lines": [], "routes": []}
+                helpers = direct_imports(path, repo.files[path].decode("utf-8", "ignore"), repo.files.__contains__)[:8]
+                target["imports"] = [[rid, other] for other in helpers]
+                for route in routes:
+                    registration = route.get("handler_file")
+                    line = route.get("handler_line")
+                    if resolver.handler_module(route) != path and not (registration == path and line == anchor["line"]):
+                        continue
+                    if registration in repo.files and type(line) is int:
+                        target["related"].append([rid, registration, max(1, line - 4), line + 12])
+                        target["routes"].append({"line": line})
+                        target["guard_lines"] += [[rid, registration, n] for n in route.get("guard_lines") or []]
+                    target["middleware"] += [
+                        [rid, other, start, min(end, start + 31)]
+                        for other, start, end in resolver.middleware_definitions(route)
+                        if other in repo.files
+                    ]
+                for key in ("related", "middleware", "guard_lines", "routes"):
+                    target[key] = target[key][:8]
+                support[(rid, path, anchor["line"])] = target
+    return support
+
+
+def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, instructions, support=None) -> None:
+    from contexts import multi_repo_analysis as analysis
+    from model.promote_verified_abuse_cases import claim_for_review
+
     context = read_json(workspace / ".dispatch-context/abuse-cases" / f"{candidate}.json")
     body = context["candidate"]
     steps = [row["step"] for row in body.get("chain") or body.get("steps") or []]
@@ -259,6 +315,44 @@ def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, in
     finding_ids |= {row.get("id") for row in body.get("related_findings") or []}
     finding_ids.discard(None)
     allowed = _qualified_sources(names, _cited_paths(body))
+    merged_path = workspace / ".threats-merged.json"
+    previous = read_json(merged_path).get("threats", []) if merged_path.exists() else []
+    claims, claim_bytes = {}, 0
+    for row in previous:
+        if row.get("t_id") not in finding_ids:
+            continue
+        claim = claim_for_review(row)
+        size = len(json.dumps(claim).encode())
+        if claim_bytes + size <= 16_384:
+            claims[row["t_id"]] = claim
+            claim_bytes += size
+    anchors = []
+    for row in body.get("step_matches") or []:
+        evidence = row.get("evidence") or {}
+        if evidence.get("file") and type(evidence.get("line")) is int:
+            try:
+                rid, path = names.split(evidence["file"])
+            except WorkspaceError:
+                continue
+            if (rid, path) in allowed:
+                anchors.append({"repository_id": rid, "file": path, "line": evidence["line"]})
+    targets = [
+        (support or {}).get((row["repository_id"], row["file"], row["line"]), {"evidence": row}) for row in anchors
+    ]
+    allowed |= analysis.related_sources(targets)
+    allowed = frozenset((rid, path) for rid, path in allowed if path in names.files.get(rid, {}))
+    exchange_context = {
+        "candidate_context": context,
+        "prior_findings": claims,
+        "sources": [
+            {"repository_id": rid, "path": path, "workspace_path": names.qualify(rid, path)}
+            for rid, path in sorted(allowed)
+        ],
+    }
+    # These are current, authorized slices from the captured source, not a
+    # previous model's claim that a line exists. The host revalidates hashes.
+    preload = analysis.evidence_preload(scope, anchors, allowed, room=16_384, max_windows=8)
+    preload = analysis.supporting_preload(scope, targets, preload, allowed, context=exchange_context)
 
     def validate(artifact, ranges):
         _validate_retrieved(artifact, ranges, allowed)
@@ -266,6 +360,28 @@ def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, in
             raise ExchangeError("Abuse-case verdict does not answer every step exactly once")
         if any(row["matched_finding_id"] not in finding_ids | {None} for row in artifact["step_verdicts"]):
             raise ExchangeError("Abuse-case verdict binds a finding outside its candidate")
+        for step in artifact["step_verdicts"]:
+            decision = step.get("finding_review")
+            if decision:
+                fid = decision["finding_id"]
+                if fid not in claims or fid != step["matched_finding_id"]:
+                    raise ExchangeError("Abuse-case finding review is outside its bound claim")
+                if (
+                    decision["verdict"] == "verified"
+                    and claims[fid].get("evidence_review_unproven")
+                    and not decision["condition_resolution"]
+                ):
+                    raise ExchangeError("A finding review must resolve its recorded open condition")
+                if decision["verdict"] == "verified" and claims[fid].get("evidence_review_unproven"):
+                    evidence = claims[fid].get("evidence") or {}
+                    anchor = (evidence.get("file"), evidence.get("line"))
+                    cited = {
+                        (names.qualify(row["repository_id"], row["file"]), row["line"]) for row in decision["evidence"]
+                    }
+                    if not cited - {anchor}:
+                        raise ExchangeError(
+                            "Resolving an open condition requires its supporting source, beyond the original anchor"
+                        )
         from contexts.multi_repo_analysis import validate_executable_evidence
 
         validate_executable_evidence(scope, artifact, "Abuse-case evidence does not cite an executable implementation")
@@ -280,17 +396,20 @@ def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, in
             "and path you may read. Only those sources are readable. Cite evidence as repository_id, file "
             "(repository-relative path), line and the verbatim excerpt of that line, and cite only lines you "
             "read in this job; a source window in the candidate is not a read. A confirmed or blocked step "
-            "requires evidence. matched_finding_id is null or an id the candidate supplies.",
+            "requires evidence. source_slices are current controller-served evidence and need no repeated read. "
+            "Reuse prior_findings only for the same operation and claim; they do not prove the entire case. "
+            "Investigate the remaining prerequisites and request missing permitted source before leaving them open. "
+            "matched_finding_id is null or an id the candidate supplies. If this check settles or contradicts "
+            "the full bound finding, return finding_review with its exact finding_id, independent evidence, "
+            "verdict and reason. For a previously open finding, condition_resolution must explain how the new "
+            "evidence resolves the recorded uncertainty and cite the supporting source beyond its original anchor. "
+            "A step verdict alone changes no such uncertainty; "
+            "a different operation or an unknown runtime setting leaves the finding review ambiguous.",
         ),
-        context={
-            "candidate_context": context,
-            "sources": [
-                {"repository_id": rid, "path": path, "workspace_path": names.qualify(rid, path)}
-                for rid, path in sorted(allowed)
-            ],
-        },
+        context=exchange_context,
         schema=_verdict_schema(candidate, steps),
         allowed_sources=allowed,
+        preload=preload,
         validate=validate,
         # Without a verdict file the merge records the case as not checked (OR-39).
         on_failure=lambda reason: None,
@@ -298,13 +417,26 @@ def _verify_candidate(scope, jobs, names, workspace: Path, candidate: str, *, in
     if artifact is None:
         return
     verdict = {"abuse_case_id": candidate, "step_verdicts": []}
+
+    def qualify(evidence):
+        return {
+            "file": names.qualify(evidence["repository_id"], evidence["file"]),
+            "line": evidence["line"],
+            "excerpt": evidence["excerpt"],
+        }
+
     for row in artifact["step_verdicts"]:
         evidence = row["evidence"]
         if evidence is not None:
-            evidence = {
-                "file": names.qualify(evidence["repository_id"], evidence["file"]),
-                "line": evidence["line"],
-                "excerpt": evidence["excerpt"],
+            evidence = qualify(evidence)
+        if decision := row.get("finding_review"):
+            row = {
+                **row,
+                "finding_review": {
+                    **decision,
+                    "evidence": [qualify(e) for e in decision["evidence"]],
+                    "reviewed_claim": claims[decision["finding_id"]],
+                },
             }
         verdict["step_verdicts"].append({**row, "evidence": evidence})
     write_json(workspace / f".abuse-case-verdict-{candidate}.json", verdict)
@@ -417,6 +549,17 @@ def run_abuse_cases(
             + [arg for candidate in candidates for arg in ("--candidate", candidate)],
         )
         titles = _candidate_titles(workspace)
+        support_anchors = []
+        for match in _case_matches(workspace).values():
+            for row in match.get("step_matches") or []:
+                evidence = row.get("evidence") or {}
+                if evidence.get("file") and type(evidence.get("line")) is int:
+                    try:
+                        rid, path = names.split(evidence["file"])
+                    except WorkspaceError:
+                        continue
+                    support_anchors.append({"repository_id": rid, "file": path, "line": evidence["line"]})
+        support = _case_source_support(scope, support_anchors)
         # The cases run concurrently, whatever their group: the console names them once instead of one line per start.
         for listed_cases in _listed_cases(workspace, candidates):
             progress(listed_cases)
@@ -424,7 +567,7 @@ def run_abuse_cases(
         def verify(position, candidate, jobs):
             title = f" — {titles[candidate]}" if titles.get(candidate) else ""
             progress(f"Verifying abuse case: {candidate}{title} ({position}/{len(candidates)})")
-            _verify_candidate(scope, jobs, names, workspace, candidate, instructions=instructions)
+            _verify_candidate(scope, jobs, names, workspace, candidate, instructions=instructions, support=support)
 
         # Each candidate reads its own context and writes its own verdict, so the candidates run concurrently.
         concurrently(jobs, candidates, verify)

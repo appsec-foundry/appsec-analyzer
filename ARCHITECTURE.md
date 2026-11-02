@@ -49,6 +49,8 @@ Keep workflow coordination, calculation, and presentation separate. Reusable mod
 
 ### Survey and verification
 
+[analysis_contributions.py](scripts/model/analysis_contributions.py) compares receipted source anchors, evidence-review decisions, and before/after abuse-check results without model calls. The controller records the before-abuse snapshot and adds the optional comparison to the published YAML after report authoring; the composer renders it in the run-statistics appendix. Source-location counts do not establish semantic novelty. Abuse-case jobs receive bounded current source preloads and scoped prior claims; explicit finding reviews preserve the original claim identity and unresolved conditions before the promotion consumer changes a finding.
+
 The survey analyzes threats per component using STRIDE. Verification checks selected security aspects after the survey and before findings are merged.
 
 Verification uses a model-facing contract that permits omitted job identity fields and citation hashes. The existing normalizer restores them from the job and admitted source bytes, then the canonical investigation contract and source retrieval checks validate the complete artifact. Saved results retain their existing format.

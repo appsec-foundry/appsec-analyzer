@@ -5,6 +5,8 @@ description: Start a deterministic scan, quick security score, or complete secur
 
 # AppSec Analyzer entry
 
+When reviewing a completed assessment, use its optional `analysis_contributions` block and run-statistics appendix to distinguish additional locations, repeated evidence, review decisions, and attributable cost. Unknown semantic novelty is not a new-weakness count. Older results without this block remain valid. Abuse checks reuse source-bound evidence and still examine open prerequisites; a step confirmation alone cannot clear an unrelated review condition. Model-derived case results belong in both Markdown and YAML.
+
 When invoked through a Claude Code plugin host binding, follow the [Claude Code assessment workflow](claude-code.md). Use that binding for every public command, including the business-context dialog; never substitute private controller scripts.
 
 For follow-up work on a completed scan, offer `appsec-analyzer review <result-directory>`, optionally with `--with claude` or `--with codex`. It starts the recorded coding assistant with the existing reports and the bundled `review-assessment` skill for questions, evidence lookup, and remediation planning. It needs an interactive terminal; use `--preview` to inspect the handoff without model calls. Do not launch an interactive assistant from unattended execution or infer new spending authorization from a completed scan. API adapters and older results without a recorded coding assistant need a selection. The native assistant's account, usage charges, permissions, and history apply; the scan budget does not carry over. See [review an assessment](../../docs/security-assessment.md#review-an-assessment-with-ai).

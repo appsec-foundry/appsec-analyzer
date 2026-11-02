@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator
 from orchestrator import assessment_review as review
 from orchestrator.assessment_workspace import Namespaces
 from runtime.assessment_host import ExchangeError
+from runtime.multi_repo_scope import AssessmentScope
 
 from tests.test_architect_review import finding, merged
 from tests.test_architect_review_runtime import answer, model_for
@@ -28,6 +29,8 @@ EDGE_APP = "\n".join([f"# line {n}" for n in range(1, 17)] + [SINK, "# end"]) + 
 
 class Scope:
     """The admitted-scope surface the review stages use."""
+
+    read = AssessmentScope.read
 
     def __init__(self, files):
         self.repositories = [SimpleNamespace(repository_id=rid, files=rows) for rid, rows in files.items()]
@@ -55,8 +58,12 @@ class Jobs:
         self.respond = respond
         self.calls = []
 
-    def execute(self, *, role, selector, instructions, context, schema, allowed_sources, validate, on_failure=None):
-        self.calls.append({"role": role, "selector": selector, "allowed": allowed_sources, "context": context})
+    def execute(
+        self, *, role, selector, instructions, context, schema, allowed_sources, validate, on_failure=None, preload=()
+    ):
+        self.calls.append(
+            {"role": role, "selector": selector, "allowed": allowed_sources, "context": context, "preload": preload}
+        )
         artifact, ranges = self.respond(role, context)
         if not Draft202012Validator(schema).is_valid(artifact):
             raise ExchangeError("Assessment job artifact violates its output contract")
@@ -437,6 +444,93 @@ def test_disabled_verification_runs_nothing(abuse):
 
     receipts = _abuse(abuse, Jobs(_verifier()), cfg={"skip_abuse_case_verification": True}, run_script=forbidden)
     assert receipts == ["Abuse verification disabled"]
+
+
+def test_case_context_preloads_current_sources_without_expanding_read_authority(abuse):
+    jobs = Jobs(_verifier())
+    _abuse(abuse, jobs)
+    call = next(call for call in jobs.calls if call["role"] == "abuse_case_verifier")
+    assert call["preload"]
+    assert all((rid, path) in call["allowed"] for rid, path, start, end in call["preload"])
+    assert (SERVICE, "main.py") not in call["allowed"]
+
+
+def test_case_support_resolves_the_actual_handler_registration_and_guard():
+    scope = Scope(
+        {
+            EDGE: {
+                "server.ts": b"import { list } from './routes/items'\nimport { authorized } from './guards'\nconst app = express()\napp.get('/items/:id', authorized, list)\n",
+                "routes/items.ts": b"export function list(req, res) { return res.json(req.params.id) }\n",
+                "guards.ts": b"export function authorized(req, res, next) { if (!req.user) return res.sendStatus(401); next() }\n",
+            },
+            SERVICE: {"private.ts": b"export const unrelated = true\n"},
+        }
+    )
+    key = (EDGE, "routes/items.ts", 1)
+    support = review._case_source_support(scope, [{"repository_id": key[0], "file": key[1], "line": key[2]}])
+    assert any(row[:2] == [EDGE, "server.ts"] for row in support[key]["related"])
+    assert any(row[:2] == [EDGE, "guards.ts"] for row in support[key]["middleware"])
+    assert all(row[0] == EDGE for row in support[key]["middleware"])
+
+
+def test_finding_review_cannot_cite_a_line_outside_the_served_ranges():
+    artifact = {
+        "step_verdicts": [
+            {
+                "evidence": None,
+                "finding_review": {
+                    "evidence": [{"repository_id": EDGE, "file": "app.py", "line": 90}],
+                },
+            }
+        ]
+    }
+    with pytest.raises(ExchangeError, match="not retrieved"):
+        review._validate_retrieved(artifact, [served(EDGE, "app.py", 1, 10)], frozenset({(EDGE, "app.py")}))
+
+
+def test_case_cannot_close_an_open_claim_with_only_its_original_anchor(abuse):
+    from contexts.build_abuse_case_contexts import write_candidate
+
+    _matches(abuse.workspace)
+    path = abuse.workspace / ".abuse-case-matches.json"
+    matches = json.loads(path.read_text())
+    matches["matches"][0]["step_matches"][0]["matched_finding_id"] = "T-001"
+    path.write_text(json.dumps(matches))
+    (abuse.workspace / ".threats-merged.json").write_text(
+        json.dumps(
+            {
+                "threats": [
+                    {
+                        "t_id": "T-001",
+                        "title": "Untrusted expression evaluation",
+                        "cwe": "CWE-95",
+                        "evidence": {"file": "edge/app.py", "line": 17},
+                        "evidence_check": "ambiguous",
+                        "evidence_review_unproven": {"reason": "The upstream authorization is unknown."},
+                    }
+                ]
+            }
+        )
+    )
+    write_candidate(abuse.workspace, CASE, repo_root=abuse.root)
+
+    def respond(role, context):
+        artifact, ranges = _verifier()(role, context)
+        step = artifact["step_verdicts"][0]
+        step["matched_finding_id"] = "T-001"
+        step["finding_review"] = {
+            "finding_id": "T-001",
+            "verdict": "verified",
+            "reason": "The sink exists.",
+            "condition_resolution": "Authorization is said to be settled without reading its implementation.",
+            "evidence": [step["evidence"]],
+        }
+        return artifact, ranges
+
+    with pytest.raises(ExchangeError, match="supporting source"):
+        review._verify_candidate(
+            abuse.scope, Jobs(respond), abuse.names, abuse.workspace, CASE, instructions=instructions
+        )
 
 
 @pytest.mark.parametrize(

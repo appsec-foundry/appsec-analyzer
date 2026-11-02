@@ -2410,9 +2410,13 @@ def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: boo
             if isinstance(scenario, str) and scenario.strip():
                 instance.setdefault("scenario", scenario.strip())
             instance.setdefault("component_id", member.get("component_id"))
-            for field in ("evidence_tier", "evidence_check", "threat_category_id"):
+            for field in ("evidence_tier", "evidence_check", "threat_category_id", "cwe"):
                 if member.get(field):
                     instance.setdefault(field, member[field])
+            # A later verification part must not assign its routes to every
+            # earlier location of a systemic finding.
+            instance.setdefault("route_ids", list(member.get("route_ids") or []))
+            instance.setdefault("found_by", list(member.get("found_by") or []))
             # Each part keeps its scanner rule, so a combined finding names every rule behind it (REQ-040).
             for field in _SCANNER_RULE_FIELDS:
                 if member.get(field):
@@ -3655,24 +3659,34 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
         for position, finding in enumerate(verification)
         for finding_id in finding.get("verification", {}).get("finding_ids", [])
     }
-    index: dict[tuple, list[int]] = {}
+    index: dict[tuple, list[tuple[int, frozenset]]] = {}
     for position, threat in enumerate(threats):
         if is_refuted(threat):
             continue
-        for file, line in _locations(threat):
-            key = _evidence_identity_key({"evidence": {"file": file, "line": line}, "cwe": threat.get("cwe")})
-            if key is not None and position not in index.setdefault(key, []):
-                index[key].append(position)
+        for instance in _instances_of(threat):
+            key = _evidence_identity_key({"evidence": instance, "cwe": instance.get("cwe") or threat.get("cwe")})
+            routes = frozenset(instance.get("route_ids", threat.get("route_ids") or []))
+            entry = (position, routes)
+            if key is not None and entry not in index.setdefault(key, []):
+                index[key].append(entry)
 
-    def apart(one: dict, other: dict) -> bool:
-        first, second = set(one.get("route_ids") or []), set(other.get("route_ids") or [])
+    def apart(first: frozenset, other: dict) -> bool:
+        second = set(other.get("route_ids") or [])
         return bool(first and second and not first & second)
 
+    joined_routes: dict[tuple, frozenset] = {}
     alone, unreviewed = [], []
     for finding in _unique_verification(verification):
+        incoming_routes = frozenset(finding.get("route_ids") or [])
         confirmed = finding.pop("post_check_confirmed", False)
         key = _evidence_identity_key({"evidence": _primary_evidence(finding), "cwe": finding.get("cwe")})
-        partners = [p for p in index.get(key, []) if key is not None and not apart(threats[p], finding)]
+        partners = list(
+            dict.fromkeys(
+                p
+                for p, routes in index.get(key, [])
+                if key is not None and not apart(joined_routes.get((p, key), routes), finding)
+            )
+        )
         if not partners:
             if confirmed:
                 record_evidence(finding, "verified", POST_CHECK_BASIS)
@@ -3700,6 +3714,11 @@ def _join_verification(threats: list[dict], verification: list[dict], review=Non
                 if finding.get(field):
                     partner[field] = finding[field]
         threats[position] = survivor
+        if incoming_routes:
+            # Resolve unknown route scope for this location only. A later
+            # route on this same line stays distinct; other systemic locations
+            # keep their own scope rather than inheriting this route.
+            joined_routes[(position, key)] = incoming_routes
     decisions = review([_verification_id(f) for f in unreviewed]) if unreviewed and review is not None else {}
     for finding in unreviewed:
         decision = decisions.get(_verification_id(finding)) or {}

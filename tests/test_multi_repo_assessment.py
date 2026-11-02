@@ -3574,6 +3574,13 @@ def test_root_causes_are_synthesized_after_abuse_verification(tmp_path, monkeypa
     assert "Unvalidated request input" in json.dumps(model["tier_root_causes"])
     # The rebuild for the synthesis must not reset the verified abuse-case analysis.
     assert model["abuse_case_analysis"]["status"] != "not_run"
+    assert {row["step"] for row in model["analysis_contributions"]["steps"]} == {
+        "survey",
+        "verification",
+        "evidence_review",
+        "abuse_cases",
+    }
+    assert "Contribution of analysis steps" in (out / "security-assessment.md").read_text()
 
 
 # ── Terminal colour ──────────────────────────────────────────────────────────

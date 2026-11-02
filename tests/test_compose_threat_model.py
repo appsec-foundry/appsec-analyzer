@@ -7660,6 +7660,21 @@ def _run_stats_ctx(tmp_path, yaml_data):
     )
 
 
+def test_run_statistics_include_recorded_analysis_contributions(tmp_path):
+    from model.analysis_contributions import compare
+
+    block = compare([], [], [], [], [], {"verification": 1.25})
+    ctx = _run_stats_ctx(tmp_path, {"meta": {}, "threats": [], "analysis_contributions": block})
+    output = compose._render_appendix_run_statistics(ctx, None, {})
+    assert "Contribution of analysis steps" in output
+    assert "1.25" in output
+    assert "unknown" in output
+    assert "not independent weaknesses" in output
+    assert "Contribution of analysis steps" not in compose._render_appendix_run_statistics(
+        _run_stats_ctx(tmp_path, {"meta": {}, "threats": []}), None, {}
+    )
+
+
 def test_run_statistics_disclose_the_business_context_source(tmp_path):
     ctx = _run_stats_ctx(
         tmp_path,

@@ -56,6 +56,8 @@ To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) 
 
 Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
 
+The run-statistics appendix compares the recorded contributions of survey, verification, evidence review, and abuse cases with their attributable model costs. Additional source locations are not necessarily new weaknesses; semantic novelty or missing comparison data is shown as unknown. This overview makes no additional model calls.
+
 **Example:** [Thorough assessment of OWASP Juice Shop](https://github.com/appsec-foundry/appsec-analyzer-examples/blob/main/security-assessment-juice-shop-thorough-v0.1.0.md). The [examples repository](https://github.com/appsec-foundry/appsec-analyzer-examples) also has the quick and standard assessments of the same commit, their data files, and all diagrams.
 
 The runtime architecture with its data flows and attack paths:

@@ -111,6 +111,8 @@ are exact-source-bound and receipted. Targeted repository reads remain a
 separate optional route and cannot expose another candidate or the complete
 match set.
 
+The verifier also receives up to 16 KiB of prior claims bound to that candidate's finding IDs, together with current source slices. Claims remain untrusted evidence and cannot authorize reads or establish an entire chain. Source support includes only admitted direct helpers and the matched handler's registration and guards; the existing source-window and byte limits still apply. An optional structured finding review names the exact bound claim and cites lines served to that job. The controller adds the reviewed claim snapshot, and the promotion consumer applies a decision only while that snapshot still matches. Confirming an unresolved claim requires an explanation of the resolved condition and supporting source beyond its original anchor. A step verdict alone cannot clear an existing unresolved or contradicted finding, and a review of one location cannot settle a multi-location finding.
+
 Recon patterns are capped across the run and per category while retaining
 pre-cap counts and deterministic omission metadata. Actor, triage, and
 architecture roles receive a 200-line recon projection, and architecture

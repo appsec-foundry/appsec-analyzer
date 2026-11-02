@@ -895,13 +895,16 @@ def build_models(output_dir: Path, org_profile: str | None, repo_root: str | Non
         profile = rac._load_yaml(p)
         profile_dir = p.parent
     extra_case_files, _ = _match_mod()._scan_case_config(output_dir)
-    cases, _ = rac.resolve_abuse_cases(
+    cases, errors, rejected = rac.resolve_abuse_case_sources(
         profile,
         profile_dir,
         PLUGIN_ROOT,
         Path(repo_root) if repo_root else None,
         extra_case_files=extra_case_files,
+        derived_case_file=output_dir / _match_mod().DERIVED_CASE_FILE,
     )
+    if errors or any(row["path"] == _match_mod().DERIVED_CASE_FILE for row in rejected):
+        raise ValueError("Cannot render the assessment's abuse-case definitions")
     case_by_id = {c["id"]: c for c in cases}
 
     tm_path = output_dir / "threat-model.yaml"

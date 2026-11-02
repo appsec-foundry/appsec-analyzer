@@ -57,6 +57,10 @@ Keys that cannot read model metadata can still use this test to diagnose the pri
 
 The report covers components, data flows, trust boundaries, controls, weaknesses, abuse cases, prioritized findings, and fixes. It describes the captured source. Production behavior and business intent still need human review.
 
+The run-statistics appendix and YAML `analysis_contributions` block compare original survey evidence with verification, including locations inside combined findings. They also show evidence-review decisions and changes made by abuse checks, alongside attributable costs. Repeated locations count once per step. Different anchors can describe the same problem, so an additional location is not a count of independent new weaknesses. Missing comparison data, subscription costs, and unavailable accounting are shown as unknown. Older saved assessments may have no contribution block; opening or exporting them does not repeat analysis.
+
+Abuse checks receive current source excerpts and valid evidence already recorded for their bound findings. They examine remaining attack prerequisites separately. Existing evidence never proves a whole chain. A previously unresolved finding changes only when an explicit finding review addresses that uncertainty with admitted evidence; a blocked step about another operation does not refute the original finding. Confirmed and unresolved model-derived cases remain in the report and YAML.
+
 ```sh
 appsec-analyzer assess --repo /path/to/project \
   --budget 20 --assessment-depth standard

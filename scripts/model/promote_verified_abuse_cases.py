@@ -159,6 +159,77 @@ def _descriptive_metadata(case: dict) -> dict:
 _UNSETTLED_EVIDENCE = {None, "", "ambiguous", "unchecked"}
 
 
+def claim_for_review(finding: dict) -> dict:
+    """The immutable claim a case job may reassess, excluding presentation and later triage."""
+    return {
+        key: finding[key]
+        for key in (
+            "t_id",
+            "title",
+            "scenario",
+            "evidence",
+            "instances",
+            "cwe",
+            "evidence_basis",
+            "evidence_check",
+            "evidence_review_unproven",
+            "evidence_review_contradicted",
+            "mechanism_trace",
+            "route_ids",
+        )
+        if key in finding
+    }
+
+
+def _apply_case_reviews(matches, verdict_by_case, threats, repo_root):
+    by_id = {t.get("t_id"): t for t in threats}
+    changed = []
+    for case in matches:
+        verdict = verdict_by_case.get(case.get("abuse_case_id")) or {}
+        for step in verdict.get("step_verdicts") or []:
+            finding = by_id.get(step.get("matched_finding_id"))
+            decision = step.get("finding_review") or {}
+            if not finding or not decision or decision.get("finding_id") != finding.get("t_id"):
+                continue
+            if decision.get("reviewed_claim") != claim_for_review(finding):
+                continue
+            evidence = decision.get("evidence") or []
+            if not evidence or any(_evidence_problem(row, repo_root) for row in evidence):
+                continue
+            if len(set(_locations(finding))) > 1:
+                continue
+            result = decision.get("verdict")
+            if result == "verified":
+                if finding.get("evidence_review_unproven") and not decision.get("condition_resolution"):
+                    continue
+                if finding.get("evidence_review_unproven") and not (
+                    {(row.get("file"), row.get("line")) for row in evidence} - set(_locations(finding))
+                ):
+                    continue
+                if not any(
+                    row.get("file") == _finding_file(finding)
+                    and row.get("line") == (finding.get("evidence") or {}).get("line")
+                    for row in evidence
+                ):
+                    continue
+                record_evidence(finding, "verified", "llm-verified")
+                finding.pop("evidence_review_unproven", None)
+                finding.pop("evidence_review_contradicted", None)
+                if finding.get("claimed_tier") == _CONFIRMED_TIER:
+                    finding["evidence_tier"] = _CONFIRMED_TIER
+            elif result in {"refuted", "ambiguous"}:
+                # Retain the finding and the disagreement for review; the case
+                # cannot silently remove another operation of a shared claim.
+                record_evidence(finding, "ambiguous")
+                field = "evidence_review_contradicted" if result == "refuted" else "evidence_review_unproven"
+                finding[field] = {"reason": decision["reason"][:300]}
+                finding["evidence_tier"] = _UNPROVEN_TIER
+            else:
+                continue
+            changed.append(finding["t_id"])
+    return changed
+
+
 def _verify_bound_findings(matches: list, verdict_by_case: dict, threats: list, repo_root: Path | None) -> list[str]:
     """Verify findings whose bound step the abuse-case verifier confirmed (AC-11).
 
@@ -193,6 +264,8 @@ def _verify_bound_findings(matches: list, verdict_by_case: dict, threats: list, 
                 finding is None
                 or step_verdict.get("verdict") != "confirmed"
                 or finding.get("evidence_check") not in _UNSETTLED_EVIDENCE
+                or finding.get("evidence_review_unproven")
+                or finding.get("evidence_review_contradicted")
                 or not isinstance(evidence, dict)
                 or evidence.get("file") != _finding_file(finding)
                 or len(set(_locations(finding))) > 1
@@ -442,8 +515,9 @@ def promote(output_dir: Path) -> tuple[int, list[str]]:
             if isinstance(step, dict) and step.get("matched_finding_id")
         ]
 
+    reviewed = _apply_case_reviews(matches, verdict_by_case, threats, repo_root)
     verified = _verify_bound_findings(matches, verdict_by_case, threats, repo_root)
-    if promoted or bindings_changed or verified:
+    if promoted or bindings_changed or verified or reviewed:
         _write(merged_path, merged)
         _write(matches_path, matches_doc)
         _write(verdicts_path, verdicts_doc)

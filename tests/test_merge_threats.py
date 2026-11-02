@@ -75,6 +75,55 @@ def _threat(**overrides):
     return base
 
 
+def test_verification_keeps_each_systemic_location_and_its_survey_origin(mt):
+    survey = _threat(
+        local_id="survey",
+        cwe="CWE-639",
+        found_by=["survey"],
+        evidence_check="verified",
+        evidence_basis="llm-verified",
+        systemic=True,
+        evidence={"file": "api/addresses.py", "line": 12},
+        instances=[
+            {"file": "api/addresses.py", "line": 12},
+            {"file": "api/coupons.py", "line": 21},
+            {"file": "api/checkout.py", "line": 34},
+        ],
+    )
+    verification = [
+        _threat(
+            local_id=f"TCF-{n:03}",
+            cwe="CWE-639",
+            found_by=["verification"],
+            evidence={"file": file, "line": line},
+            route_ids=[route],
+            verification={"finding_ids": [f"TCF-{n:03}"], "test_case_ids": ["TC-AUTHZ-01"]},
+        )
+        for n, file, line, route in [(1, "api/coupons.py", 21, "coupon"), (2, "api/checkout.py", 34, "checkout")]
+    ]
+    merged = mt._join_verification([survey], verification)
+    assert len(merged) == 1
+    assert merged[0]["found_by"] == ["survey", "verification"]
+    assert merged[0]["verification"]["finding_ids"] == ["TCF-001", "TCF-002"]
+    assert {tuple((i["file"], i["line"])) for i in merged[0]["instances"]} >= {
+        ("api/addresses.py", 12),
+        ("api/coupons.py", 21),
+        ("api/checkout.py", 34),
+    }
+
+
+def test_verification_does_not_fold_different_known_operations_at_one_location(mt):
+    survey = _threat(local_id="survey", found_by=["survey"], route_ids=["read"], evidence_check="verified")
+    verification = _threat(
+        local_id="TCF-001",
+        found_by=["verification"],
+        route_ids=["delete"],
+        post_check_confirmed=True,
+        verification={"finding_ids": ["TCF-001"], "test_case_ids": ["TC-AUTHZ-01"]},
+    )
+    assert len(mt._join_verification([survey], [verification])) == 2
+
+
 # ---------------------------------------------------------------------------
 # Exact dedup
 # ---------------------------------------------------------------------------

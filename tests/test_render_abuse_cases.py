@@ -1221,3 +1221,49 @@ def test_a_derived_case_keeps_its_check_in_the_canonical_model(tmp_path):
     assert by_id["MODEL-AC-001"]["path_patterns"] == ["*coupon*"]
     # A case with a file of its own is reloaded from it; the model does not copy it.
     assert "check" not in by_id["REPO-AC-001"]
+
+
+@pytest.mark.parametrize("verdict", ["confirmed", "inconclusive"])
+def test_derived_verdict_reaches_markdown_and_canonical_yaml(tmp_path, verdict):
+    case = {
+        "id": "MODEL-AC-001",
+        "kind": "descriptive",
+        "title": "Refund cannot credit an unrelated account",
+        "check": "Check whether refund credit can be assigned to an unrelated account.",
+        "scope_qualifier": {"path_patterns": ["*refund*"]},
+    }
+    _setup(
+        tmp_path,
+        {
+            "verdicts": [
+                {
+                    "abuse_case_id": case["id"],
+                    "chain_verdict": "fully_viable" if verdict == "confirmed" else "inconclusive",
+                    "step_verdicts": [
+                        {
+                            "step": 1,
+                            "state": "decided",
+                            "verdict": verdict,
+                            "reason": "Refund destination is client supplied",
+                            "matched_finding_id": None,
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    (tmp_path / ".derived-abuse-cases.yaml").write_text(yaml.safe_dump({"schema_version": 2, "abuse_cases": [case]}))
+    assert rac.main(["--output-dir", str(tmp_path)]) == 0
+    model = yaml.safe_load((tmp_path / "threat-model.yaml").read_text())
+    saved = model["abuse_case_analysis"]["cases"]
+    assert [row["id"] for row in saved] == [case["id"]]
+    assert saved[0]["check"] == case["check"]
+    assert saved[0]["chain_verdict"] == ("fully_viable" if verdict == "confirmed" else "inconclusive")
+    assert case["title"] in (tmp_path / ".fragments/abuse-cases.md").read_text()
+
+
+def test_invalid_derived_definitions_cannot_silently_drop_a_verdict(tmp_path):
+    _setup(tmp_path, {"verdicts": [{"abuse_case_id": "MODEL-AC-001", "step_verdicts": []}]})
+    (tmp_path / ".derived-abuse-cases.yaml").write_text("schema_version: 2\nabuse_cases: [invalid]\n")
+    with pytest.raises(ValueError, match="Cannot render"):
+        rac.build_models(tmp_path, None)

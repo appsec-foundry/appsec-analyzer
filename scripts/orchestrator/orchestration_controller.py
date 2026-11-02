@@ -4389,6 +4389,12 @@ def _assessment_prepare_render(
     # built before it; the root-cause synthesis then covers the findings that
     # abuse verification adds, and the model is built again with them.
     _consolidation_result(progress, workspace, build_model("Building the assessment model"), cfg)
+    from orchestrator.assessment_workspace import write_json
+
+    write_json(
+        workspace / ".analysis-before-abuse.json",
+        json.loads((workspace / ".threats-merged.json").read_text(encoding="utf-8")),
+    )
     receipts += run_abuse_cases(
         scope,
         jobs,
@@ -4467,6 +4473,9 @@ def _assessment_render(
         architecture_done=prepared is not None,
     )
     _write_assessment_stage_stats(workspace, jobs.timing, jobs.budget, show_costs=_AssessmentProgress.show_costs)
+    from model.analysis_contributions import persist as persist_contributions
+
+    persist_contributions(workspace, jobs, names)
     if not _compose_if_ready(workspace, str(root)):
         raise ControllerError("combined report composition failed " + _compose_blocker(workspace))
     progress("Running the quality gates")

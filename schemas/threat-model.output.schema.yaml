@@ -2016,6 +2016,30 @@ properties:
     type: [object, "null"]
     additionalProperties: true
 
+  analysis_contributions:
+    type: object
+    additionalProperties: false
+    required: [schema_version, steps, comparison_limit]
+    properties:
+      schema_version: { const: 1 }
+      comparison_limit: { type: string, minLength: 1, maxLength: 1000 }
+      steps:
+        type: array
+        minItems: 4
+        maxItems: 4
+        items:
+          type: object
+          additionalProperties: false
+          required: [step, additional_locations, repeated_locations, distinct_problems_added, stronger_evidence, contradictions, recorded_usd]
+          properties:
+            step: { enum: [survey, verification, evidence_review, abuse_cases] }
+            additional_locations: { type: [integer, "null"], minimum: 0 }
+            repeated_locations: { type: [integer, "null"], minimum: 0 }
+            distinct_problems_added: { type: [integer, "null"], minimum: 0 }
+            stronger_evidence: { type: [integer, "null"], minimum: 0 }
+            contradictions: { type: [integer, "null"], minimum: 0 }
+            recorded_usd: { type: [number, "null"], minimum: 0 }
+
   cross_repo_dependencies:
     type: [array, "null"]
     items:

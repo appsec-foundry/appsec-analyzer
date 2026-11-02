@@ -174,11 +174,17 @@ Accept validated business and organization context as data, identify its source 
 
 ## REQ-011: Look for misuse of business features
 
+Reuse only evidence bound to the same assessed source, operation, and claim; an existing finding never establishes an entire attack chain. Supply valid existing evidence to the case check and examine remaining prerequisites separately. Every selected and mandatory case retains a result or an explicit unchecked outcome. Preserve unresolved review conditions unless the new check actually addresses them. A blocked or refuted step records the affected finding's disagreement without automatically refuting its other operations or locations. Every admitted derived case with a result appears in Markdown and canonical YAML; malformed current-run definitions cannot silently discard results.
+
 An abuse case asks whether an attacker or user can reach a goal in the application from start to end: a technical case rates a path through several weaknesses, and a business case checks a rule of the application's flow. A built-in business case whose question a verified aspect already asks comes after the other built-in cases.
 
 Let users configure abuse-case sources. Include enabled business cases at standard and thorough depth, and at quick depth when `assess` is called with `--abuse-cases`, with at most three model-derived cases at thorough depth. Distinguish confirmed, unproven, mitigated, unresolved, inapplicable, and unchecked cases; create findings only when supported by evidence. An unproven case has evidence that indicates the problem without proving it and stays an unproven, unscored finding. An unresolved case is neither confirmed nor ruled out by the examined code and is not a safe result.
 
 For a single repository, accept repeatable `--abuse-case-file` selections through `assess`, and saved selections through the scan profile's `abuse_case_files` list. CLI selections replace that list. Resolve bounded YAML paths against the admitted repository root without requiring a documentation directory or granting access to host files. Retain automatic discovery at earlier repository locations for compatibility. Explicitly selected files request their enabled cases at every depth, including when the file is also automatically discovered, without loading the cases twice. Preserve case limits and report omissions. Reject unsupported multi-repository file selection and files outside the admitted source boundary.
+
+## REQ-048: Understand the contribution of each analysis step
+
+Generate a comparison from recorded assessment artifacts without model calls. Distinguish repetitions from additional source locations or operations, stronger evidence, and contradictions. Compare original survey and verification evidence against all locations of consolidated findings; a final method label alone does not establish a new problem. Keep semantic novelty unknown where the stored evidence cannot establish that two differently anchored claims are distinct; do not present a line-count or finding-count difference as independently proven weaknesses. Report recorded model cost separately from contribution counts, with unknown values for missing accounting or comparison data. Preserve older assessments without this optional block.
 
 ## REQ-012: Explain what to fix
 
