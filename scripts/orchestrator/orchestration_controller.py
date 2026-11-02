@@ -3575,6 +3575,8 @@ def _assessment_intro(
             cut += "; USD cost unavailable"
     elif ns.hard_budget is None and ns.soft_budget is not None:
         cut += f" (1.25 × deprecated --soft-budget ${ns.soft_budget:g}; use --hard-budget)"
+    elif budget_origin.endswith("depth default") and budget.max_usd == profile.get("settings", {}).get("budget"):
+        cut += " (default for the assessment depth; change with --budget USD)"
     elif (
         budget_origin == "analyzer default" or budget_origin.startswith("builtin:")
     ) and budget.max_usd == profile.get("settings", {}).get("budget"):

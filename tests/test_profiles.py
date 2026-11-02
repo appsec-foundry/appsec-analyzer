@@ -182,8 +182,8 @@ def test_a_depth_budget_in_the_scan_profile_applies_unless_the_cli_sets_one(home
     # Other depths keep the profile's budget, and an explicit CLI budget wins.
     assert profiles.resolve_scan("team")["settings"]["budget"] == 25
     assert profiles.resolve_scan("team", depth="thorough", budget=12)["settings"]["budget"] == 12
-    # Without the team's own value, the shipped depth budgets stay with the Claude Code dialogue.
-    assert profiles.resolve_scan("claude", depth="thorough")["settings"]["budget"] == 20
+    # Without the team's own value, the depth's limit applies.
+    assert profiles.resolve_scan("claude", depth="thorough")["settings"]["budget"] == 40
     write(home, "scan", "plan", {"schema_version": 1, "model_profile": "codex-cli", "depths": {"quick": {"budget": 9}}})
     assert profiles.resolve_scan("plan", depth="quick")["settings"]["budget"] is None
 
@@ -241,7 +241,7 @@ def test_a_case_cannot_be_both_checked_and_skipped(home):
 def test_the_resolved_depth_values_stay_out_of_the_identity(home, monkeypatch):
     # The scan profile's own values count through the profile document; shipped values do not.
     before = profiles.resolve_scan("claude")["definition_sha256"]
-    monkeypatch.setattr(depth_settings, "effective", lambda depth, **_: ({"budget": 99}, {"budget": "x"}))
+    monkeypatch.setattr(depth_settings, "effective", lambda depth, **_: ({"budget": 20}, {"budget": "x"}))
     assert profiles.resolve_scan("claude")["definition_sha256"] == before
     write(home, "scan", "team", {"schema_version": 1, "depths": {"standard": {"abuse_cases": 4}}})
     assert profiles.resolve_scan("team")["definition_sha256"] != before

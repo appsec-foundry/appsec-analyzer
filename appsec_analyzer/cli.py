@@ -70,7 +70,7 @@ _COMMAND_GROUPS = (
     (
         "Start here",
         (
-            ("assess", "Full security assessment (model calls, default limit USD 20)"),
+            ("assess", "Full security assessment (model calls, default limit USD 12, 20, or 40 by depth)"),
             ("review", "Discuss a finished assessment with Claude Code or Codex"),
         ),
     ),
@@ -290,7 +290,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             + (
                 "Bundled organization and scan profiles are selected automatically; explicit options override defaults."
                 if organization
-                else "The default model-cost limit is USD 20; override it with --budget USD. "
+                else "The default model-cost limit is USD 12, 20, or 40 for quick, standard, or thorough; override it with --budget USD. "
                 "With a Claude subscription, the limit counts usage at API prices."
             )
         ),
@@ -638,7 +638,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         action=_Explicit,
         default=20.0,
         metavar="USD",
-        help="Maximum model cost in USD (built-in default: %(default)g; user profile may override; unavailable with codex-cli and copilot-cli); with a Claude subscription, usage at API prices",
+        help="Maximum model cost in USD (default: 12, 20, or 40 for quick, standard, or thorough; user profile may override; unavailable with codex-cli and copilot-cli); with a Claude subscription, usage at API prices",
     )
     cost_group.add_argument(
         "--assessment-depth",

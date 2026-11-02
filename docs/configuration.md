@@ -36,7 +36,7 @@ HTTPS retrieval uses the proxy from `HTTPS_PROXY` and honors `NO_PROXY`. The pro
 
 ## Spending limits
 
-`assess` makes model calls. The `claude` and `codex` profiles default to USD 20; `audit-requirements` and `authnz-review` default to USD 5. Set a positive, finite `--budget USD` to change the limit. Audit and AuthNZ review require at least USD 0.05. `--hard-budget` is a compatible alias.
+`assess` makes model calls. The `claude` and `codex` profiles default to USD 12, 20, or 40 for `quick`, `standard`, or `thorough`; `audit-requirements` and `authnz-review` default to USD 5. Set a positive, finite `--budget USD` to change the limit. Audit and AuthNZ review require at least USD 0.05. `--hard-budget` is a compatible alias.
 
 The selected limit appears on stderr before analysis. These defaults do not change with depth. Your scan profile can set a budget for a particular depth under `depths`. Codex CLI and Copilot CLI use call and time limits instead of USD budgets.
 

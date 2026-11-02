@@ -2,5 +2,4 @@ schema_version: 1
 description: Default assessment with codex
 model_profile: codex
 assessment_depth: standard
-budget: 20
 outputs: [markdown, yaml]

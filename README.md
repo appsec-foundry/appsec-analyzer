@@ -50,7 +50,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
 To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) for details.
 
 > [!NOTE]
-> With API billing, the Juice Shop assessment costs about USD 15 and takes about 40 minutes. Analyzer asks before it exceeds the default limit of USD 20. Costs of the other depths are listed under [Assessment options](#assessment-options).
+> With API billing, the Juice Shop assessment costs about USD 15 and takes about 40 minutes. Analyzer asks before it exceeds the default limit of USD 20 for standard depth. Costs of the other depths are listed under [Assessment options](#assessment-options).
 
 ## Reports and exports
 
@@ -453,7 +453,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | Option | Effect |
 | --- | --- |
 | `--profile NAME` | Model profile. Default: `claude`. |
-| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock; with a Claude subscription, usage at API prices. Default: 20. |
+| `--budget USD` | Maximum spend for `claude`, `codex`, LiteLLM, and Bedrock; with a Claude subscription, usage at API prices. Default: 12 for `quick`, 20 for `standard`, 40 for `thorough`. |
 | `--assessment-depth LEVEL` | `quick`, `standard` (default), or `thorough`. See below. In an interactive terminal, `assess` asks for the depth when you give none. |
 | `--quick`, `--standard`, `--thorough` | Shortcuts for `--assessment-depth` with that level. Two different depths in one command are refused. |
 | `--repo PATH_OR_URL` | Repeat to assess several repositories as one system. |
@@ -540,7 +540,7 @@ Each model-backed command stops at a spending limit. The values are default uppe
 
 | Command | Default limit | Change with |
 | --- | --- | --- |
-| `assess` | USD 20 per assessment | `--budget USD` |
+| `assess` | USD 12, 20, or 40 per assessment (`quick`, `standard`, `thorough`) | `--budget USD` |
 | `analyze-threats` | USD 1 per model call | `--max-budget-usd USD` |
 | `authnz-review` | USD 5 per review | `--budget USD` |
 | `audit-requirements` | USD 5 per audit | `--budget USD` |

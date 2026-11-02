@@ -21,7 +21,7 @@ Use `--non-interactive` in CI. Without it, a terminal session can ask for a high
 
 `--non-interactive` also requires an explicit `--repo` and `--profile` (or the older `--host`), so the command shows its provider.
 
-The `claude`, `codex`, `lite`, and `bedrock` profiles stop at USD 20 by default. `audit-requirements` and `authnz-review` stop at USD 5. `--budget USD` changes the limit, and `--hard-budget` is an alias. The CLI prints the selected limit to stderr before it starts. State the budget in the command, so the limit is visible in the CI configuration.
+The `claude`, `codex`, `lite`, and `bedrock` profiles stop at USD 12, 20, or 40 by default for `quick`, `standard`, or `thorough`. `audit-requirements` and `authnz-review` stop at USD 5. `--budget USD` changes the limit, and `--hard-budget` is an alias. The CLI prints the selected limit to stderr before it starts. State the budget in the command, so the limit is visible in the CI configuration.
 
 Console costs appear by default only with API billing. `--show-costs` shows them for subscription runs too. It changes no accounting or limits. See [security assessment](security-assessment.md#output-and-continuation).
 

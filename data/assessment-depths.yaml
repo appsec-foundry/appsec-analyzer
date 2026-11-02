@@ -11,8 +11,7 @@
 #   derived_abuse_cases  business abuse cases the model may add from the application's own rules
 #   architect_review     a second model call reviews the findings
 #   actor_discovery      the assessment identifies the users and systems around the application
-#   budget               USD of a run started through the Claude Code assessment dialogue without
-#                        a budget
+#   budget               USD limit of a run that names no budget.
 #
 # The verified aspects follow the four Juice Shop pilot runs of 2026-10-22 and 2026-10-23
 # (docs/internal/analysis/aspect-test-cases-implementation-status-2026-10-19.md) and the third
@@ -32,7 +31,7 @@ depths:
     derived_abuse_cases: 0
     architect_review: false
     actor_discovery: false
-    budget: 10
+    budget: 12
   standard:
     verify: [AuthN, AuthZ, InputVal, AI]
     abuse_cases: 16

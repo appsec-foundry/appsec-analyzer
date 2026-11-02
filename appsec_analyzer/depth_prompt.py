@@ -41,7 +41,10 @@ def choose(profiles: dict[str, dict]) -> str:
             else "Limit: the most a run may cost.\n\n"
         )
     )
-    limits = [f"USD {profiles[depth]['settings']['budget']:g}" for depth in depths]
+    limits = [
+        f"USD {settings['budget']:g}" if settings["budget"] is not None else f"{settings['max_calls']} calls"
+        for settings in (profiles[depth]["settings"] for depth in depths)
+    ]
     width = max(len("Limit"), *map(len, limits))
     sys.stderr.write(f"     {'Depth':<9} {'Limit':<{width}}  {'Cost, runtime':<16}  Covers\n")
     for number, (depth, limit) in enumerate(zip(depths, limits), 1):

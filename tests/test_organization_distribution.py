@@ -543,7 +543,7 @@ def test_composed_assessment_reaches_existing_resolver_without_model_access(
         assert cfg["org_profile_defaults"]["url_allowlist"] == ["git.example.org"]
         assert cfg["org_profile"]["source"] == "composition" and cfg["org_profile"]["path"] is None
         assert cfg["assessment_depth"] == depth
-        assert ns.hard_budget == 20
+        assert ns.hard_budget == {"quick": 12, "standard": 20, "thorough": 40}[depth]
         assert ns.no_org_profile is True
         observed.append(cfg["org_profile"]["profile_fingerprint"])
         return 7

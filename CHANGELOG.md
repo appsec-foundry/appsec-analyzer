@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 <!-- Add entries here as work lands; promote them into a dated heading at release. -->
 
+### Changed
+
+- `assess` uses a spending limit by depth: USD 12 for `quick`, 20 for `standard`, 40 for `thorough`. `--budget` and a profile `budget` still take precedence. A `thorough` run needs about USD 40 on Juice Shop, so the old limit of USD 20 left out later checks such as verification.
+- The depth question no longer fails with the Codex CLI and Copilot CLI profiles; it shows their call limit.
+
 ### Added
 
 - `assess --abuse-cases` checks technical and business abuse cases at `quick` depth, which otherwise skips them. It adds model calls.

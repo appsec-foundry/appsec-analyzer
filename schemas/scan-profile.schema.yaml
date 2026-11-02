@@ -168,7 +168,7 @@ $defs:
         description: Whether the assessment identifies the users and systems around the application.
         type: boolean
       budget:
-        description: USD of a run started through the Claude Code assessment dialogue without a budget.
+        description: USD limit of a run that names no budget.
         type: number
         exclusiveMinimum: 0
         maximum: 1000

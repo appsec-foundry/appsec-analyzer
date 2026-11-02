@@ -317,7 +317,7 @@ def test_public_budget_reaches_assessment_controller(tmp_path, monkeypatch, caps
         )
     )
     assert rows["Budget"].startswith(f"model calls stop at ${expected:.2f}")
-    assert ("default for the scan profile" in rows["Budget"]) is (not budget_args)
+    assert ("default for the assessment depth" in rows["Budget"]) is (not budget_args)
 
 
 @pytest.mark.parametrize("command", ["assess"])
@@ -414,7 +414,7 @@ def test_public_budget_help_documents_default_and_alias(command, default):
         assert f"Maximum model cost in USD (default: {default})" in help_text
     else:
         assert (
-            f"Maximum model cost in USD (built-in default: {default}; user profile may override; unavailable with codex-cli and copilot-cli)"
+            "Maximum model cost in USD (default: 12, 20, or 40 for quick, standard, or thorough; user profile may override; unavailable with codex-cli and copilot-cli)"
             in help_text
         )
     assert "with a Claude subscription, usage at API prices" in help_text

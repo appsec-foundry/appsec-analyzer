@@ -11,7 +11,7 @@ appsec-analyzer assess --repo /path/to/project --profile claude
 appsec-analyzer assess --repo /path/to/project --profile codex
 ```
 
-`claude` and `codex` use standard depth and a USD 20 budget. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
+`claude` and `codex` use standard depth and a USD 20 budget; the budget follows the depth unless you set one. `claude` uses the Claude CLI and its configured login or external credentials. `codex` uses the OpenAI Responses API and `OPENAI_API_KEY`; it does not use a Codex CLI login. The API adapter remains experimental and has not passed live assessment qualification.
 
 The built-in `codex` and `codex-cli` model profiles use Luna for `recon_scanner` with low reasoning effort at every depth. All other roles use Sol with low effort at quick depth, medium at standard, and high at thorough. The model aliases resolve through the installed [model catalog](../data/model-catalog.yaml). This split has offline routing coverage; assessment quality with Luna has not passed live qualification. Operator model defaults and role overrides still take precedence.
 
@@ -160,7 +160,7 @@ Each assessment depth has default settings, which Analyzer ships in [data/assess
 | `derived_abuse_cases` | 0 | 0 | 3 | Business abuse cases the model may add from the application's own rules, at most 6. |
 | `architect_review` | false | false | true | A second model call reviews the findings. |
 | `actor_discovery` | false | true | true | The assessment identifies the users and systems that interact with the application. |
-| `budget` | 10 | 20 | 40 | USD of a run started through the Claude Code assessment dialogue without a budget. `assess` uses a depth budget only when your scan profile sets it. |
+| `budget` | 12 | 20 | 40 | USD limit of a run that names no budget. A `budget` in the scan profile or `--budget` takes precedence. |
 
 Only thorough requires the [additional exploitation evidence](security-assessment.md#how-the-results-come-together) in the independent evidence review. This uses the existing review limits; it is selected by assessment depth and is not a separate profile setting. The built-in Claude profile keeps the evidence verifier on Sonnet, subject to operator model overrides.
 
@@ -186,7 +186,7 @@ Explicit CLI options for architect review, abuse cases, case selection, and hard
 
 An [organization profile](org-profiles.md) can set its own defaults under the same `depths` key, which a team's scan profile can still change. The order is the shipped file, the organization profile, the scan profile, and the command line.
 
-For `assess` without `--budget`, a `budget` that the scan profile sets under `depths` applies to that depth, and other depths keep the profile's `budget`. The shipped and organization depth budgets apply only to the Claude Code assessment dialogue. `codex-cli` and `copilot-cli` use call limits instead of a USD budget.
+For `assess` without `--budget`, a `budget` that the scan profile sets under `depths` applies to that depth, and other depths keep the profile's `budget`. Without a `budget` in the profile, the depth's shipped budget applies; the organization's depth budgets apply only to the Claude Code assessment dialogue. `codex-cli` and `copilot-cli` use call limits instead of a USD budget.
 
 ### Verification settings
 

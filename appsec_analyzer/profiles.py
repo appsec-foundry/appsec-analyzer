@@ -445,6 +445,10 @@ def resolve_scan(
 
     # Without the organization's defaults, which the run adds before the first model call.
     settings["depth_settings"], provenance["depth_settings"] = depth_settings.effective(depth, scan=settings["depths"])
+    if budget is None and "budget" not in scan:
+        # No CLI or profile limit: the depth's own limit applies.
+        settings["budget"] = settings["depth_settings"]["budget"]
+        provenance["budget"] = f"{depth} depth default"
     try:
         validate_max_parallel(settings["max_parallel"])
     except ValueError as exc:

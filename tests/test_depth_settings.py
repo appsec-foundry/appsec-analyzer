@@ -22,7 +22,7 @@ def _schema(name):
 def test_the_shipped_file_reproduces_each_depth_before_it_existed():
     limits = resolve_abuse_cases.load_limits()
     expected = {
-        "quick": (0, 0, False, False, 10),
+        "quick": (0, 0, False, False, 12),
         "standard": (limits["descriptive_candidates_standard"], 0, False, True, 20),
         "thorough": (
             limits["descriptive_candidates_thorough"],
@@ -149,3 +149,14 @@ def test_the_library_ids_that_a_scan_profile_can_check_are_known_before_any_mode
 
     ids = controller._library_abuse_case_ids()
     assert {"AC-T-001", "AC-B-001"} <= ids and not any(cid.startswith(("ORG-AC", "REPO-AC")) for cid in ids)
+
+
+def test_the_depth_question_shows_a_call_limit_for_a_subscription_profile(monkeypatch, capsys):
+    import io
+
+    from appsec_analyzer import depth_prompt, profiles
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n"))
+    choices = {depth: profiles.resolve_scan("codex-cli", depth=depth, repositories=["."]) for depth in DEPTHS}
+    assert depth_prompt.choose(choices) == "standard"
+    assert "1000 calls" in capsys.readouterr().err

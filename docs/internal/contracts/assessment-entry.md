@@ -6,7 +6,7 @@ The installed engine entry includes `skills/appsec-analyzer/claude-code.md` for 
 
 ## Launch defaults
 
-`scan --interactive-launch` keeps the host's quick, standard, and thorough hard ceilings of USD 10, 20, and 40, concurrency 3, and width 72, unless explicitly overridden. `--component-workers` keeps its range of 1 to 4. The switch selects only the Claude CLI adapter and disables budget prompts. It grants no spending authorization. Other CLI workflows keep their defaults.
+`scan --interactive-launch` keeps the host's quick, standard, and thorough hard ceilings of USD 12, 20, and 40, concurrency 3, and width 72, unless explicitly overridden. `--component-workers` keeps its range of 1 to 4. The switch selects only the Claude CLI adapter and disables budget prompts. It grants no spending authorization. Other CLI workflows keep their defaults.
 
 The composed binding selects `--launch-defaults advisor` for the existing depth budgets and concurrency defaults, independently of Claude host selection, unattended operation, and display width. `--interactive-launch` remains a compatibility adapter with its original defaults and saved-profile identity. Explicit budgets and parallel limits take precedence. For a host-default launch with `--output`, the engine creates its public progress feed without the host naming an internal file.
 
