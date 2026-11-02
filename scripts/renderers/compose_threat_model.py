@@ -16735,6 +16735,22 @@ def _test_case_result(row: dict) -> str:
         text = "Meets " + _count_of(*found.groups(), "rule")
     else:
         text = html.escape(reason[:1].upper() + reason[1:])
+    # Keep mixed results visible without a second, verbose rendering of every item.
+    if row.get("outcome") == "finding" and (
+        found := re.search(
+            r"; control evidenced( by model review only)? at (\d+)(?:, by model review only at (\d+) of them)?",
+            reason,
+        )
+    ):
+        model_only, count, mixed = found.groups()
+        text += f"<br/>Protection found at {count} location{'' if count == '1' else 's'}"
+        if model_only:
+            text += " (model review only)"
+        elif mixed:
+            text += f" ({mixed} by model review only)"
+    for key, label in (("undecidable", "unresolved"), ("unexamined", "not examined")):
+        if type(count := (row.get("candidates") or {}).get(key)) is int and count > 0:
+            text += f"<br/>{count} location{'' if count == 1 else 's'} {label}"
     return text + ("<br/><em>model review only</em>" if row.get("evidence_basis") == "model" else "")
 
 
@@ -16773,9 +16789,9 @@ def _table_text(value: object) -> str:
 def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
     """Every catalog test case with its outcome in this run (REQ-040).
 
-    The catalog supplies titles, objectives, and evidence rules; the model supplies the outcomes. A test
-    case without a result in this run is listed as not examined, never as a control. A model-investigated
-    test case has one row per component."""
+    The catalog supplies the titles; the model supplies the outcomes. Each result appears once, with
+    finding links or the reason it stayed open. Technical catalog guidance stays in the catalog; a test
+    case without a result in this run is listed as not examined, never as a control."""
     block = ctx.yaml_data.get("test_case_results")
     results = block.get("results") if isinstance(block, dict) else None
     if not isinstance(results, list):
@@ -16883,14 +16899,6 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             "<br/>".join(part for part in (ids, f"{below}&nbsp;{hidden} not reported" if hidden else "") if part) or "–"
         )
 
-    def outcome_text(row: dict) -> str:
-        label = _TEST_CASE_OUTCOMES.get(row["outcome"], row["outcome"])
-        if row["outcome"] in ("finding", "control", "partial") and row.get("evidence_basis") == "model":
-            label += " (model review only)"
-        elif row["outcome"] == "finding" and row.get("evidence_basis") == "review":
-            label += " (confirmed by the evidence review)"
-        return label
-
     def subject(case: dict, row: dict | None) -> str:
         return component(row) if row and row.get("scope") == "component" else "Repository"
 
@@ -16904,8 +16912,16 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             elif row.get("outcome") == "control":
                 controls.append((case, row))
 
+    anchored: set[str] = set()
+
+    def anchor(case: dict) -> str:
+        if case["id"] in anchored:
+            return ""
+        anchored.add(case["id"])
+        return f'<a id="{case["id"].lower()}"></a>'
+
     def item(case: dict) -> str:
-        return f"[{case['id']}](#{case['id'].lower()}) {_table_text(case['title'])}"
+        return f"{anchor(case)}[{case['id']}](#{case['id'].lower()}) {_table_text(case['title'])}"
 
     def by_case(rows: list[tuple[dict, dict]]) -> list[tuple[dict, list[dict]]]:
         grouped: dict[str, tuple[dict, list[dict]]] = {}
@@ -16950,8 +16966,8 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             notes.append("Model review only: neither a fixed check nor the evidence review confirmed the whole result.")
         if any(row_findings(row)[1] for row in attention_rows) and not apart:
             notes.append(f"{below} not reported: findings below the report threshold, see [§11](#11-out-of-scope).")
-        notes.append("Titles and evidence are in the item details below.")
-        lines += ["*" + " ".join(notes) + "*", ""]
+        if notes:
+            lines += ["*" + " ".join(notes) + "*", ""]
     else:
         lines += ["No verification item reported a finding or a partial result.", ""]
     if undecided:
@@ -16980,35 +16996,46 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         ]
 
     # Everything else stays listed, compactly, so the appendix still names every item and every disable reason.
-    detailed = {case["id"] for case, _ in attention + undecided + controls}
     scoped_components = {str(row.get("component_id")) for row in results if row.get("scope") == "component"}
     rest: dict[str, dict[str, list[str]]] = {}
     for case in cases:
-        if case["id"] in detailed:
-            continue
         rows = by_id.get(case["id"]) or []
-        anchor = f'<a id="{case["id"].lower()}"></a>{case["id"]}'
         if not rows:
-            rest.setdefault(case["aspect"], {}).setdefault("Not examined", []).append(anchor)
+            rest.setdefault(case["aspect"], {}).setdefault("Not examined", []).append(
+                anchor(case) + case["id"] + " " + _table_text(case["title"])
+            )
             continue
-        for index, outcome in enumerate(dict.fromkeys(row["outcome"] for row in rows)):
+        # A finding in one component must not hide a no-finding, inapplicable or disabled result elsewhere.
+        remaining = [row for row in rows if row["outcome"] not in ("finding", "partial", "undecidable", "control")]
+        groups = dict.fromkeys(
+            (row["outcome"], row["reason"] if row["outcome"] == "disabled" else "") for row in remaining
+        )
+        for outcome, reason in groups:
             label = _TEST_CASE_OUTCOMES.get(outcome, outcome)
-            entry = anchor if index == 0 else case["id"]
+            first = case["id"] not in anchored
+            entry = anchor(case) + case["id"]
+            if first:
+                entry += " " + _table_text(case["title"])
             # The outcome per component stays visible: all components share one label, others name theirs.
-            where = [component(row) for row in rows if row["outcome"] == outcome and row.get("scope") == "component"]
+            where = [
+                component(row)
+                for row in remaining
+                if row["outcome"] == outcome
+                and (outcome != "disabled" or row["reason"] == reason)
+                and row.get("scope") == "component"
+            ]
             if where and len(where) == len(scoped_components):
                 label += " for all components"
             elif where:
                 entry += f" ({', '.join(where)})"
             if outcome == "disabled":
-                reason = next(row["reason"] for row in rows if row["outcome"] == "disabled")
-                entry += f" ({_table_text(reason)})"
+                entry += f" ({_safe_boundary_text(reason, table=True)})"
             rest.setdefault(case["aspect"], {}).setdefault(label, []).append(entry)
     if rest:
         lines += [
             "### Other items",
             "",
-            "Items without a finding, partial, undecided or control result in this run, by aspect.",
+            "Other outcomes by component, plus items this run did not examine. No finding does not prove a control.",
             "",
         ]
         for aspect, groups in rest.items():
@@ -17016,30 +17043,6 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
             lines.append(f"- **{aspect}** — {parts}")
         lines.append("")
 
-    if detailed:
-        lines += ["### Item details", ""]
-    for case in cases:
-        if case["id"] not in detailed:
-            continue
-        lines += [
-            f'<a id="{case["id"].lower()}"></a>',
-            f"#### {case['id']}: {_table_text(case['title'])}",
-            "",
-            f"What must hold: {_table_text(case['objective'])}",
-            "",
-            f"Evidence for a control: {_table_text(case['evidence']['control'])}.",
-            "",
-        ]
-        for row in by_id.get(case["id"]) or []:
-            if row.get("outcome") == "not_applicable":
-                continue
-            text = f"{subject(case, row)}: {outcome_text(row)}. {_table_text(row['reason'])}."
-            if found := findings_text(row):
-                text += f" {found}"
-            rules = ", ".join(f"{r['rule_id']} ({r['status'].replace('_', ' ')})" for r in row.get("rules", []))
-            if row.get("scope") != "component" and rules:
-                text += f" Rules: {rules}."
-            lines += [text, ""]
     return "\n".join(lines).rstrip() + "\n"
 
 

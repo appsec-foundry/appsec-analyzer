@@ -292,14 +292,15 @@ def test_appendix_shows_one_row_per_component_and_never_words_partial_or_no_find
     assert "No finding, no control" in other and "TC-AUTHZ-03" in other
     assert "Not examined: " in other and "TC-AUTHZ-04" in other
     assert "Control evidenced" not in out and "Partial control" not in out
-    assert "Order API: Finding (model review only). " in out and "Findings: T-001.\n" in out
+    assert "Item details" not in out and "What must hold:" not in out and "Evidence for a control:" not in out
+    assert "Fails at 1 of 1 location" in attention
     # One below the register's floor is counted, and a saved model that lists them apart keeps its IDs.
     model["threats"] = []
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
-    assert "Findings: 1 not in the findings register.\n" in out
+    assert "🟢&nbsp;1 not reported" in out and "see [§11](#11-out-of-scope)" in out
     model["test_case_findings"] = [{"id": "TCF-001", "test_case_ids": ["TC-AUTHZ-01"]}]
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
-    assert "Findings: TCF-001 (see [Verification Findings](#verification-findings))." in out
+    assert 'TCF-001 (see <a href="#verification-findings">Verification Findings</a>)' in out
 
 
 def test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_every_finding(catalog, tmp_path):
@@ -321,7 +322,9 @@ def test_a_finding_outcome_rests_on_the_evidence_review_only_when_it_confirmed_e
     assert list(_block_validator().iter_errors(block)) == []
     model = {"test_case_results": block, "components": [{"id": "api", "name": "Order API"}], "threats": threats}
     out = compose._render_appendix_test_cases(_mk_ctx(tmp_path, yaml_data=model), None, {})
-    assert "Order API: Finding (confirmed by the evidence review). " in out
+    attention = out.split("### Results that need attention", 1)[1].split("</table>", 1)[0]
+    finding_row = next(line for line in attention.splitlines() if 'href="#f-001"' in line)
+    assert "Fails at 1 of 1 location" in finding_row and "model review only" not in finding_row
     # One finding left unconfirmed keeps the outcome on model review only, and a control is never relabelled.
     rows = [
         {"outcome": "finding", "evidence_basis": "model", "finding_ids": ["TCF-001", "TCF-002"]},
@@ -378,7 +381,7 @@ def test_a_rules_item_links_the_register_findings_it_names(tmp_path):
     row["evidence_basis"] = "deterministic"
     out = _appendix(tmp_path, [row], [threat])
     assert "Fails 1 of 6 rules" in out and '<a href="#f-107">F-107</a>' in out
-    assert ">Repository<" in out and "Findings: T-107." in out
+    assert ">Repository<" in out and 'id="tc-infra-01"' in out
 
 
 def test_results_run_by_risk_each_finding_counted_once_and_lighter_ones_collapse(tmp_path):
@@ -421,11 +424,94 @@ def test_an_item_stands_once_over_its_components(tmp_path):
     assert 'rowspan="2"' in table and table.count("TC-AUTHZ-01") == 1
 
 
+def test_appendix_keeps_result_links_without_catalog_instructions_or_duplicate_details(catalog, tmp_path):
+    from copy import deepcopy
+
+    from renderers import compose_threat_model as compose
+
+    from tests.test_compose_threat_model_cov import _mk_ctx
+
+    _pilot(catalog, tmp_path)
+    model = {"test_case_results": tcr.build_block(tmp_path, [])}
+    ctx = _mk_ctx(tmp_path, yaml_data=model)
+    before = deepcopy(ctx.yaml_data)
+    out = compose.keep_known_markup(compose._render_appendix_test_cases(ctx, None, {}))
+    assert ctx.yaml_data == before
+    assert "### Item details" not in out and "item details below" not in out
+    assert "What must hold:" not in out and "Evidence for a control:" not in out
+    assert _case(catalog, "TC-AUTHZ-01")["objective"] not in out
+    for case in catalog["test_cases"]:
+        # Finding cards and older exports keep their existing link targets, once per item.
+        assert out.count(f'<a id="{case["id"].lower()}"></a>') == 1
+        assert case["title"] in out
+    assert out.count("Object access checks the owner") == 1
+    assert "### Results that need attention" in out and "### Not decided" in out
+
+
+@pytest.mark.parametrize("outcome", ["no_finding", "not_applicable", "disabled"])
+def test_a_finding_in_one_component_keeps_other_components_outcomes_and_disable_reasons(tmp_path, outcome):
+    reason = 'Team excludes [this check](https://example.test) <img src=x onerror="alert(1)">'
+    rows = [
+        _row("TC-AUTHZ-01", "finding", "weakness at 1 of 1 candidate locations", findings=["T-001"]),
+        _row("TC-AUTHZ-01", outcome, reason, component="web"),
+    ]
+    out = _appendix(tmp_path, rows, [{"id": "T-001", "risk": "High"}])
+    attention, other = out.split("### Other items", 1)
+    assert ">Order API<" in attention and 'href="#f-001"' in attention
+    assert "TC-AUTHZ-01 (Web Client)" in other
+    assert {"no_finding": "No finding, no control", "not_applicable": "Not applicable", "disabled": "Disabled"}[
+        outcome
+    ] in other
+    assert out.count('<a id="tc-authz-01"></a>') == 1
+    if outcome == "disabled":
+        assert "Team excludes" in other and "&lt;img" in other
+        assert "<img" not in other and "[this check](https://" not in other
+
+
+def test_each_disabled_component_keeps_its_own_reason(tmp_path):
+    out = _appendix(
+        tmp_path,
+        [
+            _row("TC-AUTHZ-01", "disabled", "Reviewed separately", component="api"),
+            _row("TC-AUTHZ-01", "disabled", "Excluded by team", component="web"),
+        ],
+    )
+    assert "(Order API) (Reviewed separately)" in out
+    assert "TC-AUTHZ-01 (Web Client) (Excluded by team)" in out
+    assert "Disabled for all components" not in out
+
+
+def test_mixed_results_keep_protection_uncertainty_and_coverage_without_details(catalog, tmp_path):
+    case = _case(catalog, "TC-AUTHZ-01")
+    row = tcr.component_outcome(
+        case,
+        "api",
+        [_cand("weakness", confirmed=True), _cand("control", confirmed=True), _cand("control"), _cand("undecidable")],
+        unexamined=2,
+        finding_ids=["T-001"],
+    )
+    out = _appendix(tmp_path, [row], [{"id": "T-001", "risk": "High"}])
+    assert "Fails at 1 of 6 locations" in out
+    assert "Protection found at 2 locations (1 by model review only)" in out
+    assert "1 location unresolved" in out and "2 locations not examined" in out
+    assert "### Controls evidenced" not in out and "### Item details" not in out
+
+
+def test_partial_protection_keeps_unexamined_locations_and_its_model_only_basis(catalog, tmp_path):
+    row = tcr.component_outcome(
+        _case(catalog, "TC-AUTHZ-01"), "api", [_cand("control"), _cand("undecidable")], unexamined=2
+    )
+    out = _appendix(tmp_path, [row])
+    assert "Holds at 1 of 4 locations" in out and "<em>model review only</em>" in out
+    assert "1 location unresolved" in out and "2 locations not examined" in out
+    assert "### Controls evidenced" not in out
+
+
 def test_findings_below_the_threshold_are_counted_with_the_badge_below_it(tmp_path):
     row = _row("TC-AUTHZ-01", "finding", "weakness at 1 of 1 candidate locations", findings=["TCF-009"])
     out = _appendix(tmp_path, [row], meta={"register_severity_floor": "medium"})
     assert "🟢&nbsp;1 not reported" in out and "see [§11](#11-out-of-scope)" in out
-    assert "Findings: 1 not in the findings register." in out
+    assert "TCF-009" not in out and "Item details" not in out
 
 
 def test_not_decided_groups_places_by_reason_and_leads_with_open_questions(tmp_path):
@@ -511,7 +597,8 @@ def test_appendix_lists_components_a_test_case_does_not_apply_to_in_one_row(cata
     )
     (authz,) = [line for line in out.splitlines() if line.startswith("- **AuthZ**")]
     no_finding, not_applicable = authz.split("; Not applicable: ", 1)
-    assert "TC-AUTHZ-04 (Store)" in no_finding and "TC-AUTHZ-04 (Order API, CI)" in not_applicable
+    assert "TC-AUTHZ-04 (Store)" in no_finding
+    assert "TC-AUTHZ-04 Tenant data stays isolated (Order API, CI)" in not_applicable
 
 
 @pytest.mark.parametrize(
