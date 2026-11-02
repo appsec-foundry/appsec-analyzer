@@ -719,6 +719,7 @@ class RouteCandidate:
     confidence: str = "medium"
     authn_handler_signal: str | None = None
     authn_handler_scheme: str | None = None
+    authn_handler_scope: str | None = None
     authn_handler_evidence: list[dict] = field(default_factory=list)
     handler_module: str | None = None
     operation_permission_present: bool = False
@@ -1398,6 +1399,7 @@ def _lift_auth_signals(
     if handler is not None:
         r.authn_handler_signal = handler.signal
         r.authn_handler_scheme = handler.scheme
+        r.authn_handler_scope = handler.description
         r.authn_handler_evidence = handler.evidence
         if r.authn_signal == "unknown" and handler.signal == "verified":
             r.authn_signal = "present"
@@ -1609,6 +1611,8 @@ def _serialize_route(i: int, r: RouteCandidate) -> dict:
         ordered["authn_handler_signal"] = d["authn_handler_signal"]
         if d["authn_handler_scheme"]:
             ordered["authn_handler_scheme"] = d["authn_handler_scheme"]
+        if d["authn_handler_scope"]:
+            ordered["authn_handler_scope"] = d["authn_handler_scope"]
         if d["authn_handler_evidence"]:
             ordered["authn_handler_evidence"] = d["authn_handler_evidence"]
     if d["handler_module"]:

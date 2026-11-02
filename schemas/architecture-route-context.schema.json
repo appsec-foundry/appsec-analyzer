@@ -65,7 +65,8 @@
         "confidence": {"enum": ["low", "medium", "high"]},
         "notes": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 200}},
         "authn_handler_signal": {"enum": ["verified", "decode_only", "none", "unresolved"]},
-        "authn_handler_scheme": {"enum": ["cookie", "bearer", "other", "none"]},
+        "authn_handler_scheme": {"enum": ["cookie", "bearer", "password", "basic", "api-key", "oauth2", "oidc", "saml", "other", "none"]},
+        "authn_handler_scope": {"type": "string", "minLength": 1, "maxLength": 1000},
         "authn_handler_evidence": {
           "type": "array",
           "maxItems": 8,

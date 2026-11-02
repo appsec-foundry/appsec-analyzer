@@ -782,6 +782,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
       - scripts/analyzers/discover_identity_providers.py
       - scripts/analyzers/handler_resolver.py
+      - scripts/analyzers/route_inventory.py
+      - scripts/analyzers/flow_route_auth.py
+      - schemas/route-inventory.schema.json
+      - schemas/architecture-route-context.schema.json
       - scripts/renderers/figure1_security.py
       - scripts/validators/validate_fragment.py
       - schemas/fragments/data-flows.schema.json
@@ -806,6 +810,18 @@ requirements:
       - tests/test_discover_identity_providers.py::test_an_issuer_must_name_an_identity_provider_or_component
       - tests/test_handler_resolver.py::test_oauth_and_oidc_library_guards_verify_their_routes
       - tests/test_handler_resolver.py::test_an_oauth_library_call_that_may_let_the_request_through_is_not_verified
+      - tests/test_handler_credentials.py::test_password_libraries_need_a_checked_boolean_result
+      - tests/test_handler_credentials.py::test_password_names_or_unchecked_calls_do_not_establish_authentication
+      - tests/test_handler_credentials.py::test_password_lookup_with_a_rejected_missing_account_is_a_password_method
+      - tests/test_handler_credentials.py::test_password_lookup_needs_both_constraints_and_a_rejected_missing_account
+      - tests/test_handler_credentials.py::test_totp_keeps_its_specific_scope_without_claiming_independent_factors
+      - tests/test_handler_credentials.py::test_otp_dependency_or_ignored_or_nonrequest_check_does_not_establish_authentication
+      - tests/test_handler_credentials.py::test_failed_session_cache_lookup_rejects_the_caller
+      - tests/test_handler_credentials.py::test_a_session_cache_read_needs_its_own_rejecting_catch
+      - tests/test_handler_credentials.py::test_explicit_api_key_comparison_names_the_method
+      - tests/test_handler_credentials.py::test_an_api_key_read_without_rejection_stays_unknown
+      - tests/test_handler_credentials.py::test_basic_auth_middleware_keeps_its_method_through_both_schemas
+      - tests/test_handler_credentials.py::test_existing_authentication_methods_are_not_lost_from_the_architecture_context
       - tests/test_figure1_security.py::test_public_provider_metadata_is_a_neutral_zero_not_missing_authentication
       - tests/test_figure1_security.py::test_an_access_token_names_its_issuer_and_keeps_a_number_per_provider
       - tests/test_multi_repo_controller.py::test_boundary_batches_cover_seventeen_crossings_in_two_calls_and_resume

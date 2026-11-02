@@ -319,6 +319,8 @@ Recognition works the same for every provider product, such as Keycloak, Microso
 
 Recognized client setups include Spring Security, ASP.NET Core, passport strategies, openid-client, Authlib, Go `oauth2.Config`, oidc-client-ts, MSAL, angular-oauth2-oidc and keycloak-js. Recognized token and session checks include express-jwt, express-oauth2-jwt-bearer, express-openid-connect, keycloak-connect, `passport.authenticate` with a registered strategy, and a `jwtVerify` that rejects invalid tokens.
 
+For JavaScript and TypeScript handlers, recognized methods also include HTTP Basic through express-basic-auth, explicit comparisons of an `x-api-key` header with an environment variable, and checked password comparisons through bcrypt, bcryptjs or Argon2. Password comparisons must use a synchronous result or an awaited result and reject a mismatch. A supported SQL account-and-password lookup with a rejected missing account is also shown as password login. A session-cache lookup qualifies when a missing entry causes a rejected request. A checked TOTP code through otplib keeps its own description; that step alone does not establish multiple independent factors. These checks follow bounded code patterns, including imported aliases. Unsupported forms remain unknown, and recognizing a method does not establish that it is secure.
+
 Limits: an issuer that only an environment variable supplies is not recognized, so the architecture analysis has to model it. Token checks in Java and C# routes stay unknown, because their handlers are not resolved. A hexagon describes the method, not whether its implementation is correct, for example whether audience and issuer are checked.
 
 ## Known threats

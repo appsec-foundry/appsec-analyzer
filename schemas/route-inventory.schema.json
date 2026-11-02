@@ -191,8 +191,14 @@
         },
         "authn_handler_scheme": {
           "type": "string",
-          "enum": ["cookie", "bearer", "other", "none"],
+          "enum": ["cookie", "bearer", "password", "basic", "api-key", "oauth2", "oidc", "saml", "other", "none"],
           "description": "Credential kind behind authn_handler_signal; `none` for decode_only and none."
+        },
+        "authn_handler_scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Access-specific description of the credential check, when a generic scheme is insufficient."
         },
         "authn_handler_evidence": {
           "type": "array",

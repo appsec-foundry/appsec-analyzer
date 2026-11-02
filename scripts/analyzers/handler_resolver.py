@@ -8,7 +8,9 @@ routes, the middlewares mounted on the same application object before it - to
 its definition and classifies the resolved code:
 
 - ``verified``    a credential is read, checked against a verifier or session
-                  store, and a rejecting branch follows within a few lines;
+                  store, and a rejecting branch follows within a few lines,
+                  or a supported bounded password, API-key or OTP check rejects
+                  a mismatch;
 - ``decode_only`` a token is decoded without signature verification;
 - ``none``        every element resolved, none reads a credential (or only as a
                   pass-through loader, below), and the application object is
@@ -132,7 +134,7 @@ _AUTHENTICATING_PACKAGES = {
     "express-oauth2-jwt-bearer": (
         _PackageGuard("bearer", frozenset({"auth"}), re.compile(r"\bauthRequired\s*:\s*false\b")),
     ),
-    "express-basic-auth": (_PackageGuard("other", None, None),),
+    "express-basic-auth": (_PackageGuard("basic", None, None),),
     # An OpenID Connect relying party keeps the signed-in user in its session cookie.
     "express-openid-connect": (
         _PackageGuard("cookie", frozenset({"auth"}), re.compile(r"\bauthRequired\s*:\s*false\b")),
@@ -222,7 +224,10 @@ _JS_CREDENTIAL_RE = re.compile(
     # `const { tmpToken } = req.body`). CSRF and captcha tokens are not credentials.
     r"|\breq(?:uest)?\s*\??\.\s*(?:body|query)\s*\??\.\s*(?![\w$]*(?i:csrf|xsrf|captcha))[\w$]*[tT]oken\b"
     r"|\{[^{}]*\b(?![\w$]*(?i:csrf|xsrf|captcha))[\w$]*[tT]oken\b[^{}]*\}\s*=\s*req(?:uest)?\s*\??\.\s*(?:body|query)\b"
+    r"|\breq(?:uest)?\.(?:headers\s*\[\s*['\"]x-api-key['\"]\s*\]|(?:get|header)\(\s*['\"]x-api-key['\"]\s*\))"
 )
+# Password input alone cannot qualify the generic token-verifier heuristic.
+_JS_PASSWORD_INPUT_RE = re.compile(r"\breq\.body\.password\b|\{[^{}]*\bpassword\b[^{}]*\}\s*=\s*req\.body\b")
 _JS_VERIFY_RE = re.compile(
     r"(?:\.|\b)verify(?:Token|Jwt|JWT|IdToken|AccessToken|Signature|Session|Credentials)?\s*\("
     r"|\bjwtVerify\s*\("
@@ -297,9 +302,12 @@ class HandlerSignal:
     scheme: str | None = None
     evidence: list[dict] = field(default_factory=list)
     bodies: list[Body] = field(default_factory=list)
+    description: str | None = None
 
     def scope(self) -> str:
         if self.signal == "verified":
+            if self.description:
+                return self.description
             return _SCHEME_SCOPES.get(
                 self.scheme, f"the handler checks a {self.scheme} credential and rejects the request without it"
             )
@@ -505,6 +513,8 @@ def _scheme(text: str) -> str:
     # A server-side session (express-session and alike) is keyed by its cookie.
     if re.search(r"(?i)cookies|\breq(?:uest)?\s*\??\.\s*session\b", text):
         return "cookie"
+    if re.search(r"(?i)x-api-key", text):
+        return "api-key"
     if re.search(r"(?i)authorization|bearer|jwt|token|verify", text):
         return "bearer"
     return "other"
@@ -1099,8 +1109,9 @@ class HandlerResolver:
     def _classify(self, bodies: list[Body], python: bool) -> HandlerSignal:
         """Authentication one chain link's code proves, judged line by line.
 
-        JS bodies are expanded with the repository helpers they call. The first
-        match wins in this order: ``verified`` (with its scheme) when a verify
+        JS bodies are expanded with the repository helpers they call. Bounded
+        checks retain password, API-key, session-cache and OTP methods first.
+        Otherwise the first match wins: ``verified`` (with its scheme) when a verify
         call sits in a body that reads a credential and a rejection follows
         within ``_REJECT_WINDOW`` lines, or after a later test of the verify
         result; ``decode_only`` when a token is decoded without verification;
@@ -1119,9 +1130,11 @@ class HandlerResolver:
                 expanded.extend(h for h in self._js_helpers(rel, body) if h not in expanded)
         reads = decoded = None
         for rel, line, body in expanded:
+            if not python and (login := self._js_credential_check(rel, line, body)):
+                return login
             rows = body.split("\n")
             for index, row in enumerate(rows):
-                if credential.search(row):
+                if credential.search(row) or not python and _JS_PASSWORD_INPUT_RE.search(row):
                     reads = reads or {"file": rel, "line": line + index}
                 if verify.search(row) and credential.search(body):
                     window = "\n".join(rows[index : index + _REJECT_WINDOW])
@@ -1141,6 +1154,146 @@ class HandlerResolver:
         if reads:
             return HandlerSignal("unresolved", evidence=[reads])
         return HandlerSignal("none", "none")
+
+    def _js_credential_check(self, rel: str, line: int, body: str) -> HandlerSignal | None:
+        """Recognize bounded API-key comparisons, password checks and OTP results.
+
+        These are method signals, not a proof that the implementation is safe
+        (a password query may itself be injectable). A returned token, a
+        password field, or an OTP dependency alone establishes no check.
+        """
+        if len(body) > 16000:
+            return None
+        code = _JS_STRING_RE.sub(lambda m: re.sub(r"[^\n]", " ", m[0]), body)
+        imports = self._js_imports(rel)
+        # A cache miss must throw at the property access and reach a rejecting
+        # catch. Optional access or a nearby unrelated 401 proves no check.
+        cache = re.search(r"\b[\w$.]+\.tokenMap\s*\[(?P<key>[^\n;]+)\]\s*\.\s*data\b", code)
+        if cache and _JS_CREDENTIAL_RE.search(body[cache.start("key") : cache.end("key")]):
+            for attempt in re.finditer(r"\btry\s*\{", code[: cache.start()]):
+                closing = _matching(body, attempt.end() - 1)
+                if closing <= cache.end():
+                    continue
+                caught = re.match(
+                    r"\s*catch\s*\([^)]*\)\s*\{\s*(?:return\s+)?res\.status\(\s*40[13]\s*\)\.(?:send|json|end)\(",
+                    code[closing:],
+                )
+                if caught:
+                    return HandlerSignal(
+                        "verified",
+                        _scheme(body[cache.start("key") : cache.end("key")]),
+                        [{"file": rel, "line": line + body[: cache.start()].count("\n")}],
+                    )
+        header = r"req\.(?:headers\s*\[\s*['\"]x-api-key['\"]\s*\]|(?:get|header)\(\s*['\"]x-api-key['\"]\s*\))"
+        reads = list(re.finditer(header, body))
+        for read in reads:
+            if code[read.start() : read.start() + 3] != "req":
+                continue
+            assigned = re.search(r"\bconst\s+(\w+)\s*=\s*$", code[: read.start()])
+            value = re.escape(assigned[1]) if assigned else "__credential__"
+            checked = code[read.end() :] if assigned else code[: read.start()] + value + code[read.end() :]
+            rejection = re.search(
+                rf"\bif\s*\(\s*{value}\s*!==\s*process\.env\.[\w$]+\s*\)\s*\{{?\s*return\s+res\.status\(\s*40[13]\s*\)\.(?:send|json|end)\(",
+                checked,
+            )
+            if rejection:
+                return HandlerSignal(
+                    "verified", "api-key", [{"file": rel, "line": line + body[: read.start()].count("\n")}]
+                )
+        # Resolve the actual import, including aliases. Only boolean results of
+        # synchronous or awaited comparisons followed by a rejecting branch
+        # qualify; a Promise, hash creation or an ignored result does not.
+        for name, (package, member) in imports.items():
+            methods = (
+                {"compare": True, "compareSync": False}
+                if package in {"bcrypt", "bcryptjs"}
+                else {"verify": True}
+                if package == "argon2"
+                else {}
+            )
+            for method, asynchronous in methods.items():
+                callee = name + "." + method if member == "*" else name if member == method else None
+                if not callee:
+                    continue
+                call = re.search(
+                    rf"\bconst\s+(\w+)\s*=\s*{'await' if asynchronous else ''}\s*{re.escape(callee)}\s*\(", code
+                )
+                if not call:
+                    continue
+                opening = call.end() - 1
+                end = _matching(body, opening)
+                args = _split_args(body[opening + 1 : end - 1])
+                if len(args) != 2:
+                    continue
+                password, stored = args if package in {"bcrypt", "bcryptjs"} else args[::-1]
+                supplied = (
+                    password == "req.body.password"
+                    or re.fullmatch(r"\w+", password)
+                    and re.search(
+                        rf"\bconst\s+(?:\{{\s*{re.escape(password)}\s*\}}\s*=\s*req\.body\b|{re.escape(password)}\s*=\s*req\.body\.password\b)",
+                        code[: call.start()],
+                    )
+                )
+                rejected = re.match(
+                    rf"\s*;?\s*if\s*\(\s*!\s*{re.escape(call[1])}\s*\)\s*\{{?\s*return\s+res\.status\(\s*40[13]\s*\)\.(?:send|json|end)\(",
+                    code[end:],
+                )
+                if supplied and re.fullmatch(r"(?!req\b|request\b)[\w$]+\.[\w$]+", stored) and rejected:
+                    return HandlerSignal(
+                        "verified", "password", [{"file": rel, "line": line + body[: call.start()].count("\n")}]
+                    )
+        # Legacy SQL logins constrain both the account and its password, then
+        # inspect the returned account before admitting or rejecting the caller.
+        query = re.search(
+            r"\.query\s*\(\s*`(?P<sql>[^`]+)`[^;]*?\.then\s*\(\s*\(?\s*(?P<account>\w+)\s*\)?\s*=>\s*\{", body
+        )
+        if query and code[query.start() : query.start() + 6] == ".query":
+            sql = query["sql"]
+            account = re.escape(query["account"])
+            callback_start = query.end() - 1
+            callback = code[callback_start : _matching(body, callback_start)]
+            alias = re.search(rf"\bconst\s+(\w+)\s*=\s*[\w$.]+\(\s*{account}\s*\)", callback)
+            subject = re.escape(alias[1]) if alias else account
+            if (
+                re.search(r"\bWHERE\b", sql, re.I)
+                and re.search(r"\b(?:email|username)\s*=\s*'\$\{req\.body\.(?:email|username)\b[^}]*\}'", sql, re.I)
+                and re.search(r"\bAND\s+password\s*=\s*'\$\{[^{}]*req\.body\.password\b[^{}]*\}'", sql, re.I)
+                and not re.search(r"\bOR\b|--|/\*", sql, re.I)
+                and re.search(rf"\bif\s*\(\s*{subject}(?:\?\.|\.)+(?:data(?:\?\.|\.))?id\b", callback)
+                and re.search(r"\belse\s*\{\s*res\.status\(\s*401\s*\)\.(?:send|json|end)\(", callback)
+            ):
+                return HandlerSignal(
+                    "verified", "password", [{"file": rel, "line": line + body[: query.start()].count("\n")}]
+                )
+        # An OTP check remains a distinct custom method: an interim token and
+        # a TOTP in this request do not prove two independent login factors.
+        for name, (package, member) in imports.items():
+            if package != "otplib" or member != "verifySync":
+                continue
+            check = re.search(rf"\bconst\s+(\w+)\s*=\s*{re.escape(name)}\s*\(\s*\{{", code)
+            if not check:
+                continue
+            opening = check.end() - 1
+            end = _matching(body, opening)
+            options = code[opening:end]
+            token = re.search(r"\btoken\s*:\s*(\w+)\b", options)
+            if not token or not re.search(r"\bsecret\s*:\s*(?!req\b|request\b)[\w$]+\.[\w$]+", options):
+                continue
+            supplied = re.search(
+                rf"\{{[^{{}}]*\b{re.escape(token[1])}\b[^{{}}]*\}}\s*=\s*req\.body\b", code[: check.start()]
+            )
+            rejected = re.match(r"\s*\)\s*\.valid\s*;?", code[end:]) and re.search(
+                rf"\bif\s*\(\s*!\s*{re.escape(check[1])}\s*\)\s*\{{\s*return\s+res\.status\(\s*401\s*\)\.(?:send|json|end)\(",
+                code[end:],
+            )
+            if supplied and rejected:
+                return HandlerSignal(
+                    "verified",
+                    "other",
+                    [{"file": rel, "line": line + body[: check.start()].count("\n")}],
+                    description="the handler checks the supplied TOTP code against the account secret and rejects an invalid code",
+                )
+        return None
 
     @staticmethod
     def _passes_through(bodies: list[Body]) -> bool:
@@ -1187,7 +1340,7 @@ class HandlerResolver:
         bodies = [body for _ok, code in [*handler, *mounted] if isinstance(code, list) for body in code]
         verified = next((r for r in results if r.signal == "verified"), None)
         if verified:
-            return HandlerSignal("verified", verified.scheme, verified.evidence, bodies)
+            return HandlerSignal("verified", verified.scheme, verified.evidence, bodies, verified.description)
         if not complete or any(r.signal == "unresolved" for r in results):
             return HandlerSignal("unresolved", bodies=bodies)
         decoded = next((r for r in results if r.signal == "decode_only"), None)

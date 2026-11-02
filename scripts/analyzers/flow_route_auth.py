@@ -43,7 +43,8 @@ def route_outcome(route: dict) -> tuple[str, str, list[dict]] | None:
     evidence = route.get("authn_handler_evidence") or [
         {"file": route.get("handler_file"), "line": route.get("handler_line")}
     ]
-    return scheme, HandlerSignal(signal, scheme).scope(), evidence
+    scope = route.get("authn_handler_scope") if signal == "verified" else None
+    return scheme, scope or HandlerSignal(signal, scheme).scope(), evidence
 
 
 def cited_routes(flow: dict, routes: list[dict]) -> list[dict]:
