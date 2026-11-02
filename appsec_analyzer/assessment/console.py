@@ -774,16 +774,32 @@ class _AssessmentConsole:
         self._status(self._row("·", " · ".join(part for part in (self.current, working) if part), live=True))
 
     def _unit_rows(self) -> list[str]:
-        """Component bars shared by ticker and model callbacks; caller holds the console lock."""
+        """Component bars shared by ticker and model callbacks; caller holds the console lock.
+
+        They start in the status line's method column, below its text. Where the window leaves that
+        column narrower than `_LIST_MIN_WIDTH`, they start after the time stamp. A name wider than the
+        room is cut with an ellipsis.
+        """
         spin = self.st(SPINNER[self.frame % len(SPINNER)], "accent")
+        now = self.clock()
+        stamp = len(self._stamp(now)) + 2
+        start = stamp + self._PHASE_WIDTH + 2 + self._EVENT_WIDTH + 2 + len(self._run(now)) + 2
+        if self.columns() - 1 - start < self._LIST_MIN_WIDTH:
+            start = stamp
+        # The spinner, a space, two spaces after the name and the bar leave the rest to the name and label.
+        width = max(8, min(self.UNIT_NAME, self.columns() - 1 - start - 2 - 2 - self.BAR_WIDTH - 2 - 15))
+
+        def name(text: str) -> str:
+            return (text if len(text) <= width else text[: width - 1] + "…").ljust(width)
+
         rows = [
-            f"{'':10}{spin} {name[: self.UNIT_NAME]:<{self.UNIT_NAME}}  "
-            f"{self.st.bar(self._unit_progress(unit), 100, self.BAR_WIDTH)}  {self._unit_label(unit)}"
-            for name, unit in self.units.items()
+            f"{'':{start}}{spin} {name(label)}  {self.st.bar(self._unit_progress(unit), 100, self.BAR_WIDTH)}  "
+            f"{self._unit_label(unit)}"
+            for label, unit in self.units.items()
         ]
         # A component being verified shows its aspects at work and the share of its verification finished.
         rows += [
-            f"{'':10}{spin} {unit['name'][: self.UNIT_NAME]:<{self.UNIT_NAME}}  "
+            f"{'':{start}}{spin} {name(unit['name'])}  "
             f"{self.st.bar(round(100 * unit['done'] / unit['total']), 100, self.BAR_WIDTH)}  "
             f"{', '.join(sorted(unit['active']))}"
             for unit in self.verify_running.values()
@@ -1318,7 +1334,7 @@ class _AssessmentConsole:
         rest of the status line, which `live` breaks between its parts, start `label`
         columns before the detail; where the window leaves that column narrower than
         `_LIST_MIN_WIDTH`, they start after the time stamp. Where --width leaves the
-        column too narrow, the detail starts on the next line after the time stamp.
+        column narrower than `_LIST_MIN_WIDTH`, the detail starts on the next line after the time stamp.
         """
         indent = len(self._stamp(now)) + 2 + head
         fit = self.columns() - 1 - indent
@@ -1349,7 +1365,7 @@ class _AssessmentConsole:
             if self.columns() - 1 - start < self._LIST_MIN_WIDTH:
                 start = len(self._stamp(now)) + 2
             return start, self._wrap_parts(detail, fit, self.columns() - 1 - start)
-        if fit >= 20:
+        if fit >= self._LIST_MIN_WIDTH:
             return indent, self._wrap_parts(detail, fit, fit)
         if not self.wraps():
             return indent, [detail]
@@ -1708,7 +1724,7 @@ class _AssessmentConsole:
         "Independently verifying evidence",
         "Analyzed component",
     )
-    UNIT_NAME = 26
+    UNIT_NAME = 36
 
     def _unit_step(self, prefix: str, text: str, position, now: float, reused: bool = False) -> None:
         """Track one concurrently analyzed component; the share follows finished work, not starts."""

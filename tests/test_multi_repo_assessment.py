@@ -4142,6 +4142,39 @@ def test_each_running_component_gets_its_own_bar_and_the_area_clears_whole(capsy
     controller._AssessmentConsole.clear_status()
 
 
+def test_component_rows_start_in_the_status_lines_method_column_and_cut_long_names(capsys, monkeypatch):
+    """The component rows sit under the method column of the status line, not in the time stamp column."""
+    monkeypatch.setenv("COLUMNS", "132")
+    console = controller._AssessmentConsole(False, [].append, live=True)
+    console.plan_components(2)
+    console.step("Surveying component: Sequelize application data access and its long tail (1/2)")
+    console.step("Surveying component: Gateway (2/2)")
+    console.tick()
+    *above, bottom = _status_frames(capsys.readouterr().err)[-1]
+    controller._AssessmentConsole.clear_status()
+    column = bottom.index("Survey    ")
+    assert [row.index(row.lstrip()) for row in above] == [column, column]
+    assert "…" in above[0] and "long tail" not in above[0] and "Gateway" in above[1]
+    assert len({len(row.rstrip()) for row in above}) == 1
+
+
+def test_a_row_without_method_starts_after_the_time_stamp_where_its_column_is_narrow(monkeypatch):
+    """A detail column narrower than a list's minimum is not used; the text starts below, under the phase."""
+    detail = "2 components · assesses the security controls"
+    for columns, below in ((200, False), (90, True)):
+        monkeypatch.setenv("COLUMNS", str(columns))
+        monkeypatch.setattr(controller._AssessmentConsole, "max_columns", columns)
+        lines = []
+        console = controller._AssessmentConsole(False, lines.append, clock=lambda: 1_700_000_000.0)
+        console.plan_components(2)
+        console.step("Assessing controls: Gateway (1/2)")
+        first, *rest = next(line for line in lines if "Controls" in line).split("\n")
+        if below:
+            assert "components" not in first and rest[0] == " " * 10 + detail[: len(rest[0]) - 10]
+        else:
+            assert rest == [] and first.endswith(detail)
+
+
 def test_each_component_in_verification_gets_its_own_bar_with_the_aspects_at_work(capsys, monkeypatch):
     """REQ-040: components verified concurrently show like surveyed ones; a finished component's bar goes."""
     monkeypatch.setenv("COLUMNS", "200")
