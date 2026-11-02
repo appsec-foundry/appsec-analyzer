@@ -247,6 +247,14 @@ def _write_lock(
     os.replace(staged, lock_path)
 
 
+def is_staged_lock(name: str, lock_name: str) -> bool:
+    """Whether ``name`` is the staging file `_write_lock` writes beside the lock ``lock_name``.
+
+    A process that ends between writing and renaming it leaves the file behind.
+    """
+    return re.fullmatch(rf"\.{re.escape(lock_name)}\.\d+\.\d+\.tmp", name) is not None
+
+
 def _tail_lines(lock_path: Path) -> list[str]:
     try:
         return [l.strip() for l in lock_path.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]

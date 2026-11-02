@@ -3,9 +3,11 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -870,7 +872,7 @@ def test_fresh_start_still_refuses_a_report_or_foreign_files(scope, extra):
             pytest.fail("A fresh start must not erase a report or foreign file")
     if extra == "user-file":
         # --rebuild would keep the foreign file as well, so only --resume is offered.
-        assert "(notes.txt). Add --resume to continue it" in str(refused.value)
+        assert f"({preserved}). Add --resume to continue it" in str(refused.value)
         assert "--rebuild" not in str(refused.value)
     assert preserved.read_bytes() == before
     assert (scope.output / ".assessment-work").is_dir()
@@ -1145,7 +1147,7 @@ def test_rebuild_keeps_a_directory_with_edited_or_foreign_files(scope, extra, re
     _completed(scope)
     kept = scope.output / ("threat-model.md" if extra == "edited-report" else "notes.txt")
     kept.write_text("mine\n")
-    with pytest.raises(ExchangeError, match=rf"did not write or that changed since \({kept.name}\)"):
+    with pytest.raises(ExchangeError, match=rf"did not write or that changed since \({re.escape(str(kept))}\)"):
         with lifecycle(scope, replace=replace).hold():
             pytest.fail("A new scan must not erase a user's file")
     assert kept.read_text() == "mine\n" and (scope.output / ".assessment-state.json").exists()
@@ -1174,7 +1176,7 @@ def test_an_edited_unfinished_publication_is_kept_and_named(scope):
     _published_then_stopped(scope)
     (scope.output / "threat-model.md").write_text("mine\n")
     for replace in (False, True):
-        with pytest.raises(ExchangeError, match=r"\(threat-model\.md\)") as refused:
+        with pytest.raises(ExchangeError, match=rf"\({re.escape(str(scope.output / 'threat-model.md'))}\)") as refused:
             with lifecycle(scope, replace=replace).hold():
                 pytest.fail("A new scan must not erase an edited report")
         assert "--rebuild" not in str(refused.value)
@@ -1382,6 +1384,30 @@ def test_held_lock_heartbeats_on_its_own_clock(scope, monkeypatch):
     assert not state.lock.exists()
 
 
+def test_a_heartbeat_still_writing_finishes_before_the_lock_is_released(scope, monkeypatch):
+    """Otherwise its write recreates the released lock, or a process exit leaves its staging file."""
+    monkeypatch.setattr(AssessmentState, "HEARTBEAT_SECONDS", 0.05)
+    real = acquire_lock._write_lock
+    writing, heartbeats = threading.Event(), []
+
+    def slow_heartbeat(*args, **kwargs):
+        if threading.current_thread() is not threading.main_thread() and state.state["status"] == "complete":
+            heartbeats.append(threading.current_thread())
+            writing.set()
+            time.sleep(0.3)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(acquire_lock, "_write_lock", slow_heartbeat)
+    state = lifecycle(scope)
+    with state.hold():
+        (scope.output / "threat-model.md").write_text("report\n")
+        state.complete(["threat-model.md"])
+        assert writing.wait(5)
+    heartbeats[0].join(5)
+    assert not state.lock.exists()
+    assert not [path.name for path in scope.output.iterdir() if acquire_lock.is_staged_lock(path.name, state.lock.name)]
+
+
 @pytest.mark.parametrize("request_kind", ["this-run", "other-run", "link"])
 def test_a_stop_request_reaches_the_run_at_its_next_checkpoint(scope, tmp_path, request_kind):
     """`assess-stop` cannot signal a run in another PID namespace; the run reads its request instead."""
@@ -1463,9 +1489,23 @@ def test_a_killed_run_leaves_a_stop_request_and_temp_files_that_do_not_block_a_n
     first, _, _ = _interrupted_with_two_jobs(scope)
     (scope.output / STOP_NAME).write_text(first.state["run_id"] + "\n")
     (scope.output / ".assessment-state.json.tmp-abc123").write_text("{")
+    # The lock's staging file, left when the process ended between writing and renaming it.
+    (scope.output / "..appsec-lock.3608647.136667391393792.tmp").write_text("1\n1\n")
     with lifecycle(scope, configuration={"stride_model": "sonnet"}).hold() as taken:
         assert taken.state["run_id"] != first.state["run_id"]
     (scope.output / "notes.txt").write_text("mine")
     with pytest.raises(ExchangeError, match="notes.txt"):
         with lifecycle(scope, replace=True).hold():
             pass
+
+
+def test_a_takeover_blocked_by_a_foreign_file_names_its_path_and_the_new_run(scope):
+    _interrupted_with_two_jobs(scope)
+    (scope.output / "notes.txt").write_text("mine")
+    with pytest.raises(ExchangeError) as refused:
+        with lifecycle(scope, configuration={"stride_model": "sonnet"}).hold():
+            pytest.fail("A foreign file must block the takeover")
+    message = str(refused.value)
+    assert f"({scope.output / 'notes.txt'}). Move those files, then run the same command without --resume" in message
+    assert "accepted so far" in message
+    assert (scope.output / "notes.txt").read_text() == "mine"

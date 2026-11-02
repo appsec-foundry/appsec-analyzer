@@ -238,7 +238,8 @@ class AssessmentState:
                     except Exception:  # noqa: BLE001 - the run's own checkpoints report a lost lock
                         return
 
-            threading.Thread(target=heartbeat, daemon=True).start()
+            beat = threading.Thread(target=heartbeat, daemon=True)
+            beat.start()
             try:
                 self.checkpoint()
                 yield self
@@ -258,6 +259,9 @@ class AssessmentState:
                     self.checkpoint()
             finally:
                 beating.set()
+                # A heartbeat still writing would recreate the released lock, or leave
+                # its staging file behind when the process exits during the write.
+                beat.join()
                 if self._stop_requested():
                     (self.output / STOP_NAME).unlink(missing_ok=True)
                 acquire_lock.release_lock(self.lock, self.state["run_id"])
@@ -398,7 +402,7 @@ class AssessmentState:
 
         A job is reused only for unchanged source, so changed source repeats every step.
         """
-        again = "Run the same command without --resume"
+        again = "run the same command without --resume"
         if identity.get("scope_sha256") != self.identity["scope_sha256"]:
             return f"{again} for a new scan; it repeats every model step because the source changed"
         accepted = _accepted_steps(self.directory)
@@ -427,8 +431,10 @@ class AssessmentState:
         leftovers = {
             child.name
             for child in self.output.iterdir()
-            # A killed run leaves its stop request or a half-written atomic file behind.
-            if child.name != STOP_NAME and not _is_atomic_temp(child.name)
+            # A killed run leaves its stop request or a half-written atomic or lock file behind.
+            if child.name != STOP_NAME
+            and not _is_atomic_temp(child.name)
+            and not acquire_lock.is_staged_lock(child.name, self.lock.name)
         } - {
             ".appsec-lock",
             ".appsec-lock.guard",
@@ -503,19 +509,19 @@ class AssessmentState:
             if earlier is None:
                 message = f"holds an unreadable earlier assessment; {fresh}"
             elif foreign is not None:
-                shown = ", ".join(foreign[:3]) + (", ..." if len(foreign) > 3 else "")
+                shown = self._paths(foreign)
                 message = f"holds files the earlier assessment did not write or that changed since ({shown}); {fresh}"
             else:
                 # An unfinished run that owned every file was cleared above, so
                 # other files remain; --rebuild would keep them as well.
-                beside = sorted(leftovers - owned)
-                shown = ", ".join(beside[:3]) + (", ..." if len(beside) > 3 else "")
+                shown = self._paths(sorted(leftovers - owned))
                 fresh = "for a new scan, move those files or choose another --output"
                 if earlier["identity"] != self.identity:
                     message = (
                         "holds an unfinished combined assessment that cannot be continued because "
                         f"{self._changed(earlier['identity'])} changed since it started, beside files it did not "
-                        f"write or that changed since ({shown}); {fresh}"
+                        f"write or that changed since ({shown}). Move those files, then "
+                        f"{self._new_run_hint(earlier['identity'])}; or choose another --output"
                     )
                 else:
                     message = (
@@ -523,11 +529,14 @@ class AssessmentState:
                         f"since ({shown}). Add --resume to continue it, or {fresh}"
                     )
             raise ExchangeError("This output directory " + message)
-        shown = ", ".join(sorted(leftovers)[:3]) + (", ..." if len(leftovers) > 3 else "")
         raise ExchangeError(
             f"A fresh combined assessment needs an empty output directory, and this one contains other files "
-            f"({shown}); choose another --output or empty this one"
+            f"({self._paths(sorted(leftovers))}); choose another --output or empty this one"
         )
+
+    def _paths(self, names) -> str:
+        """Up to three of the sorted ``names`` as full paths, so hidden files are easy to find."""
+        return ", ".join(str(self.output / name) for name in names[:3]) + (", ..." if len(names) > 3 else "")
 
     def _move_jobs_to_cache(self):
         """Move each accepted job (artifact and receipt) of the earlier run into the cache.
