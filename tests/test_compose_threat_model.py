@@ -3467,6 +3467,23 @@ def test_changelog_incremental_renders_added_changed_resolved(tmp_path: Path) ->
     assert section.index("### v2 —") < section.index("### v1 —")
 
 
+def test_changelog_added_mitigations_follow_final_ids() -> None:
+    """Stored provisional M-IDs are re-derived by title fingerprint; known IDs stay."""
+    rebind = compose._rebind_latest_added_mitigations
+    mits = [{"id": "M-101", "title": "Fix A"}, {"id": "M-102", "title": "Fix B"}]
+    prior = {"mitigation_fingerprints": ["fix a"]}
+    stale = [{"added": {"mitigations": ["M-001", "M-002"], "threats": ["T-1"]}}, prior]
+    out = rebind(stale, mits)
+    assert out[0]["added"] == {"mitigations": ["M-102"], "threats": ["T-1"]}
+    assert stale[0]["added"]["mitigations"] == ["M-001", "M-002"]  # input untouched
+    # first run: all current mitigations are new
+    assert rebind([{"added": {"mitigations": ["M-009"]}}], mits)[0]["added"]["mitigations"] == ["M-101", "M-102"]
+    # IDs that exist, or a prior without fingerprints, are not rewritten unnecessarily
+    ok = [{"added": {"mitigations": ["M-101"]}}, prior]
+    assert rebind(ok, mits) is ok
+    assert rebind([{"added": {"mitigations": ["M-009"]}}, {}], mits)[0]["added"]["mitigations"] == []
+
+
 def test_changelog_full_rebuild_with_baseline_renders_only_nonempty_bullets(tmp_path: Path) -> None:
     """A `mode: full` rerun with a baseline omits empty delta categories —
     e.g. if nothing new was added and nothing changed, only **Resolved**

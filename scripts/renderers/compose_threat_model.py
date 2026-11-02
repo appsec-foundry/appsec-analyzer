@@ -2001,6 +2001,36 @@ def _render_infobox(ctx: RenderContext, env: jinja2.Environment, section: dict) 
     return tpl.render(project=project, contact=contact).rstrip() + "\n"
 
 
+def _rebind_latest_added_mitigations(changelog: list, mitigations: list) -> list:
+    """Make the latest entry's ``added.mitigations`` name IDs of the final model.
+
+    The entry is written while mitigation IDs are still provisional; later
+    stages renumber them. Stored IDs then point at anchors that do not exist
+    and break the report's link closure. Mitigations are identified across
+    runs by title fingerprint, so when a stored ID is unknown the list is
+    derived again the way the builder derives it: current mitigations whose
+    fingerprint is absent from the previous entry's fingerprints.
+    """
+    latest = changelog[0] if changelog else None
+    added = latest.get("added") if isinstance(latest, dict) else None
+    stored = (added or {}).get("mitigations") or []
+    current = [m for m in mitigations if isinstance(m, dict) and m.get("id")]
+    known = {m["id"] for m in current}
+    if not stored or all(mid in known for mid in stored):
+        return changelog
+    from model.build_threat_model_yaml import _mitigation_fp
+
+    prior = changelog[1] if len(changelog) > 1 and isinstance(changelog[1], dict) else None
+    prior_fps = set((prior or {}).get("mitigation_fingerprints") or [])
+    if prior is None:
+        rebound = [m["id"] for m in current]
+    elif not prior_fps:
+        rebound = []
+    else:
+        rebound = [m["id"] for m in current if _mitigation_fp(m) not in prior_fps]
+    return [{**latest, "added": {**added, "mitigations": sorted(rebound)}}, *changelog[1:]]
+
+
 def _render_changelog(ctx: RenderContext, env: jinja2.Environment, section: dict) -> str:
     changelog = ctx.yaml_data.get("changelog") or []
 
@@ -2035,6 +2065,7 @@ def _render_changelog(ctx: RenderContext, env: jinja2.Environment, section: dict
         )
     if not changelog:
         return ""  # conditional — skip when empty
+    changelog = _rebind_latest_added_mitigations(changelog, ctx.yaml_data.get("mitigations") or [])
     # Contract-driven style selection:
     #   render_style: "table"   → compact one-row-per-version layout (default)
     #   render_style: "bullets" → legacy per-version H3 + delta bullets
