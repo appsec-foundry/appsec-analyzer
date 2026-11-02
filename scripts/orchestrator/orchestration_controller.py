@@ -4236,7 +4236,7 @@ def _consolidation_result(progress, workspace: Path, model: dict, cfg: dict) -> 
     _phase_result(progress, "Consolidation", " · ".join(parts))
 
 
-def _assessment_render(
+def _assessment_prepare_render(
     scope,
     jobs,
     names,
@@ -4249,11 +4249,7 @@ def _assessment_render(
     history: Path | None = None,
     platform_settings=None,
 ) -> list[str]:
-    """Run the existing deterministic Stage-1 tail, Stage 2 and QA gates in the workspace.
-
-    Returns a warning per tolerated step failure, so a report built without a
-    scanner's or emitter's checks says so instead of looking complete.
-    """
+    """Prepare the ranked model and deterministic fragments; retain tolerated failures."""
     receipts: list[str] = []
     _run_script("validators/validate_intermediate.py", ["threats_merged", str(workspace / ".threats-merged.json")])
     progress("Building the deterministic route inventory and coverage checks")
@@ -4426,9 +4422,50 @@ def _assessment_render(
     _require_section6_scaffold(workspace)
     _run_script("renderers/pregenerate_fragments.py", [str(workspace), "--only", "ms-critical-attack-tree.json"])
     _run_script("renderers/ms_input_digest.py", [str(workspace)])
+    return receipts
+
+
+def _assessment_render(
+    scope,
+    jobs,
+    names,
+    cfg,
+    workspace: Path,
+    root: Path,
+    *,
+    captured,
+    progress,
+    history: Path | None = None,
+    platform_settings=None,
+    prepared: list[str] | None = None,
+    before_summary=None,
+) -> list[str]:
+    """Finish report authoring and all gates, optionally from a checked snapshot."""
+    receipts = (
+        _assessment_prepare_render(
+            scope,
+            jobs,
+            names,
+            cfg,
+            workspace,
+            root,
+            captured=captured,
+            progress=progress,
+            history=history,
+            platform_settings=platform_settings,
+        )
+        if prepared is None
+        else list(prepared)
+    )
     from orchestrator.assessment_stage2 import render as render_stage2
 
-    receipts += render_stage2(jobs, workspace, progress=progress)
+    receipts += render_stage2(
+        jobs,
+        workspace,
+        progress=progress,
+        before_summary=(lambda: before_summary(receipts)) if before_summary is not None else None,
+        architecture_done=prepared is not None,
+    )
     _write_assessment_stage_stats(workspace, jobs.timing, jobs.budget, show_costs=_AssessmentProgress.show_costs)
     if not _compose_if_ready(workspace, str(root)):
         raise ControllerError("combined report composition failed " + _compose_blocker(workspace))
@@ -4917,95 +4954,128 @@ def assess_repositories(
                 from appsec_analyzer.platform_settings.projection import model_context as platform_context
 
                 platform = platform_context(platform_settings)
-                architecture = _assessment_architecture(scope, jobs, progress=say, depth=depth)
-                jobs.budget.components = len(architecture["components"]["components"])
-                if console:
-                    console.plan_components(len(architecture["components"]["components"]))
-                from orchestrator.assessment_declarations import DeclarationError, boundary_declarations
-
-                # Needs only the finalized components: reject a bad declaration
-                # before the boundary jobs are paid for, not after them.
-                try:
-                    declarations = boundary_declarations(scope, architecture["components"])
-                except DeclarationError as exc:
-                    raise CallError(f"repository boundary declaration rejected: {exc}") from exc
-                say("Measuring the boundary source context")
-                source_context = assessment_source_context(scope, architecture["route_inventories"])
-                assessment, candidates = _assessment_boundary_candidates(
-                    scope, jobs, architecture, source_context, depth, progress=say
-                )
-                # The promoter also prints each warning to stderr, which would
-                # break into the console's in-place status line.
-                with contextlib.redirect_stderr(io.StringIO()):
-                    boundaries, _coverage, boundary_warnings = promote_assessment_boundaries(
-                        scope,
-                        architecture["components"],
-                        assessment,
-                        candidates,
-                        output_dir=scope.output,
-                        declarations=declarations,
-                    )
-                if console:
-                    for message in boundary_warnings:
-                        console.call("warning: " + message, role="trust_boundary_analyst")
-                _phase_result(
-                    say, "Trust boundaries", _count_noun(len(boundaries["trust_boundaries"]), "trust boundary")
-                )
-                controls = _assessment_controls(scope, jobs, architecture, progress=say, platform=platform)
-                _phase_result(say, "Controls", _count_noun(len(controls), "control"))
-                pilot = {}
-                _, _, merged = _assessment_stride(
-                    scope,
-                    jobs,
-                    architecture,
-                    controls,
-                    boundaries["trust_boundaries"],
-                    progress=say,
-                    started_at=state.state["started_at"],
-                    depth=depth,
-                    captured=captured,
-                    platform=platform,
-                    test_cases=cfg["test_cases"],
-                    pilot=pilot,
-                    show_costs=display_costs,
-                )
-                original, _ = build_assessment_model(
-                    scope,
-                    skill_cfg={**cfg, "mode": "full"},
-                    architecture=architecture,
-                    controls=controls,
-                    boundaries=boundaries,
-                    merged=merged,
-                    plugin_root=PLUGIN_ROOT,
-                    project=project,
-                    context=captured,
-                )
-                from orchestrator.assessment_workspace import combined_root
+                from orchestrator import assessment_checkpoint
+                from orchestrator.assessment_workspace import Namespaces, combined_root
 
                 workspace = state.directory / "render"
-                if workspace.exists():
-                    shutil.rmtree(workspace)
-                workspace.mkdir(mode=0o700)
-                names = None
-                from orchestrator.assessment_workspace import Namespaces
+                checkpoint_inputs = {"context": captured, "platform": platform}
+                saved_render = assessment_checkpoint.restore(state, jobs, workspace, inputs=checkpoint_inputs)
+                if saved_render is not None:
+                    say("Resuming at Management Summary: saved artifacts and accepted jobs verified")
+                    original = saved_render["original"]
+                    architecture = saved_render["architecture"]
+                else:
+                    architecture = _assessment_architecture(scope, jobs, progress=say, depth=depth)
+                    jobs.budget.components = len(architecture["components"]["components"])
+                    if console:
+                        console.plan_components(len(architecture["components"]["components"]))
+                    from orchestrator.assessment_declarations import DeclarationError, boundary_declarations
 
-                with combined_root(scope, Namespaces(scope)) as root:
-                    names, settings = _assessment_workspace(
+                    # Needs only the finalized components: reject a bad declaration
+                    # before the boundary jobs are paid for, not after them.
+                    try:
+                        declarations = boundary_declarations(scope, architecture["components"])
+                    except DeclarationError as exc:
+                        raise CallError(f"repository boundary declaration rejected: {exc}") from exc
+                    say("Measuring the boundary source context")
+                    source_context = assessment_source_context(scope, architecture["route_inventories"])
+                    assessment, candidates = _assessment_boundary_candidates(
+                        scope, jobs, architecture, source_context, depth, progress=say
+                    )
+                    # The promoter also prints each warning to stderr, which would
+                    # break into the console's in-place status line.
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        boundaries, _coverage, boundary_warnings = promote_assessment_boundaries(
+                            scope,
+                            architecture["components"],
+                            assessment,
+                            candidates,
+                            output_dir=scope.output,
+                            declarations=declarations,
+                        )
+                    if console:
+                        for message in boundary_warnings:
+                            console.call("warning: " + message, role="trust_boundary_analyst")
+                    _phase_result(
+                        say, "Trust boundaries", _count_noun(len(boundaries["trust_boundaries"]), "trust boundary")
+                    )
+                    controls = _assessment_controls(scope, jobs, architecture, progress=say, platform=platform)
+                    _phase_result(say, "Controls", _count_noun(len(controls), "control"))
+                    pilot = {}
+                    _, _, merged = _assessment_stride(
                         scope,
-                        cfg,
+                        jobs,
+                        architecture,
+                        controls,
+                        boundaries["trust_boundaries"],
+                        progress=say,
+                        started_at=state.state["started_at"],
+                        depth=depth,
+                        captured=captured,
+                        platform=platform,
+                        test_cases=cfg["test_cases"],
+                        pilot=pilot,
+                        show_costs=display_costs,
+                    )
+                    original, _ = build_assessment_model(
+                        scope,
+                        skill_cfg={**cfg, "mode": "full"},
                         architecture=architecture,
                         controls=controls,
                         boundaries=boundaries,
                         merged=merged,
-                        root=root,
-                        workspace=workspace,
+                        plugin_root=PLUGIN_ROOT,
                         project=project,
-                        captured=captured,
-                        named=bool(ns.project) or len(labels) > 1,
-                        started_at=state.state["started_at"],
-                        invocation=_assessment_invocation(argv),
-                        test_case_pilot=pilot,
+                        context=captured,
                     )
+                jobs.budget.components = len(architecture["components"]["components"])
+                if console and saved_render is not None:
+                    console.plan_components(jobs.budget.components)
+                if saved_render is None:
+                    if workspace.exists():
+                        shutil.rmtree(workspace)
+                    workspace.mkdir(mode=0o700)
+                names = Namespaces(scope)
+                with combined_root(scope, Namespaces(scope)) as root:
+                    if saved_render is not None:
+                        from shared._atomic_io import atomic_write_json
+
+                        settings = {**saved_render["settings"], "repo_root": str(root), "output_dir": str(workspace)}
+                        atomic_write_json(workspace / ".skill-config.json", settings)
+                    else:
+                        names, settings = _assessment_workspace(
+                            scope,
+                            cfg,
+                            architecture=architecture,
+                            controls=controls,
+                            boundaries=boundaries,
+                            merged=merged,
+                            root=root,
+                            workspace=workspace,
+                            project=project,
+                            captured=captured,
+                            named=bool(ns.project) or len(labels) > 1,
+                            started_at=state.state["started_at"],
+                            invocation=_assessment_invocation(argv),
+                            test_case_pilot=pilot,
+                        )
+
+                    def save_render(receipts):
+                        assessment_checkpoint.save(
+                            state,
+                            jobs,
+                            workspace,
+                            {
+                                "original": original,
+                                "architecture": {
+                                    key: architecture[key] for key in ("components", "model_integration_gaps")
+                                },
+                                "settings": settings,
+                                "receipts": receipts,
+                            },
+                            inputs=checkpoint_inputs,
+                        )
+
                     warnings.extend(
                         _assessment_render(
                             scope,
@@ -5018,6 +5088,8 @@ def assess_repositories(
                             progress=say,
                             history=state.history_path,
                             platform_settings=platform_settings,
+                            prepared=saved_render["receipts"] if saved_render is not None else None,
+                            before_summary=save_render if saved_render is None else None,
                         )
                     )
                     _export_pentest_tasks_if_configured(workspace, settings)
@@ -5071,6 +5143,8 @@ def assess_repositories(
                 )
                 if not recorded:
                     warnings.append("the run's issues could not be recorded in .run-issues.json")
+                if not cfg.get("keep_runtime_files"):
+                    assessment_checkpoint.discard(state.directory)
                 _assessment_discard_workspace(workspace, len(labels), cfg)
         except ScopeError as exc:
             raise ControllerError(f"selected source state changed or became unreadable: {exc}") from exc

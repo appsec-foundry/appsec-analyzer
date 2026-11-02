@@ -845,14 +845,22 @@ def render(
     *,
     instructions: Callable[[str, str], str] | None = None,
     progress: Callable[[str], None] = lambda s: None,
+    before_summary: Callable[[], None] | None = None,
+    architecture_done: bool = False,
 ) -> list[str]:
     """Author the model-owned Stage-2 fragments of a prepared workspace; return receipts."""
     workspace = Path(workspace)
     # Settle the mandatory renderer first so the summary can use its actual
     # unspent allowance instead of being skipped against a cold-role reserve.
     sections = 3 if requirements_gate.catalog_declares_requirements(workspace) else 2
-    progress(f"Stage 2: Security Architecture (1/{sections})")
-    receipts = [_security_architecture(jobs, workspace, instructions)]
+    receipts = []
+    if architecture_done:
+        jobs.budget.plan_required(REPORT_JOB, "secarch_renderer", 0)
+    else:
+        progress(f"Stage 2: Security Architecture (1/{sections})")
+        receipts.append(_security_architecture(jobs, workspace, instructions))
+    if before_summary is not None:
+        before_summary()
     progress(f"Stage 2: Management Summary (2/{sections})")
     receipts.append(_management_summary(jobs, workspace, instructions))
     if sections == 3:

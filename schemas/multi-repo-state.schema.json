@@ -44,6 +44,10 @@
       }
     },
     "status": {"enum": ["running", "interrupted", "failed", "complete"]},
+    "render_checkpoint": {
+      "description": "Hash of the private pre-summary snapshot manifest; usable only for this run and unchanged identity.",
+      "$ref": "#/$defs/hash"
+    },
     "budget_authorizations": {
       "description": "Explicit terminal approvals for this run. The identity retains the initial configured limit; compatible resume restores the last approved maximum.",
       "type": "array", "maxItems": 16,

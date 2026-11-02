@@ -221,6 +221,8 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `as
 
 `assess` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
 
+After an interruption at Management Summary, repeat the command with `--resume`. If source, context, settings and Analyzer version are unchanged and the saved checkpoint is intact, Analyzer checks its artifacts and continues there without repeating analysis or report preparation. Earlier runs without a checkpoint use the normal replay of accepted steps.
+
 ```sh
 # Assess a local checkout
 appsec-analyzer assess --repo /path/to/project

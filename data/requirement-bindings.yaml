@@ -1512,6 +1512,9 @@ requirements:
 
   REQ-016:
     applies_to:
+      - scripts/orchestrator/assessment_checkpoint.py
+      - scripts/orchestrator/assessment_stage2.py
+      - schemas/multi-repo-state.schema.json
       - appsec_analyzer/assessment/scope.py
       - appsec_analyzer/preflight.py
       - scripts/runtime/assessment_diagnostics.py
@@ -1553,6 +1556,14 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_checkpoint.py::test_summary_resume_skips_analysis_and_preparation_but_runs_publication_gates
+      - tests/test_assessment_checkpoint.py::test_resume_restores_accepted_report_and_coverage_without_recharging
+      - tests/test_assessment_checkpoint.py::test_subscription_resume_preserves_call_count_and_unavailable_monetary_cost
+      - tests/test_assessment_checkpoint.py::test_changed_or_linked_snapshot_and_accepted_jobs_stop_before_reuse
+      - tests/test_assessment_checkpoint.py::test_missing_snapshot_or_dependency_falls_back_without_replacing_workspace
+      - tests/test_assessment_checkpoint.py::test_a_runtime_change_replays_jobs_instead_of_trusting_the_snapshot
+      - tests/test_assessment_checkpoint.py::test_changed_external_context_does_not_reuse_the_old_report
+      - tests/test_assessment_stage2.py::test_the_resume_checkpoint_runs_after_architecture_and_before_summary
       - tests/test_codex_schema.py::test_source_strings_are_data_even_when_they_contain_invalid_json_syntax
       - tests/test_codex_schema.py::test_optional_fields_preserve_absence_and_explicit_null
       - tests/test_codex_schema.py::test_extra_entries_cannot_override_declared_fields_even_if_absent

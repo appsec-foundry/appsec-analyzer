@@ -96,6 +96,8 @@ Workflows share the code that executes scanners. Each workflow still decides whi
 
 Runtime and controller code enforce source access, model permissions, budgets, and output publication. Agent Markdown, repository text, and model replies are inputs; they cannot grant permission to execute actions. See [SECURITY.md](SECURITY.md), the [orchestration contract](docs/internal/contracts/orchestration-actions.md), and the [context-routing contract](docs/internal/contracts/context-routing.md).
 
+[assessment_checkpoint.py](scripts/orchestrator/assessment_checkpoint.py) saves the controller's prepared report after Security Architecture, before Management Summary. The lifecycle state records the snapshot manifest hash. Only the same run, sources, captured context, platform context, settings and runtime may restore it; artifacts and accepted job hashes are checked before skipping analysis and report preparation. The controller still owns model admission, quality gates and publication. Missing snapshots fall back to normal replay.
+
 Active architecture and STRIDE jobs use [architecture-analysis-policy.md](data/architecture-analysis-policy.md) and [stride-analysis-policy.md](data/stride-analysis-policy.md), selected by [model_roles.py](appsec_analyzer/model_roles.py). Architecture receives finalized components and returns flows, external entities, and assets. Its policy does not allow discovery, shell tools, file writes, or publication. The model host reserves correction exchanges within each job's fixed limit. Retained agent files describe earlier procedures and must not replace these active policies.
 
 ## Compatibility and migration limits

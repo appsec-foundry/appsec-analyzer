@@ -471,6 +471,18 @@ def test_the_management_summary_request_carries_no_volatile_model_hash(workspace
     assert "source_sha256" not in digest and digest
 
 
+def test_the_resume_checkpoint_runs_after_architecture_and_before_summary(workspace):
+    jobs = FakeJobs(_replies(workspace))
+    checkpoints = []
+
+    def checkpoint():
+        assert "NARRATIVE_PLACEHOLDER" not in (workspace / ".fragments/security-architecture.md").read_text()
+        checkpoints.append([call["role"] for call in jobs.calls])
+
+    stage2.render(jobs, workspace, before_summary=checkpoint)
+    assert checkpoints == [["secarch_renderer"]]
+
+
 def test_a_diagram_placeholder_names_its_exact_format_in_context_and_rejection(workspace):
     rows = stage2.placeholders((workspace / ".fragments" / "security-architecture.md").read_text(encoding="utf-8"))
     diagram = next(row for row in rows if row["mermaid"] and not row["optional"])

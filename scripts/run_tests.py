@@ -183,6 +183,7 @@ GROUPS = {
         assessment_console
         analyst_controller
         analyst_host
+        assessment_checkpoint
         assessment_context
         assessment_declarations
         assessment_host
@@ -583,7 +584,10 @@ SOURCE_TESTS = {
     "scripts/orchestrator/assessment_workspace.py": _tests(
         "multi_repo_assessment single_repo_controller assessment_context assessment_review assessment_posture check_target_specificity"
     ),
-    "scripts/orchestrator/assessment_stage2.py": _tests("assessment_stage2 check_target_specificity"),
+    "scripts/orchestrator/assessment_stage2.py": _tests(
+        "assessment_stage2 assessment_checkpoint check_target_specificity"
+    ),
+    "scripts/orchestrator/assessment_checkpoint.py": _tests("assessment_checkpoint assessment_state assessment_stage2"),
     "scripts/orchestrator/assessment_review.py": _tests("assessment_review check_target_specificity"),
     "scripts/orchestrator/assessment_declarations.py": _tests(
         "assessment_declarations assessment_posture multi_repo_boundaries check_target_specificity"
