@@ -19,6 +19,7 @@ from orchestrator import orchestration_controller as controller
 from runtime.analyst_host import HostReply
 from runtime.assessment_host import MARKER, ExchangeError
 
+from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL
 from tests.test_assessment_posture import Discoverer
 from tests.test_multi_repo_controller import BoundaryHost, Host, checkout
 
@@ -661,7 +662,8 @@ def test_a_run_opens_its_progress_file_with_what_it_is_about_to_spend(tmp_path, 
     assert path.read_text().startswith('{"event": "run_start", ')
     start = json.loads(path.read_text().splitlines()[0])
     keys = ["Repositories", "Output", "Depth", "Budget", "Time", "Models"]
-    assert [line.split()[0] for line in start["lines"]] == keys
+    # The scope facts (focus, abuse cases, coverage, exclusions) follow these.
+    assert [line.split()[0] for line in start["lines"]][: len(keys)] == keys
     assert any(line.startswith("Budget      model calls stop at $5.00") for line in start["lines"])
     assert all("\n" not in line for line in start["lines"])
 
@@ -1163,7 +1165,7 @@ def test_console_header_states_the_resolved_limits_models_and_checks():
     assert budget == "model calls stop at $18.75 (1.25 × deprecated --soft-budget $15; use --hard-budget)"
     assert "report take priority" in reserve and "Completion reserve" not in rows
     assert rows["Time limit"] == "4h" and rows["Depth"] == "standard"
-    assert rows["Max parallel"] == "2"
+    assert rows["Max parallel"] == str(DEFAULT_MAX_PARALLEL)
     assert rows["Models"] == "m1 (a, b)\nm2 (c)"
     assert rows["Trust mode"] == "untrusted (trust check required before analysis)"
     assert rows["Output"] == "/o (--rebuild: replaces any earlier assessment)"
