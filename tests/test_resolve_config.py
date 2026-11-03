@@ -446,6 +446,19 @@ class TestResolveExtendedModelsRendererAbuse:
         assert cfg["abuse_verifier_model"] == "sonnet"
 
 
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+@pytest.mark.parametrize("mode", ["sonnet-economy", "haiku-economy", "sonnet", "opus-cheap", "opus"])
+def test_recon_defaults_to_sonnet_at_every_depth_and_reasoning_tier(monkeypatch, depth, mode):
+    monkeypatch.delenv("APPSEC_RECON_SCANNER_MODEL", raising=False)
+    assert rc.resolve_extended_models(mode, depth)["recon_scanner_model"] == "claude-sonnet-5-5"
+
+
+@pytest.mark.parametrize("depth", ["quick", "standard", "thorough"])
+def test_an_explicit_recon_environment_model_overrides_sonnet(monkeypatch, depth):
+    monkeypatch.setenv("APPSEC_RECON_SCANNER_MODEL", "haiku")
+    assert rc.resolve_extended_models("sonnet-economy", depth)["recon_scanner_model"] == "haiku"
+
+
 class TestOrchestratorRecommendation:
     """Advisory session-model recommendation: always Sonnet 5.5, whatever the repo size.
     Never binding — the skill surfaces it, the user chooses."""

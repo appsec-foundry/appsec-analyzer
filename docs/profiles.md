@@ -15,6 +15,8 @@ appsec-analyzer assess --repo /path/to/project --profile codex
 
 The built-in `codex` and `codex-cli` model profiles use Luna for `recon_scanner` with low reasoning effort at every depth. All other roles use Sol with low effort at quick depth, medium at standard, and high at thorough. The model aliases resolve through the installed [model catalog](../data/model-catalog.yaml). This split has offline routing coverage; assessment quality with Luna has not passed live qualification. Operator model defaults and role overrides still take precedence.
 
+The built-in `claude` profile uses Sonnet for `recon_scanner` at every depth. Explicit model selections keep their existing precedence. See [Claude models and cost](model-selection.md#claude-profile) for the cost qualification and per-run override.
+
 Profiles apply to `assess`. `scan-sources` remains a deterministic scan without model calls. The separate requirements audit and focused analyst keep their existing options.
 
 Additional built-ins are `lite` for LiteLLM Responses and `bedrock` for native Bedrock Converse. They require a separate operator-owned connection file and external credentials. The model prefix `lite claude` selects a configured gateway model; `bedrock claude` selects a configured Bedrock model. See [provider setup and limits](providers.md). Both remain unqualified for live assessment quality.

@@ -38,6 +38,8 @@ An OpenAI `--model` value must match the selected survey model or its requested 
 
 `claude` uses the Claude CLI and its configured login or external credentials. The built-in model profile records the existing role defaults for `quick`, `standard`, and `thorough`. Repository-dependent controller adjustments and supported environment overrides still apply unless a user model profile explicitly overrides that role's model. Explicit `--model` and supported per-role CLI flags take precedence. Organization restrictions still apply.
 
+Reconnaissance uses Sonnet (`claude-sonnet-5-5`) at every depth by default. This can increase cost and runtime compared with the earlier Haiku default; the effect on cost and assessment quality has not been measured in the comparison below. Existing budget limits and explicit model overrides still apply. Set `APPSEC_RECON_SCANNER_MODEL=haiku` for one run, or override `roles.recon_scanner.model` in a user model profile, to select Haiku.
+
 Users can set models and reasoning effort in their own Claude model profiles. The adapter does not expose `max_output_tokens`; a Claude profile containing that field is rejected. The USD budget and existing execution bounds remain in force.
 
 The independent evidence verifier stays on Sonnet in the built-in Claude profile, including at `thorough` depth. Only thorough requires the [additional exploitation evidence](security-assessment.md#how-the-results-come-together); quick and standard retain the existing review. Operator model overrides still apply. This refinement has not been measured in the comparison below.

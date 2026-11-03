@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- The Claude profile uses Sonnet for reconnaissance at quick, standard and thorough depth. Explicit model selections and spending limits still apply. Cost, runtime and quality effects compared with the earlier Haiku default have not been measured.
+
 - REST-service discovery follows multiline calls, local URL constants and common HTTP-client instances. Independent configured targets and explicit ports remain separate. Assessments retain observed outbound connections the model omitted, including destinations outside its context limit, and an unrelated login flow no longer hides a missing service from diagnostics.
 
 - `assess` uses a spending limit by depth: USD 12 for `quick`, 20 for `standard`, 40 for `thorough`. `--budget` and a profile `budget` still take precedence. A `thorough` run needs about USD 40 on Juice Shop, so the old limit of USD 20 left out later checks such as verification.

@@ -13,7 +13,7 @@ depths:
       post_stride_synthesizer:
         model: claude-sonnet-5-5
       recon_scanner:
-        model: haiku
+        model: claude-sonnet-5-5
       stride_analyzer:
         model: claude-sonnet-5-5
       threat_merger:
@@ -33,7 +33,7 @@ depths:
       post_stride_synthesizer:
         model: claude-sonnet-5-5
       recon_scanner:
-        model: haiku
+        model: claude-sonnet-5-5
       stride_analyzer:
         model: claude-sonnet-5-5
       threat_merger:
@@ -55,7 +55,7 @@ depths:
       post_stride_synthesizer:
         model: opus
       recon_scanner:
-        model: haiku
+        model: claude-sonnet-5-5
       stride_analyzer:
         model: opus
       threat_merger:

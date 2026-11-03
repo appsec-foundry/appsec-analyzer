@@ -1852,9 +1852,15 @@ requirements:
       - docs/model-selection.md
       - specs/changes/model-profile-depth/proposal.md
       - specs/changes/assessment-depth-settings/proposal.md
+      - specs/changes/sonnet-recon-default/proposal.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_resolve_config.py::test_recon_defaults_to_sonnet_at_every_depth_and_reasoning_tier
+      - tests/test_resolve_config.py::test_an_explicit_recon_environment_model_overrides_sonnet
+      - tests/test_profiles.py::test_claude_recon_default_agrees_in_inspection_runtime_and_snapshot
+      - tests/test_profiles.py::test_an_operator_claude_model_profile_can_override_the_recon_default
+      - tests/test_profiles.py::test_explicit_recon_model_selection_survives_runtime_resolution
       - tests/test_depth_settings.py::test_the_shipped_file_reproduces_each_depth_before_it_existed
       - tests/test_depth_settings.py::test_the_resolver_decides_as_before_with_the_shipped_values
       - tests/test_depth_settings.py::test_profiles_carry_the_same_depth_block_as_the_shipped_schema

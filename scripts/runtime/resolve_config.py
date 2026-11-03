@@ -88,7 +88,7 @@ MODEL_MATRIX = {
     # Sonnet TIER — it is NOT routed to Haiku (the principle: the main value
     # contributor must not be downgraded). The Haiku lever kicks in for the
     # more-deterministic agents via EXTENDED_MODEL_MATRIX (context-resolver,
-    # recon-scanner, qa-routine, config-scanner). Quick mode additionally gets
+    # qa-routine, config-scanner). Quick mode additionally gets
     # a STRIDE depth reduction via resolve_stride_profile(). (Alias: haiku-economy.)
     #
     # Sonnet 4.6 is no longer selected anywhere: the economy tier pins the latest
@@ -114,14 +114,13 @@ SONNET46 = "claude-sonnet-4-6"
 EXTENDED_MODEL_MATRIX: dict[tuple[str, str], dict[str, str]] = {
     # sonnet-economy: extended-agent routing.
     #
-    # context-resolver, recon-scanner, config-scanner are deterministic
-    # tasks (extraction / grep / rule-engine application against a YAML
-    # check catalog) — they run on Haiku at every depth.
+    # Context and configuration extraction stay on Haiku. Recon discovers
+    # components and interfaces on Sonnet at every depth.
     # qa_routine moves up to Sonnet at thorough because the document is
     # bigger and more cross-references need reconciling.
     ("sonnet-economy", "quick"): {
         "context_resolver": HAIKU,
-        "recon_scanner": HAIKU,
+        "recon_scanner": SONNET5,
         "qa_routine": HAIKU,
         "qa_content": SONNET,
         "config_scanner": HAIKU,
@@ -144,7 +143,7 @@ EXTENDED_MODEL_MATRIX: dict[tuple[str, str], dict[str, str]] = {
     },
     ("sonnet-economy", "standard"): {
         "context_resolver": HAIKU,
-        "recon_scanner": HAIKU,
+        "recon_scanner": SONNET5,
         "qa_routine": HAIKU,
         "qa_content": SONNET,
         "config_scanner": HAIKU,
@@ -155,7 +154,7 @@ EXTENDED_MODEL_MATRIX: dict[tuple[str, str], dict[str, str]] = {
     },
     ("sonnet-economy", "thorough"): {
         "context_resolver": HAIKU,
-        "recon_scanner": HAIKU,
+        "recon_scanner": SONNET5,
         "qa_routine": SONNET,
         "qa_content": SONNET,
         "config_scanner": HAIKU,
@@ -167,13 +166,11 @@ EXTENDED_MODEL_MATRIX: dict[tuple[str, str], dict[str, str]] = {
 }
 
 # Default routing for sonnet/opus-cheap/opus.
-# Even on the default tiers, context-resolver, recon-scanner and
-# config-scanner are routed to Haiku — these phases are pure extraction /
-# grep / lookup-table application and need no Sonnet floor.
+# Context and configuration extraction use Haiku; Recon uses Sonnet.
 # To override, set APPSEC_RECON_SCANNER_MODEL etc.
 _DEFAULT_EXTENDED_ROUTING = {
     "context_resolver": HAIKU,
-    "recon_scanner": HAIKU,
+    "recon_scanner": SONNET5,
     "qa_routine": SONNET,
     "qa_content": SONNET,
     "config_scanner": HAIKU,
@@ -729,7 +726,7 @@ def resolve_reasoning_model(ns: argparse.Namespace, depth: str) -> dict:
     ``claude-sonnet-5-5``, never to Sonnet 4.6 (see the MODEL_MATRIX comment).
     Pin an exact model per stage with ``APPSEC_{STRIDE,TRIAGE,MERGER}_MODEL``. The Haiku savings
     come from the deterministic-leaning agents (context-resolver,
-    recon-scanner, qa-routine fixes, config-scanner) — see
+    qa-routine fixes, config-scanner) — see
     resolve_extended_models.
     """
     # Step 1: pick the base mode (normalising deprecated aliases).
@@ -793,10 +790,12 @@ def resolve_extended_models(reasoning_mode: str, depth: str) -> dict:
 
     Routing rationale (verified against agent specs):
 
-    - ``context_resolver``, ``recon_scanner``, ``config_scanner`` are
-      deterministic tasks (file extraction / grep + classification /
+    - ``context_resolver``, ``config_scanner`` are
+      extraction tasks (file extraction / classification /
       YAML-rule application) → **always Haiku**, regardless of depth or
       reasoning tier.
+    - ``recon_scanner`` discovers runtime components and communication
+      interfaces on the pinned Sonnet model at every depth and tier.
     - ``qa_content`` does invariant / contract reasoning → always Sonnet.
     - ``qa_routine`` is mechanical (link patches, anchor renames) →
       Haiku at quick + standard, Sonnet at thorough where the document

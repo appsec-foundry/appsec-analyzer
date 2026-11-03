@@ -450,6 +450,7 @@ def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
     assert all("max_output_tokens" not in row for row in resolved["models"].values())
     assert resolved["qualified"] is False
     if name == "claude":
+        assert resolved["models"]["recon_scanner"]["model"] == "claude-sonnet-5-5"
         verifier = resolved["models"]["evidence_verifier"]
         assert verifier["model"] == "claude-sonnet-5-5"
         assert verifier["reasoning_effort"] == "medium"
@@ -460,6 +461,53 @@ def test_builtins_have_complete_roles_without_output_caps(home, name, depth):
             if role != "recon_scanner":
                 assert settings["model"] == "gpt-6.1-sol"
                 assert settings["reasoning_effort"] == {"quick": "low", "standard": "medium", "thorough": "high"}[depth]
+
+
+@pytest.mark.parametrize("depth", profiles.DEPTHS)
+def test_claude_recon_default_agrees_in_inspection_runtime_and_snapshot(home, monkeypatch, capsys, depth):
+    from runtime import resolve_config
+
+    monkeypatch.delenv("APPSEC_RECON_SCANNER_MODEL", raising=False)
+    assert cli.main(["profiles", "show", "claude", "--assessment-depth", depth]) == 0
+    inspected = json.loads(capsys.readouterr().out)
+    assert inspected["models"]["recon_scanner"]["model"] == "claude-sonnet-5-5"
+    resolved = profiles.resolve_scan("claude", depth=depth)
+    cfg = resolve_config.resolve_extended_models("sonnet-economy", depth)
+    profiles.apply_runtime_profile(resolved, cfg, [])
+    assert cfg["recon_scanner_model"] == "claude-sonnet-5-5"
+    assert cfg["operator_profile"]["models"]["recon_scanner"]["model"] == cfg["recon_scanner_model"]
+
+
+@pytest.mark.parametrize("depth", profiles.DEPTHS)
+@pytest.mark.parametrize("override", ["defaults", "roles"])
+def test_an_operator_claude_model_profile_can_override_the_recon_default(home, depth, override):
+    from runtime import resolve_config
+
+    definition = {"schema_version": 1, "base": "claude"}
+    settings = {"model": "haiku"}
+    definition[override] = settings if override == "defaults" else {"recon_scanner": settings}
+    write(home, "model", "team-recon", definition)
+    write(home, "scan", "team-recon", {"schema_version": 1, "model_profile": "team-recon"})
+    resolved = profiles.resolve_scan("team-recon", depth=depth)
+    cfg = resolve_config.resolve_extended_models("sonnet-economy", depth)
+    profiles.apply_runtime_profile(resolved, cfg, [])
+    assert cfg["recon_scanner_model"] == "haiku"
+    assert cfg["operator_profile"]["models"]["recon_scanner"]["model"] == "haiku"
+
+
+@pytest.mark.parametrize("depth", profiles.DEPTHS)
+@pytest.mark.parametrize("source", ["environment", "cli"])
+def test_explicit_recon_model_selection_survives_runtime_resolution(home, monkeypatch, depth, source):
+    from runtime import resolve_config
+
+    monkeypatch.delenv("APPSEC_RECON_SCANNER_MODEL", raising=False)
+    if source == "environment":
+        monkeypatch.setenv("APPSEC_RECON_SCANNER_MODEL", "haiku")
+    resolved = profiles.resolve_scan("claude", depth=depth)
+    cfg = resolve_config.resolve_extended_models("sonnet-economy", depth)
+    profiles.apply_runtime_profile(resolved, cfg, [], model="haiku" if source == "cli" else None)
+    assert cfg["recon_scanner_model"] == "haiku"
+    assert resolved["models"]["recon_scanner"]["model"] == "haiku"
 
 
 @pytest.mark.parametrize("override", ["defaults", "roles"])

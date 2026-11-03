@@ -499,6 +499,8 @@ Each verified aspect adds model calls. A scan or organization profile can change
 
 `score` and `scan-sources` need no provider. `assess` selects its provider with `--profile`; without it, `assess` uses your [scan profile](docs/profiles.md#use-your-profile-by-default) `default` if you created one, otherwise `claude`. `analyze-threats`, `authnz-review`, and `audit-requirements` always use the Claude CLI.
 
+The Claude profile uses Sonnet for reconnaissance at every depth. Explicit model selections still apply; see [models and cost](docs/model-selection.md#claude-profile) for overrides and limits.
+
 | `--profile` | Provider | Requirement |
 | --- | --- | --- |
 | `claude` (default) | Claude CLI | `claude` on your `PATH` with a working login or externally configured Anthropic API credentials. |
