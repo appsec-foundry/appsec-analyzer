@@ -100,6 +100,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- PHP source checks: the path and file-inclusion check no longer matches `require` or `include` inside a longer name such as `$requiredIndent`. The weak-random check also finds names like `session_token`. PHP findings name `php_source` as their source type instead of `nodejs_source`.
 - A finding that its analysis called exploitable counts as confirmed again when a confirmed abuse-case step settles its open evidence review. It used to stay an insecure practice, so a verified Critical finding could be missing from the summary's counts. The weakness register now follows this result, because it is rebuilt after abuse-case verification.
 - A finding whose evidence the review left open or refuted is no longer raised to Critical by the always-critical rule of its weakness type.
 - Fixes for findings that the ranking raises move to the matching priority band, for example from P2 to P1, if they have the steps and verification of an urgent fix. `critical_findings` in `security-assessment.yaml` follows the same ranking. It holds Critical and High findings, despite its name.

@@ -299,6 +299,17 @@ def test_php_mt_rand_token_flagged(tmp_path: Path) -> None:
     assert "CRYPTO-PHP-002" in _crypto_ids(tmp_path)
 
 
+def test_php_rng_for_underscored_token_name_flagged(tmp_path: Path) -> None:
+    # `_` separates words in PHP names; `\btoken\b` alone never matched `session_token`.
+    _write(tmp_path, "t.php", "<?php $_SESSION['session_token'] = md5(uniqid());\n")
+    assert "CRYPTO-PHP-002" in _crypto_ids(tmp_path)
+
+
+def test_php_rng_for_name_merely_containing_token_not_flagged(tmp_path: Path) -> None:
+    _write(tmp_path, "t.php", "<?php $tokenizer_seed = rand(1, 6);\n")
+    assert "CRYPTO-PHP-002" not in _crypto_ids(tmp_path)
+
+
 def test_php_sqli_superglobal_flagged(tmp_path: Path) -> None:
     _write(tmp_path, "r.php", "<?php mysqli_query($c, \"SELECT * FROM u WHERE n='\" . $_GET['n'] . \"'\");\n")
     assert "INJ-PHP-001" in _inj_ids(tmp_path)
@@ -317,6 +328,27 @@ def test_php_ssrf_flagged(tmp_path: Path) -> None:
 def test_php_path_traversal_flagged(tmp_path: Path) -> None:
     _write(tmp_path, "p.php", "<?php readfile('/data/' . $_GET['f']);\n")
     assert "INJ-PHP-004" in _inj_ids(tmp_path)
+
+
+def test_php_include_once_with_request_path_flagged(tmp_path: Path) -> None:
+    _write(tmp_path, "p.php", "<?php include_once('pages/' . $_GET['p']);\n")
+    assert "INJ-PHP-004" in _inj_ids(tmp_path)
+
+
+def test_php_sink_name_inside_identifier_not_flagged(tmp_path: Path) -> None:
+    # `require` inside `$requiredIndent` is no include call, even when a later concatenation follows.
+    _write(
+        tmp_path,
+        "p.php",
+        "<?php\n"
+        "if ($Line['indent'] < $requiredIndent\n"
+        "    and (\n"
+        "        $Block['data']['type'] === 'ol'\n"
+        "        and preg_match('/^[0-9]++'.$Block['data']['markerTypeRegex'].'/', $Line['text'])\n"
+        "    )\n"
+        ") {}\n",
+    )
+    assert "INJ-PHP-004" not in _inj_ids(tmp_path)
 
 
 # --- multi-stack: Ruby / Rails (Phase B) ------------------------------------

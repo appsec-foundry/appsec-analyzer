@@ -37,6 +37,7 @@ $defs:
       - typescript_source
       - python_source
       - java_source
+      - php_source
 
   breachVector:
     type: string

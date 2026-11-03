@@ -373,7 +373,8 @@ checks:
       `random_bytes` / `random_int` are the safe alternatives.
     file_patterns: ["**/*.php"]
     exclude_file_patterns: ["**/tests/**", "**/*Test.php", "**/vendor/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}\b(?:mt_rand|rand|uniqid)\s*\('
+    # `_` separates words in names such as `session_token`, so only letters and digits bound the keyword.
+    pattern: '(?i)(?<![a-z0-9])(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?![a-z0-9])[^\n]{0,60}\b(?:mt_rand|rand|uniqid)\s*\('
     counter_scope: line
     counter_patterns:
       - '(?i)\b(random_bytes|random_int)\b'

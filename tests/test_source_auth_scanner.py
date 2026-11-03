@@ -1695,6 +1695,13 @@ def test_authz201_java_unsigned_jwt(tmp_path: Path) -> None:
     assert findings[0].source_type == "java_source"
 
 
+def test_php_finding_reports_php_source_type(tmp_path: Path) -> None:
+    (tmp_path / "c.php").write_text("<?php system('ping ' . $_GET['host']);\n")
+    findings = _scan(tmp_path)
+    assert "INJ-PHP-002" in _ids(findings)
+    assert findings[0].source_type == "php_source"
+
+
 def test_java_signed_jws_not_flagged(tmp_path: Path) -> None:
     (tmp_path / "Auth.java").write_text(
         "public Claims parse(String t) {\n  return Jwts.parser().setSigningKey(k).parseClaimsJws(t).getBody();\n}\n"

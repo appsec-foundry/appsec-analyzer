@@ -585,6 +585,8 @@ def _source_type_for(file_rel: str) -> str:
         return "java_source"
     if lower.endswith((".ts", ".tsx")):
         return "typescript_source"
+    if lower.endswith(".php"):
+        return "php_source"
     return "nodejs_source"
 
 

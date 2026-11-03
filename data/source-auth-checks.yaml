@@ -1208,7 +1208,8 @@ checks:
       remote/local file inclusion.
     file_patterns: ["**/*.php"]
     exclude_file_patterns: ["**/tests/**", "**/*Test.php", "**/vendor/**"]
-    pattern: '(?is)(?:fopen|readfile|include|include_once|require|require_once|file_get_contents)\s*\(?\s*[^;)]*(?:\$_(?:GET|POST|REQUEST|COOKIE)|["''][^"'']*["'']\s*\.\s*\$)'
+    # The sink name must be a whole name: `require` inside `$requiredIndent` is no include.
+    pattern: '(?is)(?<![\w$])(?:fopen|readfile|include|include_once|require|require_once|file_get_contents)\b\s*\(?\s*[^;)]*(?:\$_(?:GET|POST|REQUEST|COOKIE)|["''][^"'']*["'']\s*\.\s*\$)'
     counter_scope: window
     counter_window: 3
     counter_patterns:
