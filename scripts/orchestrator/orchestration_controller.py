@@ -1653,6 +1653,27 @@ def _assessment_architecture(scope, jobs, *, progress, depth="standard"):
             asset["id"] = _id("asset", rid, asset["id"])
             assets.append(_assessment_asset_fields(asset))
     flows = _assessment_identity_integrations(scope, components, flows)
+    # The model sees a bounded projection. Retain every observed outbound target
+    # from the full frozen inventory, including those outside that projection.
+    from analyzers.egress_flows import reconcile as reconcile_egress
+
+    outbound = []
+    for repository in scope.repositories:
+        for destination in inventories[repository.repository_id]["egress_sources"]:
+            outbound.append(
+                {
+                    **destination,
+                    "evidence": [
+                        {
+                            **evidence,
+                            "repository_id": repository.repository_id,
+                            "sha256": hashlib.sha256(repository.files[evidence["file"]]).hexdigest(),
+                        }
+                        for evidence in destination["evidence"]
+                    ],
+                }
+            )
+    flows = reconcile_egress(components["components"], flows, outbound)
     flows = _assessment_client_api_flows(scope, components, flows, inventories)
     flows = _assessment_database_flows(scope, components, flows)
     # The existing canonical flow contract owns global size and reference
@@ -1697,6 +1718,7 @@ def _assessment_architecture(scope, jobs, *, progress, depth="standard"):
         "route_handler_modules": {rid: row["route_handlers"] for rid, row in inventories.items()},
         "route_middleware": {rid: row["route_middleware"] for rid, row in inventories.items()},
         "egress_inventories": {rid: row["egress_sources"] for rid, row in inventories.items()},
+        "egress_destinations": outbound,
         # A lead can be a mention rather than a call, so a gap is a warning, not a stop.
         "model_integration_gaps": [
             next(c["name"] for c in components["components"] if c["id"] == component_id)
@@ -3995,6 +4017,13 @@ def _assessment_workspace(
     ws.write_json(workspace / ".components.json", components)
     ws.write_json(workspace / ".component-inventory-finalization.json", finalization)
     ws.write_json(workspace / ".data-flows.json", ws.project_flows(architecture["data_flows"], fingerprint, names))
+    from contexts.build_architecture_analysis_context import EGRESS_CONTEXT
+
+    (workspace / EGRESS_CONTEXT).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    ws.write_json(
+        workspace / EGRESS_CONTEXT,
+        {"destinations": ws._project(architecture.get("egress_destinations", []), names)},
+    )
     ws.write_json(
         workspace / ".assets.json",
         {"schema_version": 1, "assets": _assessment_assets(architecture["assets"], names)},

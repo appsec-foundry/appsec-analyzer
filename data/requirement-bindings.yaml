@@ -776,6 +776,9 @@ requirements:
 
   REQ-005:
     applies_to:
+      - scripts/analyzers/egress_clients.py
+      - scripts/analyzers/egress_flows.py
+      - schemas/architecture-egress-context.schema.json
       - scripts/orchestrator/orchestration_controller.py
       - scripts/contexts/build_architecture_analysis_context.py
       - scripts/model/build_threat_model_yaml.py
@@ -809,6 +812,19 @@ requirements:
       - docs/internal/contracts/schema-invariants.md
     coverage: partial
     guards:
+      - tests/test_egress_clients.py::test_rest_calls_retain_their_actual_destinations
+      - tests/test_egress_clients.py::test_every_call_on_a_line_is_scanned_and_only_its_url_counts
+      - tests/test_egress_clients.py::test_a_header_url_cannot_replace_the_configured_destination
+      - tests/test_egress_clients.py::test_independent_settings_and_distinct_ports_do_not_collapse
+      - tests/test_egress_clients.py::test_non_calls_and_unproven_destinations_stay_out
+      - tests/test_egress_flows.py::test_every_observed_destination_survives_the_model_context_limit
+      - tests/test_egress_flows.py::test_a_new_configured_lead_does_not_displace_a_fixed_host
+      - tests/test_egress_flows.py::test_an_authored_access_keeps_its_identity_authentication_and_classification
+      - tests/test_egress_flows.py::test_distinct_calls_on_one_line_remain_distinct_and_idempotent
+      - tests/test_egress_flows.py::test_equal_settings_in_different_repositories_do_not_establish_one_service
+      - tests/test_egress_flows.py::test_ambiguous_ownership_and_contract_exhaustion_never_drop_destinations_silently
+      - tests/test_aggregate_run_issues.py::test_an_unrelated_external_login_does_not_hide_a_missing_rest_destination
+      - tests/test_multi_repo_controller.py::test_discovery_and_architecture_receive_their_own_repository_inventories
       - tests/test_discover_identity_providers.py::test_oauth_client_setups_draw_the_steps_their_code_evidences
       - tests/test_discover_identity_providers.py::test_a_resource_server_discovers_its_provider_without_signing_anyone_in
       - tests/test_discover_identity_providers.py::test_a_remote_key_set_is_public_metadata_not_missing_authentication

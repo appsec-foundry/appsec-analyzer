@@ -315,6 +315,12 @@ With verification on:
 
 The aspect `AuthN` (authentication) checks how users and services sign in: token checks, passwords, account recovery, SSO and OAuth integration, and insecure methods such as credentials in URLs. The aspect `AuthNRoutes` checks that every sensitive route, operation, and channel requires authentication. On Juice Shop `AuthN` needs four verification jobs and `AuthNRoutes` six. The aspect `SessionMgmt` is accepted but not investigated yet. The [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs) describes how the places to check are chosen and how outcomes are decided.
 
+## Outbound service calls
+
+Analyzer retains source-observed HTTP, WebSocket and RPC destinations even when the architecture model omits them or they fall outside its bounded context. Supported REST patterns include multiline calls, local URL constants, Axios instances, Requests sessions, HTTPX clients, injected Angular HTTP clients, Spring RestTemplate and WebClient, .NET HttpClient, Go HTTP requests, Ruby Net::HTTP and PHP cURL. The scanner follows bounded local assignments; custom wrappers, dynamic factories and unsupported syntax can still leave an integration unrecognized. An unused client configuration or a dependency alone adds no service.
+
+Independent configured destinations and different explicit ports stay separate. Existing evidenced flows and reviewed connections between selected repositories take precedence. A connection added from a call alone leaves authentication unknown and states that deployment activation and payload sensitivity are unverified. Its `Internal` data label is a placeholder, not evidence about the payload. Relative calls without a known external client base, loopback addresses, example domains and excluded source files add no external service. The scanner never contacts a detected endpoint.
+
 ## Sign-in through an identity provider
 
 When users sign in through an OAuth 2.0 or OpenID Connect provider, Figure 1 shows each step the code evidences: the sign-in at the provider, the token request, and the requests that carry the provider's access token to your application. Each numbered hexagon names the method and, where the code states it, the grant: authorization code with or without PKCE, client credentials, or the legacy implicit and password grants. A bearer check reads "access token from" followed by the provider when the check and the provider's configuration sit in the same source file or in the component's configuration file.

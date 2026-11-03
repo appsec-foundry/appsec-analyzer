@@ -844,6 +844,14 @@ def test_discovery_and_architecture_receive_their_own_repository_inventories(tmp
     sent = json.dumps([ctx for _, ctx in host.calls])
     assert str(tmp_path) not in sent and '"match"' not in sent and "generated_at" not in sent
     assert set(architecture["route_inventories"]) == set(rid.values())
+    # This scripted host omits all external services; the deterministic handoff restores the observed call.
+    assert [e["name"] for e in architecture["data_flows"]["external_entities"]] == ["api.payments-provider.net"]
+    outbound = next(f for f in architecture["data_flows"]["data_flows"] if f.get("to_entity"))
+    assert outbound["evidence"][0]["repository_id"] == rid["pay"]
+    assert outbound["evidence"][0]["file"] == "client.js"
+    assert outbound["evidence"][0]["line"] == 2
+    assert outbound["protocol"] == "HTTPS"
+    assert "authentication" not in outbound
 
 
 def test_architecture_receives_model_integration_leads_and_reports_unmodelled_ones(tmp_path):

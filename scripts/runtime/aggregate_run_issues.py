@@ -1756,8 +1756,8 @@ def _extract_components_without_flows(output_dir: Path) -> list[dict]:
 
 def _extract_egress_without_flow(output_dir: Path) -> list[dict]:
     """Report evidenced outbound destinations whose owning component has no flow to `external`."""
+    from analyzers.egress_flows import uncovered  # noqa: PLC0415
     from contexts.build_architecture_analysis_context import EGRESS_CONTEXT  # noqa: PLC0415
-    from model.reclassify_components import resolve_owner  # noqa: PLC0415
 
     loaded = _load_architecture(output_dir)
     try:
@@ -1766,14 +1766,17 @@ def _extract_egress_without_flow(output_dir: Path) -> list[dict]:
         return []
     if loaded is None or not isinstance(destinations, list):
         return []
-    components, flows = loaded
-    leaving = {f.get("from") for f in flows if f.get("to") == "external"}
+    components, _flows = loaded
+    try:
+        document = json.loads((output_dir / ".data-flows.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
     issues = []
-    for row in destinations:
+    for row in uncovered(destinations, components, document):
         evidence = [e for e in row.get("evidence") or [] if isinstance(e, dict) and e.get("file")]
-        owners = {owner[0] for e in evidence if (owner := resolve_owner(e["file"], components))}
-        if not evidence or owners & leaving:
+        if not evidence:
             continue
+        owner = row.get("component_id")
         target = row.get("host") or ("a configured URL" if row.get("kind") == "configured" else "a request-chosen URL")
         first = evidence[0]
         issues.append(
@@ -1781,12 +1784,12 @@ def _extract_egress_without_flow(output_dir: Path) -> list[dict]:
                 "category": "egress_without_flow",
                 "severity": "warning",
                 "title": f"Outbound call to {target} has no data flow to an external service",
-                "component_id": sorted(owners)[0] if owners else None,
+                "component_id": owner,
                 "evidence": {
                     "log_file": EGRESS_CONTEXT,
                     "log_line": 1,
                     "raw_event": f"{first['file']}:{first.get('line')} calls {target}; "
-                    f"no flow leaves {', '.join(sorted(owners)) or 'its owner'} for external",
+                    f"no matching flow leaves {owner or 'its owner'} for this destination",
                     "outcome": "unmodelled_egress",
                 },
             }

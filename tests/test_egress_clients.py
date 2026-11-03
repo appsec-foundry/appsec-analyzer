@@ -162,3 +162,209 @@ def test_excluded_and_minified_code_is_not_scanned(tmp_path):
         },
     )
     assert scan(repo) == []
+
+
+@pytest.mark.parametrize(
+    ("rel", "source", "client"),
+    [
+        ("src/client.ts", "fetch(\n 'https://billing.vendorhub.io/orders'\n)\n", "fetch"),
+        ("src/client.ts", "const BASE = 'https://billing.vendorhub.io'\nfetch(BASE + '/orders')\n", "fetch"),
+        (
+            "src/client.ts",
+            "const BASE = 'https://billing.vendorhub.io'\nconst url = `${BASE}/orders`\nfetch(url)\n",
+            "fetch",
+        ),
+        (
+            "src/client.ts",
+            "const api = axios.create({ baseURL: 'https://billing.vendorhub.io' })\napi.get('/orders')\n",
+            "axios",
+        ),
+        ("src/client.ts", "const api = axios.create()\napi.get('https://billing.vendorhub.io/orders')\n", "axios"),
+        (
+            "src/client.ts",
+            "axios.request({ headers: { link: 'https://docs.vendorhub.io' }, url: 'https://billing.vendorhub.io' })\n",
+            "axios",
+        ),
+        (
+            "svc/client.py",
+            "session = requests.Session()\nsession.get('https://billing.vendorhub.io/orders')\n",
+            "requests",
+        ),
+        (
+            "svc/client.py",
+            "client = httpx.Client(base_url='https://billing.vendorhub.io')\nclient.get('/orders')\n",
+            "httpx",
+        ),
+        (
+            "svc/client.py",
+            "client = httpx.AsyncClient()\nawait client.get('https://billing.vendorhub.io/orders')\n",
+            "httpx",
+        ),
+        (
+            "src/client.ts",
+            "class C { constructor(private http: HttpClient) {}\nload() { return this.http.get('https://billing.vendorhub.io/orders') } }\n",
+            "angular-http",
+        ),
+        (
+            "src/Client.java",
+            'RestTemplate rest = new RestTemplate();\nrest.getForObject("https://billing.vendorhub.io/orders", String.class);\n',
+            "spring-http",
+        ),
+        (
+            "src/Client.java",
+            'WebClient web = WebClient.create("https://billing.vendorhub.io");\nweb.get().uri("/orders").retrieve();\n',
+            "spring-http",
+        ),
+        (
+            "src/Client.cs",
+            'HttpClient client = new HttpClient();\nawait client.GetStringAsync("https://billing.vendorhub.io/orders");\n',
+            "dotnet-http",
+        ),
+        ("src/client.rb", "Net::HTTP.get(URI('https://billing.vendorhub.io/orders'))\n", "ruby-http"),
+        (
+            "src/client.php",
+            "<?php\n$ch = curl_init('https://billing.vendorhub.io/orders');\ncurl_exec($ch);\n",
+            "php-http",
+        ),
+        (
+            "svc/client.go",
+            'req, err := http.NewRequest("GET", "https://billing.vendorhub.io/orders", nil)\n',
+            "go-http",
+        ),
+    ],
+)
+def test_rest_calls_retain_their_actual_destinations(tmp_path, rel, source, client):
+    (row,) = scan(_repo(tmp_path, {rel: source}))
+    assert row["host"] == "billing.vendorhub.io"
+    assert row["clients"] == [client]
+    assert row["scheme"] == "https"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'http.NewRequest("GET", os.Getenv("BILLING_URL"), nil)',
+        'http.NewRequestWithContext(ctx, "POST", os.Getenv("BILLING_URL"), nil)',
+    ],
+)
+def test_go_request_method_is_not_mistaken_for_its_url(tmp_path, source):
+    (row,) = scan(_repo(tmp_path, {"svc/client.go": source + "\n"}))
+    assert row["kind"] == "configured" and row["host"] is None
+
+
+def test_every_call_on_a_line_is_scanned_and_only_its_url_counts(tmp_path):
+    rows = scan(
+        _repo(
+            tmp_path,
+            {
+                "src/client.ts": (
+                    "fetch('/health'); axios.get('https://billing.vendorhub.io/orders'); "
+                    "fetch('https://notify.vendorhub.io');\n"
+                )
+            },
+        )
+    )
+    assert [(r["host"], r["clients"]) for r in rows] == [
+        ("billing.vendorhub.io", ["axios"]),
+        ("notify.vendorhub.io", ["fetch"]),
+    ]
+
+
+def test_a_header_url_cannot_replace_the_configured_destination(tmp_path):
+    (row,) = scan(
+        _repo(
+            tmp_path,
+            {
+                "src/client.ts": (
+                    "fetch(process.env.BILLING_URL, { headers: { 'X-Docs': 'https://docs.vendorhub.io' } })\n"
+                )
+            },
+        )
+    )
+    assert row["kind"] == "configured" and row["host"] is None
+
+
+def test_independent_settings_and_distinct_ports_do_not_collapse(tmp_path):
+    rows = scan(
+        _repo(
+            tmp_path,
+            {
+                "src/client.ts": (
+                    "fetch(process.env.BILLING_URL)\nfetch(process.env.NOTIFY_URL)\n"
+                    "fetch('https://gateway.vendorhub.io:8443')\nfetch('https://gateway.vendorhub.io:9443')\n"
+                )
+            },
+        )
+    )
+    assert len(rows) == 4
+    assert len({r["destination_id"] for r in rows if r["kind"] == "configured"}) == 2
+    assert {r["port"] for r in rows if r["kind"] == "fixed-host"} == {8443, 9443}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "// fetch('https://billing.vendorhub.io')\n",
+        "const doc = `fetch('https://billing.vendorhub.io')`\n",
+        "const api = axios.create({ baseURL: 'https://billing.vendorhub.io' })\n",
+        "const client = httpx.Client(base_url='https://billing.vendorhub.io')\n",
+        "const api = { get: custom }\napi.get('https://billing.vendorhub.io')\n",
+        "fetch('/orders', {body: 'https://billing.vendorhub.io'})\n",
+        "fetch('/orders'); const doc = 'https://billing.vendorhub.io'\n",
+        "const URL = 'http://localhost:8000'\nfetch(URL + '/orders')\n",
+        "fetch(\n 'https://billing.vendorhub.io'\n",  # incomplete call
+        "const a = b; const b = a; fetch(a)\n",  # cyclic unresolved names
+        "function fetch(url = process.env.REMOTE) {}\n",
+        "{ const target = 'https://billing.vendorhub.io' }\nfetch(target)\n",
+    ],
+)
+def test_non_calls_and_unproven_destinations_stay_out(tmp_path, source):
+    assert scan(_repo(tmp_path, {"src/client.ts": source})) == []
+
+
+def test_a_later_assignment_does_not_change_an_earlier_call(tmp_path):
+    (row,) = scan(
+        _repo(
+            tmp_path,
+            {
+                "src/client.ts": (
+                    "const target = 'https://billing.vendorhub.io'\nfetch(target)\n"
+                    "target = 'https://notify.vendorhub.io'\n"
+                )
+            },
+        )
+    )
+    assert row["host"] == "billing.vendorhub.io"
+
+
+def test_an_unrelated_function_binding_does_not_replace_the_callers_url(tmp_path):
+    (row,) = scan(
+        _repo(
+            tmp_path,
+            {
+                "src/client.ts": (
+                    "const url = 'https://billing.vendorhub.io'\n"
+                    "function other() { const url = '/local' }\nfetch(url)\n"
+                )
+            },
+        )
+    )
+    assert row["host"] == "billing.vendorhub.io"
+
+
+def test_bounds_malformed_urls_and_credentials_do_not_expand_the_output(tmp_path):
+    repo = _repo(
+        tmp_path,
+        {
+            "src/client.ts": (
+                "fetch('https://api.vendorhub.io:0')\n"
+                "fetch('https://api.vendorhub.io:70000')\n"
+                "fetch('https://bad_host.vendorhub.io')\n"
+                "fetch(process.env.URL || " + "process.env.OTHER || " * 1200 + "'https://api.vendorhub.io')\n"
+                "fetch('https://fixture-user:fixture-only@api.vendorhub.io/private?key=fixture-value')\n"
+            )
+        },
+    )
+    (row,) = scan(repo)
+    assert row["host"] == "api.vendorhub.io"
+    assert not any(value in str(row) for value in ("fixture-user", "fixture-only", "fixture-value", "private"))

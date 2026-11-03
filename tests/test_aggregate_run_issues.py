@@ -2010,10 +2010,23 @@ def test_a_configured_egress_destination_is_not_called_request_chosen(tmp_path):
 
 def test_an_egress_destination_modelled_as_a_flow_produces_no_issue(tmp_path):
     destination = {"kind": "user-controlled", "host": None, "evidence": [{"file": "src/api/u.ts", "line": 9}]}
-    flows = [{"id": "df-001", "from": "api", "to": "external"}]
+    flows = [{"id": "df-001", "from": "api", "to": "external", "evidence": destination["evidence"]}]
     assert agg._extract_egress_without_flow(_architecture_run(tmp_path, [_API], flows, [destination])) == []
     (tmp_path / "none").mkdir()
     assert agg._extract_egress_without_flow(_architecture_run(tmp_path / "none", [_API], flows)) == []
+
+
+def test_an_unrelated_external_login_does_not_hide_a_missing_rest_destination(tmp_path):
+    destination = {
+        "kind": "fixed-host",
+        "host": "billing.vendorhub.io",
+        "transport": "http",
+        "evidence": [{"file": "src/api/pay.ts", "line": 9}],
+    }
+    flows = [{"id": "df-001", "from": "api", "to": "external", "evidence": [{"file": "src/api/login.ts", "line": 3}]}]
+    (issue,) = agg._extract_egress_without_flow(_architecture_run(tmp_path, [_API], flows, [destination]))
+    assert issue["component_id"] == "api"
+    assert "billing.vendorhub.io" in issue["title"]
 
 
 def _cost_run(tmp_path, *, start: str, stop_at: str | None, usage: bool = True) -> Path:

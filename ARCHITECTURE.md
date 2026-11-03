@@ -102,6 +102,8 @@ Runtime and controller code enforce source access, model permissions, budgets, a
 
 Active architecture and STRIDE jobs use [architecture-analysis-policy.md](data/architecture-analysis-policy.md) and [stride-analysis-policy.md](data/stride-analysis-policy.md), selected by [model_roles.py](appsec_analyzer/model_roles.py). Architecture receives finalized components and returns flows, external entities, and assets. Its policy does not allow discovery, shell tools, file writes, or publication. The model host reserves correction exchanges within each job's fixed limit. Retained agent files describe earlier procedures and must not replace these active policies.
 
+[egress_clients.py](scripts/analyzers/egress_clients.py) records outbound call destinations with bounded lexical parsing. After model architecture and identity-provider reconciliation, [egress_flows.py](scripts/analyzers/egress_flows.py) retains omitted observed destinations and their qualified call-site evidence from the complete inventory. Model context truncation cannot remove them. Existing authored flows and reviewed internal connections take precedence; authentication, deployment activation and payload sensitivity remain unverified when the source observation does not establish them.
+
 ## Compatibility and migration limits
 
 [engine.py](appsec_analyzer/engine.py) locates engine modules in checkouts and installed wheels without importing the CLI. The engine stays under `scripts/` and uses imports such as `runtime`, `model`, and `orchestrator`.
