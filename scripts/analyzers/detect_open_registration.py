@@ -306,7 +306,7 @@ def detect(yaml_data: dict, routes: list | None = None, source_auth_findings: li
         if (
             isinstance(entry, dict)
             and _is_registration_entry(entry.get("entry_point") or "")
-            and not entry.get("auth_required")
+            and entry.get("auth_required") is False
         ):
             return True, f"unauthenticated registration route: {entry['entry_point']}"
     return resolution["open"], (

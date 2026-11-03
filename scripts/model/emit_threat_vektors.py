@@ -138,7 +138,7 @@ def _handler_auth_required(file_path: str, line, attack_surface: list[dict]) -> 
         if evidence_line is not None and handler_line > evidence_line:
             continue
         if best is None or handler_line > best[0]:
-            best = (handler_line, bool(entry.get("auth_required")))
+            best = (handler_line, entry.get("auth_required"))
     return best[1] if best else None
 
 
@@ -172,7 +172,7 @@ def _route_auth_required(
             continue
         score = len(overlap)
         if score > best[0]:
-            best = (score, bool(entry.get("auth_required")))
+            best = (score, entry.get("auth_required"))
     return best[1]
 
 

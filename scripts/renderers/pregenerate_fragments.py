@@ -2682,12 +2682,25 @@ def gen_attack_surface(yaml_data: dict) -> str:
     if isinstance(surface, dict):
         unauth = _coerce_surface_list(surface.get("unauthenticated"))
         auth = _coerce_surface_list(surface.get("authenticated"))
+        unknown = _coerce_surface_list(surface.get("unknown"))
     elif isinstance(surface, list):
         flat = [e for e in surface if isinstance(e, dict)]
-        unauth = [e for e in flat if not (e.get("requires_auth") or e.get("auth_required") or e.get("authenticated"))]
-        auth = [e for e in flat if (e.get("requires_auth") or e.get("auth_required") or e.get("authenticated"))]
+
+        def auth_state(entry):
+            return next(
+                (
+                    entry[k]
+                    for k in ("auth_required", "requires_auth", "authenticated")
+                    if isinstance(entry.get(k), bool)
+                ),
+                None,
+            )
+
+        unauth = [e for e in flat if auth_state(e) is False]
+        auth = [e for e in flat if auth_state(e) is True]
+        unknown = [e for e in flat if auth_state(e) is None]
     else:
-        unauth, auth = [], []
+        unauth, auth, unknown = [], [], []
 
     # P4 — auto-derive linked_threats when the yaml entry has none. The
     # STRIDE merger does not currently populate this field so the §5
@@ -2696,7 +2709,7 @@ def gen_attack_surface(yaml_data: dict) -> str:
     # ``_derive_attack_surface_links`` recovers ~70 % of the linkage
     # without any upstream changes.
     threats_list = yaml_data.get("threats") or []
-    for entry in unauth + auth:
+    for entry in unauth + auth + unknown:
         if not isinstance(entry, dict):
             continue
         existing = entry.get("linked_threats") or entry.get("threats") or []
@@ -2742,7 +2755,7 @@ def gen_attack_surface(yaml_data: dict) -> str:
         sev = _displayed_severity(threat_by_id.get(str(ref).strip().upper()) or {})
         return (-_sev_rank.get(sev, -1), str(ref))
 
-    for entry in unauth + auth:
+    for entry in unauth + auth + unknown:
         if not isinstance(entry, dict):
             continue
         for key in ("linked_threats", "threats"):
@@ -2815,6 +2828,13 @@ def gen_attack_surface(yaml_data: dict) -> str:
     else:
         lines.append("_None enumerated._")
     lines.append("")
+    if unknown:
+        lines.append(f"### 5.3 Authentication Not Determined ({len(unknown)})")
+        lines.append("")
+        lines.append("The analysis could not establish whether these entry points require authentication.")
+        lines.append("")
+        _emit_table(unknown)
+        lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 

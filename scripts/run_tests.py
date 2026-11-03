@@ -5279,7 +5279,23 @@ SOURCE_TESTS = {
         runtime_doc_cli_contract
         stride_outputs
     """),
+    "scripts/analyzers/spring_security.py": _tests("""
+        spring_security
+        spring_flows
+        route_inventory
+        flow_route_auth
+        multi_repo_assessment
+    """),
+    "scripts/analyzers/spring_flows.py": _tests("""
+        spring_flows
+        spring_security
+        multi_repo_controller
+        figure1_security
+    """),
     "scripts/analyzers/route_inventory.py": _tests("""
+        spring_security
+        spring_flows
+        authentication_uncertainty
         assessment_scanner_findings
         actor_attribution
         arch_coverage_bridge

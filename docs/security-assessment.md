@@ -317,6 +317,24 @@ With verification on:
 
 The aspect `AuthN` (authentication) checks how users and services sign in: token checks, passwords, account recovery, SSO and OAuth integration, and insecure methods such as credentials in URLs. The aspect `AuthNRoutes` checks that every sensitive route, operation, and channel requires authentication. On Juice Shop `AuthN` needs four verification jobs and `AuthNRoutes` six. The aspect `SessionMgmt` is accepted but not investigated yet. The [orchestration contract](internal/contracts/orchestration-actions.md#verification-jobs) describes how the places to check are chosen and how outcomes are decided.
 
+## Spring Boot control coverage
+
+Analyzer reconstructs annotated Java MVC and WebFlux routes from class and method mappings. It reads literal security-chain selectors, ordering, HTTP-method matchers, authenticated fallbacks and enabled class or method authorization. Form-login credentials and sessions, HTTP Basic, configured resource servers and a supported verified-JWS service/filter pattern provide separate authentication evidence for Figure 1. The control analysis receives the exact admitted enforcement files for those routes.
+
+| Source pattern | Deterministic coverage |
+| --- | --- |
+| Class and method mappings, empty method paths and literal path arrays | Combined endpoint and HTTP method |
+| Ordered filter chains, literal request matchers and fallback rules | First applicable chain and first matching request rule |
+| Enabled `@PreAuthorize`, `@Secured` and JSR-250 roles | Class rules and method overrides, within supported literal expressions |
+| Form login, Basic and evidenced bearer checks | Separate credential alternatives in architecture |
+| Servlet form-login processing | Framework-provided POST endpoint, when its active chain matches the login URL |
+| Profiles, conditional beans, custom matchers and custom authorization expressions | Unresolved when activation or meaning cannot be established |
+| Global web-security customizers and legacy security adapters | Unresolved until their effect on the selected chain is reviewed |
+
+These are static checks, not a complete Spring interpreter. Functional router DSLs, composed application annotations and external configuration are not comprehensively resolved. A configured check does not prove password quality, token lifecycle, object ownership, input validation or production behavior. The survey and selected verification items still examine those concerns separately. Tests use secure and insecure examples; they do not establish complete framework coverage. Spring's [filter-chain endpoint documentation](https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#_securityfilterchain_endpoints) explains the login endpoint and chain-matching constraint.
+
+Analysis version 6 records unresolved route authentication as `auth_required: null` in YAML and lists it separately in the report. Earlier boolean models remain readable. Update external consumers that assume this field is always a boolean. Re-exporting an old result does not repeat source analysis or repair its recorded route evidence.
+
 ## Outbound service calls
 
 Analyzer retains source-observed HTTP, WebSocket and RPC destinations even when the architecture model omits them or they fall outside its bounded context. Supported REST patterns include multiline calls, local URL constants, Axios instances, Requests sessions, HTTPX clients, injected Angular HTTP clients, Spring RestTemplate and WebClient, .NET HttpClient, Go HTTP requests, Ruby Net::HTTP and PHP cURL. The scanner follows bounded local assignments; custom wrappers, dynamic factories and unsupported syntax can still leave an integration unrecognized. An unused client configuration or a dependency alone adds no service.

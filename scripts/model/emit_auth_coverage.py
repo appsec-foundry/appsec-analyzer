@@ -232,7 +232,26 @@ def build_auth_coverage(yaml_data: dict, routes: list, repo_root: Path | None) -
         detected = evidence is not None
 
         if detected:
-            ids, worst = _linked_findings(threats, m["finding_re"])
+            candidates = threats
+            if m["key"] == "registration":
+                # A profile update or privileged user-creation endpoint is not self-registration.
+                files = {
+                    r.get("handler_file")
+                    for r in routes
+                    if isinstance(r, dict)
+                    and r.get("method") == "POST"
+                    and re.search(m["route_re"], str(r.get("path") or ""), re.I)
+                } - {None}
+                candidates = []
+                for threat in threats:
+                    if not isinstance(threat, dict):
+                        continue
+                    finding_evidence = threat.get("evidence") or []
+                    finding_evidence = [finding_evidence] if isinstance(finding_evidence, dict) else finding_evidence
+                    relevant = any(isinstance(e, dict) and e.get("file") in files for e in finding_evidence)
+                    if relevant or re.search(r"regist|sign.?up", str(threat.get("title") or ""), re.I):
+                        candidates.append(threat)
+            ids, worst = _linked_findings(candidates, m["finding_re"])
             eff = _effectiveness_for(worst, bool(ids))
             row = {
                 "domain": _IAM_DOMAIN,

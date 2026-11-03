@@ -729,6 +729,8 @@ class RouteCandidate:
     router_obj: str | None = None
     local_path: str | None = None
     mounts: list[dict] = field(default_factory=list)
+    spring_details: dict | None = None
+    authentication_methods: list[str] = field(default_factory=list)
 
 
 def _detect_management_surface(path: str) -> bool:
@@ -1058,17 +1060,37 @@ def _extract_python(path: Path, lines: list[str]) -> list[RouteCandidate]:
 
 
 def _extract_java(path: Path, lines: list[str]) -> list[RouteCandidate]:
-    out: list[RouteCandidate] = []
-    text = _mask_comments("".join(lines), "//")
-    lines = text.splitlines(keepends=True)
+    from analyzers.spring_security import extract
+    from analyzers.spring_security import mask as mask_java
 
-    if re.search(r"\borg\.springframework\b|@RestController|@SpringBootApplication", text):
+    out: list[RouteCandidate] = []
+    text = "".join(lines)
+    code = mask_java(text)
+
+    if re.search(r"\borg\.springframework\b|@RestController|@SpringBootApplication", code):
         framework = "spring"
-    elif re.search(r"\bjavax\.ws\.rs\b|\bjakarta\.ws\.rs\b", text):
+    elif re.search(r"\bjavax\.ws\.rs\b|\bjakarta\.ws\.rs\b", code):
         framework = "jaxrs"
     else:
         framework = "spring"
 
+    if framework == "spring":
+        return [
+            RouteCandidate(
+                method=row["method"],
+                path=row["path"],
+                framework="spring",
+                handler_file=str(path).replace("\\", "/"),
+                handler_line=row["handler_line"],
+                management_surface=_detect_management_surface(row["path"]),
+                notes=list(row["notes"]),
+                spring_details=row,
+            )
+            for row in extract(text, str(path).replace("\\", "/"))
+        ]
+
+    text = _mask_comments(text, "//")
+    lines = text.splitlines(keepends=True)
     for n, line in enumerate(lines, start=1):
         for m in _JAVA_MAPPING_RE.finditer(line):
             kind = m.group("kind")
@@ -1118,6 +1140,134 @@ def _extract_java(path: Path, lines: list[str]) -> list[RouteCandidate]:
                 )
 
     return out
+
+
+def _resolve_spring_security(repo_root: Path, routes: list[RouteCandidate]) -> None:
+    from itertools import islice
+
+    from analyzers.spring_security import (
+        Chain,
+        bearer_filters,
+        chains,
+        mask,
+        matches,
+        method_policy,
+        method_security,
+        policy,
+    )
+
+    spring = [r for r in routes if r.framework == "spring" and r.spring_details]
+    if not spring:
+        return
+    sources, used, incomplete = {}, 0, False
+    for index, path in enumerate(islice((p for p in _walk_sources(repo_root) if p.suffix == ".java"), 5001)):
+        if index == 5000:
+            incomplete = True
+            break
+        text = "".join(_read_lines(path))
+        if not re.search(
+            r"Security(?:Web)?FilterChain|WebSecurityCustomizer|WebSecurityConfigurerAdapter|Enable(?:Global)?MethodSecurity|OncePerRequestFilter|parseClaimsJws",
+            mask(text),
+        ):
+            continue
+        used += len(text.encode("utf-8"))
+        if used > 8_000_000:
+            incomplete = True
+            break
+        sources[path.relative_to(repo_root).as_posix()] = text
+    filters = bearer_filters(sources)
+    configured = [c for file, text in sources.items() for c in chains(text, file, filters)]
+    for file, text in sources.items():
+        if re.search(r"\b(?:WebSecurityCustomizer|WebSecurityConfigurerAdapter)\b", mask(text)):
+            configured.insert(0, Chain(file, 1, -(2**31), None, [], [], True, [{"file": file, "line": 1}]))
+    if incomplete:
+        configured.insert(0, Chain("", 1, -(2**31), None, [], [], True))
+    enabled = method_security(sources)
+    for route in spring:
+        details = route.spring_details
+        effect, methods, evidence, scope = policy(details, configured)
+        method_effect, method_evidence = method_policy(details, enabled)
+        if method_effect == "role":
+            route.authn_signal = "middleware_present"
+            route.authz_signal = "decorator_present"
+            evidence = [*method_evidence, *evidence][:8]
+        elif effect in {
+            "authenticated",
+            "fullyAuthenticated",
+            "rememberMe",
+            "hasRole",
+            "hasAnyRole",
+            "hasAuthority",
+            "hasAnyAuthority",
+        }:
+            route.authn_signal = "middleware_present"
+            if effect.startswith("has"):
+                route.authz_signal = "middleware_present"
+        elif effect == "permitAll" and method_effect not in {"denyAll", "unresolved"}:
+            # A public filter-chain rule does not resolve custom token or credential checks.
+            custom = re.search(
+                r"(?i)\b\w*(?:token|password|credential|authorization|cookie|session|authenticate)\w*\b",
+                mask(details["body"]),
+            )
+            if not custom:
+                route.authn_signal = "absent"
+        if route.authn_signal in _AUTHN_PRESENT:
+            route.authn_handler_signal = "verified"
+            route.authentication_methods = methods
+            route.authn_handler_scheme = methods[0] if len(methods) == 1 else "other"
+            route.authn_handler_scope = scope + (
+                "; accepts " + ", ".join(methods) if methods else "; credential mechanism unresolved"
+            )
+        elif route.authn_signal == "absent":
+            route.authn_handler_signal = "none"
+            route.authn_handler_scheme = "none"
+            route.authn_handler_scope = (
+                "The Spring request rule permits anonymous access; no credential handling was detected in this handler"
+            )
+        else:
+            route.authn_handler_signal = "unresolved"
+            route.authn_handler_scope = scope
+        route.authn_handler_evidence = evidence[:8]
+        route.notes.append("spring-security: " + scope)
+
+    # The servlet authentication filter supplies this endpoint before MVC dispatch.
+    for chain in configured:
+        if not chain.login or chain.uncertain:
+            continue
+        path, line = chain.login
+        selected = []
+        for candidate in sorted(configured, key=lambda c: c.order):
+            selections = [matches(p, path) for p in candidate.selector or []]
+            if selections and all(v is False for v in selections):
+                continue
+            selected.append(candidate)
+            break
+        peers = [
+            c
+            for c in configured
+            if c is not chain
+            and c.order == chain.order
+            and (c.selector is None or any(matches(p, path) is not False for p in c.selector))
+        ]
+        if selected != [chain] or peers or not any(matches(p, path) is True for p in chain.selector or []):
+            continue
+        routes[:] = [r for r in routes if not (r.framework == "spring" and r.method == "POST" and r.path == path)]
+        routes.append(
+            RouteCandidate(
+                method="POST",
+                path=path,
+                framework="spring",
+                handler_file=chain.file,
+                handler_line=line,
+                authn_signal="middleware_present",
+                authn_handler_signal="verified",
+                authn_handler_scheme="password",
+                authentication_methods=["password"],
+                authn_handler_scope="Spring Security's form-login filter checks submitted credentials",
+                authn_handler_evidence=chain.evidence,
+                notes=["spring-security: Framework-provided form-login processing endpoint"],
+            )
+        )
 
 
 def _extract_aspnet(path: Path, lines: list[str]) -> list[RouteCandidate]:
@@ -1619,6 +1769,8 @@ def _serialize_route(i: int, r: RouteCandidate) -> dict:
         ordered["handler_module"] = d["handler_module"]
     if d["guard_lines"]:
         ordered["guard_lines"] = d["guard_lines"]
+    if d["authentication_methods"]:
+        ordered["authentication_methods"] = d["authentication_methods"]
     return ordered
 
 
@@ -1670,6 +1822,7 @@ def build_inventory(repo_root: Path) -> dict:
         resolver,
         text_files={file for file, role in usage.items() if role["kind"] in NOT_EXECUTED},
     )
+    _resolve_spring_security(repo_root, all_routes)
     for r in all_routes:
         _lift_auth_signals(r, resolver)
         _flag_route(r, llm_sdk_declared)

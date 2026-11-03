@@ -1676,6 +1676,14 @@ def _assessment_architecture(scope, jobs, *, progress, depth="standard"):
     flows = reconcile_egress(components["components"], flows, outbound)
     flows = _assessment_client_api_flows(scope, components, flows, inventories)
     flows = _assessment_database_flows(scope, components, flows)
+    from analyzers.spring_flows import reconcile as reconcile_spring
+
+    flows = reconcile_spring(
+        components["components"],
+        flows,
+        {rid: row["routes"] for rid, row in inventories.items()},
+        {repository.repository_id: repository.files for repository in scope.repositories},
+    )
     # The existing canonical flow contract owns global size and reference
     # gates. Local IDs never enter it; numbering is controller-owned.
     for index, flow in enumerate(flows["data_flows"], 1):
@@ -1904,16 +1912,31 @@ def _assessment_controls(scope, jobs, architecture, *, progress, platform=None):
     # implicit source grant. Shared mechanisms can retain several scoped rows.
     def analyze(position, component, jobs):
         progress(f"Assessing controls: {component['name']} ({position}/{len(components)})")
+        from analyzers.spring_security import control_sources
+
+        spring_routes, spring_evidence, supporting = control_sources(
+            component,
+            components,
+            architecture.get("route_inventories") or {},
+            {repository.repository_id: repository.files for repository in scope.repositories},
+        )
+        scoped = [component, *supporting]
         context = {
             "source_scope_sha256": scope.inventory()["scope_sha256"],
             "component_inventory_fingerprint": fingerprint,
             "component": analysis.model_components([component])[0],
             "flows": [f for f in architecture["data_flows"]["data_flows"] if component["id"] in (f["from"], f["to"])],
+            "spring_routes": spring_routes,
+            "supporting_components": analysis.model_components(supporting),
         }
         if platform is not None:
             context["platform_settings"] = platform
-        allowed = analysis.source_selection([component])
-        cited = [*source_rows(component), *(row for flow in context["flows"] for row in flow.get("evidence", []))]
+        allowed = analysis.source_selection(scoped)
+        cited = [
+            *spring_evidence,
+            *source_rows(component),
+            *(row for flow in context["flows"] for row in flow.get("evidence", [])),
+        ]
         artifact = jobs.execute(
             role="control_analyst",
             selector="controls:" + component["id"],
@@ -1924,7 +1947,11 @@ def _assessment_controls(scope, jobs, architecture, *, progress, platform=None):
                 "do not establish enforcement. An empty result means no source-backed control observation, "
                 "not that the system has no controls. Do not manufacture a control absence from unread files. "
                 "The controller supplies the component's cited source in source_slices; request any further "
-                "source in one read action." + (" " + _PLATFORM_RULE if platform is not None else ""),
+                "source in one read action. Spring route signals identify exact shared enforcement sources; "
+                "inspect those sources and keep separate authentication mechanisms and credential stores. "
+                "A control must include the selected component; include supporting component IDs when its "
+                "enforcement evidence belongs there. A route signal does not establish implementation quality."
+                + (" " + _PLATFORM_RULE if platform is not None else ""),
             ),
             context=context,
             schema=analysis.controls_contract(),
@@ -1933,11 +1960,9 @@ def _assessment_controls(scope, jobs, architecture, *, progress, platform=None):
             preload=analysis.evidence_preload(
                 scope, cited, allowed, room=preload_room(context), max_windows=MAX_PRELOAD_WINDOWS
             ),
-            validate=lambda artifact, ranges: analysis.validate_controls(
-                scope, [component], fingerprint, artifact, ranges
-            ),
+            validate=lambda artifact, ranges: analysis.validate_controls(scope, scoped, fingerprint, artifact, ranges),
         )
-        return artifact["security_controls"]
+        return [row for row in artifact["security_controls"] if component["id"] in row["component_ids"]]
 
     results = _assessment_components_concurrently(jobs, components, analyze)
     return [control for controls in results for control in controls]

@@ -866,6 +866,9 @@ requirements:
 
   REQ-006:
     applies_to:
+      - scripts/analyzers/spring_security.py
+      - scripts/analyzers/spring_flows.py
+      - scripts/model/emit_auth_coverage.py
       - scripts/contexts/build_architecture_analysis_context.py
       - scripts/model/build_threat_model_yaml.py
       - schemas/threat-model.output.schema.yaml
@@ -881,10 +884,17 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - specs/changes/spring-security-coverage/proposal.md
       - docs/security-assessment.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_spring_security.py::test_class_mapping_and_empty_method_mapping_are_composed
+      - tests/test_spring_security.py::test_first_matching_rule_and_http_method_are_preserved
+      - tests/test_spring_security.py::test_inactive_method_security_does_not_prove_a_guard
+      - tests/test_spring_flows.py::test_evidenced_authentication_alternatives_survive_and_render
+      - tests/test_spring_flows.py::test_control_context_grants_only_exact_admitted_enforcement_files
+      - tests/test_authentication_uncertainty.py::test_authentication_states_survive_model_query_and_report
       - tests/test_query_threat_model.py::test_components_assets_boundaries_controls_are_indexed
       - tests/test_architecture_coverage_checks.py::test_cookie_no_signal_is_not_applicable
       - tests/test_architecture_coverage_checks.py::test_empty_repo_all_rules_not_applicable

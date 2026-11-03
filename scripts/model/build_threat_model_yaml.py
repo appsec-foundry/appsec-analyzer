@@ -2258,7 +2258,13 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
             # (2026-06-04 juice-shop: 112/112 flipped to auth_required when the
             # inventory was present). Only the positive signals count as auth.
             authn_sig = str(r.get("authn_signal") or "").strip().lower()
-            auth_required = authn_sig in ("middleware_present", "decorator_present", "present", "required")
+            auth_required = (
+                True
+                if authn_sig in ("middleware_present", "decorator_present", "present", "required")
+                else False
+                if authn_sig == "absent"
+                else None
+            )
             entry = {
                 "entry_point": f"{r.get('method', '?')} {r.get('path', '/')}",
                 "protocol": "GraphQL" if is_graphql else "HTTP",
@@ -2288,7 +2294,10 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
                 collapsed[ep] = (entry, rid)
             else:
                 prev, prev_rid = collapsed[ep]
-                prev["auth_required"] = bool(prev.get("auth_required")) and bool(entry.get("auth_required"))
+                states = (prev.get("auth_required"), entry.get("auth_required"))
+                prev["auth_required"] = (
+                    False if any(v is False for v in states) else True if all(v is True for v in states) else None
+                )
                 if not prev.get("notes") and entry.get("notes"):
                     prev["notes"] = entry["notes"]
                 merged_tags = set(prev.get("relevance_tags") or []) | set(entry.get("relevance_tags") or [])
@@ -2347,8 +2356,8 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
                 # addition's authoritative fields onto the baseline entry instead
                 # of dropping it.
                 base = out[by_ep[ep]]
-                if "auth_required" in add and add.get("auth_required") is not None:
-                    base["auth_required"] = bool(add["auth_required"])
+                if "auth_required" in add:
+                    base["auth_required"] = add["auth_required"]
                 if add.get("notes"):
                     base["notes"] = add["notes"]
                 merged += 1

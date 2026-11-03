@@ -247,7 +247,7 @@
             "properties": {
               "entry_point": {"type": "string", "minLength": 1, "maxLength": 180},
               "protocol": {"type": "string", "minLength": 1, "maxLength": 80},
-              "auth_required": {"type": "boolean"}
+              "auth_required": {"type": ["boolean", "null"]}
             }
           }
         },

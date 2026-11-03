@@ -64,7 +64,7 @@ class TestDetectionAndRating:
                 }
             ],
         )
-        routes = _routes(("POST", "/api/Users"))
+        routes = [{"method": "POST", "path": "/api/Users", "handler_file": "server.ts"}]
         adds, _ = eac.build_auth_coverage(data, routes, None)
         reg = [a for a in adds if a["control"] == "User Registration"]
         assert reg, "registration must be backfilled"
@@ -81,6 +81,30 @@ class TestDetectionAndRating:
         assert rst and rst[0]["effectiveness"] == "Partial"
         assert rst[0]["kind"] == "mechanism"
         assert "linked_threats" not in rst[0]
+
+    def test_profile_and_privileged_account_findings_do_not_rate_self_registration(self):
+        data = _yaml(
+            threats=[
+                {
+                    "id": "T-001",
+                    "title": "Profile mass assignment of role",
+                    "risk": "Critical",
+                    "evidence": {"file": "Profile.java"},
+                },
+                {
+                    "id": "T-002",
+                    "title": "Admin account creation mass assignment",
+                    "risk": "Critical",
+                    "evidence": {"file": "Admin.java"},
+                },
+            ]
+        )
+        routes = [{"method": "POST", "path": "/register", "handler_file": "Registration.java"}]
+        rows, _ = eac.build_auth_coverage(data, routes, None)
+        registration = next(r for r in rows if r["control"] == "User Registration")
+        assert registration["effectiveness"] == "Partial"
+        assert not registration.get("linked_threats")
+        assert "POST /register" in str(registration)
 
     def test_social_login_detected_via_repo_glob(self, tmp_path):
         # OAuth in a SPA has no server route — must be found via repo files.

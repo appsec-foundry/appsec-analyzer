@@ -1214,9 +1214,8 @@ def _check_attack_surface_shape(data: dict) -> list[str]:
     entry shape was the proximate cause of the 2026-04-26 §5 "?" rendering
     bug. Surface as SCHEMA_DRIFT so the user sees it without crashing.
 
-    Also checks for missing ``auth_required`` fields — without this boolean
-    the §5 generator cannot split unauthenticated vs authenticated entry
-    points and §5.2 renders "(0)".
+    Also checks for missing ``auth_required`` fields. Version 6 permits null
+    for unresolved authentication; earlier models require a boolean.
     """
     errors: list[str] = []
     surface = data.get("attack_surface")
@@ -1237,8 +1236,17 @@ def _check_attack_surface_shape(data: dict) -> list[str]:
             continue
         if not (entry.get("path") or entry.get("route") or entry.get("entry_point")):
             bad_path += 1
-        if entry.get("auth_required") is None and not entry.get("authenticated"):
+        if "auth_required" not in entry and not entry.get("authenticated"):
             missing_auth += 1
+        version = (data.get("meta") or {}).get("analysis_version", 1)
+        if (
+            entry.get("auth_required") is None
+            and "auth_required" in entry
+            and (not isinstance(version, int) or version < 6)
+        ):
+            errors.append(
+                "Unresolved authentication requires analysis_version 6 or later; older models require boolean auth_required"
+            )
 
     if bad_path:
         errors.append(
@@ -1248,8 +1256,7 @@ def _check_attack_surface_shape(data: dict) -> list[str]:
     if missing_auth:
         errors.append(
             f"[advisory] attack_surface has {missing_auth} entries where `auth_required` "
-            f"is null. The §5 generator cannot split unauthenticated vs authenticated "
-            f"entry points — §5.2 will render '(0)'. Set `auth_required: true/false` "
+            f"is missing. The §5 generator keeps unresolved authentication separate. Set `auth_required: true/false/null` "
             f"on every attack_surface entry."
         )
     return errors

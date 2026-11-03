@@ -144,6 +144,10 @@ Model sign-in and service access through an OAuth 2.0 or OpenID Connect provider
 
 Distinguish evidenced, broken, missing, uncertain, and inapplicable controls. Declarations or an absence of findings must never establish that a control works.
 
+For Spring handlers, combine class and method mappings before evaluating request rules. Follow the first matching, explicitly ordered security chain and request matcher, including the HTTP method and authenticated fallback. Apply class and method authorization only when the relevant method-security family is enabled. Unknown matchers, conditional activation, custom authorization expressions and ambiguous chain precedence remain unresolved. Retain each evidenced credential alternative in the architecture and pass only its admitted enforcement sources to control analysis. An authentication signal identifies the configured check, not its implementation quality or production effectiveness.
+
+Starting with analysis version 6, `attack_surface[].auth_required` is `true` for required authentication, `false` for evidenced anonymous access, and `null` when unresolved. Preserve that distinction in reports, queries and follow-on analysis. Existing boolean models remain readable; null is invalid in models declaring an earlier analysis version. Consumers that require a boolean must update before reading version-6 results.
+
 ## REQ-007: Keep repository origins clear
 
 Retain repository provenance in combined results and require evidence from both sides for cross-repository connections. Clearly identify imported reference models as context; importing one must not imply that its repository was scanned.

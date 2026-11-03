@@ -388,13 +388,13 @@ def test_attack_surface_unknown_authn_is_not_authenticated():
     )
     out, _ = b.build_attack_surface(routes, None)
     by_ep = {e["entry_point"]: e for e in out}
-    assert by_ep["GET /public"]["auth_required"] is False
-    assert by_ep["GET /maybe"]["auth_required"] is False
+    assert by_ep["GET /public"]["auth_required"] is None
+    assert by_ep["GET /maybe"]["auth_required"] is None
     assert by_ep["POST /admin"]["auth_required"] is True
 
 
 def test_attack_surface_dedup_conservative_auth():
-    # Same method+path twice: one guarded, one not → reachable unauthenticated.
+    # One registration is guarded, the other unresolved: anonymous access is not proven.
     routes = _routes(
         ("POST", "/api/Users", "middleware_present"),
         ("POST", "/api/Users", "unknown"),
@@ -402,7 +402,7 @@ def test_attack_surface_dedup_conservative_auth():
     out, _ = b.build_attack_surface(routes, None)
     eps = [e["entry_point"] for e in out]
     assert eps.count("POST /api/Users") == 1
-    assert out[0]["auth_required"] is False
+    assert out[0]["auth_required"] is None
 
 
 def test_attack_surface_carries_relevance_tags_from_inventory():
@@ -446,7 +446,7 @@ def test_attack_surface_maps_graphql_inventory_entries():
         {
             "entry_point": "GRAPHQL Mutation updateUser",
             "protocol": "GraphQL",
-            "auth_required": False,
+            "auth_required": None,
             "notes": "GraphQL Mutation; args: id,input; returns: User",
             "relevance_tags": ["graphql-mutation", "missing-auth"],
         }

@@ -1133,7 +1133,7 @@ properties:
       properties:
         entry_point:   { type: string, minLength: 1 }
         protocol:      { type: string }
-        auth_required: { type: boolean }
+        auth_required: { type: [boolean, "null"], description: "True requires authentication, false is evidenced anonymous access, null is unresolved (analysis version 6 and later)." }
         notes:         { type: [string, "null"] }
         # Display-relevance reasons carried from .route-inventory.json so §5 keeps
         # a finding-free auth/registration/management/suspect route individually

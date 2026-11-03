@@ -302,6 +302,8 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 
 ### `scan-sources`: raw scanner observations
 
+Spring route and security-rule interpretation has [documented coverage and limits](docs/security-assessment.md#spring-boot-control-coverage). Analysis version 6 keeps unresolved authentication separate from evidenced anonymous access in YAML and reports.
+
 `scan-sources` lists unverified hits from the source rules (authorization, injection, mobile apps), a per-route authorization check, a Spring mass-assignment check, and the configuration rules. It shows no score and does not replace `assess`. `score` runs a different set: it adds architecture rules and leaves out the per-route and mass-assignment checks.
 
 The PHP rules for SQL and command injection report a call only when request input reaches its query or command within the same function or file. They do not follow values through other functions, object properties set elsewhere, included files, or session data.

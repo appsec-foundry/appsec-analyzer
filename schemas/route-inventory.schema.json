@@ -101,7 +101,7 @@
         "method": {
           "type": "string",
           "enum": [
-            "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS",
+            "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE",
             "ANY", "ALL", "GRAPHQL", "UNKNOWN"
           ]
         },
@@ -188,6 +188,13 @@
           "type": "string",
           "enum": ["verified", "decode_only", "none", "unresolved"],
           "description": "What the resolved handler chain (registration arguments and mounted middlewares) proves: a checked credential with a rejecting branch, a token decoded without signature verification, no credential read in a fully resolved chain, or unresolved. Absent for stacks analyzers/handler_resolver.py does not cover."
+        },
+        "authentication_methods": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"enum": ["cookie", "basic", "bearer", "password", "other"]},
+          "description": "Credential methods evidenced by the effective Spring Security chain; alternatives, not cumulative factors."
         },
         "authn_handler_scheme": {
           "type": "string",

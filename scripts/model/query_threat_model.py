@@ -295,8 +295,12 @@ def _surface_record(e: dict) -> dict:
     return {
         "entry_point": (e.get("entry_point") or "").strip(),
         "protocol": (e.get("protocol") or "").strip(),
-        # Schema allows bool or the string "False" — normalise before trusting it.
-        "auth_required": str(e.get("auth_required")).strip().lower() in ("true", "yes", "1"),
+        # Preserve null; tolerate legacy boolean strings without inventing an auth policy.
+        "auth_required": e.get("auth_required")
+        if isinstance(e.get("auth_required"), bool)
+        else {"true": True, "yes": True, "1": True, "false": False, "no": False, "0": False}.get(
+            str(e.get("auth_required")).strip().lower()
+        ),
         "notes": _trim(e.get("notes") or ""),
         "tags": [str(t).strip() for t in (e.get("relevance_tags") or []) if str(t).strip()],
     }
@@ -606,7 +610,8 @@ def build_facts(
             "controls": controls_l,
             "attack_surface": {
                 "total": len(surface_all),
-                "unauthenticated": sum(1 for e in surface_all if not e["auth_required"]),
+                "unauthenticated": sum(1 for e in surface_all if e["auth_required"] is False),
+                "unknown": sum(1 for e in surface_all if e["auth_required"] is None),
                 "by_protocol": dict(
                     sorted(
                         collections.Counter(e["protocol"] or "?" for e in surface_all).items(),
@@ -757,7 +762,7 @@ def render_text(facts: dict) -> str:
             if not facts.get("grep"):
                 buf.append("             (use --grep to list matching entry points)")
             for e in surf.get("matched") or []:
-                auth = "auth" if e["auth_required"] else "NO AUTH"
+                auth = "unknown" if e["auth_required"] is None else "auth" if e["auth_required"] else "NO AUTH"
                 tags = f"  [{', '.join(e['tags'])}]" if e["tags"] else ""
                 buf.append(f"             {e['entry_point']}  ({e['protocol'] or '?'} · {auth}){tags}")
 

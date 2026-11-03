@@ -666,6 +666,9 @@ def test_a_guard_call_still_counts_beside_a_literal(tmp_path: Path) -> None:
     ],
 )
 def test_method_security_annotations_authenticate_and_authorize(tmp_path: Path, annotation: str, mapping: str) -> None:
+    (tmp_path / "SecurityConfig.java").write_text(
+        "@Configuration\n@EnableMethodSecurity(securedEnabled = true, jsr250Enabled = true)\nclass SecurityConfig {}\n"
+    )
     (tmp_path / "Ctrl.java").write_text(
         "import org.springframework.web.bind.annotation.*;\n"
         "@RestController\n"

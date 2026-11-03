@@ -102,6 +102,8 @@ Recognized Git, assistant, and editor metadata can stay in the output directory,
 
 For a request to export an existing completed assessment, invoke `appsec-analyzer export --assessment <private-assessment-directory> --output <new-export-directory> --formats markdown yaml`. Supported formats also include `html pdf sarif threatdragon pentest-tasks`; document formats have external tool prerequisites. This command makes no model calls and needs no spending authorization. Keep returned conversion warnings visible; see [export limits](../../docs/security-assessment.md#exports-and-compatibility). After a runtime change, `--resume` continues only an unfinished run; do not silently restart with new limits.
 
+For Spring Boot, use the [documented static coverage and limits](../../docs/security-assessment.md#spring-boot-control-coverage). Configured authentication methods do not establish implementation quality. Preserve unresolved authentication (`auth_required: null` in analysis version 6) when discussing results; do not describe it as anonymous access. Re-exporting a saved assessment does not update its source analysis.
+
 The separate Requirements Audit is not a full assessment. Do not substitute
 `assess --requirements` for a standalone audit request.
 
