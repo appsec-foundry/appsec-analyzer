@@ -1792,6 +1792,7 @@ requirements:
       - tests/test_architect_review_runtime.py::test_every_result_shape_is_recorded_explicitly
       - tests/test_architect_review_runtime.py::test_old_rerender_does_not_claim_a_semantic_review
       - tests/test_assessment_state.py::test_rebuild_keeps_a_directory_with_edited_or_foreign_files
+      - tests/test_assessment_state.py::test_output_metadata_never_blocks_restarting_or_rebuilding_a_run
       - tests/test_assessment_state.py::test_the_earlier_report_stays_until_a_new_run_completes
       - tests/test_assessment_state.py::test_a_fresh_start_removes_what_an_unfinished_publication_moved_into_place
       - tests/test_assessment_state.py::test_an_edited_unfinished_publication_is_kept_and_named
@@ -2712,6 +2713,7 @@ requirements:
 
   REQ-035:
     applies_to:
+      - scripts/runtime/assessment_state.py
       - appsec_analyzer/exports.py
       - scripts/runtime/source_preflight.py
       - appsec_analyzer/artifacts.py
@@ -2742,6 +2744,10 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_assessment_state.py::test_output_metadata_is_preserved_and_not_recorded_as_a_deliverable
+      - tests/test_assessment_state.py::test_output_metadata_does_not_hide_conflicting_or_unknown_entries
+      - tests/test_assessment_state.py::test_linked_output_metadata_is_not_exempted
+      - tests/test_single_repo_controller.py::test_assessment_publishes_beside_git_and_assistant_metadata
       - tests/test_public_scan_cli.py::test_scan_preserves_existing_result_and_concurrent_publication
       - tests/test_public_export_cli.py::test_export_preserves_existing_destination
       - tests/test_review_sources.py::test_checkout_uses_exact_objects_without_mutating_caller_repository

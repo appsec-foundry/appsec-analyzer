@@ -223,6 +223,8 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `as
 
 `assess` analyzes one repository, or several repositories as one system, and writes the full assessment report. See [Security assessment](docs/security-assessment.md).
 
+An output directory may already contain recognized Git, assistant, or editor metadata, such as `.git`, `.claude`, or `.codex`. Analyzer leaves it untouched. Other existing files can block a new run to protect your work; see [output and continuation](docs/security-assessment.md#output-and-continuation).
+
 After an interruption at Management Summary, repeat the command with `--resume`. If source, context, settings and Analyzer version are unchanged and the saved checkpoint is intact, Analyzer checks its artifacts and continues there without repeating analysis or report preparation. Earlier runs without a checkpoint use the normal replay of accepted steps.
 
 Provider connection failures, server errors and rate limits pause new model calls together. If bounded recovery attempts fail, the run pauses with exit code 3 and retains accepted results, including when an optional check was affected. Check the connection or wait for the provider to recover, then repeat the command with `--resume`. See [connection failures and recovery](docs/security-assessment.md#rate-limits-and-connection-failures).

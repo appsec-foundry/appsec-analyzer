@@ -59,6 +59,11 @@ SESSION_HOOK_NAMES = (
     ".session-agent-map",
     ".assessment-summary-emitted",
 )
+# User-owned tool metadata can share an output directory: the controller neither
+# reads it as input nor writes it. Keep the names and entry types explicit so an
+# unknown hidden file, a report or a linked path still goes through ownership checks.
+OUTPUT_METADATA_DIRECTORIES = frozenset({".claude", ".codex", ".cursor", ".vscode", ".idea", ".git"})
+OUTPUT_METADATA_FILES = frozenset({".git", ".gitignore", ".gitattributes", ".editorconfig", "AGENTS.md", "CLAUDE.md"})
 WORK_NAME = ".assessment-work"
 PARTIAL_REPORT = "budget-report.md"
 # What a refused resume names when its recorded identity no longer matches.
@@ -157,6 +162,19 @@ def _deliverable(output: Path, name: str) -> str:
 def _is_atomic_temp(name: str) -> bool:
     """Whether ``name`` is a leftover temporary file of ``atomic_write_text``: ``.<target>.tmp-<random>``."""
     return name.startswith(".") and ".tmp-" in name
+
+
+def _is_output_metadata(path: Path) -> bool:
+    """Recognize metadata without opening its contents or following links."""
+    if path.name not in OUTPUT_METADATA_DIRECTORIES and path.name not in OUTPUT_METADATA_FILES:
+        return False
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return False
+    return (path.name in OUTPUT_METADATA_DIRECTORIES and stat.S_ISDIR(mode)) or (
+        path.name in OUTPUT_METADATA_FILES and stat.S_ISREG(mode)
+    )
 
 
 class AssessmentState:
@@ -420,10 +438,11 @@ class AssessmentState:
         state is not complete. Its accepted jobs move to the cache that the job
         layer rechecks against each new request; --rebuild drops them with the
         cache, so no session reuses them. A completed run is replaced when it
-        owns every file, as with --rebuild, and its changelog carries over;
-        any other file still blocks, so a fresh start never erases a user's
-        file. The refusal names why the earlier run cannot continue. Earlier
-        results stay in place until this run completes (`superseded`).
+        owns every assessment file, as with --rebuild, and its changelog carries
+        over. Recognized tool metadata is left untouched; any other file still
+        blocks, so a fresh start never erases a user's file. The refusal names
+        why the earlier run cannot continue. Earlier results stay in place
+        until this run completes (`superseded`).
 
         In a sole checkout's `docs/security` (MR-6) only the controller's own
         files count: inputs and a legacy report beside them are kept as they are.
@@ -435,6 +454,7 @@ class AssessmentState:
             if child.name != STOP_NAME
             and not _is_atomic_temp(child.name)
             and not acquire_lock.is_staged_lock(child.name, self.lock.name)
+            and not _is_output_metadata(child)
         } - {
             ".appsec-lock",
             ".appsec-lock.guard",
@@ -505,7 +525,7 @@ class AssessmentState:
             if foreign == []:
                 return
             self._history = None
-            fresh = "choose another --output or empty this one"
+            fresh = "choose another --output or move the conflicting files"
             if earlier is None:
                 message = f"holds an unreadable earlier assessment; {fresh}"
             elif foreign is not None:
@@ -518,20 +538,21 @@ class AssessmentState:
                 fresh = "for a new scan, move those files or choose another --output"
                 if earlier["identity"] != self.identity:
                     message = (
-                        "holds an unfinished combined assessment that cannot be continued because "
+                        "holds an unfinished assessment that cannot be continued because "
                         f"{self._changed(earlier['identity'])} changed since it started, beside files it did not "
                         f"write or that changed since ({shown}). Move those files, then "
                         f"{self._new_run_hint(earlier['identity'])}; or choose another --output"
                     )
                 else:
                     message = (
-                        "holds an unfinished combined assessment beside files it did not write or that changed "
+                        "holds an unfinished assessment beside files it did not write or that changed "
                         f"since ({shown}). Add --resume to continue it, or {fresh}"
                     )
             raise ExchangeError("This output directory " + message)
         raise ExchangeError(
-            f"A fresh combined assessment needs an empty output directory, and this one contains other files "
-            f"({self._paths(sorted(leftovers))}); choose another --output or empty this one"
+            f"A fresh assessment needs an empty output directory apart from recognized tool metadata, "
+            f"and this one contains conflicting entries ({self._paths(sorted(leftovers))}); "
+            "choose another --output or move the conflicting entries"
         )
 
     def _paths(self, names) -> str:
@@ -598,12 +619,13 @@ class AssessmentState:
         return {name: recorded[name] for name in sorted(self._unchanged(recorded))}
 
     def _remove_earlier_run(self, earlier, leftovers) -> list[str]:
-        """Remove an earlier assessment for --rebuild when it owns every file.
+        """Remove an earlier assessment for --rebuild when it owns every assessed entry.
 
         Owned are its state, its work directory and each recorded deliverable,
         published, still being published or kept, whose bytes are unchanged.
-        Any other or edited file keeps the directory, so a rebuild never erases
-        a user's file. Earlier results stay in place until this run completes.
+        Leftovers already exclude recognized tool metadata. Any other or edited
+        file keeps the directory, so a rebuild never erases a user's file.
+        Earlier results stay in place until this run completes.
         Returns the other files, sorted; an empty list means the earlier run
         was removed.
         """

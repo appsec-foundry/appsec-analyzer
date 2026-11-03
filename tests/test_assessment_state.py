@@ -769,6 +769,102 @@ def test_existing_user_files_are_preserved_and_block_fresh_assessment(scope):
     assert not (scope.output / ".assessment-state.json").exists()
 
 
+@pytest.mark.parametrize(
+    "name,kind",
+    [
+        (".claude", "directory"),
+        (".codex", "directory"),
+        (".cursor", "directory"),
+        (".vscode", "directory"),
+        (".idea", "directory"),
+        (".git", "directory"),
+        (".git", "file"),
+        (".gitignore", "file"),
+        (".gitattributes", "file"),
+        (".editorconfig", "file"),
+        ("AGENTS.md", "file"),
+        ("CLAUDE.md", "file"),
+    ],
+)
+def test_output_metadata_is_preserved_and_not_recorded_as_a_deliverable(scope, name, kind):
+    scope.output.mkdir()
+    metadata = scope.output / name
+    if kind == "directory":
+        metadata.mkdir()
+        metadata = metadata / "settings.json"
+    metadata.write_text("User-owned metadata; never analysis instructions.\n")
+    before = metadata.stat()
+    with lifecycle(scope).hold() as state:
+        (scope.output / "security-assessment.md").write_text("report\n")
+        state.complete(["security-assessment.md"])
+    assert metadata.read_text() == "User-owned metadata; never analysis instructions.\n"
+    assert metadata.stat().st_ino == before.st_ino
+    assert metadata.stat().st_mtime_ns == before.st_mtime_ns
+    assert set(stored(scope)["deliverables"]) == {"security-assessment.md"}
+
+
+@pytest.mark.parametrize("earlier", ["interrupted", "completed"])
+@pytest.mark.parametrize("replace", [False, True])
+def test_output_metadata_never_blocks_restarting_or_rebuilding_a_run(scope, earlier, replace):
+    if earlier == "completed":
+        _completed(scope)
+    else:
+        _fail(lifecycle(scope))
+    metadata = scope.output / ".claude"
+    metadata.mkdir()
+    settings = metadata / "settings.json"
+    settings.write_text("preserve\n")
+    with lifecycle(scope, replace=replace).hold() as state:
+        (scope.output / "security-assessment.md").write_text("new report\n")
+        state.complete(["security-assessment.md"])
+    assert settings.read_text() == "preserve\n"
+    assert not (scope.output / "threat-model.md").exists()
+
+
+@pytest.mark.parametrize(
+    "name,kind",
+    [
+        ("notes.txt", "file"),
+        (".private-notes", "file"),
+        (".unknown-tool", "directory"),
+        ("security-assessment.md", "file"),
+        (".claude", "file"),
+        (".gitignore", "directory"),
+        (".assessment-work", "directory"),
+    ],
+)
+def test_output_metadata_does_not_hide_conflicting_or_unknown_entries(scope, name, kind):
+    scope.output.mkdir()
+    (scope.output / ".codex").mkdir()
+    conflicting = scope.output / name
+    if kind == "directory":
+        conflicting.mkdir()
+    else:
+        conflicting.write_text("preserve\n")
+    with pytest.raises(ExchangeError, match=re.escape(str(conflicting))):
+        with lifecycle(scope).hold():
+            pytest.fail("Metadata must not hide an unrelated or reserved entry")
+    assert conflicting.exists()
+    assert not (scope.output / ".assessment-state.json").exists()
+
+
+@pytest.mark.parametrize("name", [".claude", ".codex", ".git", ".gitignore", "AGENTS.md"])
+@pytest.mark.parametrize("dangling", [False, True])
+def test_linked_output_metadata_is_not_exempted(scope, tmp_path, name, dangling):
+    scope.output.mkdir()
+    external = tmp_path / "external"
+    if not dangling:
+        external.mkdir()
+        (external / "keep.txt").write_text("preserve\n")
+    (scope.output / name).symlink_to(external)
+    with pytest.raises(ExchangeError, match=re.escape(str(scope.output / name))):
+        with lifecycle(scope).hold():
+            pytest.fail("A metadata name must not exempt a link")
+    assert (scope.output / name).is_symlink()
+    if not dangling:
+        assert (external / "keep.txt").read_text() == "preserve\n"
+
+
 def test_an_earlier_scans_run_diagnostics_never_block_a_fresh_assessment(scope):
     from runtime.assessment_state import RUN_DIAGNOSTIC_NAMES
 

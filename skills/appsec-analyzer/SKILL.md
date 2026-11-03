@@ -98,6 +98,8 @@ Use `appsec-analyzer capabilities` before suggesting a different profile; API pr
 for lifecycle operations. An interrupted compatible assessment resumes with
 `assess --resume`; `--rebuild` starts over.
 
+Recognized Git, assistant, and editor metadata can stay in the output directory, including `.git`, `.claude`, and `.codex`; Analyzer leaves it untouched and does not use it as analysis input. Do not delete it to make a run start. Other unrelated files, edited reports, and linked metadata still block a new scan or rebuild; use the named conflicts to explain recovery or choose another output directory. See [output and continuation](../../docs/security-assessment.md#output-and-continuation) for the accepted names and entry types.
+
 For a request to export an existing completed assessment, invoke `appsec-analyzer export --assessment <private-assessment-directory> --output <new-export-directory> --formats markdown yaml`. Supported formats also include `html pdf sarif threatdragon pentest-tasks`; document formats have external tool prerequisites. This command makes no model calls and needs no spending authorization. Keep returned conversion warnings visible; see [export limits](../../docs/security-assessment.md#exports-and-compatibility). After a runtime change, `--resume` continues only an unfinished run; do not silently restart with new limits.
 
 The separate Requirements Audit is not a full assessment. Do not substitute

@@ -49,6 +49,38 @@ def test_two_repositories_keep_the_qualified_version_2_model(tmp_path, monkeypat
     assert model_file_is_portable(out / "security-assessment.yaml")
 
 
+@pytest.mark.parametrize("names", [("solo",), ("frontend", "backend")])
+def test_assessment_publishes_beside_git_and_assistant_metadata(tmp_path, monkeypatch, names):
+    output = tmp_path / "out"
+    output.mkdir(mode=0o700)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(output)], check=True)
+    metadata = {}
+    for name in (".claude", ".codex"):
+        directory = output / name
+        directory.mkdir()
+        metadata[directory / "settings.json"] = "User-owned assistant settings.\n"
+    metadata[output / ".gitignore"] = ".assessment-*\n"
+    metadata[output / "AGENTS.md"] = "OUTPUT_METADATA_MUST_NOT_ENTER_MODEL_INPUT\n"
+    for path, content in metadata.items():
+        path.write_text(content)
+    git_head = (output / ".git" / "HEAD").read_bytes()
+    host = FullHost()
+    invoke = host.invoke
+
+    def checked_invoke(role, system, prompt, *args):
+        assert "OUTPUT_METADATA_MUST_NOT_ENTER_MODEL_INPUT" not in system + prompt
+        return invoke(role, system, prompt, *args)
+
+    monkeypatch.setattr(host, "invoke", checked_invoke)
+    outcome, _, out = _assess(tmp_path, monkeypatch, names, ("--no-pdf",), host=host)
+    assert outcome["status"] == "complete"
+    assert (out / "security-assessment.md").is_file()
+    assert (out / "security-assessment.yaml").is_file()
+    assert (output / ".git" / "HEAD").read_bytes() == git_head
+    assert all(path.read_text() == content for path, content in metadata.items())
+    assert not set(path.name for path in metadata) & set(outcome["deliverables"])
+
+
 def test_follow_on_tools_accept_a_one_repository_controller_model(tmp_path, monkeypatch):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
     _, _, out = _assess(tmp_path, monkeypatch, ("solo",), ("--no-pdf",))
