@@ -1553,6 +1553,97 @@ def test_boundary_batch_rejects_incomplete_or_foreign_dispositions(tmp_path, inv
     assert not list(work.glob("*.receipt.json"))
 
 
+def _guarded_routes(tmp_path):
+    """One repository with routes, a guard owned by another component, and a second crossing's module."""
+    from model.finalize_component_inventory import component_inventory_fingerprint
+
+    from tests.test_multi_repo_boundaries import crossing_input
+
+    files = {"guard.py": "require_login(request)\n", "reports.py": "report = render(request)\n"}
+    scope, components, receipt, flows, context = crossing_input(tmp_path, files={"edge": files})
+    repo = next(row for row in scope.repositories if row.root.name == "edge")
+    routes, service = components["components"]
+    if repo.repository_id not in routes["repository_ids"]:
+        routes, service = service, routes
+    routes["id"], service["id"] = "component-1", "component-4"
+
+    def path(name):
+        return dict(repository_id=repo.repository_id, path=name, sha256=hashlib.sha256(repo.files[name]).hexdigest())
+
+    def cite(name):
+        row = path(name)
+        return dict(repository_id=row["repository_id"], file=name, line=1, sha256=row["sha256"])
+
+    components["components"] = [
+        routes,
+        {**copy.deepcopy(routes), "id": "component-2", "name": "Guard", "paths": [path("guard.py")]},
+        {**copy.deepcopy(routes), "id": "component-3", "name": "Reports", "paths": [path("reports.py")]},
+        service,
+    ]
+    fingerprint = component_inventory_fingerprint(components["components"])
+    receipt.update(
+        component_inventory_fingerprint=fingerprint, component_ids=[c["id"] for c in components["components"]]
+    )
+    flow = flows["data_flows"][0]
+    flow.pop("connection_id")
+    flows["component_inventory_fingerprint"] = fingerprint
+    # The routes' flow cites the guard that protects them; the second crossing is unrelated to it.
+    flows["data_flows"] = [
+        {
+            **copy.deepcopy(flow),
+            "from": "external",
+            "to": "component-1",
+            "evidence": [cite("app.py"), cite("guard.py")],
+        },
+        {
+            **copy.deepcopy(flow),
+            "id": "df-002",
+            "from": "external",
+            "to": "component-3",
+            "evidence": [cite("reports.py")],
+        },
+    ]
+    return scope, dict(components=components, finalization=receipt, data_flows=flows), context, cite
+
+
+@pytest.mark.parametrize("cited, accepted", [("guard.py", True), ("reports.py", False)])
+def test_boundary_candidate_cites_the_guard_its_flow_names_but_not_another_crossing(tmp_path, cited, accepted):
+    """A guard of another component counts for the crossing whose flow cites it, and only for that one."""
+    scope, architecture, context, cite = _guarded_routes(tmp_path)
+
+    class GuardHost(BoundaryHost):
+        def invoke(self, *args):
+            reply = super().invoke(*args)
+            artifact = reply.payload["artifact"]
+            if artifact is not None:
+                for row in artifact["candidates"]:
+                    if row["to"] == "component-1":
+                        row["evidence"].append(cite(cited))
+            return reply
+
+    host = GuardHost()
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(1, 0.05, 20, 60),
+        lambda role, ceiling: host,
+        lambda: False,
+        lambda: None,
+    )
+    if not accepted:
+        with pytest.raises(ExchangeError, match="outside this job's sources"):
+            controller._assessment_boundary_candidates(
+                scope, jobs, architecture, context, "standard", progress=lambda text: None
+            )
+        return
+    _, candidates = controller._assessment_boundary_candidates(
+        scope, jobs, architecture, context, "standard", progress=lambda text: None
+    )
+    assert host.calls == 1
+    [routes] = [row for row in candidates["candidates"] if row["to"] == "component-1"]
+    assert {row["file"] for row in routes["evidence"]} == {"app.py", "guard.py"}
+
+
 def test_each_model_call_reports_progress_without_echoing_model_text(monkeypatch):
     import time as clock
 

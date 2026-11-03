@@ -929,6 +929,29 @@ def _assessment_input_fingerprint(body):
     body["assessment_input_fingerprint"] = "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def crossing_sources(projection) -> frozenset:
+    """Files a boundary job may read and cite for the crossings it was given.
+
+    The endpoint components' files, plus the files the crossings' own flows
+    cite as evidence in those components' repositories. A guard such as a
+    filter chain or middleware often belongs to another component of the same
+    application than the routes it protects; the route authentication fill
+    cites it on the flow, so the job must be able to read and cite it too.
+    """
+    from shared.assessment_sources import source_rows
+
+    from contexts.multi_repo_analysis import source_selection
+
+    components = projection["components"]
+    repositories = {rid for component in components for rid in component["repository_ids"]}
+    cited = {
+        (row["repository_id"], row["file"])
+        for row in source_rows(projection["data_flows"])
+        if row["repository_id"] in repositories
+    }
+    return source_selection(components) | cited
+
+
 def project_assessment_signal(assessment, signal_id, topology):
     """Compatibility projection for a single controller-selected signal."""
     return project_assessment_signals(assessment, [signal_id], topology)
@@ -940,7 +963,7 @@ def project_assessment_signals(assessment, signal_ids, topology):
     ``topology`` is the canonical flow list with its connection identities;
     the bounded assessment input omits them.
     """
-    from contexts.multi_repo_analysis import contract, scope_relays, source_selection
+    from contexts.multi_repo_analysis import contract, scope_relays
 
     selected = set(signal_ids)
     signals = [row for row in assessment["signals"] if row["id"] in selected]
@@ -959,7 +982,7 @@ def project_assessment_signals(assessment, signal_ids, topology):
     result["signals"] = copy.deepcopy(signals)
     external_ids = {row[key] for row in result["data_flows"] for key in ("from_entity", "to_entity") if key in row}
     result["external_entities"] = [row for row in result["external_entities"] if row["id"] in external_ids]
-    allowed = source_selection(result["components"])
+    allowed = crossing_sources(result)
     context = result["source_context"]
     context["route_inventory"]["routes"] = [
         row

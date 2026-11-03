@@ -15,6 +15,7 @@ from contexts.build_trust_boundary_assessment_input import (
     _signal_specs,
     assessment_source_context,
     build_assessment,
+    crossing_sources,
     project_assessment_signal,
     project_assessment_signals,
 )
@@ -324,6 +325,26 @@ def test_batch_projection_excludes_unrelated_repository_sources(tmp_path):
         for comp in projected["components"]
         for row in comp["paths"]
     )
+
+
+def test_crossing_sources_admit_flow_evidence_only_in_the_components_repositories():
+    own, other = "repo-" + "a" * 16, "repo-" + "b" * 16
+    sha = "0" * 64
+    projection = dict(
+        components=[
+            dict(id="component-1", repository_ids=[own], paths=[dict(repository_id=own, path="routes.py", sha256=sha)])
+        ],
+        data_flows=[
+            dict(
+                id="df-001",
+                evidence=[
+                    dict(repository_id=own, file="guard.py", line=1, sha256=sha),
+                    dict(repository_id=other, file="guard.py", line=1, sha256=sha),
+                ],
+            )
+        ],
+    )
+    assert crossing_sources(projection) == {(own, "routes.py"), (own, "guard.py")}
 
 
 def test_assessment_input_rejects_foreign_source_context_and_missing_measurements(tmp_path):

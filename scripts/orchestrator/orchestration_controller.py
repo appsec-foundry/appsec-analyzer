@@ -1772,7 +1772,11 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
     import copy
 
     from contexts import multi_repo_analysis as analysis
-    from contexts.build_trust_boundary_assessment_input import build_assessment, project_assessment_signal
+    from contexts.build_trust_boundary_assessment_input import (
+        build_assessment,
+        crossing_sources,
+        project_assessment_signal,
+    )
     from contexts.reconcile_multi_repo_architecture import _id
 
     assessment = build_assessment(
@@ -1820,7 +1824,7 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
 
     def review(position, projection, jobs):
         batch_id = _id("batch", *(row["id"] for row in projection["signals"]))
-        allowed = analysis.source_selection(projection["components"])
+        allowed = crossing_sources(projection)
         cited = list(source_rows(projection))
         view = {**projection, "components": analysis.model_components(projection["components"])}
         progress(f"Reviewing trust crossing batch: {len(projection['signals'])} signals ({position}/{len(batches)})")
@@ -1841,7 +1845,7 @@ def _assessment_boundary_candidates(scope, jobs, architecture, source_context, d
                             "Boundary candidate endpoints do not belong to each covered crossing",
                             [f"{candidate['candidate_key']}: use endpoints from {signal_id}"],
                         )
-                    sources.update(analysis.source_selection(selected["components"]))
+                    sources.update(crossing_sources(selected))
                     flow_ids.update(row["id"] for row in selected["data_flows"])
                 if not set(candidate["covered_flow_ids"]) <= flow_ids:
                     raise Rejection(
