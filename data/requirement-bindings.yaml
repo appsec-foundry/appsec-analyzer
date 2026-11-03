@@ -822,8 +822,14 @@ requirements:
       - tests/test_egress_flows.py::test_an_authored_access_keeps_its_identity_authentication_and_classification
       - tests/test_egress_flows.py::test_distinct_calls_on_one_line_remain_distinct_and_idempotent
       - tests/test_egress_flows.py::test_equal_settings_in_different_repositories_do_not_establish_one_service
+      - tests/test_egress_flows.py::test_existing_flows_resolve_shared_call_site_ownership
+      - tests/test_egress_flows.py::test_shared_call_site_can_use_a_generic_flow_or_reviewed_internal_connection
+      - tests/test_egress_flows.py::test_shared_ownership_cannot_borrow_an_unrelated_flow
+      - tests/test_egress_flows.py::test_shared_ownership_is_resolved_separately_for_each_call_site
       - tests/test_egress_flows.py::test_ambiguous_ownership_and_contract_exhaustion_never_drop_destinations_silently
+      - tests/test_aggregate_run_issues.py::test_an_authored_egress_flow_from_a_shared_file_needs_no_warning
       - tests/test_aggregate_run_issues.py::test_an_unrelated_external_login_does_not_hide_a_missing_rest_destination
+      - tests/test_multi_repo_controller.py::test_architecture_keeps_an_outbound_flow_when_finalized_components_share_its_file
       - tests/test_multi_repo_controller.py::test_discovery_and_architecture_receive_their_own_repository_inventories
       - tests/test_discover_identity_providers.py::test_oauth_client_setups_draw_the_steps_their_code_evidences
       - tests/test_discover_identity_providers.py::test_a_resource_server_discovers_its_provider_without_signing_anyone_in

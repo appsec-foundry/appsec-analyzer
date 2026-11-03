@@ -854,6 +854,92 @@ def test_discovery_and_architecture_receive_their_own_repository_inventories(tmp
     assert "authentication" not in outbound
 
 
+def test_architecture_keeps_an_outbound_flow_when_finalized_components_share_its_file(tmp_path):
+    roots = _inventory_checkouts(tmp_path)
+    scope = admit([str(root) for root in roots], str(tmp_path / "out"))
+
+    class SharedFileHost(Host):
+        def invoke(self, role, prompt):
+            reply = super().invoke(role, prompt)
+            packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+            context = packet["context"]
+            repository = next((r for r in scope.repositories if r.repository_id == context.get("repository_id")), None)
+            if repository is None or "client.js" not in repository.files:
+                return reply
+            if role == "recon_scanner":
+                if reply.payload["action"] == "read":
+                    reply.payload["reads"].append(
+                        dict(repository_id=repository.repository_id, path="client.js", start_line=1, end_line=2)
+                    )
+                else:
+                    artifact = reply.payload["artifact"]
+                    artifact["components"][0]["paths"].append("client.js")
+                    artifact["components"].append(
+                        dict(
+                            id="adapter",
+                            name="Adapter",
+                            description="Outbound requests.",
+                            tier="application",
+                            paths=["client.js"],
+                        )
+                    )
+            elif role == "architecture_analyst" and reply.payload["action"] == "complete":
+                owner = next(c["id"] for c in context["components"] if c["local_id"] == "adapter")
+                evidence = dict(
+                    repository_id=repository.repository_id,
+                    file="client.js",
+                    line=2,
+                    sha256=hashlib.sha256(repository.files["client.js"]).hexdigest(),
+                )
+                reply.payload["artifact"].update(
+                    external_entities=[
+                        dict(
+                            id="ext-billing",
+                            name="Billing",
+                            kind="external-service",
+                            description="Billing service.",
+                            evidence=[evidence],
+                        )
+                    ],
+                    data_flows=[
+                        dict(
+                            id="df-001",
+                            **{"from": owner, "to": "external"},
+                            to_entity="ext-billing",
+                            label="Payment request",
+                            diagram_label="Payment",
+                            protocol="HTTPS",
+                            data_classification="Restricted",
+                            direction="request-response",
+                            provenance="recon",
+                            evidence=[evidence],
+                        )
+                    ],
+                )
+            return reply
+
+    host = SharedFileHost(scope)
+    jobs = AssessmentJobs(
+        scope,
+        scope.output / ".assessment/jobs",
+        AssessmentBudget(2, 0.05, 60, 120),
+        host.factory,
+        lambda: False,
+        lambda: None,
+    )
+    architecture = controller._assessment_architecture(scope, jobs, progress=lambda _: None)
+    components = architecture["components"]["components"]
+    shared = [c for c in components if any(p["path"] == "client.js" for p in c["paths"])]
+    assert {c["local_id"] for c in shared} == {"service", "adapter"}
+    (outbound,) = [f for f in architecture["data_flows"]["data_flows"] if f.get("to_entity")]
+    assert outbound["from"] == next(c["id"] for c in shared if c["local_id"] == "adapter")
+    assert outbound["data_classification"] == "Restricted"
+    assert outbound["evidence"][0]["file"] == "client.js"
+    calls = len(host.calls)
+    assert controller._assessment_architecture(scope, jobs, progress=lambda _: None) == architecture
+    assert len(host.calls) == calls
+
+
 def test_architecture_receives_model_integration_leads_and_reports_unmodelled_ones(tmp_path):
     roots = _inventory_checkouts(tmp_path)
     with (roots[1] / "app.py").open("a") as handle:

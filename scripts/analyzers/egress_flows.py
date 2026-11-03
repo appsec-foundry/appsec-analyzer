@@ -27,7 +27,14 @@ def destination_key(row: dict, owner: str | None = None) -> str:
     return hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()[:20]
 
 
-def _owner(evidence: dict, components: list[dict]) -> str | None:
+def _owners(row, evidence, components, flows, entities, anchors) -> set[str]:
+    """Resolve shared source paths from flows that cover this destination and call site.
+
+    Finalized components may share files, for example a server and one of its
+    specialized surfaces. A covering authored flow establishes its caller;
+    several evidenced callers may legitimately use the same shared source.
+    Without such a flow, overlapping paths still cannot select an owner.
+    """
     owners = set()
     for component in components:
         for entry in component.get("paths") or []:
@@ -36,8 +43,11 @@ def _owner(evidence: dict, components: list[dict]) -> str | None:
             if repository == evidence.get("repository_id") and fnmatch.fnmatchcase(evidence["file"], path):
                 owners.add(component["id"])
     if len(owners) > 1:
+        covered = {owner for owner in owners if _covering(row, owner, [evidence], flows, entities, anchors)}
+        if covered:
+            return covered
         raise ValueError("Outbound call has ambiguous component ownership")
-    return next(iter(owners), None)
+    return owners
 
 
 def _covering(row, owner, evidence, flows, entities, anchors):
@@ -70,6 +80,8 @@ def reconcile(components: list[dict], document: dict, destinations: list[dict]) 
     entities = result.setdefault("external_entities", [])
     flows = result.setdefault("data_flows", [])
     by_id = {row["id"]: row for row in entities}
+    # Resolve ownership only from the input, never from flows added by this pass.
+    authored_flows = document.get("data_flows") or []
     anchors = defaultdict(set)
     for row in destinations:
         for evidence in row["evidence"]:
@@ -77,7 +89,7 @@ def reconcile(components: list[dict], document: dict, destinations: list[dict]) 
     for row in destinations:
         owned = defaultdict(list)
         for evidence in row["evidence"]:
-            if owner := _owner(evidence, components):
+            for owner in _owners(row, evidence, components, authored_flows, by_id, anchors):
                 owned[owner].append(evidence)
         for owner, evidence in sorted(owned.items()):
             existing = _covering(row, owner, evidence, flows, by_id, anchors)
@@ -149,8 +161,9 @@ def uncovered(destinations: list[dict], components: list[dict], document: dict) 
     for row in destinations:
         owned = defaultdict(list)
         for evidence in row.get("evidence") or []:
-            owner = _owner(evidence, components)
-            owned[owner].append(evidence)
+            owners = _owners(row, evidence, components, flows, by_id, anchors)
+            for owner in sorted(owners) if owners else [None]:
+                owned[owner].append(evidence)
         for owner, evidence in owned.items():
             if owner is None or not _covering(row, owner, evidence, flows, by_id, anchors):
                 missing.append({**row, "evidence": evidence, "component_id": owner})

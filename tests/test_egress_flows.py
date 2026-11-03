@@ -151,6 +151,117 @@ def test_equal_settings_in_different_repositories_do_not_establish_one_service(t
     assert {f["from"] for f in result["data_flows"]} == {"repo-a", "repo-b"}
 
 
+@pytest.mark.parametrize("qualified", [False, True])
+@pytest.mark.parametrize("callers", [("api",), ("adapter",), ("api", "adapter")])
+def test_existing_flows_resolve_shared_call_site_ownership(tmp_path, qualified, callers):
+    components, destinations = _source(tmp_path, "fetch('https://billing.vendorhub.io')\n")
+    components.append({"id": "adapter", "paths": ["src/client.ts"]})
+    if qualified:
+        for component in components:
+            component["paths"] = [{"repository_id": "repo-a", "path": "src/client.ts"}]
+        destinations[0]["evidence"][0]["repository_id"] = "repo-a"
+        components.append({"id": "foreign", "paths": [{"repository_id": "repo-b", "path": "src/client.ts"}]})
+    original = {
+        "external_entities": [{"id": "ext-billing", "kind": "external-service", "name": "Billing"}],
+        "data_flows": [
+            {
+                "id": f"df-{index:03d}",
+                "from": owner,
+                "to": "external",
+                "to_entity": "ext-billing",
+                "authentication": {"scheme": "mtls"},
+                "data_classification": "Restricted",
+                "evidence": copy.deepcopy(destinations[0]["evidence"]),
+            }
+            for index, owner in enumerate(callers, 1)
+        ],
+    }
+    before = copy.deepcopy(original)
+    assert reconcile(components, original, destinations) == before
+    assert reconcile(list(reversed(components)), original, destinations) == before
+    assert uncovered(destinations, components, original) == []
+    assert original == before
+
+
+@pytest.mark.parametrize("reviewed_internal", [False, True])
+def test_shared_call_site_can_use_a_generic_flow_or_reviewed_internal_connection(tmp_path, reviewed_internal):
+    components, destinations = _source(tmp_path, "fetch('https://billing.vendorhub.io')\n")
+    components.append({"id": "adapter", "paths": ["src/client.ts"]})
+    flow = {"id": "df-001", "from": "adapter", "to": "external", "evidence": destinations[0]["evidence"]}
+    if reviewed_internal:
+        flow.update(to="billing", connection_id="conn-reviewed")
+    original = {"data_flows": [flow]}
+    result = reconcile(components, original, destinations)
+    assert len(result["data_flows"]) == 1
+    assert result["data_flows"][0]["from"] == "adapter"
+    if reviewed_internal:
+        assert result["data_flows"] == original["data_flows"]
+        assert result["external_entities"] == []
+    else:
+        assert result["data_flows"][0]["to_entity"] == result["external_entities"][0]["id"]
+    assert uncovered(destinations, components, result) == []
+    assert reconcile(components, result, destinations) == result
+
+
+@pytest.mark.parametrize("mismatch", ["destination", "line", "repository", "component", "legitimate-role"])
+def test_shared_ownership_cannot_borrow_an_unrelated_flow(tmp_path, mismatch):
+    source = "fetch('https://billing.vendorhub.io');"
+    if mismatch == "destination":
+        source += "fetch('https://notify.vendorhub.io');"
+    components, destinations = _source(tmp_path, source + "\n")
+    components.append({"id": "adapter", "paths": ["src/client.ts"]})
+    entity = {"id": "ext-billing", "kind": "external-service", "name": "billing.vendorhub.io"}
+    flow = {
+        "id": "df-001",
+        "from": "adapter",
+        "to": "external",
+        "to_entity": entity["id"],
+        "evidence": copy.deepcopy(destinations[0]["evidence"]),
+    }
+    if mismatch == "destination":
+        entity["name"] = "unrelated.vendorhub.io"
+    elif mismatch == "line":
+        flow["evidence"][0]["line"] += 1
+    elif mismatch == "repository":
+        flow["evidence"][0]["repository_id"] = "repo-other"
+    elif mismatch == "component":
+        flow["from"] = "unrelated"
+    else:
+        entity["kind"] = "legitimate-role"
+    original = {"external_entities": [entity], "data_flows": [flow]}
+    before = copy.deepcopy(original)
+    for operation in (
+        lambda: reconcile(components, original, destinations),
+        lambda: uncovered(destinations, components, original),
+    ):
+        with pytest.raises(ValueError, match="ambiguous"):
+            operation()
+    assert original == before
+
+
+def test_shared_ownership_is_resolved_separately_for_each_call_site(tmp_path):
+    components, destinations = _source(tmp_path, "fetch('https://billing.vendorhub.io')\n")
+    components[0]["paths"] = ["src/**"]
+    components.append({"id": "adapter", "paths": ["src/client.ts"]})
+    other = {"file": "src/other.ts", "line": 3}
+    destinations[0]["evidence"].append(other)
+    original = {
+        "external_entities": [{"id": "ext-billing", "kind": "external-service"}],
+        "data_flows": [
+            {
+                "id": "df-001",
+                "from": "adapter",
+                "to": "external",
+                "to_entity": "ext-billing",
+                "evidence": destinations[0]["evidence"][:1],
+            },
+            {"id": "df-002", "from": "api", "to": "external", "to_entity": "ext-billing", "evidence": [other]},
+        ],
+    }
+    assert reconcile(components, original, destinations) == original
+    assert uncovered(destinations, components, original) == []
+
+
 def test_ambiguous_ownership_and_contract_exhaustion_never_drop_destinations_silently(tmp_path):
     components, destinations = _source(
         tmp_path, "".join(f"fetch('https://service{n:02d}.vendorhub.io')\n" for n in range(65))

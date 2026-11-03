@@ -2016,6 +2016,27 @@ def test_an_egress_destination_modelled_as_a_flow_produces_no_issue(tmp_path):
     assert agg._extract_egress_without_flow(_architecture_run(tmp_path / "none", [_API], flows)) == []
 
 
+def test_an_authored_egress_flow_from_a_shared_file_needs_no_warning(tmp_path):
+    destination = {
+        "kind": "fixed-host",
+        "host": "rpc.ledgerco.io",
+        "evidence": [{"file": "src/wallet/w.ts", "line": 3}],
+    }
+    flow = {
+        "id": "df-001",
+        "from": "wallet",
+        "to": "external",
+        "to_entity": "ext-rpc",
+        "evidence": destination["evidence"],
+    }
+    out = _architecture_run(tmp_path, [{**_API, "paths": ["src/**"]}, _WALLET], [flow], [destination])
+    (out / ".data-flows.json").write_text(
+        json.dumps({"external_entities": [{"id": "ext-rpc", "kind": "external-service"}], "data_flows": [flow]}),
+        encoding="utf-8",
+    )
+    assert agg._extract_egress_without_flow(out) == []
+
+
 def test_an_unrelated_external_login_does_not_hide_a_missing_rest_destination(tmp_path):
     destination = {
         "kind": "fixed-host",
