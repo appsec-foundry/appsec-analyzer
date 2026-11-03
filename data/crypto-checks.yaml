@@ -58,7 +58,9 @@ checks:
     exclude_file_patterns:
       ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "**/__tests__/**",
        "**/fixtures/**", "**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"]
-    pattern: "(?i)\\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|password|salt|verif\\w*code)\\b[^\\n]{0,60}math\\.random\\(\\)|math\\.random\\(\\)[^\\n]{0,60}\\b(token|secret|otp|nonce|reset|salt)\\b"
+    # A keyword counts as a whole word of a name: `session_token`, `resetToken` and `API_KEY` match,
+    # `tokenizer` does not. The `-002` rules of the other languages use the same boundary.
+    pattern: "(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|password|salt|verif\\w*code)(?-i:(?![a-z0-9]))[^\\n]{0,60}math\\.random\\(\\)|math\\.random\\(\\)[^\\n]{0,60}(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|otp|nonce|reset|salt)(?-i:(?![a-z0-9]))"
     counter_scope: line
     counter_patterns: []
     severity_if_violated: High
@@ -158,7 +160,7 @@ checks:
     file_patterns: ["**/*.java"]
     exclude_file_patterns:
       ["**/test/**", "**/tests/**", "**/*Test.java", "**/*Tests.java", "**/target/**", "**/build/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|password|salt|verif\w*code)\b[^\n]{0,60}(new\s+Random\s*\(|Math\.random\s*\()'
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|password|salt|verif\w*code)(?-i:(?![a-z0-9]))[^\n]{0,60}(new\s+Random\s*\(|Math\.random\s*\()'
     counter_scope: line
     counter_patterns:
       - '\bSecureRandom\b'
@@ -251,7 +253,7 @@ checks:
     file_patterns: ["**/*.py"]
     exclude_file_patterns:
       ["**/test/**", "**/tests/**", "**/*_test.py", "**/test_*.py", "**/.venv/**", "**/venv/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt|verif\w*code)\b[^\n]{0,60}\brandom\.(random|randint|choice|randrange|getrandbits|sample|shuffle)\b'
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt|verif\w*code)(?-i:(?![a-z0-9]))[^\n]{0,60}\brandom\.(random|randint|choice|randrange|getrandbits|sample|shuffle)\b'
     counter_scope: line
     counter_patterns:
       - '\bsecrets\.'
@@ -293,7 +295,7 @@ checks:
       alternative and is suppressed.
     file_patterns: ["**/*.go"]
     exclude_file_patterns: ["**/*_test.go", "**/vendor/**", "**/testdata/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}\brand\.(?:Intn|Int|Int63|Int31|Float64|Read|Perm)\b'
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}\brand\.(?:Intn|Int|Int63|Int31|Float64|Read|Perm)\b'
     counter_scope: line
     counter_patterns:
       - 'crypto/rand'
@@ -333,7 +335,7 @@ checks:
       RandomNumberGenerator / RNGCryptoServiceProvider is the safe alternative.
     file_patterns: ["**/*.cs"]
     exclude_file_patterns: ["**/*Tests.cs", "**/*.Tests/**", "**/obj/**", "**/bin/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}new\s+Random\s*\('
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}new\s+Random\s*\('
     counter_scope: line
     counter_patterns:
       - '(?i)\b(RandomNumberGenerator|RNGCryptoServiceProvider)\b'
@@ -373,8 +375,7 @@ checks:
       `random_bytes` / `random_int` are the safe alternatives.
     file_patterns: ["**/*.php"]
     exclude_file_patterns: ["**/tests/**", "**/*Test.php", "**/vendor/**"]
-    # `_` separates words in names such as `session_token`, so only letters and digits bound the keyword.
-    pattern: '(?i)(?<![a-z0-9])(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?![a-z0-9])[^\n]{0,60}\b(?:mt_rand|rand|uniqid)\s*\('
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}\b(?:mt_rand|rand|uniqid)\s*\('
     counter_scope: line
     counter_patterns:
       - '(?i)\b(random_bytes|random_int)\b'
@@ -414,7 +415,7 @@ checks:
       `SecureRandom` is the safe alternative.
     file_patterns: ["**/*.rb"]
     exclude_file_patterns: ["**/spec/**", "**/test/**", "**/*_spec.rb", "**/*_test.rb", "**/vendor/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}(?:\brand\s*\(|Random\.rand)'
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}(?:\brand\s*\(|Random\.rand)'
     counter_scope: line
     counter_patterns:
       - '\bSecureRandom\b'
@@ -451,7 +452,7 @@ checks:
     description: "kotlin.random.Random / java.util.Random for a token/secret is predictable; use SecureRandom."
     file_patterns: ["**/*.kt"]
     exclude_file_patterns: ["**/test/**", "**/*Test.kt", "**/build/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}(?:Random\s*\(\s*\)|Random\.next|kotlin\.random)'
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}(?:Random\s*\(\s*\)|Random\.next|kotlin\.random)'
     counter_scope: line
     counter_patterns:
       - '\bSecureRandom\b'
@@ -492,7 +493,7 @@ checks:
       suppressed.
     file_patterns: ["**/*.swift", "**/*.m"]
     exclude_file_patterns: ["**/*Tests.swift", "**/*Test.m", "**/Pods/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}\b(?:rand|random|drand48)\s*\('
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}\b(?:rand|random|drand48)\s*\('
     counter_scope: line
     counter_patterns:
       - '\b(arc4random|SecRandomCopyBytes)\b'
@@ -528,7 +529,7 @@ checks:
     description: "`Random()` (dart:math) for a token/secret is predictable; use `Random.secure()`."
     file_patterns: ["**/*.dart"]
     exclude_file_patterns: ["**/test/**", "**/*_test.dart", "**/.dart_tool/**"]
-    pattern: '(?i)\b(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)\b[^\n]{0,60}\bRandom\s*\(\s*\)'
+    pattern: '(?i)(?-i:(?<![A-Za-z0-9])|(?<=[a-z0-9])(?=[A-Z]))(token|secret|api[_-]?key|otp|nonce|session[_-]?id|reset[_-]?token|salt)(?-i:(?![a-z0-9]))[^\n]{0,60}\bRandom\s*\(\s*\)'
     counter_scope: line
     counter_patterns:
       - 'Random\.secure'

@@ -1702,6 +1702,28 @@ def test_php_finding_reports_php_source_type(tmp_path: Path) -> None:
     assert findings[0].source_type == "php_source"
 
 
+def test_php_flow_finding_names_sink_and_source_lines(tmp_path: Path) -> None:
+    (tmp_path / "q.php").write_text(
+        "<?php\n$id = $_GET['id'];\n$q = \"SELECT * FROM t WHERE id = '$id'\";\nmysqli_query($c, $q);\n"
+    )
+    [finding] = [f for f in _scan(tmp_path) if f.check_id == "INJ-PHP-001"]
+    assert finding.line == 4
+    assert "q.php:2 reaches this call at q.php:4" in finding.scenario
+
+
+def test_php_flow_rows_also_run_as_catalog_only_checks(tmp_path: Path) -> None:
+    (tmp_path / "q.php").write_text("<?php mysqli_query($c, 'SELECT ' . $_POST['col']);\n")
+    checks = [c for c in S.load_checks(CHECKS) if c.id.startswith("INJ-PHP")]
+    assert "INJ-PHP-001" in _ids(S.scan_repo(tmp_path, checks, catalog_only=True))
+
+
+def test_unknown_flow_kind_fails_the_catalog_load(tmp_path: Path) -> None:
+    catalog = tmp_path / "checks.yaml"
+    catalog.write_text("checks:\n  - id: X-1\n    name: x\n    file_patterns: ['**/*.php']\n    flow: php-xss\n")
+    with pytest.raises(ValueError, match="flow must be one of"):
+        S.load_checks(catalog)
+
+
 def test_java_signed_jws_not_flagged(tmp_path: Path) -> None:
     (tmp_path / "Auth.java").write_text(
         "public Claims parse(String t) {\n  return Jwts.parser().setSigningKey(k).parseClaimsJws(t).getBody();\n}\n"

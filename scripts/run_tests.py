@@ -145,6 +145,7 @@ GROUPS = {
         lib_manifest
         manifest_readers
         mass_assignment_scanner
+        php_flow
         recon_patterns
         repo_profile
         repo_scan
@@ -2119,6 +2120,7 @@ SOURCE_TESTS = {
         gate_preconditions
         handler_resolver
         orchestration_controller
+        php_flow
         reclassify_components
         repo_scan
         requirements_verification
@@ -4738,6 +4740,12 @@ SOURCE_TESTS = {
         run_path_guard
         stride_outputs
         threat_fixture
+    """),
+    "scripts/analyzers/php_flow.py": _tests("""
+        crypto_path_xxe_checks
+        php_flow
+        scanner_review_regressions
+        source_auth_scanner
     """),
     "scripts/analyzers/perimeter_patterns.py": _tests("""
         apply_prose_fixes

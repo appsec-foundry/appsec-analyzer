@@ -304,6 +304,8 @@ appsec-analyzer score https://github.com/your-org/your-project.git --json
 
 `scan-sources` lists unverified hits from the source rules (authorization, injection, mobile apps), a per-route authorization check, a Spring mass-assignment check, and the configuration rules. It shows no score and does not replace `assess`. `score` runs a different set: it adds architecture rules and leaves out the per-route and mass-assignment checks.
 
+The PHP rules for SQL and command injection report a call only when request input reaches its query or command within the same function or file. They do not follow values through other functions, object properties set elsewhere, included files, or session data.
+
 `--assessment-depth` only changes the configuration files: `quick` checks the first 5 files of each type, `standard` (the default) all of them, and `thorough` gives the same result as `standard`. `--json` prints the complete result, including the scanner list. `--output DIR` also saves it as `scan-result.json`.
 
 Configuration files that cannot be parsed, such as Helm templates, are named in the result, because their resource checks do not run.

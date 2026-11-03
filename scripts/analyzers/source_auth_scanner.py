@@ -20,6 +20,10 @@ execution, or template compilation (INJ-NODE-006/007/008) and emits them as
 insecure practices, not confirmed exploits. `--check-prefix` runs only the
 matching catalog checks and skips both pre-passes.
 
+Catalog rows with `flow: php-sql` or `flow: php-shell` (INJ-PHP-001/002) carry no
+regex: `analyzers/php_flow.py` reports them only where request input reaches the
+query or command argument of a PHP SQL or shell call without a matching safeguard.
+
 Counter-pattern scopes:
     line    — only the matched line is searched
     window  — match_line .. match_line + counter_window  (inclusive)
@@ -78,6 +82,8 @@ from typing import Callable, Iterator
 
 from shared._path_guard import is_safe_to_read
 from shared._source_lex import call_end, code_only, rejecting_check, without_comments
+
+from analyzers import php_flow
 
 try:
     import yaml  # type: ignore[import-untyped]
@@ -168,6 +174,7 @@ class Check:
     rationale: str
     remediation: str
     skip_rejecting_guard: bool = False
+    flow: str | None = None  # php-sql | php-shell: matched by php_flow instead of `pattern`
 
 
 @dataclass
@@ -197,6 +204,11 @@ class Finding:
 # silently missing rules.
 
 
+# A `flow:` row names the sink kind php_flow follows instead of carrying a regex.
+_FLOW_SINKS = {"php-sql": php_flow.SQL, "php-shell": php_flow.SHELL}
+_NEVER = re.compile(r"(?!)")
+
+
 def _compile_pattern(p: str, *, name: str, check_id: str) -> re.Pattern[str]:
     try:
         return re.compile(p)
@@ -220,6 +232,9 @@ def load_checks(checks_path: Path) -> list[Check]:
             scope = entry.get("counter_scope") or "window"
             if scope not in ("line", "window", "call", "block"):
                 raise ValueError(f"check {cid}: counter_scope must be one of line|window|call|block, got {scope!r}")
+            flow = entry.get("flow")
+            if flow is not None and flow not in _FLOW_SINKS:
+                raise ValueError(f"check {cid}: flow must be one of {'|'.join(_FLOW_SINKS)}, got {flow!r}")
             out.append(
                 Check(
                     id=cid,
@@ -227,7 +242,7 @@ def load_checks(checks_path: Path) -> list[Check]:
                     description=str(entry.get("description") or "").strip(),
                     file_patterns=list(entry.get("file_patterns") or []),
                     exclude_file_patterns=list(entry.get("exclude_file_patterns") or []),
-                    pattern=_compile_pattern(entry["pattern"], name="pattern", check_id=cid),
+                    pattern=_NEVER if flow else _compile_pattern(entry["pattern"], name="pattern", check_id=cid),
                     counter_scope=scope,
                     counter_window=int(entry.get("counter_window", 5)),
                     counter_patterns=[
@@ -245,6 +260,7 @@ def load_checks(checks_path: Path) -> list[Check]:
                     rationale=str(entry.get("rationale") or "").strip(),
                     remediation=str(entry.get("remediation") or "").strip(),
                     skip_rejecting_guard=bool(entry.get("skip_rejecting_guard", False)),
+                    flow=flow,
                 )
             )
         except KeyError as e:
@@ -1859,15 +1875,22 @@ def scan_file(
     if not text:
         return []
     # Evidence quotes the file as written; matching runs on the comment-free text (same line numbers).
+    source = text
     evidence_lines = text.splitlines()
     text = without_comments(text, python=file_abs.suffix == ".py")
     lines = text.splitlines()
 
     findings: list[Finding] = []
+    flow_hits: list[php_flow.Hit] | None = None
     for check in checks:
         if check.exclude_file_patterns and _matches_any_glob(file_rel, check.exclude_file_patterns):
             continue
         if not _matches_any_glob(file_rel, check.file_patterns):
+            continue
+        if check.flow:
+            flow_hits = php_flow.scan(source) if flow_hits is None else flow_hits
+            sink = _FLOW_SINKS[check.flow]
+            findings.extend(_flow_finding(check, file_rel, evidence_lines, h) for h in flow_hits if h.sink == sink)
             continue
 
         for m in check.pattern.finditer(text):
@@ -1988,6 +2011,16 @@ _NAMED_IMPORT_RE = re.compile(r"import\s*\{([^}]*)\}\s*from\s+['\"]([^'\"]+)['\"
 _REQUIRE_RE = re.compile(rf"(?:const|let|var)\s+({_IDENT})\s*=\s*require\(\s*['\"]([^'\"]+)['\"]\s*\)")
 _DESTRUCTURED_REQUIRE_RE = re.compile(r"(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(\s*['\"]([^'\"]+)['\"]\s*\)")
 _ROUTE_CALL_RE = re.compile(rf"\b({_IDENT})\.(get|head|options|post|put|patch|delete|all|use)\s*\(")
+
+
+def _flow_finding(check: Check, file_rel: str, evidence_lines: list[str], hit: php_flow.Hit) -> Finding:
+    """A catalog finding whose scenario names the request-input line the flow starts from."""
+    finding = _catalog_finding(check, file_rel, evidence_lines, max(0, min(hit.line, len(evidence_lines)) - 1))
+    finding.scenario = (
+        f"{check.rationale} Request input read at {file_rel}:{hit.src_line} reaches this call at "
+        f"{file_rel}:{hit.line}; whether an attacker can reach the code path requires verification."
+    )
+    return finding
 
 
 def _module_key(path: str) -> str:

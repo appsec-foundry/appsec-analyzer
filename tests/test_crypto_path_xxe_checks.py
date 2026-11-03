@@ -7,6 +7,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import analyzers.source_auth_scanner as S  # noqa: E402
@@ -56,6 +58,39 @@ def test_math_random_token_flagged(tmp_path: Path) -> None:
 def test_math_random_animation_not_flagged(tmp_path: Path) -> None:
     _write(tmp_path, "a.js", "const jitter = Math.random() * 100 // animation delay\n")
     assert "CRYPTO-002" not in _crypto_ids(tmp_path)
+
+
+# The secret keyword is a whole word of a name in camelCase and snake_case, never part of a longer word.
+_RNG_CASES = [
+    ("CRYPTO-002", "a.js", "const {name} = Math.random().toString(36);\n"),
+    ("CRYPTO-JAVA-002", "A.java", 'String {name} = "" + new Random().nextInt();\n'),
+    ("CRYPTO-PY-002", "a.py", "{name} = random.random()\n"),
+    ("CRYPTO-GO-002", "a.go", "{name} := rand.Intn(1000000)\n"),
+    ("CRYPTO-CS-002", "A.cs", "var {name} = new Random().Next();\n"),
+    ("CRYPTO-PHP-002", "a.php", "<?php ${name} = mt_rand();\n"),
+    ("CRYPTO-RB-002", "a.rb", "{name} = rand(1000000)\n"),
+    ("CRYPTO-KT-002", "A.kt", "val {name} = Random.nextInt()\n"),
+    ("CRYPTO-SWIFT-002", "a.swift", "let {name} = random()\n"),
+    ("CRYPTO-DART-002", "a.dart", "final {name} = Random().nextInt(100);\n"),
+]
+
+
+@pytest.mark.parametrize("name", ["resetToken", "session_token", "API_KEY"])
+@pytest.mark.parametrize(("check_id", "filename", "template"), _RNG_CASES)
+def test_rng_for_secret_name_part_flagged(
+    tmp_path: Path, check_id: str, filename: str, template: str, name: str
+) -> None:
+    _write(tmp_path, filename, template.format(name=name))
+    assert check_id in _crypto_ids(tmp_path)
+
+
+@pytest.mark.parametrize("name", ["tokenizerSeed", "tokenizer_seed"])
+@pytest.mark.parametrize(("check_id", "filename", "template"), _RNG_CASES)
+def test_rng_for_name_merely_containing_keyword_not_flagged(
+    tmp_path: Path, check_id: str, filename: str, template: str, name: str
+) -> None:
+    _write(tmp_path, filename, template.format(name=name))
+    assert check_id not in _crypto_ids(tmp_path)
 
 
 def test_low_bcrypt_rounds_flagged(tmp_path: Path) -> None:
@@ -297,17 +332,6 @@ def test_php_md5_flagged(tmp_path: Path) -> None:
 def test_php_mt_rand_token_flagged(tmp_path: Path) -> None:
     _write(tmp_path, "t.php", "<?php $token = mt_rand(1000, 9999);\n")
     assert "CRYPTO-PHP-002" in _crypto_ids(tmp_path)
-
-
-def test_php_rng_for_underscored_token_name_flagged(tmp_path: Path) -> None:
-    # `_` separates words in PHP names; `\btoken\b` alone never matched `session_token`.
-    _write(tmp_path, "t.php", "<?php $_SESSION['session_token'] = md5(uniqid());\n")
-    assert "CRYPTO-PHP-002" in _crypto_ids(tmp_path)
-
-
-def test_php_rng_for_name_merely_containing_token_not_flagged(tmp_path: Path) -> None:
-    _write(tmp_path, "t.php", "<?php $tokenizer_seed = rand(1, 6);\n")
-    assert "CRYPTO-PHP-002" not in _crypto_ids(tmp_path)
 
 
 def test_php_sqli_superglobal_flagged(tmp_path: Path) -> None:
