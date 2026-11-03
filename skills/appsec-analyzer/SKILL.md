@@ -37,7 +37,7 @@ appsec-analyzer scan-sources --repo <absolute-local-path> --json
 With `--json`, the result is deterministic JSON. State clearly that semantic analysis,
 component assignment, and evidence verification did not run.
 
-To check security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, invoke the command below. For a self-hosted GitLab, the operator sets `GITLAB_HOST` to its host name.
+To check security settings of a GitHub or GitLab repository, such as branch protection and secret scanning, invoke the command below. The host comes from the repository URL. For a self-hosted GitLab, `GITLAB_HOST` is optional: without it, Analyzer first tries to identify GitLab through its project API without a token. A private project can require an explicitly supplied read-only platform token. This does not change which hosts automatically receive `GITLAB_TOKEN` for Git retrieval.
 
 ```sh
 appsec-analyzer platform-settings <https-url> --json

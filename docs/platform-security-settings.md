@@ -5,14 +5,16 @@
 ```sh
 appsec-analyzer platform-settings https://github.com/your-org/your-project
 appsec-analyzer platform-settings https://gitlab.com/your-group/your-project --token-env GITLAB_READ_TOKEN --yaml
-GITLAB_HOST=gitlab.example.com appsec-analyzer platform-settings https://gitlab.example.com/your-group/your-project
+appsec-analyzer platform-settings https://gitlab.example.com/your-group/your-project
 ```
 
 Replace the example URLs with your own repository. `--json` and `--yaml` are mutually exclusive. The URL must be an HTTPS or SSH URL of a repository on one of these hosts. Local paths and other hosts are rejected.
 
 ## Self-hosted GitLab
 
-Set the environment variable `GITLAB_HOST` to the host name of your instance, such as `gitlab.example.com`. Analyzer treats only that host as GitLab, because a host name does not show which platform runs there. It never takes the host from repository files.
+Analyzer reads the destination host from the repository URL. When `GITLAB_HOST` is unset, it first tries the GitLab project API on that host without a token. A recognizable project response identifies the platform. A private project can require the read-only token you explicitly supply with `--token-env` or, in an assessment, `--platform-token-env`. If the host or project cannot be identified or read, the check fails and an assessment treats the settings as unknown; a missing host variable does not skip the check. The Git read-access preflight is a separate check.
+
+You can still set `GITLAB_HOST` to identify a known GitLab instance directly, such as `gitlab.example.com`. Other custom hosts then stay unsupported. Analyzer never takes the platform host from repository files. Platform detection does not change Git authentication: automatic use of `GITLAB_TOKEN` still requires `gitlab.com` or the host in `GITLAB_HOST`; `--git-token-env GITLAB_TOKEN` selects it explicitly for Git access.
 
 Requests go to port 443 of that host, so URLs with their own port are rejected. A self-hosted host passes the same checks as Git retrieval before every request: `APPSEC_URL_ALLOWLIST` applies, and addresses such as loopback or link-local are refused. Private addresses are allowed. If your proxy settings apply to the host, the proxy reaches it and only the allow-list applies. For a private certificate authority, add it to the certificates your system trusts.
 
@@ -42,7 +44,7 @@ The checks, their IDs, and what counts as `set` are listed in the [check catalog
 
 ## In a scan
 
-`assess` runs the same checks as the Platform Security Settings phase, after the context is captured and before the architecture analysis. It checks every repository you selected as a URL on github.com, gitlab.com, or the host in `GITLAB_HOST`. A local checkout is shown as skipped and sends no request, even if its Git remote points to GitHub or GitLab. Add `--platform-token-env NAME` to use a read-only token from an environment variable; without it only public data is checked. A token goes to one host only, so a run with repositories on several hosts stops at the start; leave out the option to check them with public data only. A check that fails is recorded as unknown and does not stop the scan.
+`assess` runs the same checks as the Platform Security Settings phase, after the context is captured and before the architecture analysis. It checks every repository you selected as a URL on github.com, gitlab.com, or a self-hosted GitLab. When `GITLAB_HOST` is unset, other selected URL hosts are tried as GitLab candidates. A local checkout is shown as skipped and sends no request, even if its Git remote points to GitHub or GitLab. Add `--platform-token-env NAME` to use a read-only token from an environment variable; without it only public data is checked. A token goes to one host only, so a run with repositories on several hosts, including unconfirmed candidates, stops at the start; leave out the option to check them with public data only. A check that fails is recorded as unknown and does not stop the scan.
 
 Before the first request, the phase prints the platform host. It saves results in the private working directory and reuses them on resume.
 
@@ -52,4 +54,4 @@ The report shows the result in an unnumbered section, Platform Security Settings
 
 ## Limits
 
-Administrator access, webhooks, and deploy keys are not checked. Only github.com, gitlab.com, and a self-hosted GitLab named by `GITLAB_HOST` are supported; GitHub Enterprise is not. The self-hosted check has been tested offline only.
+Administrator access, webhooks, and deploy keys are not checked. Only github.com, gitlab.com, and self-hosted GitLab are supported; GitHub Enterprise is not. Custom ports are unsupported. Identifying a host from its project API does not prove who operates it or authorize sending an ambient token. The self-hosted check has been tested offline only.

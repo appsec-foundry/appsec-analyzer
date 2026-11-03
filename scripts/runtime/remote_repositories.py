@@ -301,17 +301,19 @@ def _redirect_target(remote: Remote) -> str | None:
             connection.close()
 
 
-def credential_hint(remote: Remote) -> str:
-    """Name the variables a failed access needed, without exposing any value."""
+def credential_hint(remote: Remote, *, token_rejected: bool = False) -> str:
+    """Describe credential selection; claim rejection only when Git reported it."""
     if remote.scheme == "ssh":
         return "load the key into the SSH agent or set APPSEC_GIT_SSH_KEY_FILE, and trust the host key in known_hosts"
     selected = select_token(remote.host)
     if selected:
-        hint = f"the token from {selected[0]} was not accepted; check its value, expiry, scope and APPSEC_GIT_USERNAME"
+        status = "was not accepted" if token_rejected else "was selected"
+        hint = f"the token from {selected[0]} {status}; check its value, expiry, scope and APPSEC_GIT_USERNAME"
     elif os.environ.get("GITLAB_TOKEN"):
         hint = (
-            f"GITLAB_TOKEN is set but is sent only to gitlab.com and GITLAB_HOST; for {remote.host} "
-            f"set GITLAB_HOST={remote.host} or pass --git-token-env GITLAB_TOKEN"
+            f"GITLAB_TOKEN is set but was not used for {remote.host}: this host is not configured as a GitLab instance; "
+            "pass --git-token-env GITLAB_TOKEN to use it explicitly for this run, "
+            f"or set GITLAB_HOST={remote.host} if this is a self-hosted GitLab"
         )
     else:
         hint = (
@@ -333,7 +335,7 @@ def _explanation(remote: Remote, kind: str) -> str | None:
     selected = select_token(remote.host) if remote.scheme == "https" else None
     if kind == "token":
         if selected:
-            return credential_hint(remote)
+            return credential_hint(remote, token_rejected=True)
         return (
             f"{remote.host} rejected the login from your Git credential helper; renew it, or {credential_hint(remote)}"
         )

@@ -20,7 +20,10 @@ from appsec_analyzer.terminal import field
 ARTIFACT = "platform-settings.json"
 SCHEMA_VERSION = 1
 LOCAL = "local repository; give a GitHub or GitLab URL to check its platform settings"
-UNSUPPORTED = "not a github.com or gitlab.com repository URL; set GITLAB_HOST for a self-hosted GitLab"
+UNSUPPORTED = (
+    "URL is not recognized as a supported platform repository; "
+    "if this is a self-hosted GitLab, set GITLAB_HOST to its host name"
+)
 FAILED = "the platform check could not finish"
 # The start-check line of a skipped repository; the stored reason keeps the full text.
 _SKIPPED = {"local_repository": "local checkout", "unsupported_platform": UNSUPPORTED}
@@ -97,7 +100,7 @@ def run_phase(
             code, reason = (
                 ("unsupported_platform", UNSUPPORTED) if _looks_like_url(source) else ("local_repository", LOCAL)
             )
-            say("·", f"{_short(source)} skipped ({_SKIPPED[code]})")
+            say("·", f"platform settings check skipped for {_short(source)} ({_SKIPPED[code]})")
             rows.append({"source": label, "status": "skipped", "reason": reason, "code": code})
             continue
         access = "with your read-only token" if token else "anonymously (public data only)"

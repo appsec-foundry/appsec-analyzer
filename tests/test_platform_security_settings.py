@@ -83,6 +83,8 @@ def gl_routes(**over):
     routes = {
         base: ok(
             {
+                "id": 1,
+                "path_with_namespace": "g/s/p",
                 "visibility": "public",
                 "default_branch": "main",
                 "ci_allow_fork_pipelines_to_run_in_parent_project": False,
@@ -393,7 +395,8 @@ def test_repository_that_cannot_be_read_stops_the_check_without_leaking_details(
         "/home/user/repo",
     ],
 )
-def test_unsupported_urls_are_rejected(url):
+def test_unsupported_urls_are_rejected(url, monkeypatch):
+    monkeypatch.setenv("GITLAB_HOST", "gitlab.firma.test")
     with pytest.raises(SourceError):
         parse_repository(url)
 
@@ -498,6 +501,8 @@ def _phase(sources, directory, monkeypatch, *, routes=None, resume=False, token_
 
     fake = Fake(gh_routes() if routes is None else routes)
     monkeypatch.setattr("appsec_analyzer.platform_settings.service.github_client", lambda token: fake)
+    if routes is not None:
+        monkeypatch.setattr("appsec_analyzer.platform_settings.service.gitlab_client", lambda token, host: fake)
     said: list[str] = []
     document = phase.run_phase(
         sources, directory, token_env=token_env, resume=resume, say=lambda symbol, text: said.append(f"{symbol} {text}")
@@ -511,7 +516,7 @@ def test_phase_skips_a_local_repository_and_sends_no_request(tmp_path, monkeypat
     assert document["repositories"][0]["status"] == "skipped"
     assert "local repository" in document["repositories"][0]["reason"]
     # The start check names the folder, which the run header shows in full, with a short reason.
-    assert said == ["· checkout skipped (local checkout)"]
+    assert said == ["· platform settings check skipped for checkout (local checkout)"]
 
 
 def test_phase_names_the_settings_that_are_not_set_by_their_catalog_titles(tmp_path, monkeypatch):
@@ -579,6 +584,7 @@ def test_phase_checks_a_supported_url_and_stores_the_result_privately(tmp_path, 
 
 
 def test_phase_reports_unsupported_hosts_as_skipped(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITLAB_HOST", "gitlab.firma.test")
     document, _, fake = _phase(["https://example.com/o/r"], tmp_path / "work", monkeypatch)
     assert fake.requests == []
     assert document["repositories"][0]["status"] == "skipped"
@@ -676,10 +682,102 @@ def test_a_named_host_is_a_gitlab_instance(monkeypatch, named, url):
     assert (repo.platform, repo.host, repo.path) == ("gitlab", HOST, "g/s/p")
 
 
-def test_a_host_that_was_not_named_is_refused_with_the_way_to_name_it(monkeypatch):
+@pytest.mark.parametrize("url", [SELF, f"git@{HOST}:g/s/p.git", f"ssh://git@{HOST}/g/s/p"])
+def test_a_host_that_was_not_named_is_a_gitlab_candidate_from_the_uri(monkeypatch, url):
     monkeypatch.delenv("GITLAB_HOST", raising=False)
-    with pytest.raises(SourceError, match="GITLAB_HOST"):
-        parse_repository(SELF)
+    repo = parse_repository(url)
+    assert (repo.platform, repo.host, repo.path, repo.inferred) == ("gitlab", HOST, "g/s/p", True)
+
+
+@pytest.mark.parametrize("url", [SELF, "https://github.com.evil.test/g/s/p"])
+def test_uri_detection_never_uses_ambient_tokens(monkeypatch, url):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    monkeypatch.setenv("GITLAB_TOKEN", "ambient-gitlab-fixture-token")
+    monkeypatch.setenv("APPSEC_GIT_TOKEN", "ambient-appsec-fixture-token")
+    fake, tokens = Fake(gl_routes()), []
+    monkeypatch.setattr(
+        "appsec_analyzer.platform_settings.service.gitlab_client",
+        lambda token, host: tokens.append((host, token)) or fake,
+    )
+    repo = parse_repository(url)
+    result = check_platform_settings(url)
+    assert repo.inferred and result["platform"] == "gitlab"
+    assert tokens == [(repo.host, None)] and result["access"] == "anonymous"
+    assert "ambient-" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("status", [200, 401, 403, 404])
+def test_uri_detection_uses_explicit_platform_token_after_anonymous_read(monkeypatch, status):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    base = "/projects/g%2Fs%2Fp"
+    anonymous = Fake(gl_routes() if status == 200 else {base: Response(status)})
+    authenticated, tokens = Fake(gl_routes()), []
+
+    def make(repo, token):
+        tokens.append((repo.host, token))
+        return authenticated if token else anonymous
+
+    result = check_platform_settings(SELF, "explicit-fixture-token", client_factory=make)
+    assert tokens == [(HOST, None), (HOST, "explicit-fixture-token")]
+    assert anonymous.requests == [base] and authenticated.requests[0] == base
+    assert result["access"] == "token" and "explicit-fixture-token" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"id": True, "path_with_namespace": "g/s/p"},
+        {"id": 0, "path_with_namespace": "g/s/p"},
+        {"id": 1, "path_with_namespace": "other/project"},
+        {"id": 1},
+    ],
+)
+def test_uri_detection_rejects_unrecognized_project_data_without_sending_a_token(monkeypatch, body):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    fake, tokens = Fake({"/projects/g%2Fs%2Fp": ok(body)}), []
+
+    def make(repo, token):
+        tokens.append(token)
+        return fake
+
+    with pytest.raises(PlatformSettingsError, match="could not be identified as GitLab"):
+        check_platform_settings(SELF, "explicit-fixture-token", client_factory=make)
+    assert tokens == [None] and fake.requests == ["/projects/g%2Fs%2Fp"]
+
+
+def test_uri_detection_keeps_destination_checks(monkeypatch, direct):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    connected = _resolves_to(monkeypatch, "169.254.169.254")
+    with pytest.raises(PlatformSettingsError, match="prohibited"):
+        check_platform_settings(SELF)
+    assert connected == []
+
+
+def test_uri_detection_rejects_unrelated_authenticated_project_data(monkeypatch):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    base = "/projects/g%2Fs%2Fp"
+    anonymous = Fake({base: Response(404)})
+    authenticated = Fake({base: ok({"id": 1, "path_with_namespace": "other/project"})})
+    with pytest.raises(PlatformSettingsError, match="could not be identified as GitLab"):
+        check_platform_settings(
+            SELF,
+            "explicit-fixture-token",
+            client_factory=lambda repo, token: authenticated if token else anonymous,
+        )
+    assert anonymous.requests == authenticated.requests == [base]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 429, 500])
+def test_phase_marks_an_unidentified_uri_host_as_unknown(tmp_path, monkeypatch, status):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    document, said, fake = _phase(
+        [SELF], tmp_path / "work", monkeypatch, routes={"/projects/g%2Fs%2Fp": Response(status)}
+    )
+    assert fake.requests == ["/projects/g%2Fs%2Fp"]
+    assert document["repositories"][0]["status"] == "failed"
+    assert any("treated as unknown" in line for line in said)
+    assert not any("skipped" in line for line in said)
 
 
 @pytest.mark.parametrize(
@@ -791,10 +889,18 @@ def test_cli_checks_a_named_host_and_prints_it_first(monkeypatch, capsys):
     assert json.loads(captured.out)["host"] == HOST
 
 
-def test_cli_says_how_to_name_a_host(monkeypatch, capsys):
+def test_cli_checks_a_host_from_the_uri_without_a_host_variable(monkeypatch, capsys):
     monkeypatch.delenv("GITLAB_HOST", raising=False)
-    assert cli.main(["platform-settings", SELF]) == 2
-    assert "GITLAB_HOST" in capsys.readouterr().err
+    fake, tokens = Fake(gl_routes()), []
+    monkeypatch.setattr(
+        "appsec_analyzer.platform_settings.service.gitlab_client",
+        lambda token, host: tokens.append((host, token)) or fake,
+    )
+    assert cli.main(["platform-settings", SELF, "--json"]) == 0
+    captured = capsys.readouterr()
+    assert tokens == [(HOST, None)] and fake.requests[0] == "/projects/g%2Fs%2Fp"
+    assert json.loads(captured.out)["host"] == HOST
+    assert f"Sending read requests to {HOST}" in captured.err
 
 
 def test_phase_checks_a_named_host_and_keeps_it_from_models_and_the_report(tmp_path, monkeypatch):
@@ -806,23 +912,30 @@ def test_phase_checks_a_named_host_and_keeps_it_from_models_and_the_report(tmp_p
     assert HOST not in json.dumps([model_context(document), report_block(document)])
 
 
-def test_phase_skips_a_host_that_was_not_named_and_says_how_to_name_it(tmp_path, monkeypatch):
+def test_phase_checks_a_host_from_the_uri_without_a_host_variable(tmp_path, monkeypatch):
     monkeypatch.delenv("GITLAB_HOST", raising=False)
-    document, said, fake = _phase([SELF], tmp_path / "work", monkeypatch)
+    document, said, fake = _phase([SELF], tmp_path / "work", monkeypatch, routes=gl_routes())
     row = document["repositories"][0]
-    assert fake.requests == []
-    assert (row["status"], row["code"]) == ("skipped", "unsupported_platform")
-    assert "GITLAB_HOST" in row["reason"] and any("GITLAB_HOST" in line for line in said)
+    assert fake.requests[0] == "/projects/g%2Fs%2Fp"
+    assert row["status"] == "checked" and row["result"]["host"] == HOST
+    assert any(f"sending read requests to {HOST}" in line for line in said)
+    assert not any("skipped" in line for line in said)
 
 
-def test_platform_hosts_counts_each_supported_host_once():
+def test_platform_hosts_counts_each_supported_host_once(monkeypatch):
+    monkeypatch.delenv("GITLAB_HOST", raising=False)
+    # Unconfirmed URI hosts count too, before a platform token can be sent.
     selections = [GL, "https://gitlab.com/g/other", GH, "/home/user/repo", "https://example.com/o/r"]
-    assert platform_hosts(selections) == ["github.com", "gitlab.com"]
+    assert platform_hosts(selections) == ["example.com", "github.com", "gitlab.com"]
 
 
-def test_assess_stops_when_one_token_would_reach_several_hosts(monkeypatch, capsys):
+@pytest.mark.parametrize("configured", [False, True])
+def test_assess_stops_when_one_token_would_reach_several_hosts(monkeypatch, capsys, configured):
     monkeypatch.setenv("PLATSEC_TEST_TOKEN", "secret-token-value")
-    monkeypatch.setenv("GITLAB_HOST", HOST)
+    if configured:
+        monkeypatch.setenv("GITLAB_HOST", HOST)
+    else:
+        monkeypatch.delenv("GITLAB_HOST", raising=False)
     monkeypatch.setattr("appsec_analyzer.hosts.claude_preflight", lambda: None)
     code = cli.main(
         [

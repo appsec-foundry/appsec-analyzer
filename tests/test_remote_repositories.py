@@ -628,17 +628,22 @@ def test_failure_hint_names_tried_variables_or_the_one_that_failed(monkeypatch, 
     monkeypatch.setenv("GITLAB_TOKEN", "ambient-secret")
     skipped = remote.credential_hint(https)
     assert "was not accepted" not in skipped and "ambient-secret" not in skipped
-    assert "GITLAB_TOKEN is set but" in skipped and "GITLAB_HOST=git.example" in skipped
+    assert "GITLAB_TOKEN is set but was not used for git.example" in skipped
+    assert "this host is not configured as a GitLab instance" in skipped
+    assert "--git-token-env GITLAB_TOKEN" in skipped and "GITLAB_HOST=git.example" in skipped
+    assert skipped.index("--git-token-env GITLAB_TOKEN") < skipped.index("GITLAB_HOST=git.example")
     assert "GITLAB_TOKEN is set but" not in remote.credential_hint(remote.parse_remote("https://gitlab.com/t/a.git"))
     monkeypatch.setenv("GIT_TOKEN", "ambient-secret")
-    failed = remote.credential_hint(https)
-    assert "token from GIT_TOKEN was not accepted" in failed and "ambient-secret" not in failed
+    selected = remote.credential_hint(https)
+    assert "token from GIT_TOKEN was selected" in selected and "ambient-secret" not in selected
+    assert "was not accepted" not in selected
     assert "SSH agent" in remote.credential_hint(remote.parse_remote("git@git.example:team/a.git"))
     bare = remote.credential_hint(remote.parse_remote("https://git.example/team/a"))
-    assert "GIT_TOKEN was not accepted" in bare and "team/a" not in bare and ".git" not in bare
+    assert "GIT_TOKEN was selected" in bare and "team/a" not in bare and ".git" not in bare
     with pytest.raises(remote.RemoteError) as raised:
-        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), failed, "https")
-    assert "GIT_TOKEN was not accepted" in str(raised.value) and "SSH host keys" not in str(raised.value)
+        remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ), selected, "https")
+    assert "GIT_TOKEN was selected" in str(raised.value) and "SSH host keys" not in str(raised.value)
+    assert "was not accepted" not in str(raised.value)
     with pytest.raises(remote.RemoteError, match="trusted SSH host keys"):
         remote._git(["no-such-subcommand"], Path("/nonexistent-root"), dict(os.environ))
 
@@ -853,6 +858,8 @@ def test_each_cause_has_its_own_message(monkeypatch, no_token_env):
     monkeypatch.setenv("GIT_TOKEN", "ambient-secret")
     messages = {kind: remote._explanation(https, kind) for kind in expected}
     assert "the token from GIT_TOKEN was not accepted" in messages["token"]
+    assert "the token from GIT_TOKEN was selected" in messages["login"]
+    assert "was not accepted" not in messages["login"]
     assert "whether the token from GIT_TOKEN may read it" in messages["not_found"]
     assert "whether the token from GIT_TOKEN may read it" in messages["forbidden"]
     assert "ambient-secret" not in str(messages)
@@ -914,11 +921,26 @@ def test_preflight_and_clone_report_the_cause_git_stated(fake_git, tmp_path):
         remote.clone(target, tmp_path / "checkout")
 
 
-def test_a_failure_without_a_known_cause_keeps_the_general_message(fake_git):
+@pytest.mark.parametrize("token_name", [None, "GIT_TOKEN", "GITLAB_TOKEN"])
+@pytest.mark.parametrize("operation", ["preflight", "clone"])
+def test_a_failure_without_a_known_cause_keeps_the_general_message(
+    fake_git, tmp_path, monkeypatch, token_name, operation
+):
+    if token_name:
+        monkeypatch.setenv(token_name, "selected-fixture-token")
+        if token_name == "GITLAB_TOKEN":
+            monkeypatch.setenv(remote.TOKEN_NAME_ENV, token_name)
     fake_git.answer(SUFFIX, "fatal: Could not read from remote repository.\n")
-    with pytest.raises(remote.RemoteError, match="^Git preflight failed; check repository URL") as caught:
-        remote.check_access(remote.parse_remote(SUFFIX))
-    assert "APPSEC_GIT_TOKEN" in str(caught.value)
+    prefix = "Git preflight failed; check repository URL" if operation == "preflight" else "Git checkout failed; check"
+    with pytest.raises(remote.RemoteError, match=f"^{prefix}") as caught:
+        target = remote.parse_remote(SUFFIX)
+        if operation == "preflight":
+            remote.check_access(target)
+        else:
+            remote.clone(target, tmp_path / "checkout")
+    message = str(caught.value)
+    assert (f"the token from {token_name} was selected" if token_name else "APPSEC_GIT_TOKEN") in message
+    assert "was not accepted" not in message and "selected-fixture-token" not in message
 
 
 def test_host_text_cannot_choose_the_cause_or_reach_the_message(fake_git):

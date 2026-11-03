@@ -235,14 +235,21 @@ requirements:
       - tests/test_platform_security_settings.py::test_phase_reuses_the_stored_result_on_resume_without_a_new_request
       - tests/test_platform_security_settings.py::test_a_named_host_is_a_gitlab_instance
       - tests/test_platform_security_settings.py::test_a_named_host_admits_nothing_else
-      - tests/test_platform_security_settings.py::test_a_host_that_was_not_named_is_refused_with_the_way_to_name_it
+      - tests/test_platform_security_settings.py::test_a_host_that_was_not_named_is_a_gitlab_candidate_from_the_uri
+      - tests/test_platform_security_settings.py::test_cli_checks_a_host_from_the_uri_without_a_host_variable
+      - tests/test_platform_security_settings.py::test_uri_detection_never_uses_ambient_tokens
+      - tests/test_platform_security_settings.py::test_uri_detection_uses_explicit_platform_token_after_anonymous_read
+      - tests/test_platform_security_settings.py::test_uri_detection_rejects_unrecognized_project_data_without_sending_a_token
+      - tests/test_platform_security_settings.py::test_uri_detection_rejects_unrelated_authenticated_project_data
+      - tests/test_platform_security_settings.py::test_uri_detection_keeps_destination_checks
+      - tests/test_platform_security_settings.py::test_phase_marks_an_unidentified_uri_host_as_unknown
       - tests/test_platform_security_settings.py::test_self_hosted_client_refuses_a_prohibited_address
       - tests/test_platform_security_settings.py::test_self_hosted_client_connects_only_to_the_checked_address
       - tests/test_platform_security_settings.py::test_self_hosted_client_checks_the_address_for_every_request
       - tests/test_platform_security_settings.py::test_self_hosted_client_keeps_the_host_allow_list
       - tests/test_platform_security_settings.py::test_self_hosted_client_refuses_a_redirect_and_keeps_the_token
       - tests/test_platform_security_settings.py::test_phase_checks_a_named_host_and_keeps_it_from_models_and_the_report
-      - tests/test_platform_security_settings.py::test_phase_skips_a_host_that_was_not_named_and_says_how_to_name_it
+      - tests/test_platform_security_settings.py::test_phase_checks_a_host_from_the_uri_without_a_host_variable
       - tests/test_platform_security_settings.py::test_assess_stops_when_one_token_would_reach_several_hosts
       - tests/test_platform_security_settings.py::test_projection_passes_only_allow_listed_values
       - tests/test_platform_security_settings.py::test_projection_is_absent_when_nothing_was_checked

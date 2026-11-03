@@ -379,8 +379,9 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
         help="Check security settings of a GitHub or GitLab repository without model calls",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Check security settings of a repository on github.com, gitlab.com, or a self-hosted GitLab named\n"
-            "by GITLAB_HOST, such as branch protection, secret scanning, and workflow permissions.\n"
+            "Check security settings of a repository on github.com, gitlab.com, or a self-hosted GitLab,\n"
+            "such as branch protection, secret scanning, and workflow permissions.\n"
+            "The host comes from the URL. Without GITLAB_HOST, identify GitLab through its project API first.\n"
             "Sends read requests to the platform API only;\n"
             "no model calls, no source code, and no writes to the repository or the platform.\n"
             "Each setting is reported as set, not set, or not checkable, with the reason."
@@ -392,11 +393,11 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             "Examples:\n"
             "  appsec-analyzer platform-settings https://github.com/your-org/your-project\n"
             "  GITHUB_READ_TOKEN=... appsec-analyzer platform-settings URL --token-env GITHUB_READ_TOKEN --json\n"
-            "  GITLAB_HOST=gitlab.example.com appsec-analyzer platform-settings https://gitlab.example.com/group/project"
+            "  appsec-analyzer platform-settings https://gitlab.example.com/group/project"
         ),
     )
     platform.add_argument(
-        "url", metavar="URL", help="HTTPS or SSH URL of a github.com, gitlab.com, or GITLAB_HOST repository"
+        "url", metavar="URL", help="HTTPS or SSH URL of a GitHub or GitLab repository, including self-hosted GitLab"
     )
     platform.add_argument("--token-env", metavar="NAME", help="Environment variable holding a read-only platform token")
     platform_formats = platform.add_mutually_exclusive_group()

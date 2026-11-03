@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ class Repository:
     platform: str
     host: str
     path: str
+    inferred: bool = False
 
     @property
     def label(self) -> str:
@@ -32,7 +34,7 @@ class Repository:
 
 
 def _platform(host: str) -> str | None:
-    """The platform of a host. Only the operator's GITLAB_HOST adds a host, never repository content."""
+    """Known platform assignments, independent of URI-based GitLab detection."""
     if host in HOSTS:
         return HOSTS[host]
     from appsec_analyzer.engine import initialize
@@ -53,7 +55,8 @@ def parse_repository(url: str) -> Repository:
         raise SourceError("expected an HTTPS or SSH URL of a GitHub or GitLab repository")
     host = match["host"].lower()
     platform = _platform(host)
-    if platform is None:
+    inferred = platform is None and bool(_HOST.fullmatch(host)) and not os.environ.get("GITLAB_HOST", "").strip()
+    if platform is None and not inferred:
         raise SourceError(
             "only github.com and gitlab.com repositories are supported; "
             "set GITLAB_HOST to the host of a self-hosted GitLab"
@@ -63,11 +66,11 @@ def parse_repository(url: str) -> Repository:
     limit = 2 if platform == "github" else 20
     if not 2 <= len(segments) <= limit or not all(_SEGMENT.fullmatch(s) and s not in (".", "..") for s in segments):
         raise SourceError("the URL does not name a repository")
-    return Repository(platform, host, path)
+    return Repository(platform or "gitlab", host, path, inferred=inferred)
 
 
 def platform_hosts(sources: Iterable[str]) -> list[str]:
-    """The distinct platform hosts of the selections; local paths and unsupported URLs have none."""
+    """All selected platform hosts, including GitLab candidates, before any request."""
     hosts = set()
     for source in sources:
         try:

@@ -20,6 +20,32 @@ class PlatformSettingsError(ValueError):
     """The check could not run for this repository."""
 
 
+def _inferred_gitlab(repo: Repository, token: str | None, make: Callable) -> tuple[checks.GitLab, checks.Context]:
+    """Try the selected host anonymously; only an explicit platform token can add access."""
+    runner = checks.GitLab(make(repo, None), repo, False)
+    try:
+        context = runner.context()
+    except LookupError as exc:
+        # A private GitLab project can be invisible anonymously. The operator's
+        # explicit platform token authorizes access to this selected host only.
+        if not token or not exc.args or exc.args[0].status not in (401, 403, 404):
+            raise
+    else:
+        _require_gitlab_project(runner, repo)
+        if not token:
+            return runner, context
+    runner = checks.GitLab(make(repo, token), repo, True)
+    context = runner.context()
+    _require_gitlab_project(runner, repo)
+    return runner, context
+
+
+def _require_gitlab_project(runner: checks.GitLab, repo: Repository) -> None:
+    project = runner.project
+    if type(project.get("id")) is not int or project["id"] <= 0 or project.get("path_with_namespace") != repo.path:
+        raise PlatformSettingsError("the host could not be identified as GitLab from its project API")
+
+
 def check_platform_settings(
     url: str,
     token: str | None = None,
@@ -30,10 +56,13 @@ def check_platform_settings(
     """Return the validated result; the token is used for requests only and never stored."""
     repo = parse_repository(url)
     make = client_factory or (lambda r, t: github_client(t) if r.platform == "github" else gitlab_client(t, r.host))
-    client = make(repo, token)
-    runner = (checks.GitHub if repo.platform == "github" else checks.GitLab)(client, repo, bool(token))
     try:
-        context = runner.context()
+        if repo.inferred:
+            runner, context = _inferred_gitlab(repo, token, make)
+        else:
+            client = make(repo, token)
+            runner = (checks.GitHub if repo.platform == "github" else checks.GitLab)(client, repo, bool(token))
+            context = runner.context()
         outcomes = runner.evaluate(context)
     except LookupError as exc:
         status = exc.args[0].status if exc.args else 0
