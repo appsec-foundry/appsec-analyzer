@@ -114,6 +114,75 @@ def test_noisy_stderr_cannot_block_a_successful_host(tmp_path):
     assert transport(tmp_path, body).invoke("s", "p", {}, 5, lambda: False).payload == {"ok": True}
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize(
+    "diagnostic,reason",
+    [
+        ("getaddrinfo EAI_AGAIN api.example.invalid", "dns_unavailable"),
+        ("getaddrinfo ENOTFOUND api.example.invalid", "dns_unavailable"),
+        ("connect ENETUNREACH", "connection_failed"),
+        ("connect ECONNREFUSED", "connection_failed"),
+        ("connect ETIMEDOUT", "connection_timeout"),
+        ("Connection error: certificate verify failed", "tls_error"),
+    ],
+)
+def test_claude_connection_errors_are_classified_without_exposing_host_text(tmp_path, streaming, diagnostic, reason):
+    outcome = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": True,
+        "api_error_status": None,
+        "result": "API Error: " + diagnostic + " PRIVATE_DIAGNOSTIC",
+        "total_cost_usd": 0,
+    }
+    body = "print(json.dumps(" + repr(outcome) + "))\n"
+    events = tmp_path / "events.jsonl"
+    t = host.ClaudeCliTransport(
+        tmp_path / "work", executable=fake_host(tmp_path, body), events_path=events if streaming else None
+    )
+    with pytest.raises(host.TransportError) as caught:
+        t.invoke("s", "p", {}, 5, lambda: False)
+    assert caught.value.reason == reason and caught.value.usd == 0
+    assert "PRIVATE_DIAGNOSTIC" not in str(caught.value) and "api.example.invalid" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "status,api_error,expected",
+    [
+        (503, "server_error", "server_error"),
+        (None, "authentication_failed", "authentication_failed"),
+        (None, "unknown", "error"),
+    ],
+)
+def test_network_words_cannot_override_explicit_provider_failures(status, api_error, expected):
+    outcome = {"is_error": True, "api_error_status": status, "result": "getaddrinfo EAI_AGAIN"}
+    assert host._failure_reason(outcome, api_error) == expected
+    outcome["api_error"] = api_error
+    assert host._failure_reason(outcome, None) == expected
+
+
+def test_claude_stderr_network_errors_keep_fixed_causes_and_unknown_text_stays_unknown():
+    assert host._stderr_failure(b"PRIVATE_DIAGNOSTIC getaddrinfo EAI_AGAIN")[0] == "dns_unavailable"
+    assert host._stderr_failure(b"PRIVATE_DIAGNOSTIC unrecognized failure")[0] == "no_result"
+    assert host._stderr_failure(b"EPIPE: local host output pipe closed")[0] == "no_result"
+
+
+@pytest.mark.parametrize("status", [503, True, "PRIVATE_DIAGNOSTIC", {"private": "diagnostic"}, 999])
+def test_only_valid_http_status_is_exposed_in_transport_metadata(tmp_path, status):
+    outcome = {"is_error": True, "api_error_status": status, "total_cost_usd": 0}
+    with pytest.raises(host.TransportError) as caught:
+        transport(tmp_path, "print(json.dumps(" + repr(outcome) + "))\n").invoke("s", "p", {}, 5, lambda: False)
+    assert caught.value.http_status == (503 if status == 503 else None)
+    assert "PRIVATE_DIAGNOSTIC" not in str(caught.value)
+
+
+def test_successful_model_text_with_network_words_is_not_a_connection_failure(tmp_path):
+    outcome = {**REPLY, "result": "getaddrinfo EAI_AGAIN", "structured_output": {"ok": True}}
+    assert transport(tmp_path, "print(json.dumps(" + repr(outcome) + "))\n").invoke(
+        "s", "p", {}, 5, lambda: False
+    ).payload == {"ok": True}
+
+
 def test_an_exited_hosts_inherited_stderr_cannot_delay_diagnostics(tmp_path):
     import signal
 

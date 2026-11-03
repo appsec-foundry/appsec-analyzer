@@ -166,6 +166,8 @@ TRANSIENT_FAILURES = frozenset(
 # hundreds of calls. These follow the transient retry rules; a connection that
 # stays down pauses the run for --resume instead of failing it.
 NETWORK_FAILURES = frozenset({"stream_disconnected", "connection_failed", "connection_timeout", "dns_unavailable"})
+# Infrastructure failures share admission and recovery; invalid model answers keep per-job retries.
+SHARED_FAILURES = NETWORK_FAILURES | {"rate_limit", "server_error"}
 # Everything else a host reports is never repeated: login, billing, quota,
 # configuration, request and response limits, malformed answers, and codes
 # without a known cause. A test requires every produced code to be listed in
@@ -296,10 +298,12 @@ class DiscoveryBudget:
         self.charged: dict[str | None, float] = {}
         self._local = threading.local()
         # All roles share admission, including profiles using several hosts.
-        self._rate_until = 0.0
-        self._rate_failures = 0
-        self._rate_stopped = False
-        self._rate_usage_window = False
+        self._cooldown_until = 0.0
+        self._cooldown_failures = 0
+        self._cooldown_stopped = False
+        self._cooldown_usage_window = False
+        self._cooldown_reason: str | None = None
+        self._recovery_inflight = False
 
     @property
     def failed(self) -> bool:
@@ -336,7 +340,8 @@ class DiscoveryBudget:
     def invoke(self, factory, system, prompt, schema, timeout_s, should_stop) -> HostReply:
         timeouts = 0
         failures = 0
-        self._local.rate_failures = 0
+        self._local.shared_failures = 0
+        self._local.recovery = False
         self._local.measured = self._local.full_ceiling = False
         # A retry gets the caller's time that is left, not the full limit again.
         deadline = time.monotonic() + timeout_s
@@ -381,14 +386,17 @@ class DiscoveryBudget:
                 if self.on_retry is not None:
                     self.on_retry("model call stopped at its time or thinking limit; repeating it once")
             except TransportError as exc:
-                if exc.reason == "rate_limit":
+                if exc.reason in SHARED_FAILURES:
                     failures += 1
                     with self._lock:
-                        if self._rate_stopped:
+                        if self._cooldown_stopped:
                             raise
-                        delay = max(0, math.ceil(self._rate_until - time.monotonic()))
+                        delay = max(0, math.ceil(self._cooldown_until - time.monotonic()))
                     if self.on_retry is not None:
-                        self.on_retry(f"model call failed (rate_limit); all new model calls paused for {delay} s")
+                        self.on_retry(
+                            f"model call failed ({exc.reason}); all new model calls paused for {delay} s; "
+                            "then one pending call checks recovery"
+                        )
                     continue
                 # Only a settled call leaves accounting available; another
                 # running call does not block this retry (MR-16).
@@ -401,7 +409,7 @@ class DiscoveryBudget:
                     raise
                 delay = TRANSIENT_RETRY_DELAYS[failures]
                 failures += 1
-                self._local.rate_failures += 1
+                self._local.shared_failures += 1
                 if delay >= self.remaining_seconds():
                     raise
                 charged = self._local.reserved if exc.usd is None else exc.usd
@@ -419,6 +427,14 @@ class DiscoveryBudget:
     def _paid_retries(self) -> int:
         return sum(row["paid"] for row in self.retries)
 
+    def _paused_error(self) -> TransportError:
+        return TransportError(
+            "Provider unavailable; continue with --resume",
+            reason=self._cooldown_reason or "rate_limit",
+            usd=0.0,
+            usage_window=self._cooldown_usage_window,
+        )
+
     @staticmethod
     def _wait(seconds: float, should_stop) -> None:
         end = time.monotonic() + seconds
@@ -433,25 +449,24 @@ class DiscoveryBudget:
             while True:
                 if should_stop():
                     raise HostCancelled("Discovery cancelled")
-                if self._rate_stopped:
-                    raise TransportError(
-                        "Provider rate limit; continue with --resume",
-                        reason="rate_limit",
-                        usd=0.0,
-                        usage_window=self._rate_usage_window,
-                    )
-                cooldown = self._rate_until - time.monotonic()
+                if self._cooldown_stopped:
+                    raise self._paused_error()
+                cooldown = self._cooldown_until - time.monotonic()
                 if cooldown > 0:
                     if cooldown >= admission_deadline - time.monotonic() or cooldown >= self.remaining_seconds():
-                        self._rate_stopped = True
+                        self._cooldown_stopped = True
                         self._lock.notify_all()
-                        raise TransportError(
-                            "Provider cooldown exceeds time left; continue with --resume",
-                            reason="rate_limit",
-                            usd=0.0,
-                            usage_window=self._rate_usage_window,
-                        )
+                        raise self._paused_error()
                     self._lock.wait(min(1.0, cooldown))
+                    continue
+                if self._cooldown_reason and (self._recovery_inflight or self._inflight):
+                    # Let older calls settle, then admit one pending call to test recovery.
+                    if time.monotonic() >= admission_deadline:
+                        self._cooldown_stopped = True
+                        self._lock.notify_all()
+                        raise self._paused_error()
+                    self.remaining_seconds()
+                    self._lock.wait(1.0)
                     continue
                 limit = self.max_inflight()
                 if limit is not None and self._inflight >= limit:
@@ -493,6 +508,9 @@ class DiscoveryBudget:
             if remaining < 1:
                 raise AdmissionTimeout("model call exceeded its job's time limit before admission")
             self._local.reserved = ceiling
+            self._local.recovery = self._cooldown_reason is not None
+            if self._local.recovery:
+                self._recovery_inflight = True
             admitted_at = time.monotonic()
             self.calls += 1
             if not self.subscription:
@@ -507,24 +525,27 @@ class DiscoveryBudget:
             # reported cost, even one turn over it, is charged as reported.
             # Either way the run can be resumed.
             with self._lock:
-                if exc.reason == "rate_limit":
-                    self._rate_usage_window = self._rate_usage_window or exc.usage_window
-                    index = max(self._rate_failures, self._local.rate_failures)
-                    self._rate_failures += 1
+                if exc.reason in SHARED_FAILURES:
+                    # Keep a rate limit's wait and account-window context across simultaneous failures.
+                    if self._cooldown_reason != "rate_limit":
+                        self._cooldown_reason = exc.reason
+                    self._cooldown_usage_window = self._cooldown_usage_window or exc.usage_window
+                    index = max(self._cooldown_failures, self._local.shared_failures)
+                    self._cooldown_failures += 1
                     paid = self._charged(exc.usd)
-                    paid_blocked = paid and (self._local.rate_failures or self._paid_retries() >= MAX_PAID_RETRIES)
-                    self._local.rate_failures += 1
+                    paid_blocked = paid and (self._local.shared_failures or self._paid_retries() >= MAX_PAID_RETRIES)
+                    self._local.shared_failures += 1
                     if index >= len(TRANSIENT_RETRY_DELAYS) or paid_blocked:
-                        self._rate_stopped = True
+                        self._cooldown_stopped = True
                     else:
                         delay = max(TRANSIENT_RETRY_DELAYS[index], exc.retry_after_s or 0)
                         # Long provider cooldowns need an explicit later resume.
-                        self._rate_until = max(self._rate_until, time.monotonic() + delay)
-                        if delay > 180 or self._rate_until >= min(self.deadline, admission_deadline):
-                            self._rate_stopped = True
-                        if not self._rate_stopped:
+                        self._cooldown_until = max(self._cooldown_until, time.monotonic() + delay)
+                        if delay > 180 or self._cooldown_until >= min(self.deadline, admission_deadline):
+                            self._cooldown_stopped = True
+                        if not self._cooldown_stopped:
                             charged = (ceiling if exc.usd is None else exc.usd) or 0.0
-                            self.retries.append({"reason": "rate_limit", "usd": charged, "paid": paid})
+                            self.retries.append({"reason": exc.reason, "usd": charged, "paid": paid})
                 self._settle(ceiling, ceiling if exc.usd is None else exc.usd)
             if (
                 not self.subscription
@@ -574,9 +595,14 @@ class DiscoveryBudget:
             raise
         cost = reply.usd
         with self._lock:
-            # A response to an older, already running call cannot clear a cooldown.
-            if not self._rate_stopped and admitted_at >= self._rate_until:
-                self._rate_failures = 0
+            valid_cost = (self.subscription and cost is None) or (
+                not self.subscription and type(cost) in (int, float) and math.isfinite(cost) and cost >= 0
+            )
+            # Only the recovery call may reopen admission, never an older response.
+            if self._local.recovery and not self._cooldown_stopped and valid_cost:
+                self._cooldown_failures = 0
+                self._cooldown_reason = None
+                self._cooldown_usage_window = False
         if self.subscription:
             self._settle(ceiling, None)
             if cost is not None:
@@ -691,6 +717,9 @@ class DiscoveryBudget:
         """Replace a finished call's reservation by its cost; an unknown cost stops further calls."""
         with self._lock:
             self._inflight -= 1
+            if self._local.recovery:
+                self._recovery_inflight = False
+                self._local.recovery = False
             if self.subscription:
                 # Calls are still reserved before dispatch, including failed attempts.
                 # There is no monetary reservation to reconcile for this mode.

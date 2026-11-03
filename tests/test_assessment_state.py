@@ -697,8 +697,19 @@ def test_a_refused_call_with_a_reported_cost_leaves_the_run_resumable(scope):
         assert resumed.budget.calls == 1 and resumed.budget.spent_usd == 0.0
 
 
-@pytest.mark.parametrize("rate_limit", [False, True])
-def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(scope, rate_limit):
+@pytest.mark.parametrize(
+    "pause_reason",
+    [
+        None,
+        "rate_limit",
+        "server_error",
+        "dns_unavailable",
+        "connection_failed",
+        "connection_timeout",
+        "stream_disconnected",
+    ],
+)
+def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(scope, pause_reason):
     state = lifecycle(scope)
     schema = {
         "type": "object",
@@ -720,7 +731,7 @@ def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(sco
         def invoke(self, *args):
             return HostReply({"action": "complete", "reads": [], "artifact": {"ok": True}}, 0.01)
 
-    with pytest.raises(TransportError) if rate_limit else nullcontext(), state.hold():
+    with pytest.raises(TransportError) if pause_reason else nullcontext(), state.hold():
         jobs = AssessmentJobs(
             scope,
             state.directory / "jobs",
@@ -731,8 +742,8 @@ def test_validated_cached_job_survives_resume_without_dispatch_or_extra_cost(sco
         )
         assert jobs.execute(**kwargs) == {"ok": True}
 
-        if rate_limit:
-            raise TransportError("rate_limit", reason="rate_limit", usd=0)
+        if pause_reason:
+            raise TransportError(pause_reason, reason=pause_reason, usd=0)
     assert stored(scope)["status"] == "interrupted" and not state.lock.exists()
     assert stored(scope)["deliverables"] == {}
 

@@ -1598,6 +1598,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - specs/changes/shared-provider-outage-pause/proposal.md
       - docs/internal/contracts/orchestration-actions.md
       - docs/providers.md
       - docs/profiles.md
@@ -1607,6 +1608,12 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_analyst_host.py::test_claude_connection_errors_are_classified_without_exposing_host_text
+      - tests/test_analyst_host.py::test_network_words_cannot_override_explicit_provider_failures
+      - tests/test_analyst_host.py::test_only_valid_http_status_is_exposed_in_transport_metadata
+      - tests/test_analyst_host.py::test_claude_stderr_network_errors_keep_fixed_causes_and_unknown_text_stays_unknown
+      - tests/test_analyst_host.py::test_successful_model_text_with_network_words_is_not_a_connection_failure
+      - tests/test_assessment_jobs.py::test_an_outage_pauses_optional_work_and_keeps_accepted_jobs_for_retry
       - tests/test_multi_repo_assessment.py::test_closing_keeps_concrete_coverage_and_run_notes_separate
       - tests/test_multi_repo_assessment.py::test_pipeline_wraps_between_phases_and_merge_details_align_with_their_content
       - tests/test_multi_repo_assessment.py::test_closing_summary_aligns_values_keeps_extensions_and_names_review_gaps
@@ -2016,11 +2023,14 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - specs/changes/shared-provider-outage-pause/proposal.md
       - docs/headless-mode.md
       - docs/threat-analyst.md
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_assessment.py::test_a_lost_provider_connection_pauses_the_run_for_resume
+      - tests/test_multi_repo_assessment.py::test_provider_outage_pause_never_prints_host_diagnostic
       - tests/test_remote_repositories.py::test_missing_credentials_fail_without_prompting
       - tests/test_interactive_budget.py::test_only_an_interactive_non_ci_terminal_can_prompt
       - tests/test_public_scan_cli.py::test_non_interactive_reaches_the_controller_and_is_documented
@@ -2075,6 +2085,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - specs/changes/shared-provider-outage-pause/proposal.md
       - specs/changes/console-cost-display/proposal.md
       - docs/providers.md
       - specs/changes/codex-cli-subscription/proposal.md
@@ -2087,6 +2098,11 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_rate_limit_pause.py::test_only_one_pending_call_checks_recovery_before_other_workers_restart
+      - tests/test_rate_limit_pause.py::test_a_success_from_before_the_outage_cannot_release_waiting_workers
+      - tests/test_rate_limit_pause.py::test_cooldown_does_not_extend_run_deadline
+      - tests/test_rate_limit_pause.py::test_paid_rate_limit_keeps_one_retry_limit
+      - tests/test_rate_limit_pause.py::test_subscription_rate_limits_report_no_cost_and_use_the_free_retry_schedule
       - tests/test_assessment_jobs.py::test_retry_warning_distinguishes_measured_ceiling_and_api_equivalent_usage
       - tests/test_multi_repo_assessment.py::test_model_cost_columns_align_for_different_name_and_call_lengths
       - tests/test_assessment_budget_ceilings.py::test_measured_ceilings_never_reach_into_the_report_reserve

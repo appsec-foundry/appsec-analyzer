@@ -33,7 +33,13 @@ from runtime.assessment_host import (
     ModelAnswerFailure,
     run_exchange,
 )
-from runtime.multi_repo_discovery import MAX_CALL_SECONDS, BudgetedHost, BudgetExhausted, DiscoveryBudget
+from runtime.multi_repo_discovery import (
+    MAX_CALL_SECONDS,
+    SHARED_FAILURES,
+    BudgetedHost,
+    BudgetExhausted,
+    DiscoveryBudget,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 RECEIPT_SCHEMA = ROOT / "schemas/assessment-job-receipt.schema.json"
@@ -784,12 +790,11 @@ class AssessmentJobs:
             return ExchangeResult(on_failure(str(exc)), (), 0, None)
         except (ModelAnswerFailure, InvalidHostReply, HostTimeout, TransportError) as exc:
             # Account failures and exhausted shared cooldowns must stop optional jobs too.
-            operator = isinstance(exc, TransportError) and exc.reason in (
+            operator = isinstance(exc, TransportError) and exc.reason in SHARED_FAILURES | {
                 "authentication_failed",
                 "billing_error",
                 "quota_exhausted",
-                "rate_limit",
-            )
+            }
             replaceable = not operator and (
                 isinstance(exc, (ModelAnswerFailure, InvalidHostReply, HostTimeout)) or not self.budget.unsettled
             )

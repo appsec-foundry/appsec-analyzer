@@ -112,13 +112,13 @@ A directory counts as without Git when it lies in no Git repository and has no `
 
 ### Rate limits and connection failures
 
-When a provider rate-limits a call, Analyzer pauses all new model calls. Calls already running may finish. A call that failed without a charge is retried up to three times, after 15, 60, and 180 seconds or the provider's valid `Retry-After` delay. Calls that incurred a charge have stricter limits. CLI providers that give no reset information use the default delays.
+Provider rate limits, connection failures and server errors pause all new model calls together. Calls already running may finish. After the wait and those calls have settled, one pending model call checks recovery before the other workers restart. This uses an existing job, without an extra test call. Failures without a charge allow up to three shared retries, after 15, 60, and 180 seconds or the provider's valid `Retry-After` delay. Concurrent failures share that allowance and can exhaust it sooner. Calls that incurred a charge have stricter limits. CLI providers that give no reset information use the default delays.
 
-The run pauses with exit code 3 if a wait would exceed three minutes, time runs short, or the retries are used up. This also applies to optional jobs. Accepted work is saved. Wait for capacity, then repeat the command with `--resume`. The original deadline and compatibility checks still apply.
+The run pauses with exit code 3 if a wait would exceed three minutes, time runs short, or the retries are used up. This also applies to optional jobs: a persistent outage pauses the run instead of creating coverage gaps. Accepted work is saved; unfinished jobs get no accepted result and can be retried. Check your connection or wait for provider capacity, then repeat the command with `--resume`. The original deadline and compatibility checks still apply.
 
 If rate limits keep returning, run fewer jobs in parallel. Repeat the command without `--resume` and with the smaller `--max-parallel` value that the pause message names. A changed `max_parallel` cannot resume the paused run, but the new run reuses its accepted jobs.
 
-If the connection to the provider drops or cannot open, Analyzer retries once after 15 seconds, also for subscription calls. These retries count toward the stricter retry limits for paid calls. A persistent failure pauses a required job with exit code 3 and saves accepted work. Check your connection, then use `--resume`. A failure in an optional job records a coverage gap instead. Login, quota, certificate, configuration, and request errors are not retried.
+Claude host diagnostics distinguish explicit DNS failures such as `EAI_AGAIN` from connection errors, connection timeouts and server errors. A server error alone does not establish a network outage. Analyzer cannot interrupt the CLI's internal connection retries before it reports a failure, so the first warning can still take several minutes. Login, quota, certificate, configuration, request and unknown errors are not retried. Invalid model answers retain their separate correction and fallback rules.
 
 ### Progress and diagnostics
 

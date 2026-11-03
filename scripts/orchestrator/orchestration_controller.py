@@ -5855,7 +5855,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
     from runtime.assessment_host import ExchangeError
     from runtime.assessment_state import AssessmentPaused
-    from runtime.multi_repo_discovery import NETWORK_FAILURES, BudgetExhausted
+    from runtime.multi_repo_discovery import NETWORK_FAILURES, SHARED_FAILURES, BudgetExhausted
 
     before = _draft_stamp(argv)
     started = time.monotonic()
@@ -5935,11 +5935,12 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                 )
             _stop("⏸ Assessment paused", *rows)
             return ASSESS_PAUSED_EXIT
-        if isinstance(exc, TransportError) and exc.reason in NETWORK_FAILURES:
+        if isinstance(exc, TransportError) and exc.reason in SHARED_FAILURES:
+            connection = exc.reason in NETWORK_FAILURES
             _stop(
                 "⏸ Assessment paused",
-                ("Reason", f"provider connection lost ({exc.reason})"),
-                *_resume_rows("check your connection, then "),
+                ("Reason", f"provider connection lost ({exc.reason})" if connection else "provider server failures"),
+                *_resume_rows("check your connection, then " if connection else "wait for provider recovery, then "),
             )
             return ASSESS_PAUSED_EXIT
         from appsec_analyzer.assessment.console import model_failure_rows

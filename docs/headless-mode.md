@@ -43,7 +43,7 @@ This uses the CLI's existing login and sends selected context to OpenAI. It reje
 
 ## Running and resuming an assessment
 
-`assess` shows progress and creates a private default destination if you omit `--output`. A stop request keeps accepted work. `--resume` reuses the steps that still match, and `--rebuild` starts over. Rate limits and connection failures pause the run with exit code 3. Wait, then repeat the command with `--resume`. See [rate limits and connection failures](security-assessment.md#rate-limits-and-connection-failures).
+`assess` shows progress and creates a private default destination if you omit `--output`. A stop request keeps accepted work. `--resume` reuses the steps that still match, and `--rebuild` starts over. Rate limits, connection failures and server errors pause the run with exit code 3. Wait, then repeat the command with `--resume`. See [rate limits and connection failures](security-assessment.md#rate-limits-and-connection-failures).
 
 Normal progress shows skipped optional model jobs at once as `Coverage gap` warnings. The final summary lists omitted work. `--quiet` hides live progress. Add `--verbose` to match model messages to their jobs and calls. Private diagnostics for every attempt are saved under the output directory in `.assessment-work/diagnostics/`, also with `--quiet`. See [progress and diagnostics](security-assessment.md#progress-and-diagnostics).
 

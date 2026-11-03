@@ -1814,6 +1814,8 @@ def test_a_stop_request_is_an_incomplete_resumable_run_not_a_failure(tmp_path, m
     [
         ("stream_disconnected", controller.ASSESS_PAUSED_EXIT),
         ("connection_failed", controller.ASSESS_PAUSED_EXIT),
+        ("dns_unavailable", controller.ASSESS_PAUSED_EXIT),
+        ("server_error", controller.ASSESS_PAUSED_EXIT),
         ("authentication_failed", 1),
     ],
 )
@@ -1826,7 +1828,23 @@ def test_a_lost_provider_connection_pauses_the_run_for_resume(tmp_path, monkeypa
 
     monkeypatch.setattr(controller, "assess_repositories", fail)
     assert controller.assess_main(["--repo", "a", "--repo", "b", "--output", str(tmp_path / "out")]) == code
-    assert ("provider connection lost" in capsys.readouterr().err) is (code == 3)
+    error = capsys.readouterr().err
+    message = "provider server failures" if reason == "server_error" else "provider connection lost"
+    assert (message in error) is (code == 3)
+    assert ("--resume" in error) is (code == 3)
+
+
+@pytest.mark.parametrize("reason", ["dns_unavailable", "connection_failed", "server_error"])
+def test_provider_outage_pause_never_prints_host_diagnostic(tmp_path, monkeypatch, capsys, reason):
+    from runtime.analyst_host import TransportError
+
+    def fail(*args, **kwargs):
+        raise TransportError("PRIVATE_DIAGNOSTIC", reason=reason)
+
+    monkeypatch.setattr(controller, "assess_repositories", fail)
+    assert controller.assess_main(["--repo", "a", "--repo", "b", "--output", str(tmp_path / "out")]) == 3
+    error = capsys.readouterr().err
+    assert "--resume" in error and "PRIVATE_DIAGNOSTIC" not in error
 
 
 def test_a_contract_check_failure_ends_with_a_message_not_a_traceback(monkeypatch, capsys):

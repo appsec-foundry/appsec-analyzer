@@ -30,7 +30,7 @@ from runtime import acquire_lock
 from runtime.analyst_host import HostCancelled, TransportError
 from runtime.assessment_host import ExchangeError
 from runtime.assessment_jobs import RECEIPT_SCHEMA, AssessmentBudget, _read_json, digest
-from runtime.multi_repo_discovery import BudgetExhausted
+from runtime.multi_repo_discovery import SHARED_FAILURES, BudgetExhausted
 from runtime.multi_repo_scope import AssessmentScope
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -247,7 +247,7 @@ class AssessmentState:
                 self.state["status"] = (
                     "interrupted"
                     if isinstance(error, (HostCancelled, KeyboardInterrupt, AssessmentPaused, BudgetExhausted))
-                    or (isinstance(error, TransportError) and error.reason == "rate_limit")
+                    or (isinstance(error, TransportError) and error.reason in SHARED_FAILURES)
                     else "failed"
                 )
                 self.state["stop"] = _stop_record(error)

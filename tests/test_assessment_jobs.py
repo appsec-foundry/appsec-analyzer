@@ -446,6 +446,23 @@ def test_a_connection_that_stays_down_stops_after_one_repeat(tmp_path, no_retry_
     assert caught.value.reason == "stream_disconnected" and host.calls == 2
 
 
+@pytest.mark.parametrize("reason", ["server_error", "dns_unavailable", "connection_failed", "connection_timeout"])
+def test_an_outage_pauses_optional_work_and_keeps_accepted_jobs_for_retry(tmp_path, no_retry_wait, reason):
+    jobs, first_host, kwargs, _ = setup(tmp_path)
+    assert jobs.execute(**kwargs) == {"result": "accepted"}
+    failed = Refused(10, reason)
+    jobs.host_factory = lambda role, ceiling: failed
+    with pytest.raises(TransportError, match="--resume"):
+        jobs.execute(**{**kwargs, "selector": "pending"}, on_failure=lambda reason: {"result": "replacement"})
+    assert not jobs.gaps and failed.calls == 4
+    assert len(list(jobs.directory.glob("*.receipt.json"))) == 1 and not jobs.budget.failed
+    resumed, resumed_host, resumed_kwargs, _ = setup(tmp_path)
+    assert resumed.execute(**resumed_kwargs) == {"result": "accepted"}
+    assert resumed_host.calls == 0 and first_host.calls == 1
+    assert resumed.execute(**{**resumed_kwargs, "selector": "pending"}) == {"result": "accepted"}
+    assert resumed_host.calls == 1
+
+
 @pytest.mark.parametrize("reason", ["authentication_failed", "quota_exhausted", "tls_error", "transport"])
 def test_an_account_configuration_or_unknown_failure_is_not_repeated(tmp_path, no_retry_wait, reason):
     from runtime.analyst_host import TransportError

@@ -73,6 +73,32 @@ def contains_marker(text: str, marker: str) -> bool:
     return marker in text
 
 
+def _connection_failure(text: str) -> str | None:
+    """Recognize bounded host error diagnostics, never infer a network cause from a model answer."""
+    text = text[-16384:].lower()
+    if any(
+        value in text
+        for value in (
+            "certificate verify failed",
+            "certificate verification failed",
+            "self_signed_cert",
+            "unable_to_verify_leaf_signature",
+            "err_tls_cert_altname_invalid",
+            "cert_has_expired",
+        )
+    ):
+        return "tls_error"
+    if re.search(r"\b(?:eai_again|enotfound)\b", text):
+        return "dns_unavailable"
+    if re.search(r"\b(?:etimedout|und_err_connect_timeout)\b", text) or "connection timed out" in text:
+        return "connection_timeout"
+    if re.search(r"\b(?:econnrefused|enetunreach|ehostunreach|econnreset)\b", text) or any(
+        value in text for value in ("unable to connect to api", "connection error", "connection reset by peer")
+    ):
+        return "connection_failed"
+    return None
+
+
 def _stderr_failure(data: bytes) -> tuple[str, str]:
     """Classify a bounded host diagnostic without returning any host-controlled text."""
     text = data.decode("utf-8", errors="replace").lower()
@@ -87,6 +113,8 @@ def _stderr_failure(data: bytes) -> tuple[str, str]:
         return "host_configuration", "check the operator-owned host configuration"
     if "rate limit" in text or "rate_limit" in text or contains_marker(text, "429"):
         return "rate_limit", "the host reported a rate limit without a structured result"
+    if reason := _connection_failure(text):
+        return reason, "check the connection to the configured provider"
     return "no_result", "check the host installation and login; no structured result was returned"
 
 
@@ -163,6 +191,7 @@ FAILURE_REASONS = frozenset(
     | HOST_RESULT_ERRORS
     | {"server_error", "invalid_request", "api_error", "error", "no_result", "no_structured_output"}
     | {"host_arguments", "authentication_failed", "host_configuration"}
+    | {"dns_unavailable", "connection_timeout", "connection_failed", "tls_error"}
 )
 # What the operator has to do; a code without an entry needs no action of theirs.
 _FAILURE_HINTS = {
@@ -174,13 +203,24 @@ _FAILURE_HINTS = {
 
 def _failure_reason(outcome: object, api_error: str | None) -> str:
     """Name a failed host call by a fixed code: an API error, a host limit, or a missing result."""
-    if api_error in API_ERROR_CODES:
+    if api_error is None and isinstance(outcome, dict):
+        reported = outcome.get("api_error")
+        if isinstance(reported, str) and reported in API_ERROR_CODES:
+            api_error = reported
+    if api_error in API_ERROR_CODES and api_error != "server_error":
         return _API_ERROR_ALIASES.get(api_error, api_error)
     if not isinstance(outcome, dict):
         return "no_result"
     status = outcome.get("api_error_status")
     if type(status) is int:
         return _API_STATUS_CODES.get(status) or ("server_error" if status >= 500 else "invalid_request")
+    # Claude can label a local DNS failure as a server error with no HTTP status.
+    # Only its failed result envelope supplies diagnostic text, never a successful model response.
+    diagnostic = outcome.get("result")
+    if outcome.get("is_error") and isinstance(diagnostic, str) and (reason := _connection_failure(diagnostic)):
+        return reason
+    if api_error == "server_error":
+        return api_error
     if outcome.get("terminal_reason") == "api_error":
         return "api_error"
     subtype = outcome.get("subtype")
@@ -575,6 +615,13 @@ class ClaudeCliTransport:
                 retry_after_s=retry_after,
                 exit_code=proc.returncode,
                 usage_window=usage_window,
+                http_status=(
+                    outcome["api_error_status"]
+                    if isinstance(outcome, dict)
+                    and type(outcome.get("api_error_status")) is int
+                    and 100 <= outcome["api_error_status"] <= 599
+                    else None
+                ),
             )
         usd = outcome.get("total_cost_usd")
         if not isinstance(usd, (int, float)) or (usd == 0 and _reported_tokens(outcome)):
