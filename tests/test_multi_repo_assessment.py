@@ -2504,6 +2504,36 @@ def test_single_repository_controller_carries_oauth_provider_into_figure_1(tmp_p
             if role == "recon_scanner" and artifact:
                 artifact["components"][0].update(tier="client", name="Browser portal")
                 artifact["interfaces"] = []
+            if role == "architecture_analyst" and artifact and "external_entities" in artifact:
+                # A client without a browser entry point returns to the analyst unless it names its users.
+                packet = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])
+                client = packet["context"]["components"][0]
+                path = client["paths"][0]
+                evidence = [dict(repository_id=path["repository_id"], file=path["path"], line=1, sha256=path["sha256"])]
+                artifact["external_entities"].append(
+                    dict(
+                        id="ext-portal-user",
+                        name="Portal user",
+                        kind="legitimate-role",
+                        description="Person using the browser portal.",
+                        evidence=evidence,
+                    )
+                )
+                artifact["data_flows"].append(
+                    {
+                        "id": "df-900",
+                        "from": "external",
+                        "from_entity": "ext-portal-user",
+                        "to": client["id"],
+                        "interaction": True,
+                        "label": "Use",
+                        "protocol": "HTTPS",
+                        "data_classification": "Public",
+                        "direction": "request-response",
+                        "provenance": "recon",
+                        "evidence": evidence,
+                    }
+                )
             return reply
 
     def seed(roots):
@@ -3140,10 +3170,10 @@ def _closing_lines(tmp_path, monkeypatch, capsys, yaml_text, deliverables):
     return capsys.readouterr().out.splitlines()
 
 
-def test_a_clean_run_offers_questions_about_its_scope_and_nothing_to_triage(tmp_path, monkeypatch, capsys):
+def test_a_clean_run_offers_the_review_and_nothing_to_triage(tmp_path, monkeypatch, capsys):
     out = _closing_lines(tmp_path, monkeypatch, capsys, "threats: []\n", ["security-assessment.md"])
     assert not any("triage-security-assessment" in line for line in out)
-    assert '                "What did the scan cover?"' in out
+    assert any(line.startswith("  Next steps  appsec-analyzer review ") for line in out)
 
 
 def test_a_delivered_sarif_file_is_named_as_an_additional_step(tmp_path, monkeypatch, capsys):
@@ -3442,8 +3472,8 @@ def test_budget_stop_keeps_accepted_candidates_in_a_separate_incomplete_report(t
     original = controller._assessment_budget
     budgets = []
 
-    def budget(*args):
-        value = original(*args)
+    def budget(*args, **kwargs):
+        value = original(*args, **kwargs)
         budgets.append(value)
         return value
 
@@ -3479,6 +3509,17 @@ def test_budget_stop_uses_incomplete_exit_status(tmp_path, monkeypatch, capsys):
 
 
 def test_tight_budget_skips_optional_jobs_and_still_publishes_a_gated_report(tmp_path, monkeypatch):
+    from runtime.assessment_jobs import AssessmentBudget
+
+    original = AssessmentBudget.available_usd
+
+    def available(self):
+        # USD 3 no longer leaves this cheap fake run short: a cold optional job needs 1.5 times the run's
+        # average cost, not a full call allowance (0545b74e). Hold the run at its reserves instead.
+        _group, _role, optional = getattr(self._local, "job", (None, None, False))
+        return 0.0 if optional else original(self)
+
+    monkeypatch.setattr(AssessmentBudget, "available_usd", available)
     shown = []
     outcome, host, out = _assess(
         tmp_path, monkeypatch, ("records",), ("--hard-budget", "3", "--no-pdf", "--show-costs"), progress=shown.append
@@ -3764,6 +3805,8 @@ def _coloured_console_output(monkeypatch, capsys, **env):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
+    # A dirty checkout lengthens the version label and would wrap the logo line.
+    monkeypatch.setattr("appsec_analyzer.assessment.console.describe", lambda: "0123abcd (2026-11-04)")
     console = controller._AssessmentConsole(False, clock=_Clock(), live=False)
     console.facts(
         "appsec-analyzer — LLM-backed code assessment (alpha)",

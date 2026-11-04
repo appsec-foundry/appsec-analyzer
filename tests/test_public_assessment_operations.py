@@ -644,7 +644,7 @@ def test_progress_cursor_omissions_and_terminal_state(tmp_path):
     assert progress(-1).returncode == 2
 
 
-@pytest.mark.parametrize("depth,budget", [("quick", 10), ("standard", 20), ("thorough", 40)])
+@pytest.mark.parametrize("depth,budget", [("quick", 12), ("standard", 20), ("thorough", 40)])
 def test_claude_host_defaults_and_explicit_limits(depth, budget, tmp_path, monkeypatch):
     from appsec_analyzer import cli
 
@@ -743,7 +743,8 @@ def test_launch_defaults_reject_provider_switch_without_changing_standalone_defa
         cli._prepare_profile(cli._parser().parse_args(["assess", "--launch-defaults=advisor", "--profile", "codex"]))
     ns = cli._parser().parse_args(["assess", "--assessment-depth", "thorough"])
     cli._prepare_profile(ns)
-    assert ns.hard_budget == 20 and ns.max_parallel == 4
+    # The depth's default limit (data/assessment-depths.yaml), not the standard one.
+    assert ns.hard_budget == 40 and ns.max_parallel == 4
     assert ns.width is None and not ns.non_interactive
 
 
