@@ -81,7 +81,7 @@ def validate_document(ast: dict, files: dict[str, bytes], markdown: str = "") ->
     class Markup(HTMLParser):
         def handle_starttag(self, tag, attrs):
             if tag not in set(
-                "a p br hr table thead tbody tfoot tr th td caption colgroup col img picture source details summary div span h1 h2 h3 h4 h5 h6 ul ol li strong b em i code pre blockquote sub sup small".split()
+                "a p br wbr hr table thead tbody tfoot tr th td caption colgroup col img picture source details summary div span h1 h2 h3 h4 h5 h6 ul ol li strong b em i code pre blockquote sub sup small".split()
             ):
                 raise ValueError("active report markup is not supported")
             for key, value in attrs:

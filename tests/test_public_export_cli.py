@@ -159,6 +159,7 @@ def test_export_secret_rejection_does_not_disclose_input(tmp_path):
         '<img src="file:///etc/passwd">',
         '<div style="background: url(https://example.invalid/x)">x</div>',
         "<script>alert(1)</script>",
+        '<wbr onclick="alert(1)">',
         "[bad](javascript:alert%281%29)",
     ],
 )
