@@ -6117,7 +6117,11 @@ def main(argv: list[str] | None = None) -> int:
     if arguments[:1] and arguments[0] in _LAUNCH_COMMANDS:
         return _launch_main(arguments[0], arguments[1:])
     commands = ", ".join(("assess", *_LAUNCH_COMMANDS))
-    sys.stderr.write(f"usage: orchestration_controller.py {{{commands}}} ...\n")
+    usage = f"usage: orchestration_controller.py {{{commands}}} ...\n"
+    if arguments in (["-h"], ["--help"]):
+        sys.stdout.write(usage)
+        return 0
+    sys.stderr.write(usage)
     return 2
 
 

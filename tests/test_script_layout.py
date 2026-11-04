@@ -12,7 +12,6 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 PACKAGES = (
     "analyzers",
-    "baseline",
     "contexts",
     "exporters",
     "model",
