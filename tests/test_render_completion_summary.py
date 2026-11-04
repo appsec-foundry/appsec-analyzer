@@ -1204,10 +1204,10 @@ class TestRenderRunIssues:
         lines = rcs.render_run_issues(self._make_data())
         assert not any("diagnose-run" in l for l in lines)
 
-    def test_report_error_pointer_shown_by_default(self):
+    def test_diagnostic_file_shown_by_default(self):
         lines = rcs.render_run_issues(self._make_data())
-        assert any("report-error" in l for l in lines)
-        assert any("publication requires your review and approval" in l for l in lines)
+        assert any(".run-issues.json" in line for line in lines)
+        assert not any("/appsec-advisor:" in line for line in lines)
 
     def test_report_error_pointer_hidden_with_plugin_dev(self):
         lines = rcs.render_run_issues(self._make_data(), plugin_dev=True)
@@ -1224,6 +1224,29 @@ class TestRenderRunIssues:
 
 class TestUserVisibleIssues:
     """What an end user is shown when APPSEC_PLUGIN_DEV is off."""
+
+    def test_grouped_job_details_do_not_hide_other_recorded_errors(self):
+        first = {"severity": "error", "category": "agent_error", "title": "covered job failure"}
+        other = {"severity": "error", "category": "render_error", "title": "uncovered rendering failure"}
+        data = {"schema_version": 1, "issues": [first, other], "summary": {"errors": 2}}
+        lines = rcs.render_run_issues(data, covered_titles=[first["title"]])
+        assert any("uncovered rendering failure" in line for line in lines)
+        assert not any("covered job failure" in line for line in lines)
+        assert any("1 error" in line for line in lines)
+        assert len(data["issues"]) == 2
+
+    def test_a_different_error_category_with_the_same_title_is_still_shown(self):
+        data = {
+            "schema_version": 1,
+            "issues": [
+                {"severity": "error", "category": "agent_error", "title": "same diagnostic"},
+                {"severity": "error", "category": "render_error", "title": "same diagnostic"},
+            ],
+            "summary": {"errors": 2},
+        }
+        lines = rcs.render_run_issues(data, covered_titles=["same diagnostic"])
+        assert any("same diagnostic" in line for line in lines)
+        assert any("1 error" in line for line in lines)
 
     def _data(self, *issues: dict) -> dict:
         return {

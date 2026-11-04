@@ -1679,7 +1679,7 @@ def user_visible_issues(issues: list[dict]) -> list[dict]:
     ]
 
 
-def render_run_issues(data: Optional[dict], plugin_dev: bool = False) -> list[str]:
+def render_run_issues(data: Optional[dict], plugin_dev: bool = False, *, covered_titles=()) -> list[str]:
     """Render the conditional `-- Run Issues --` block. Returns empty list
     on clean runs so the caller can extend unconditionally.
 
@@ -1687,12 +1687,28 @@ def render_run_issues(data: Optional[dict], plugin_dev: bool = False) -> list[st
     user sees only what reached their deliverable — `user_visible_issues` decides
     that — and nothing at all when none did, because an issue they cannot act on
     is noise that makes a sound run look broken. Their block ends in the
-    /report-error pointer rather than the /fix-run-issues call.
+    local diagnostic file rather than a plugin command. Titles already covered
+    by the controller's grouped warnings are omitted here, but retained on disk.
     """
     if not data:
         return []
     summary = data.get("summary") or {}
     issues = data.get("issues") or []
+    if covered_titles:
+        issues = [
+            issue
+            for issue in issues
+            if issue.get("category") != "agent_error" or issue.get("title") not in covered_titles
+        ]
+        summary = {
+            "errors": sum(issue.get("severity") == "error" for issue in issues),
+            "warnings": sum(issue.get("severity") == "warning" for issue in issues),
+            "perf_anomalies": sum(issue.get("category") in PERF_ONLY_CATEGORIES for issue in issues),
+            "recovery_events": sum(issue.get("category") == "auto_retry_fired" for issue in issues),
+            "auto_applicable_fixes": sum(
+                bool((issue.get("fix_recommendation") or {}).get("auto_applicable")) for issue in issues
+            ),
+        }
     if not issues:
         return []
 
@@ -1750,8 +1766,7 @@ def render_run_issues(data: Optional[dict], plugin_dev: bool = False) -> list[st
         # request after this summary — never inside the figures it would inflate.
         lines.append("  Root causes         : /appsec-advisor:diagnose-run")
     else:
-        lines.append("  Report this issue   : /appsec-advisor:report-error")
-        lines.append("                        Checks locally; publication requires your review and approval.")
+        lines.append("  Details             : .run-issues.json in the assessment output directory")
 
     lines.append("")
     return lines

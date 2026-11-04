@@ -732,12 +732,19 @@ def is_program_source(path: str) -> bool:
 
 def unowned_sources(scope, components: list[dict]) -> list[tuple[str, str]]:
     """Admitted program files and templates outside every component and outside tests: no job analyses them."""
+    from analyzers.scan_excludes import is_excluded_name
+    from analyzers.serving_units import is_runtime_path
+
     owned = source_selection(components)
     return sorted(
         (repo.repository_id, path)
         for repo in scope.repositories
         for path in repo.files
-        if (repo.repository_id, path) not in owned and is_program_source(path) and not _TEST_SOURCE_RE.search(path)
+        if (repo.repository_id, path) not in owned
+        and is_program_source(path)
+        and is_runtime_path(path)
+        and not is_excluded_name(path)
+        and not _TEST_SOURCE_RE.search(path)
     )
 
 

@@ -229,6 +229,8 @@ After an interruption at Management Summary, repeat the command with `--resume`.
 
 Provider connection failures, server errors and rate limits pause new model calls together. If bounded recovery attempts fail, the run pauses with exit code 3 and retains accepted results, including when an optional check was affected. Check the connection or wait for the provider to recover, then repeat the command with `--resume`. See [connection failures and recovery](docs/security-assessment.md#rate-limits-and-connection-failures).
 
+A published report can still have incomplete optional checks. The closing status says so and groups failures by cause, with the affected job and component counts. Use `--verbose` or the private `.run-issues.json` file for individual jobs. Before repeating a completed assessment, review its diagnostics and allow for additional model calls; a new output directory keeps the previous report intact.
+
 ```sh
 # Assess a local checkout
 appsec-analyzer assess --repo /path/to/project

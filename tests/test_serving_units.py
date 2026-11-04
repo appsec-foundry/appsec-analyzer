@@ -540,9 +540,8 @@ def test_finalization_assigns_the_code_discovery_did_not_read(tmp_path):
     assert {"login.php", "vulnerabilities/sqli/source/low.php", "Views/Home/Index.cshtml"} <= {
         p["path"] for p in component["paths"]
     }
-    # Only code that stays out by design is left; the report still names it.
-    left = {path for _, path in analysis.unowned_sources(scope, result["components"])}
-    assert left <= {"docs/example.php", "examples/demo.php", "vendor/lib/parser.php"}
+    # Existing policy exclusions are not unassigned application code.
+    assert not analysis.unowned_sources(scope, result["components"])
 
 
 def test_a_library_named_as_vendored_stays_out_wherever_a_build_places_it(tmp_path):

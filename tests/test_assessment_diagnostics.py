@@ -130,6 +130,7 @@ def test_optional_model_failure_is_recorded_as_replacement(tmp_path):
     jobs.diagnostics = log = diagnostics.DiagnosticLog(tmp_path / "diagnostics", "assessment-test")
     assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "fallback"}) == {"result": "fallback"}
     assert records(log)[-1]["event"] == "job_replaced"
+    assert jobs.gaps[0]["failure_code"] == records(log)[-1]["reason"] == "validation"
     assert not list(jobs.directory.glob("*.receipt.json"))
 
 

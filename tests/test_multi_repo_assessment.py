@@ -3080,6 +3080,58 @@ def test_the_diagnostics_path_is_named_only_when_the_run_needs_a_look(tmp_path, 
     assert "  Diagnostics /work/events.jsonl" in out
 
 
+def test_failed_jobs_are_summarised_by_role_and_cause_with_details_only_when_verbose():
+    gaps = [
+        {
+            "role": "test_case_investigator",
+            "selector": f"test-cases:c-{i % 4}:AuthZ:{i}",
+            "failure_code": "validation",
+            "reason": "PRIVATE_PROVIDER_TEXT; rerun with --resume",
+        }
+        for i in range(12)
+    ]
+    components = [{"id": f"c-{i}", "name": f"Service {i}"} for i in range(4)]
+    warnings = controller._assessment_gap_warnings(gaps, components, verbose=False)
+    assert len(warnings) == 1
+    assert "12 jobs" in warnings[0] and "4 components" in warnings[0] and "validation" in warnings[0]
+    assert "incomplete" in warnings[0] and not any("test-cases:" in w for w in warnings)
+    verbose = controller._assessment_gap_warnings(gaps, components, verbose=True)
+    assert len(verbose) == 13 and sum("test-cases:" in w for w in verbose) == 12
+    assert not any("PRIVATE_PROVIDER_TEXT" in w or "--resume" in w for w in verbose)
+    gaps.append({"role": "test_case_investigator", "selector": "test-cases:c-0:AI", "failure_code": "timeout"})
+    assert len(controller._assessment_gap_warnings(gaps, components, verbose=False)) == 2
+    for component in components:
+        component["name"] = "Service"
+    assert "4 components" in controller._assessment_gap_warnings(gaps, components, verbose=False)[0]
+
+
+def test_completion_explains_partial_coverage_without_repeating_recorded_job_details(tmp_path, monkeypatch, capsys):
+    detail = "verification job test-cases:gateway:AuthZ was replaced after a model failure (validation)"
+    controller._write_run_issues(tmp_path, {}, [("agent_error", "error", detail)])
+    out = _outcome_lines(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        coverage_incomplete=True,
+        job_failure_details=[detail],
+        warnings=["verification: 1 job has no accepted result (validation); coverage is incomplete"],
+    )
+    text = "\n".join(out)
+    assert "Completed; some checks are incomplete" in text
+    assert "additional model calls" in text and "new output directory" in text
+    assert "test-cases:gateway" not in text and "/appsec-advisor:report-error" not in text
+
+
+def test_failure_summaries_keep_distinct_errors_and_sanitise_names():
+    gaps = [
+        {"role": "test_case_investigator", "selector": "test-cases:c-0:AI", "failure_code": "PRIVATE\nCODE"},
+        {"role": "ms_renderer", "selector": "summary", "failure_code": "validation"},
+    ]
+    warnings = controller._assessment_gap_warnings(gaps, [{"id": "c-0", "name": "Service\n\x1b[31m"}], verbose=False)
+    assert len(warnings) == 2 and "unclassified" in warnings[0]
+    assert not any("\n" in text or "\x1b" in text or "PRIVATE" in text for text in warnings)
+
+
 def _closing_lines(tmp_path, monkeypatch, capsys, yaml_text, deliverables):
     (tmp_path / "security-assessment.yaml").write_text(yaml_text)
     outcome = {"repositories": ["edge"], "output": str(tmp_path), "calls": 1, "spent_usd": 0.1}
@@ -3104,13 +3156,14 @@ def test_a_delivered_sarif_file_is_named_as_an_additional_step(tmp_path, monkeyp
     assert not any(line.startswith("  Also") for line in out)
 
 
-def test_a_recorded_error_closes_with_the_report_error_pointer(tmp_path, monkeypatch, capsys):
+def test_a_recorded_error_closes_with_the_local_diagnostic_file(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("APPSEC_PLUGIN_DEV", raising=False)
     issue = ("agent_error", "error", "STRIDE job Gateway was replaced after a model failure (timeout)")
     controller._write_run_issues(tmp_path, {}, [issue])
     out = _closing_lines(tmp_path, monkeypatch, capsys, "threats: []\n", ["security-assessment.md"])
     assert any("Top issue" in line and "STRIDE job Gateway" in line for line in out)
-    assert any("/appsec-advisor:report-error" in line for line in out)
+    assert any(".run-issues.json" in line for line in out)
+    assert not any("/appsec-advisor:report-error" in line for line in out)
     controller._write_run_issues(tmp_path, {}, [])
     out = _closing_lines(tmp_path, monkeypatch, capsys, "threats: []\n", ["security-assessment.md"])
     assert not any("Run Issues" in line for line in out)
@@ -3482,15 +3535,18 @@ def test_after_stride_a_failed_optional_job_is_replaced_and_named_not_fatal(tmp_
     assert outcome["status"] == "complete" and (out / "security-assessment.md").is_file()
     failed = set(host.roles) & set(OPTIONAL_ROLES)
     assert {"evidence_verifier", "ms_renderer", "post_stride_synthesizer"} <= failed
-    replaced = " ".join(w for w in outcome["warnings"] if "replaced after a model failure" in w)
+    replaced = " ".join(w for w in outcome["warnings"] if "coverage is incomplete" in w)
     for role in failed:
         assert controller._AssessmentConsole.ROLE_LABELS[role] in replaced
-    # Each replacement reached the report, so it is an error report-error offers to diagnose.
+    assert outcome["coverage_incomplete"] and outcome["job_failure_details"]
+    assert not any(" job evidence:" in w for w in outcome["warnings"])
+    # Every replacement remains individually recorded even though the normal output groups them.
     from renderers.render_completion_summary import extract_run_issues, user_visible_issues
 
     issues = extract_run_issues(out)
     errors = [i["title"] for i in issues["issues"] if i["category"] == "agent_error"]
     assert errors and all("replaced after a model failure" in title for title in errors)
+    assert errors == outcome["job_failure_details"]
     assert issues["summary"]["errors"] == len(errors) and user_visible_issues(issues["issues"])
     # Findings no independent review read stay unproven.
     model = yaml.safe_load((out / "security-assessment.yaml").read_text())
@@ -3520,7 +3576,8 @@ def test_a_failed_requirements_or_actor_job_after_stride_is_replaced_not_fatal(t
     catalog.write_text(CATALOG.replace("priority: high", "priority: MUST"))
     outcome, _, out = _assess(tmp_path, monkeypatch, ("edge", "service"), ("--requirements", str(catalog)))
     assert outcome["status"] == "complete" and (out / "security-assessment.md").is_file()
-    assert any(selector in w and "replaced after a model failure" in w for w in outcome["warnings"])
+    assert any(selector in w and "replaced after a model failure" in w for w in outcome["job_failure_details"])
+    assert outcome["coverage_incomplete"] and any("coverage is incomplete" in w for w in outcome["warnings"])
     if selector == "stage2:requirements-compliance":
         assert "not assessed" in (out / "security-assessment.md").read_text().lower()
 

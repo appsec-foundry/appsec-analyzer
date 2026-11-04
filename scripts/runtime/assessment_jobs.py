@@ -803,13 +803,14 @@ class AssessmentJobs:
                     # Name the job, so a hang that survived its retry can be traced.
                     raise HostTimeout(f"{selector}: {exc}") from None
                 raise
+            from runtime.assessment_diagnostics import failure_fields
+
+            failure = failure_fields(exc)
             reason = re.sub(r"\s+", " ", str(exc))[:300]
-            self._gap({"role": role, "selector": selector, "reason": reason})
+            self._gap({"role": role, "selector": selector, "reason": reason, "failure_code": failure["reason"]})
             self._record(role, seconds=time.monotonic() - started)
             if trace:
-                from runtime.assessment_diagnostics import failure_fields
-
-                trace.emit("job_replaced", **failure_fields(exc))
+                trace.emit("job_replaced", **failure)
             return ExchangeResult(on_failure(reason), (), 0, None)
         ranges = _ranges(result.source_slices)
         artifact = copy.deepcopy(result.artifact)

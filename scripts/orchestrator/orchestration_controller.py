@@ -3259,6 +3259,59 @@ def _assessment_gap_message(gap: dict) -> str:
     return f"Coverage gap: {role}{subject} job incomplete: no accepted model result; using fallback"
 
 
+def _assessment_gap_code(gap: dict) -> str:
+    from runtime.assessment_diagnostics import FAILURE_CODES
+
+    code = gap.get("failure_code")
+    return (
+        code if isinstance(code, str) and code in FAILURE_CODES | {"validation", "internal_error"} else "unclassified"
+    )
+
+
+def _assessment_gap_details(gaps: list[dict]) -> list[str]:
+    from runtime.assessment_diagnostics import identifier
+
+    return [
+        f"{_AssessmentConsole.ROLE_LABELS.get(gap.get('role'), 'optional analysis')} job "
+        f"{identifier(gap.get('selector', 'unknown'))} was replaced after a model failure "
+        f"({_assessment_gap_code(gap)}); the check remains incomplete"
+        for gap in gaps
+        if not gap.get("budget")
+    ]
+
+
+def _assessment_gap_warnings(gaps: list[dict], components: list[dict], *, verbose: bool) -> list[str]:
+    """Group equivalent failures while retaining every job in diagnostics and verbose output."""
+    from appsec_analyzer.terminal import field
+
+    names = {row["id"]: field(row["name"]) for row in components}
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for gap in gaps:
+        if not gap.get("budget"):
+            role = _AssessmentConsole.ROLE_LABELS.get(gap.get("role"), "optional analysis")
+            groups.setdefault((role, _assessment_gap_code(gap)), []).append(gap)
+    warnings = []
+    for (role, code), entries in groups.items():
+        affected = sorted(
+            {
+                parts[1]
+                for gap in entries
+                if len(parts := str(gap.get("selector", "")).split(":")) > 1 and parts[1] in names
+            }
+        )
+        scope = ""
+        if affected:
+            listed = ", ".join(names[cid] for cid in affected[:3])
+            if len(affected) > 3:
+                listed += f", +{len(affected) - 3} more"
+            scope = f" across {_count_noun(len(affected), 'component')} ({listed})"
+        warnings.append(
+            f"{role}: {_count_noun(len(entries), 'job')}{scope} without an accepted result ({code}); "
+            "coverage is incomplete"
+        )
+    return warnings + (_assessment_gap_details(gaps) if verbose else [])
+
+
 def _budget_skip_info(gaps: list[dict], components: list[dict], budget, *, show_costs=True) -> str:
     """One console line for the optional jobs the completion reserve skipped, by role and component."""
     names = {row["id"]: row["name"] for row in components}
@@ -5185,12 +5238,7 @@ def assess_repositories(
                 if runtime_warning:
                     warnings.append(runtime_warning)
                 # Optional jobs a model failure replaced (OR-39); a later run retries them.
-                failed = [
-                    f"{_AssessmentConsole.ROLE_LABELS.get(gap['role'], gap['role'])} job {gap['selector']} "
-                    f"was replaced after a model failure ({gap['reason']}); rerun to retry it"
-                    for gap in jobs.gaps
-                    if not gap.get("budget")
-                ]
+                failed = _assessment_gap_details(jobs.gaps)
                 warnings.extend(failed)
                 warnings.extend(jobs.notes)
                 infos.extend(_coverage_infos(jobs.infos, ns.verbose))
@@ -5241,7 +5289,10 @@ def assess_repositories(
         "trust_mode": ns.trust_mode,
         # Publication order: model and report first, then figures and exports.
         "deliverables": list(delivered),
-        "warnings": warnings,
+        "warnings": [text for text in warnings if text not in failed]
+        + _assessment_gap_warnings(jobs.gaps, architecture["components"]["components"], verbose=ns.verbose),
+        "job_failure_details": failed,
+        "coverage_incomplete": bool(jobs.gaps),
         "infos": infos,
         "run_notes": run_notes,
         "review_coverage": list(review_coverage.values()),
@@ -5683,6 +5734,8 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         for key, value in (("Trust mode", outcome.get("trust_mode")),)
         if value not in (None, "untrusted")
     ]
+    if outcome.get("coverage_incomplete"):
+        rows.append(("Status", "Completed; some checks are incomplete", "warn"))
     rows += [(key, value, None) for key, value in completion_rows(output)]
     for value in outcome.get("review_coverage") or []:
         abuse = re.fullmatch(r"abuse-case verification: (\d+) checked, (\d+) partial, (\d+) unchecked", value)
@@ -5708,6 +5761,15 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
     rows += _completion_step_rows(
         output, outcome["deliverables"], shlex.join(["appsec-analyzer", "review", str(output)])
     )
+    if outcome.get("coverage_incomplete"):
+        rows.append(
+            (
+                "Recovery",
+                "Review the diagnostics before repeating checks. Another assessment makes additional model calls. "
+                "Keep this report and choose a new output directory.",
+                "warn",
+            )
+        )
     # Values wrap flush under their column on a terminal, and off it under --width.
     label_width = max(11, *(len(key) for key, _, _ in rows))
     indent = 2 + label_width + 1
@@ -5720,7 +5782,11 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
             print(" " * indent + out(piece, *roles), file=stream)
     from renderers.render_completion_summary import extract_run_issues, render_run_issues, render_security_notice
 
-    for line in render_run_issues(extract_run_issues(output), plugin_dev=os.environ.get("APPSEC_PLUGIN_DEV") == "1"):
+    for line in render_run_issues(
+        extract_run_issues(output),
+        plugin_dev=os.environ.get("APPSEC_PLUGIN_DEV") == "1",
+        covered_titles=outcome.get("job_failure_details") or (),
+    ):
         print(line, file=stream)
     for line in render_security_notice(output):
         print(out(line, "warn") if line.strip() else line, file=stream)

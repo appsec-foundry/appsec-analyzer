@@ -85,7 +85,7 @@ The YAML builder projects accepted fixes after mitigation grouping and before re
 
 The deterministic assessment controller (`assess`) requires accepted architecture, component inventory, trust boundaries, controls and every component's STRIDE analysis before publishing a complete result. A resource-budget interruption may instead publish the separate incomplete snapshot described below; other failures before those foundations are accepted stop the run.
 
-After that point, a failed model job or optional stage does not stop the run. The stage supplies a deterministic replacement, the gap is published as a run warning that names the replaced job, and the job writes no receipt, so a later run retries it. Replacements:
+After that point, an optional analysis failure can use a deterministic replacement. Persistent provider connection failures, server errors and rate limits still pause the run under REQ-023. A replacement writes no acceptance receipt. The completion summary groups replacements by role and classified cause and names their job and component counts; private run diagnostics and verbose output retain every affected job. Publication may complete while those checks remain incomplete. Recovery must respect saved state, runtime compatibility and the original limits; a completed result does not promise a cheap retry of only its missing checks. Replacements:
 
 - an abuse case becomes not checked;
 - a failed abuse-case derivation proposes no case;

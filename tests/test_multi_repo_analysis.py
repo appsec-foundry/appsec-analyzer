@@ -2210,6 +2210,27 @@ def test_program_files_outside_every_component_are_listed_per_directory_and_capp
     assert [(row["directory"], row["files"]) for row in summary["by_directory"]] == [(d, n) for d, n, _ in listing]
 
 
+def test_unowned_coverage_uses_the_existing_assignment_exclusions(tmp_path):
+    files = {
+        "frontend/src/main.ts": b"export const app = true\n",
+        "frontend/src/assets/private/three.js": b"var THREE = {}\n",
+        "frontend/src/assets/private/dat.gui.min.js": b"var gui = {}\n",
+        "frontend/src/assets/private/stats.min.js": b"var stats = {}\n",
+        "frontend/src/mocks/ng-gallery.ts": b"export class Gallery {}\n",
+        "frontend/src/vitest.d.ts": b'/// <reference types="vitest/globals" />\n',
+        "frontend/src/assets/scene.js": b"export const scene = {}\n",
+        "templates/customer.html": b"<p>{{ customer }}</p>\n",
+    }
+    scope, component = _owned_sources(tmp_path, files, ["frontend/src/main.ts"])
+    assert [path for _, path in stage.unowned_sources(scope, [component])] == [
+        "frontend/src/assets/scene.js",
+        "templates/customer.html",
+    ]
+    assert stage.unowned_summary(scope, [component], lambda rid, path: path)["files"] == 2
+    listing = stage.unowned_listing(scope, [component], lambda rid, path: path)
+    assert sum(count for _, count, _ in listing) == 2
+
+
 def test_server_side_templates_and_further_languages_count_as_program_code(tmp_path):
     """REQ-004: a template renders request data, so code outside every component includes it."""
     files = {
