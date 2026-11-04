@@ -1223,6 +1223,8 @@ requirements:
       - scripts/model/emit_auth_coverage.py
       - scripts/model/match_abuse_cases.py
       - scripts/renderers/figure1_dfd.py
+      - scripts/renderers/role_names.py
+      - scripts/model/emit_role_names.py
       - scripts/analyzers/actor_attribution.py
       - data/actor-attribution-rules.yaml
       - scripts/model/reconcile_privileged_roles.py
@@ -1332,10 +1334,13 @@ requirements:
       - tests/test_detect_open_registration.py::test_overview_notes_require_a_represented_actor_and_confirmed_metadata
       - tests/test_figure1_svg.py::test_actor_grouping_remains_visible_when_card_subtitles_are_hidden
       - tests/test_figure1_dfd.py::test_role_access_projection_remaps_both_flow_ends_without_changing_canonical_model
-      - tests/test_figure1_dfd.py::test_unclassified_role_keeps_the_generic_victim_separate
+      - tests/test_figure1_dfd.py::test_an_unclassified_role_shares_the_user_card_and_its_victim
       - tests/test_figure1_dfd.py::test_equal_regular_access_can_fold_without_open_registration
-      - tests/test_figure1_dfd.py::test_unnamed_flows_are_not_assigned_to_the_merged_victim_role
-      - tests/test_figure1_dfd.py::test_single_classified_regular_role_replaces_the_generic_victim
+      - tests/test_figure1_dfd.py::test_unnamed_flows_start_at_the_card_that_carries_the_generic_user_name
+      - tests/test_figure1_dfd.py::test_a_route_role_added_beside_unnamed_requests_is_drawn_once
+      - tests/test_figure1_dfd.py::test_a_single_regular_role_replaces_the_generic_victim
+      - tests/test_role_names.py::test_declared_names_stay_and_a_derived_name_yields
+      - tests/test_role_names.py::test_names_fit_the_schema_and_applying_them_twice_changes_nothing
       - tests/test_figure1_dfd.py::test_boundary_lines_follow_resolved_crossings_only
       - tests/test_figure1_dfd.py::test_egress_boundary_line_follows_the_drawn_external_participant
       - tests/test_figure1_dfd.py::test_boundary_line_audit_rejects_unbacked_or_missing_lines
