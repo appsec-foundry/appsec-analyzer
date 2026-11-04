@@ -1219,10 +1219,41 @@ def test_named_external_entities_keep_identity_and_public_boundary_flag():
         ],
     }
     doc, _ = etd.build_threat_dragon(data)
-    assert _node(doc, "ext-operator")["data"]["name"] == "Operator"
+    # The report's role name: a role without established access is a User.
+    assert _node(doc, "ext-operator")["data"]["name"] == "User"
     assert _node(doc, "ext-idp")["data"]["type"] == "tm.Actor"
     assert _flows(doc)[0]["source"]["cell"] == "ext-operator"
     assert _flows(doc)[0]["data"]["isPublicNetwork"] is True
+
+
+def test_roles_the_report_draws_as_one_card_are_one_actor():
+    data = {
+        "meta": {"project_name": "Shop", "open_user_registration": True},
+        "components": [{"id": "api", "name": "API", "tier": "application"}],
+        "external_entities": [
+            {
+                "id": "ext-client",
+                "name": "Authenticated application client",
+                "kind": "legitimate-role",
+                "access": "internet-user",
+            },
+            {"id": "ext-guest", "name": "Guest", "kind": "legitimate-role", "access": "internet-anon"},
+            {"id": "ext-ops", "name": "Operator", "kind": "legitimate-role", "access": "internet-priv-user"},
+            {"id": "ext-pay", "name": "Payments", "kind": "external-service"},
+        ],
+        "data_flows": [
+            {"id": "df-001", "from": "external", "from_entity": "ext-client", "to": "api"},
+            {"id": "df-002", "from": "external", "from_entity": "ext-guest", "to": "api"},
+            {"id": "df-003", "from": "external", "to": "api"},
+            {"id": "df-004", "from": "external", "from_entity": "ext-ops", "to": "api"},
+            {"id": "df-005", "from": "api", "to": "external", "to_entity": "ext-pay"},
+        ],
+    }
+    doc, warnings = etd.build_threat_dragon(data)
+    assert warnings == []
+    actors = {cell["id"]: cell["data"]["name"] for cell in _nodes(doc) if cell["data"]["type"] == "tm.Actor"}
+    assert actors == {"ext-client": "Shop User", "ext-ops": "Shop Admin", "ext-pay": "Payments"}
+    assert [flow["source"]["cell"] for flow in _flows(doc)[:4]] == ["ext-client"] * 3 + ["ext-ops"]
 
 
 def test_invalid_external_reference_is_reported_without_reusing_a_component():

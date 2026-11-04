@@ -43,6 +43,8 @@ def test_evidenced_authentication_alternatives_survive_and_render():
     }
     assert args == original
     assert reconcile(args[0], result, args[2], args[3]) == result
+    # A plain role name, as the report shows it ("<project> User").
+    assert [(e["name"], e["access"]) for e in result["external_entities"]] == [("User", "internet-user")]
 
 
 def test_authored_access_is_preserved():

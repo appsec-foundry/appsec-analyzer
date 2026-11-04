@@ -80,6 +80,15 @@ from renderers.figure1_security import (
     profile_catalog,
     select_references,
 )
+from renderers.role_names import (
+    GENERIC_USER,
+    PRIVILEGED,
+    card_aliases,
+    regular_subtitle,
+    role_entities,
+    role_names,
+)
+from renderers.role_names import project_name as _project_name
 
 # ---- style --------------------------------------------------------------------
 FONT = "Helvetica, Arial, sans-serif"
@@ -109,9 +118,9 @@ SEV_COL = {"Critical": RED, "High": ORANGE, "Medium": YELLOW}
 SEV_RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 _PILL_FINDING_DOT = {SEV_RANK[sev]: col for sev, col in SEV_COL.items()}
 PILL_DOT = 8  # room for the severity dot inside a pill with a linked finding
-USER_ID = "actor:user"
+USER_ID = GENERIC_USER
 INTERACTION_LABEL = "User input"
-PRIVILEGED_ROLE_ACCESS = "internet-priv-user"
+PRIVILEGED_ROLE_ACCESS = PRIVILEGED
 ACTOR_COLORS = ("#b3453f", "#79439b", "#8c2545", "#b85283", "#552660", "#d05c61", "#9b4890", "#732e38")
 
 # ---- geometry -------------------------------------------------------------------
@@ -1060,136 +1069,80 @@ def _flow_endpoints(flow):
     )
 
 
-@cache
-def _role_labels():
-    """Load legitimate-role labels from the same vocabulary as attacker labels."""
-    return yaml.safe_load((Path(__file__).resolve().parents[2] / "data/posture-actor-labels.yaml").read_text())[
-        "actors"
-    ]
-
-
-def _project_name(d):
-    meta = d.get("meta") or {}
-    project = d.get("project") if isinstance(d.get("project"), dict) else {}
-    legacy = (
-        meta.get("project")
-        if isinstance(meta.get("project"), str)
-        else (meta.get("project") or {}).get("name")
-        if isinstance(meta.get("project"), dict)
-        else None
-    )
-    return project.get("name") or d.get("project_name") or meta.get("project_name") or legacy
-
-
-def _role_prefix(d) -> str:
-    """The system name that prefixes a legitimate role, or "" when it names no product.
-
-    A combined assessment's system name covers several repositories (by
-    default "Combined system (N repositories)"), so "<name> User" would not
-    name a user population.
-    """
-    sources = (d.get("meta") or {}).get("source_repositories")
-    if isinstance(sources, list) and len(sources) > 1:
-        return ""
-    return str(_project_name(d) or "").strip()
-
-
-def _role_name(d, access):
-    """`<project> <noun>` for a classified legitimate role; the noun alone without a project name."""
-    entry = _role_labels().get(access) or {}
-    noun = entry.get("legitimate_role_noun")
-    if access == "internet-anon" and (d.get("meta") or {}).get("open_user_registration") is True:
-        noun = entry.get("open_registration_role_noun") or noun
-    return " ".join(part for part in (_role_prefix(d), noun) if part) if noun else None
+def _generic_user_name(d) -> str:
+    """The card name of the sender of flows without `from_entity`, unique beside every role card."""
+    return d.get("_generic_user_name") or role_names(d)[GENERIC_USER]
 
 
 def _project_legitimate_roles(yaml_data):
-    """Name classified roles after the project and their access, then fold equal regular access.
+    """Name every legitimate role, then draw regular roles that share a name as one card.
 
-    A name that two unmerged roles would share keeps the authored names apart.
-    """
-    d, victim, notes = _fold_legitimate_roles(yaml_data)
-    # The owner named a declared role; the access-class name would replace a decision with a guess.
-    roles = [
-        e for e in d.get("external_entities") or [] if e.get("kind") == "legitimate-role" and not e.get("declared")
-    ]
-    names = {e["id"]: _role_name(d, e.get("access")) for e in roles}
-    counts = collections.Counter(names.values())
-    for entity in roles:
-        if names[entity["id"]] and counts[names[entity["id"]]] == 1:
-            entity["name"] = names[entity["id"]]
-    return d, victim, notes
-
-
-def _fold_legitimate_roles(yaml_data):
-    """Fold only explicit regular access, retaining canonical identities in the input.
-
-    One merged or single classified regular role may also represent the
-    generic victim. A second regular or unclassified role makes that assignment
-    ambiguous. Privileged roles never merge and never become this default
-    victim target.
+    Returns the projected copy, the card that stands for the generic victim, and
+    the report notes that explain the grouping; the input keeps its identities.
+    The generic user is the role "<project> User": its unnamed flows and its
+    victim join the card that carries that name. Without such a card, a single
+    classified regular card may still stand for the victim, and a second regular
+    card makes that assignment ambiguous. Privileged roles never merge and never
+    stand for the victim.
     """
     d = copy.deepcopy(yaml_data)
     meta = d.get("meta") or {}
-    groups = collections.defaultdict(list)
-    for entity in d.get("external_entities") or []:
-        if (
-            entity.get("kind") == "legitimate-role"
-            and entity.get("access") in ("internet-anon", "internet-user")
-            and not entity.get("declared")
-        ):
-            groups[overview_actor_slug(entity["access"], meta)].append(entity)
-    groups = {slug: rows for slug, rows in groups.items() if len(rows) > 1}
-    if not groups:
-        regular = [
-            row
-            for row in d.get("external_entities") or []
-            if row.get("kind") == "legitimate-role" and row.get("access") != "internet-priv-user"
-        ]
-        if len(regular) == 1 and regular[0].get("access") in ("internet-anon", "internet-user"):
-            return d, regular[0]["id"], []
-        return d, USER_ID, []
-    aliases, merged = {}, {}
-    labels = _role_labels()
-    for slug, rows in groups.items():
-        key = min(row["id"] for row in rows)
-        label = labels[slug]
-        prefix = (
-            "open_registration_role"
-            if slug == "internet-anon" and meta.get("open_user_registration") is True
-            else "legitimate_role"
-        )
-        merged[key] = {
-            **next(row for row in rows if row["id"] == key),
-            "name": label[prefix + "_label"],
-            "description": label[prefix + "_subtitle"],
-            "access": slug,
-        }
-        aliases.update({row["id"]: key for row in rows})
-    entities = []
-    seen = set()
-    for entity in d["external_entities"]:
-        key = aliases.get(entity["id"], entity["id"])
-        if key not in seen:
-            entities.append(merged.get(key, entity))
-            seen.add(key)
-    d["external_entities"] = entities
+    names = role_names(d)
+    aliases = card_aliases(d)
+    d["_generic_user_name"] = names[GENERIC_USER]
+    members = collections.defaultdict(list)
+    for entity in role_entities(d):
+        entity["name"] = names[entity["id"]]
+        if entity.get("access") != PRIVILEGED_ROLE_ACCESS:
+            members[aliases.get(entity["id"], entity["id"])].append(entity)
+    merged, notes = {}, []
+    for key, rows in members.items():
+        if len(rows) < 2:
+            continue
+        host = next(row for row in rows if row["id"] == key)
+        accesses = {row.get("access") for row in rows}
+        classified = {overview_actor_slug(access, meta) for access in accesses if access}
+        card = {**host, "description": regular_subtitle(d, None if None in accesses else next(iter(classified)))}
+        card.pop("access", None)
+        if len(classified) == 1:
+            card["access"] = next(iter(classified))
+        merged[key] = card
+        if None in accesses:
+            note = f"Roles whose access the code does not establish share the {host['name']} card."
+        elif accesses == {"internet-anon", "internet-user"}:
+            note = "Anonymous and authenticated regular users share one card because self-registration is open."
+        else:
+            note = "Regular roles with equivalent access share one card."
+        if note not in notes:
+            notes.append(note)
+    if merged:
+        notes.append("Individual flows may still require login.")
+    d["external_entities"] = [
+        merged.get(e.get("id"), e)
+        for e in d.get("external_entities") or []
+        if not (isinstance(e, dict) and e.get("id") in aliases)
+    ]
+    host = aliases.get(GENERIC_USER)
+    unnamed = False
     for flow in d.get("data_flows") or []:
+        if not isinstance(flow, dict):
+            continue
         for endpoint in ("from_entity", "to_entity"):
             if flow.get(endpoint) in aliases:
                 flow[endpoint] = aliases[flow[endpoint]]
-    regular = [
-        row for row in entities if row.get("kind") == "legitimate-role" and row.get("access") != "internet-priv-user"
-    ]
-    victim = regular[0]["id"] if len(regular) == 1 and regular[0]["id"] in merged else USER_ID
-    mixed = any({row["access"] for row in rows} == {"internet-anon", "internet-user"} for rows in groups.values())
-    notes = [
-        "Anonymous and authenticated regular users share one card because self-registration is open."
-        if mixed
-        else "Regular roles with equivalent access share one card."
-    ]
-    notes.append("Individual flows may still require login.")
-    return d, victim, notes
+        if host and flow.get("from") == "external" and not flow.get("from_entity"):
+            flow["from_entity"] = host
+            unnamed = True
+    if unnamed:
+        card = next(e for e in d["external_entities"] if isinstance(e, dict) and e.get("id") == host)
+        card["description"] = regular_subtitle(d, None)
+        notes.append(f"Requests without a modelled sender start at the {card['name']} card.")
+    if host:
+        return d, host, notes
+    regular = [e for e in role_entities(d) if e.get("access") != PRIVILEGED_ROLE_ACCESS]
+    if len(regular) == 1 and regular[0].get("access") in ("internet-anon", "internet-user"):
+        return d, regular[0]["id"], notes
+    return d, USER_ID, notes
 
 
 def legitimate_role_notes(yaml_data):
@@ -1243,11 +1196,13 @@ def _merge_indistinct_roles(d):
     interaction draws the same "User input" edge, so edge equality says nothing
     about what the privileged role can do. A role the owner declared is never
     absorbed either: its name is the owner's decision, not a label to fold away.
+
+    Returns each absorbed role id with the id of the role that now draws it.
     """
     entities = [e for e in d.get("external_entities") or [] if isinstance(e, dict) and e.get("id")]
     roles = [e for e in entities if e.get("kind") == "legitimate-role" and e.get("access") != PRIVILEGED_ROLE_ACCESS]
     if len(roles) < 2:
-        return
+        return {}
     flows = [f for f in d.get("data_flows") or [] if isinstance(f, dict)]
     signature = collections.defaultdict(set)
     for flow in flows:
@@ -1265,16 +1220,18 @@ def _merge_indistinct_roles(d):
                 absorbed[role["id"]] = host["id"]
                 break
     if not absorbed:
-        return
+        return {}
     for flow in flows:
         for end in ("from_entity", "to_entity"):
             if flow.get(end) in absorbed:
                 flow[end] = absorbed[flow[end]]
     d["external_entities"] = [e for e in d.get("external_entities") or [] if e.get("id") not in absorbed]
+    return absorbed
 
 
 def _build_model(d, scenarios, actors, victim_target=USER_ID):
-    _merge_indistinct_roles(d)
+    # The victim card may be the one folded away; its host then carries the victim.
+    victim_target = _merge_indistinct_roles(d).get(victim_target, victim_target)
     comps = [c for c in (d.get("components") or []) if isinstance(c, dict) and c.get("id")]
     cnum = d.get("_component_numbers") or {c["id"]: f"C-{i:02d}" for i, c in enumerate(comps, 1)}
     by_cnum = {v: k for k, v in cnum.items()}
@@ -1426,7 +1383,7 @@ def _build_model(d, scenarios, actors, victim_target=USER_ID):
     nodes[USER_ID] = {
         "id": USER_ID,
         "kind": "ext",
-        "name": " ".join(part for part in (_role_prefix(d), "User") if part),
+        "name": _generic_user_name(d),
         "sub": "legitimate client"
         + (
             " · victim of " + " ".join("①②③④⑤⑥⑦⑧⑨"[int(n) - 1] for n in victim_of[:4])
@@ -4345,7 +4302,7 @@ def legitimate_role_people(yaml_data):
     flows = [f for f in d.get("data_flows") or [] if isinstance(f, dict)]
     rows = [(e["id"], e) for e in d.get("external_entities") or [] if e.get("kind") == "legitimate-role"]
     if any(f.get("from") == "external" and not f.get("from_entity") for f in flows):
-        rows.append((USER_ID, {"name": " ".join(p for p in (_role_prefix(d), "User") if p)}))
+        rows.append((USER_ID, {"name": _generic_user_name(d)}))
     return [
         {
             "name": entity["name"],

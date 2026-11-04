@@ -53,6 +53,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from renderers.role_names import GENERIC_USER, card_aliases, role_names  # noqa: E402
 from shared._boundary_criticality import facts_of as _boundary_facts  # noqa: E402
 from shared._threat_model_fields import evidence_description  # noqa: E402
 
@@ -764,6 +765,8 @@ def build_threat_dragon(
     entities = {
         e["id"]: e for e in data.get("external_entities") or [] if isinstance(e, dict) and isinstance(e.get("id"), str)
     }
+    # The report's role names and cards: roles it draws as one card are one actor here.
+    role_cards, role_label = card_aliases(data), role_names(data)
 
     entity_nodes: dict[str, dict] = {}
 
@@ -787,7 +790,7 @@ def build_threat_dragon(
                 per_shape_index["actor"] = index + 1
                 node = _build_node(
                     entity_ref,
-                    _text(entity.get("name")) or entity_ref,
+                    role_label.get(entity_ref) or _text(entity.get("name")) or entity_ref,
                     _text(entity.get("description")),
                     "actor",
                     "tm.Actor",
@@ -836,7 +839,12 @@ def build_threat_dragon(
         # The §2.2 diagram renderer tolerates the same legacy aliases; match it.
         src_ref = _text(flow.get("from") or flow.get("src") or flow.get("source"))
         dst_ref = _text(flow.get("to") or flow.get("dst") or flow.get("destination"))
-        src, dst = _endpoint(src_ref, flow.get("from_entity")), _endpoint(dst_ref, flow.get("to_entity"))
+        sender, receiver = flow.get("from_entity"), flow.get("to_entity")
+        if src_ref.lower() == EXTERNAL_REF and not sender:
+            sender = role_cards.get(GENERIC_USER)  # the report draws an unnamed sender at the card of its name
+        sender = role_cards.get(sender, sender) if isinstance(sender, str) else sender
+        receiver = role_cards.get(receiver, receiver) if isinstance(receiver, str) else receiver
+        src, dst = _endpoint(src_ref, sender), _endpoint(dst_ref, receiver)
         if src is None or dst is None:
             warnings.append(f"data flow {src_ref!r} → {dst_ref!r} has an unresolved endpoint — dropped")
             continue

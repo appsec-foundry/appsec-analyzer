@@ -198,15 +198,16 @@ def test_component_view_geometry_failure_is_not_hidden(monkeypatch):
     assert errors and all("injected geometry defect" in error for error in errors)
 
 
-@pytest.mark.parametrize("ambiguous", [True, False])
+@pytest.mark.parametrize("unclassified", [True, False])
 @pytest.mark.parametrize("variant", [True, False])
-def test_victim_identity_survives_views_without_a_direct_role_flow(ambiguous, variant):
+def test_victim_identity_survives_views_without_a_direct_role_flow(unclassified, variant):
     from tests.test_figure1_dfd import _role_access_model
 
     data, paths, taxonomy, ids = _role_access_model(variant=variant)
     data["components"] += model(9, "isolated")["components"]
     data["data_flows"] = [f for f in data["data_flows"] if f["id"] != "df-011"]
-    if ambiguous:
+    if unclassified:
+        # A role without established access is a User too, so it shares the User card and its victim.
         data["external_entities"].append({"id": "unknown-role", "name": "Observer", "kind": "legitimate-role"})
     before = copy.deepcopy(data)
     svg, problems = F.check_diagram(data, paths, taxonomy)
@@ -216,5 +217,5 @@ def test_victim_identity_survives_views_without_a_direct_role_flow(ambiguous, va
         node for node in root.findall(".//{*}g[@data-external-id]") if "victim of" in " ".join(node.itertext())
     ]
     assert victim_nodes
-    assert {node.get("data-external-id") for node in victim_nodes} == {F.USER_ID if ambiguous else min(ids)}
+    assert {node.get("data-external-id") for node in victim_nodes} == {min(ids)}
     assert data == before

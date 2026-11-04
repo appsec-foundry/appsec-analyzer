@@ -78,6 +78,7 @@ GROUPS = {
         figure1_detail
         figure1_layout_harness
         figure1_security
+        role_names
         figure1_svg
         figure2_svg
         figure_deployment
@@ -5285,6 +5286,18 @@ SOURCE_TESTS = {
         route_inventory
         flow_route_auth
         multi_repo_assessment
+    """),
+    "scripts/renderers/role_names.py": _tests("""
+        role_names
+        figure1_dfd
+        figure1_detail
+        export_threat_dragon
+        pregenerate_fragments
+        compose_threat_model
+    """),
+    "scripts/model/emit_role_names.py": _tests("""
+        role_names
+        auto_emitter_pass
     """),
     "scripts/analyzers/spring_flows.py": _tests("""
         spring_flows

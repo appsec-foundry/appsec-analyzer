@@ -32,6 +32,7 @@ EXPECTED_SEQUENCE = (
     "model/emit_severity_rationale.py",
     "analyzers/detect_open_registration.py",
     "analyzers/detect_public_repo.py",
+    "model/emit_role_names.py",
     "model/enrich_asset_links.py",
     "validators/secret_scan.py",
 )

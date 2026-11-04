@@ -58,7 +58,7 @@ def reconcile(components: list[dict], document: dict, inventories: dict, reposit
                 {
                     "id": identity,
                     "kind": "legitimate-role",
-                    "name": "Authenticated application client",
+                    "name": "User",
                     "description": "A caller presenting credentials to Spring Security; permissions remain specific to each route.",
                     "access": "internet-user",
                     "evidence": evidence[:8],

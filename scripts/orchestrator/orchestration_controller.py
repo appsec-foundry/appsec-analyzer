@@ -421,6 +421,8 @@ def _run_auto_emitter_pass(output_dir: Path, cfg: dict[str, Any], receipts: list
         ("model/emit_severity_rationale.py", (str(output_dir),)),
         ("analyzers/detect_open_registration.py", (str(output_dir),)),
         ("analyzers/detect_public_repo.py", (str(output_dir), "--repo-root", repo_root)),
+        # Role names depend on the self-registration result above.
+        ("model/emit_role_names.py", (str(output_dir),)),
         ("model/enrich_asset_links.py", (str(output_dir),)),
         ("validators/secret_scan.py", ("--mask", str(output_dir / "threat-model.yaml"))),
     )

@@ -11,7 +11,6 @@ placement rules.
 from __future__ import annotations
 
 import copy
-import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -1342,11 +1341,11 @@ def test_compact_grouping_references_the_actual_drawn_actor(label, leading_actor
     panel = root.find("{*}g[@data-actor-grouping]")
     assert panel is not None
     text = " ".join(panel.itertext())
-    actor_code = f"A{len(leading_actors) + 1}"
-    assert actor_code in text.split()
-    assert re.findall(r"\bA\d+\b", text) == [actor_code]
+    # An actor ID tells actors apart, so a sole attacker carries none.
+    actor_code = f"A{len(leading_actors) + 1}" if leading_actors else None
+    assert re.findall(r"\bA\d+\b", text) == ([actor_code] if actor_code else [])
     assert label in text
-    assert f"{actor_code} · {label}" in " ".join(root.itertext())
+    assert (f"{actor_code} · {label}" if actor_code else label) in " ".join(root.itertext())
     assert "Public-source readers" in text
     assert "Self-registered users" not in text
     assert "because" not in text
@@ -1374,8 +1373,8 @@ def test_grouping_hints_require_a_performed_fold_and_a_drawn_target():
 def test_roles_and_identity_provider_use_distinct_left_side_nodes():
     model, paths, taxonomy = _model()
     model["external_entities"] = [
-        {"id": "ext-admin", "name": "Administrator", "kind": "legitimate-role"},
-        {"id": "ext-customer", "name": "Customer", "kind": "legitimate-role"},
+        {"id": "ext-admin", "name": "Administrator", "kind": "legitimate-role", "access": "internet-priv-user"},
+        {"id": "ext-customer", "name": "Customer", "kind": "legitimate-role", "access": "internet-user"},
         {"id": "ext-login", "name": "Example Identity Provider", "kind": "identity-provider"},
     ]
     model["data_flows"][0]["from_entity"] = "ext-customer"
@@ -1439,32 +1438,42 @@ def test_role_access_projection_remaps_both_flow_ends_without_changing_canonical
     before = copy.deepcopy(model)
     scenarios, actors = F.scenarios_from_attack_paths(model, paths, taxonomy)
     svg, state = F._build(model, scenarios, actors)
-    folded = registration is True and access
-    assert sum(key in state["nodes"] for key in ids) == (1 if folded else 2)
-    assert "ext-operator" in state["nodes"] and "ext-auditor" in state["nodes"]
-    assert (F.USER_ID not in state["nodes"]) is folded
+    # Only a closed registration makes the anonymous role a Visitor; every other regular role is the User.
+    folded = registration is True or not access
+    roles = (*ids, "ext-operator", "ext-auditor")
+    if access:
+        assert sum(key in state["nodes"] for key in ids) == (1 if folded else 2)
+        assert "ext-operator" in state["nodes"] and "ext-auditor" in state["nodes"]
+    else:
+        # Without established access no role is privileged either, so all four are one User card.
+        assert sum(key in state["nodes"] for key in roles) == 1
+    # The generic victim is the User, so the User card carries it.
+    assert F.USER_ID not in state["nodes"]
+    user = next(key for key in roles if state["nodes"].get(key, {}).get("name") == "synthetic User")
     flows = {f["id"]: f for f in state["d"]["data_flows"]}
+    assert flows["df-004"]["from_entity"] == flows["df-011"]["to_entity"] == user
+    assert all(edge["dst"] == user for edge in state["edges"] if edge.get("victim"))
+    assert state["nodes"][user]["victim_label"] == "victim of ③"
+    notes = " ".join(F.legitimate_role_notes(model))
     if folded:
-        target = next(key for key in ids if key in state["nodes"])
-        assert (
-            flows["df-001"]["from_entity"] == flows["df-004"]["from_entity"] == flows["df-011"]["to_entity"] == target
-        )
-        assert all(edge["dst"] == target for edge in state["edges"] if edge.get("victim"))
-        assert state["nodes"][target]["victim_label"] == "victim of ③"
-        assert "self-registration is open" in " ".join(F.legitimate_role_notes(model))
+        assert flows["df-001"]["from_entity"] == user
+        assert ("self-registration is open" in notes) is access
+        assert ("access the code does not establish" in notes) is not access
         assert "Individual flows may still require login" not in svg
     assert model == before
     assert F.check_diagram(model, paths, taxonomy)[1] == []
 
 
-def test_unclassified_role_keeps_the_generic_victim_separate():
+def test_an_unclassified_role_shares_the_user_card_and_its_victim():
     model, paths, taxonomy, ids = _role_access_model()
     model["external_entities"].append({"id": "ext-unknown", "name": "Participant", "kind": "legitimate-role"})
     scenarios, actors = F.scenarios_from_attack_paths(model, paths, taxonomy)
     _, state = F._build(model, scenarios, actors)
-    assert sum(key in state["nodes"] for key in ids) == 1
-    assert F.USER_ID in state["nodes"]
-    assert all(edge["dst"] == F.USER_ID for edge in state["edges"] if edge.get("victim"))
+    cards = [key for key in (*ids, "ext-unknown") if key in state["nodes"]]
+    assert len(cards) == 1 and state["nodes"][cards[0]]["name"] == "synthetic User"
+    assert F.USER_ID not in state["nodes"]
+    assert all(edge["dst"] == cards[0] for edge in state["edges"] if edge.get("victim"))
+    assert "access the code does not establish" in " ".join(F.legitimate_role_notes(model))
     assert F.check_diagram(model, paths, taxonomy)[1] == []
 
 
@@ -1488,12 +1497,12 @@ def test_classified_roles_carry_the_project_name_and_privileged_roles_stay_disti
     scenarios, actors = F.scenarios_from_attack_paths(model, paths, taxonomy)
     svg, state = F._build(model, scenarios, actors, detail=False)
     names = {key: state["nodes"][key]["name"] for key in (*ids, "ext-operator", "ext-auditor")}
-    # Two privileged roles would share one name, so both keep their authored names.
+    # Two privileged roles never share a card, so each carries its authored name as a qualifier.
     assert names == {
         ids[0]: prefix + "Visitor",
         ids[1]: prefix + "User",
-        "ext-operator": "User",
-        "ext-auditor": "Member",
+        "ext-operator": prefix + "Admin (User)",
+        "ext-auditor": prefix + "Admin (Member)",
     }
     assert "Application users and administrators" in svg
     model["external_entities"] = [e for e in model["external_entities"] if e["id"] != "ext-auditor"]
@@ -1549,19 +1558,63 @@ def test_attack_edge_targets_the_finding_component_and_names_other_affected_ones
     assert "1" in {n for n, _ in state["nodes"][second]["badges"]}
 
 
-def test_unnamed_flows_are_not_assigned_to_the_merged_victim_role():
+def test_unnamed_flows_start_at_the_card_that_carries_the_generic_user_name():
     model, paths, taxonomy, ids = _role_access_model()
     model["data_flows"].append({"id": "df-012", "from": "external", "to": "spa", "protocol": "HTTPS"})
     before = copy.deepcopy(model)
     scenarios, actors = F.scenarios_from_attack_paths(model, paths, taxonomy)
     _, state = F._build(model, scenarios, actors)
-    assert F.USER_ID in state["nodes"]
-    assert next(edge for edge in state["edges"] if "df-012" in edge["ids"])["src"] == F.USER_ID
-    assert "victim" not in state["nodes"][F.USER_ID]["sub"]
     target = next(key for key in ids if key in state["nodes"])
+    assert F.USER_ID not in state["nodes"]
+    assert next(edge for edge in state["edges"] if "df-012" in edge["ids"])["src"] == target
     assert all(edge["dst"] == target for edge in state["edges"] if edge.get("victim"))
+    assert "Requests without a modelled sender start at the synthetic User card." in F.legitimate_role_notes(model)
+    assert [p["name"] for p in F.legitimate_role_people(model) if not p["privileged"]] == ["synthetic User"]
     assert model == before
     assert F.check_diagram(model, paths, taxonomy)[1] == []
+
+
+def test_the_generic_user_keeps_its_own_card_beside_a_visitor():
+    model, paths, taxonomy = _model()
+    model["external_entities"] = [
+        {"id": "ext-guest", "name": "Guest", "kind": "legitimate-role", "access": "internet-anon"}
+    ]
+    model["data_flows"][0]["from_entity"] = "ext-guest"
+    model["data_flows"].append({"id": "df-012", "from": "external", "to": "app0", "protocol": "HTTPS"})
+    _, state = F._build(model, [], [])
+    assert state["nodes"]["ext-guest"]["name"] == "synthetic Visitor"
+    assert state["nodes"][F.USER_ID]["name"] == "synthetic User"
+    assert F.check_diagram(model, paths, taxonomy)[1] == []
+
+
+def test_a_route_role_added_beside_unnamed_requests_is_drawn_once():
+    """Unnamed route requests and a role a later analysis adds are one User card, the admin stays apart."""
+    model, paths, taxonomy = _model()
+    model["meta"]["open_user_registration"] = True
+    model["external_entities"] = [
+        {
+            "id": "ext-spring-client-1",
+            "name": "Authenticated application client",
+            "kind": "legitimate-role",
+            "access": "internet-user",
+            "description": "A caller presenting credentials to Spring Security.",
+        },
+        {"id": "ext-privileged-role", "name": "Admin", "kind": "legitimate-role", "access": "internet-priv-user"},
+    ]
+    model["data_flows"].append(
+        {"id": "df-020", "from": "external", "from_entity": "ext-spring-client-1", "to": "app0", "protocol": "HTTP"}
+    )
+    people = F.legitimate_role_people(model)
+    assert [(p["name"], p["subtitle"]) for p in people] == [
+        ("synthetic User", "anonymous or self-registered"),
+        ("synthetic Admin", ""),
+    ]
+    unnamed = [f["id"] for f in model["data_flows"] if f.get("from") == "external" and not f.get("from_entity")]
+    assert unnamed and set(unnamed) < set(people[0]["flow_ids"])
+    scenarios, actors = F.scenarios_from_attack_paths(model, paths, taxonomy)
+    drawn = [p["name"] for p in F.overview_people(model, paths, taxonomy) if p["kind"] == "role"]
+    assert drawn == ["synthetic User", "synthetic Admin"]
+    assert F.check_diagram(model, paths, taxonomy, scenarios=scenarios, actors=actors)[1] == []
 
 
 def test_sensitive_marker_is_absent_but_evidenced_asset_storage_remains():
@@ -2139,8 +2192,10 @@ def test_report_composer_publishes_compact_annotations_without_fallback(tmp_path
 
 def test_shared_external_boundary_does_not_select_an_arbitrary_role_flow():
     model, paths, taxonomy = _model()
+    # A Visitor and a User: roles that share a name would share one card.
     model["external_entities"] = [
-        {"id": f"ext-role-{number}", "name": f"Role {number}", "kind": "legitimate-role"} for number in (1, 2)
+        {"id": f"ext-role-{number}", "name": f"Role {number}", "kind": "legitimate-role", "access": access}
+        for number, access in ((1, "internet-anon"), (2, "internet-user"))
     ]
     for number in (1, 2):
         model["data_flows"].append(
@@ -3430,9 +3485,9 @@ def test_figure1_tallies_follow_the_report_basis(shape):
 
 
 @pytest.mark.parametrize(
-    "access,replaces", [("internet-anon", True), ("internet-user", True), ("internet-priv-user", False), (None, False)]
+    "access,replaces", [("internet-anon", True), ("internet-user", True), ("internet-priv-user", False), (None, True)]
 )
-def test_single_classified_regular_role_replaces_the_generic_victim(access, replaces):
+def test_a_single_regular_role_replaces_the_generic_victim(access, replaces):
     model, paths, taxonomy = _model(xss=True)
     entity = {"id": "ext-visitor", "name": "Visitor", "kind": "legitimate-role"}
     if access:
@@ -3994,9 +4049,9 @@ def test_readme_example_is_legible_at_page_width_and_names_the_scanned_project()
     width = float(root.get("width"))
     assert width.is_integer()
     assert F.FS * README_WIDTH / width >= README_MIN_FONT_PX
-    plugin = json.loads((REPO / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))["name"]
+    product = re.search(r'^\s*name="([^"]+)"', (REPO / "setup.py").read_text(encoding="utf-8"), re.M).group(1)
     header = next(t.text for t in root.iter(f"{_SVG}text") if t.text and " components · " in t.text)
-    assert re.sub(r"[^a-z0-9]", "", plugin.lower()) not in re.sub(r"[^a-z0-9]", "", header.lower())
+    assert re.sub(r"[^a-z0-9]", "", product.lower()) not in re.sub(r"[^a-z0-9]", "", header.lower())
 
 
 def _local_markers(root):

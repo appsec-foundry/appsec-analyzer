@@ -18,9 +18,12 @@
 # threat record to look up the actor card here. `insider` is a display
 # group of attributed actors only; no finding vector names it.
 #
-# `legitimate_role_noun` names a legitimate role of that access class in
-# Figure 1 as "<project> <noun>"; `open_registration_role_noun` replaces it
-# when self-registration is open.
+# `legitimate_role_noun` names a legitimate role of that access class as
+# "<project> <noun>" in the report, the exports and the canonical model
+# (renderers/role_names.py); a regular role without an access class takes the
+# `internet-user` noun. `open_registration_role_noun` replaces it when
+# self-registration is open. `*_subtitle` describes regular roles that share
+# one card.
 #
 # Extension contract: additive only. Renaming a key breaks the cross-
 # reference with the breach-vector taxonomy.
@@ -37,9 +40,7 @@ schema_version: 1
 # build zone. Derive placement from an actor's targets before trusting this field.
 actors:
   internet-anon:
-    legitimate_role_label: "Anonymous user"
     legitimate_role_subtitle: "no account required"
-    open_registration_role_label: "User"
     open_registration_role_subtitle: "anonymous or self-registered"
     legitimate_role_noun: "Visitor"
     open_registration_role_noun: "User"
@@ -52,7 +53,6 @@ actors:
     fa_icon: "fa:fa-user-secret"
 
   internet-user:
-    legitimate_role_label: "Authenticated user"
     legitimate_role_subtitle: "regular account"
     legitimate_role_noun: "User"
     label: "Authenticated Internet Attacker"
