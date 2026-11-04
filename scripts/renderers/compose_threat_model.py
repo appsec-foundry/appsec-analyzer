@@ -98,7 +98,7 @@ from model.build_posture_verdict import build_posture_verdict as _build_posture_
 # P1: single-source weakness-class map, shared with model/merge_threats.py.
 # `_MULTI_MATCH_WARNED` is re-exported so existing call sites/tests keep
 # mutating the shared warned-CWE set.
-from model.case_outcomes import NOTHING_EXAMINED_REASON
+from model.case_outcomes import NOTHING_EXAMINED_REASON, load_catalog
 from model.reclassify_components import (  # phantom-component backstop (see _resolve_phantom_component)
     _build_matcher as _rc_build_matcher,
 )
@@ -16540,8 +16540,8 @@ def _render_appendix_test_cases(ctx: RenderContext, env: jinja2.Environment, sec
         return _safe_boundary_text(names.get(str(row.get("component_id")), row.get("component_id")), table=True)
 
     try:
-        catalog = yaml.safe_load((PLUGIN_ROOT / "data" / "test-cases.yaml").read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+        catalog = load_catalog()
+    except (OSError, yaml.YAMLError, ValueError):
         catalog = {}
     cases = [case for case in catalog.get("test_cases", []) if isinstance(case, dict)]
     known = {case["id"] for case in cases}

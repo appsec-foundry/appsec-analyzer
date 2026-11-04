@@ -181,9 +181,12 @@ def normalize_test_cases(value, depth: str | None = None, verify=None):
     ids = [row["id"] for row in disable]
     if len(set(ids)) != len(ids):
         raise ProfileError("test_cases.disable names a test case twice")
-    known = {
-        case["id"] for case in yaml.safe_load((resource_root() / "data/test-cases.yaml").read_text())["test_cases"]
-    }
+    from appsec_analyzer.engine import initialize
+
+    initialize()
+    from model import case_outcomes
+
+    known = {case["id"] for case in case_outcomes.load_catalog()["test_cases"]}
     if unknown := sorted(set(ids) - known):
         raise ProfileError(f"test_cases.disable names unknown test case {unknown[0]}")
     if aspects is False:

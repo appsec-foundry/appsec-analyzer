@@ -39,6 +39,7 @@ import yaml
 
 # RC.C — single source of truth for arch-source enums.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from model.case_outcomes import load_catalog  # noqa: E402
 from shared._boundary_criticality import facts_of as _boundary_facts  # noqa: E402
 from shared._shared_sources import ARCH_COVERAGE_SOURCES  # noqa: E402
 
@@ -227,14 +228,11 @@ def _result_trust_boundaries(threat: dict, boundary_facts: dict[str, dict]) -> l
     return entries
 
 
-_CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "test-cases.yaml"
-
-
 def _catalog_cases() -> dict[str, dict]:
-    """Catalog test cases by ID; empty when the catalog cannot be read."""
+    """Catalog test cases by ID; empty when the catalog cannot be read or is invalid."""
     try:
-        document = yaml.safe_load(_CATALOG_PATH.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+        document = load_catalog()
+    except (OSError, yaml.YAMLError, ValueError):
         return {}
     return {case["id"]: case for case in document.get("test_cases", []) if isinstance(case, dict) and "id" in case}
 
