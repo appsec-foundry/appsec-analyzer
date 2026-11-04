@@ -785,10 +785,6 @@ def test_shipped_source_routes_include_reviewed_producers_and_consumers(source, 
 @pytest.mark.parametrize(
     "source, consumer",
     [
-        ("agents/appsec-control-analyst.md", "agent_definitions"),
-        ("agents/appsec-recon-scanner.md", "agent_definitions"),
-        ("agents/shared/ms-template.md", "agent_definitions"),
-        ("agents/shared/prose-samples.md", "agent_definitions"),
         ("data/context-routing-bindings.json", "context_routing"),
         ("data/context-routing-catalog.yaml", "context_routing"),
         ("data/weakness-classes.yaml", "weakness_class_config_consistency"),
@@ -800,13 +796,11 @@ def test_shipped_source_routes_include_reviewed_producers_and_consumers(source, 
         ("scripts/shared/_severity_policy.py", "reference_format"),
         ("scripts/renderers/_business_relevance.py", "emit_verdict_to_model"),
         ("scripts/contexts/business_context_preview.py", "requirements_verification"),
-        ("README.md", "marketplace_manifest"),
         ("scripts/renderers/compose_threat_model.py", "threat_fixture"),
         ("scripts/runtime/runtime_cleanup.py", "threat_model_health"),
         ("scripts/renderers/summarize_threat_model.py", "render_completion_summary"),
         ("scripts/model/triage_compute_ranking.py", "build_threat_model_yaml"),
         ("scripts/validators/validate_fragment.py", "validate_fragment"),
-        ("skills/appsec-analyzer/SKILL.md", "skill_definitions"),
         ("templates/fragments/verdict.md.j2", "compose_threat_model"),
         ("tests/fixtures/e2e/golden/threat-model.md", "e2e_pipeline"),
     ],
@@ -865,7 +859,6 @@ def test_abuse_case_priority_change_selects_its_consumers_without_the_full_suite
 )
 def test_renderer_prompts_select_their_contract_readers_without_full_suite(source, readers):
     readers |= {
-        "agent_definitions",
         "agent_doc_shell_snippets",
         "completion_contract",
         "fragment_invariant_parity",
@@ -1108,10 +1101,9 @@ def test_repository_guidance_routes_to_its_readers(filename, readers):
 
 
 def test_required_selection_commands_stay_in_agent_and_maintainer_guidance():
+    # The Analyzer's guidance names the standalone gate and the reviewed routes, not the Advisor's dev-branch plan.
     for filename in ("AGENTS.md", "CONTRIBUTING.md"):
         document = (runner.ROOT / filename).read_text()
-        assert "make test-plan BASE=origin/dev" in document
-        assert "make validate test-changed BASE=origin/dev" in document
-        assert "make test-plan BASE=HEAD" in document
-        assert "make validate test-for FILES=" in document
+        assert "make check-analyzer BASE=" in document
         assert "scripts/run_tests.py" in document
+    assert 'make test-for FILES="' in (runner.ROOT / "AGENTS.md").read_text()

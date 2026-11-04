@@ -48,6 +48,9 @@ GROUPS = {
         walkthrough_renderer
     """),
     "report": _tests("""
+        compact_tables
+        mitigation_register
+        report_markup
         analysis_contributions
         actor_attribution
         actor_presentation
@@ -123,6 +126,12 @@ GROUPS = {
         walkthrough_renderer
     """),
     "scanner": _tests("""
+        authentication_uncertainty
+        egress_flows
+        handler_credentials
+        scanner_cache
+        spring_flows
+        spring_security
         agent_config_checks
         arch_coverage_bridge
         arch_coverage_bridge_coverage
@@ -175,6 +184,8 @@ GROUPS = {
         stride_quick_profile
     """),
     "runtime": _tests("""
+        assessment_budget_ceilings
+        plain_directory
         acquire_lock_heartbeat
         active_tool_calls
         agent_lifecycle
@@ -331,6 +342,7 @@ GROUPS = {
         validate_ms_compactness
     """),
     "findings": _tests("""
+        result_robustness
         aggregate_threat_summary
         arch_coverage_bridge
         arch_coverage_bridge_coverage
@@ -397,6 +409,7 @@ GROUPS = {
         validate_config
     """),
     "requirements": _tests("""
+        oscal_catalog_e2e
         build_verify_diff
         catalog_formats
         fetch_requirements
@@ -500,6 +513,10 @@ GROUPS = {
         verify_full_run_oracle
     """),
     "analyzer": _tests("""
+        assess_depth_prompt
+        console_cost_display
+        public_update_cli
+        version_info
         active_stride_policy
         analyst_documents
         analyzer_distribution
@@ -593,7 +610,7 @@ SOURCE_TESTS = {
     "scripts/orchestrator/assessment_checkpoint.py": _tests("assessment_checkpoint assessment_state assessment_stage2"),
     "scripts/orchestrator/assessment_review.py": _tests("assessment_review check_target_specificity"),
     "scripts/model/analysis_contributions.py": _tests(
-        "analysis_contributions compose_threat_model run_statistics_appendix"
+        "analysis_contributions compose_threat_model run_statistics_appendix threat_fixture"
     ),
     "scripts/orchestrator/assessment_declarations.py": _tests(
         "assessment_declarations assessment_posture multi_repo_boundaries check_target_specificity"
@@ -3091,6 +3108,7 @@ SOURCE_TESTS = {
         multi_repo_exports
     """),
     "scripts/shared/_critical_findings_sync.py": _tests("""
+        threat_fixture
         agent_config_checks
         auto_emitter_pass
         check_target_specificity
@@ -3520,6 +3538,7 @@ SOURCE_TESTS = {
         multi_repo_exports
     """),
     "scripts/shared/artifact_names.py": _tests("""
+        threat_fixture
         artifact_names
         assessment_location
         query_threat_model
@@ -3533,6 +3552,7 @@ SOURCE_TESTS = {
         single_repo_controller
     """),
     "scripts/shared/_remote_url.py": _tests("""
+        threat_fixture
         build_threat_model_yaml
         multi_repo_assessment
         remote_url
@@ -5286,6 +5306,112 @@ SOURCE_TESTS = {
         route_inventory
         flow_route_auth
         multi_repo_assessment
+    """),
+    "scripts/analyzers/egress_flows.py": _tests("""
+        egress_flows
+        multi_repo_controller
+        check_target_specificity
+    """),
+    "scripts/analyzers/iac_surface.py": _tests("""
+        agent_config_checks
+        assessment_scanner_findings
+        check_target_specificity
+    """),
+    "scripts/contexts/analyst_documents.py": _tests("""
+        analyst_documents
+        analyzer_distribution
+        check_target_specificity
+    """),
+    "scripts/contexts/case_analysis.py": _tests("""
+        case_analysis
+        case_postchecks
+        check_target_specificity
+    """),
+    "scripts/model/case_candidates.py": _tests("""
+        case_candidates
+        case_postchecks
+        assessment_scanner_findings
+        verification_budget
+        source_usage
+        source_usage_delegated
+        test_case_catalog
+        check_target_specificity
+    """),
+    "scripts/model/case_outcomes.py": _tests("""
+        threat_fixture
+        case_outcomes
+        case_postchecks
+        case_candidates
+        case_analysis
+        assessment_scanner_findings
+        source_usage
+        source_usage_delegated
+        check_target_specificity
+    """),
+    "scripts/model/case_postchecks.py": _tests("""
+        case_postchecks
+        case_analysis
+        case_candidates
+        case_outcomes
+        check_target_specificity
+    """),
+    "scripts/orchestrator/assessment_test_cases.py": _tests("""
+        case_candidates
+        case_outcomes
+        case_analysis
+        console_cost_display
+        multi_repo_controller
+        test_case_catalog
+        verification_budget
+        check_target_specificity
+    """),
+    "scripts/renderers/compact_tables.py": _tests("""
+        threat_fixture
+        compact_tables
+        compose_threat_model
+        check_target_specificity
+    """),
+    "scripts/renderers/report_markup.py": _tests("""
+        threat_fixture
+        report_markup
+        figure_theme
+        compose_threat_model
+        check_target_specificity
+    """),
+    "scripts/runtime/assessment_diagnostics.py": _tests("""
+        assessment_diagnostics
+        assessment_jobs
+        assessment_host
+        codex_cli
+        analyzer_distribution
+        check_target_specificity
+    """),
+    "scripts/runtime/engine_meta.py": _tests("""
+        resolve_config
+        triage_compute_ranking
+        check_target_specificity
+    """),
+    "scripts/runtime/interactive_budget.py": _tests("""
+        interactive_budget
+        assessment_state
+        assess_depth_prompt
+        check_target_specificity
+    """),
+    "scripts/runtime/plain_directory.py": _tests("""
+        plain_directory
+        check_target_specificity
+    """),
+    "scripts/runtime/source_preflight.py": _tests("""
+        result_robustness
+        startup_preflight
+        requirements_audit_cli
+        authnz_review_cli
+        check_target_specificity
+    """),
+    "scripts/shared/profile_metadata.py": _tests("""
+        threat_fixture
+        profiles
+        check_target_specificity
     """),
     "scripts/renderers/role_names.py": _tests("""
         role_names

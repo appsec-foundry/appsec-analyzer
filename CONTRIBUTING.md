@@ -36,11 +36,11 @@ Choose additional explicit test files for changed producers and consumers. Requi
 | Requirements | Catalog, audit, and affected producer tests; record the change in `specs/changes/<name>/proposal.md`. |
 | Documentation or contributor instructions | Review the diff, formatting, local links, and consistency. For changed command examples, compare CLI help or implementation and run only affected documentation contract tests. Editorial changes and historical command references need no broad gate. |
 
-Some inherited tools still refer to missing Advisor files. The test-group catalog in `scripts/run_tests.py` has missing tests and invalid routes; `make lint` and `make release-check` invoke missing files. Use `make release-check-analyzer BASE=<base-commit>` for the standalone offline distribution gate. These are open extraction defects, not instructions to recreate excluded features. The [coverage workflow](.github/workflows/coverage.yml) runs the offline suite directly. This repository has no CODEOWNERS.
+The test-group catalog in `scripts/run_tests.py` assigns every test to a group and every script to a reviewed route. Some inherited tools still refer to missing Advisor files: `make lint` and `make release-check` invoke missing files. Use `make release-check-analyzer BASE=<base-commit>` for the standalone offline distribution gate. These are open extraction defects, not instructions to recreate excluded features. The [coverage workflow](.github/workflows/coverage.yml) runs the offline suite directly. This repository has no CODEOWNERS.
 
 The active context-routing tests build the Analyzer package and run in the standalone gate. Tests dedicated to excluded Advisor hooks, plugin packaging, status helpers, and release tools have been removed. The standalone requirements catalog checker works independently of Claude hook registration.
 
-The whole suite now collects, but execution is not green. The first current failure is a logger test expecting the excluded root `config.json`; the inherited group-catalog tests also fail on missing Advisor entries. For a complete diagnostic run that retains any future collection errors:
+The whole suite now collects, but execution is not green. The first current failure is a logger test expecting the excluded root `config.json`. For a complete diagnostic run that retains any future collection errors:
 
 ```sh
 PYTHONPATH=.:scripts python3 -m pytest tests --continue-on-collection-errors -q --tb=short
