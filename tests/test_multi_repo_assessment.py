@@ -4070,6 +4070,46 @@ def test_input_echoed_between_redraws_leaves_no_stale_status_line(monkeypatch, c
     assert len(screen) == components + 1 and "5/8 Threat analysis" in screen[-1] and screen[-1].endswith("…")
 
 
+@pytest.mark.parametrize("stream", ["stderr", "stdout"])
+def test_a_line_printed_past_the_console_leaves_no_status_row_behind(monkeypatch, stream):
+    """A module that prints to the terminal itself while a two-row status line shows must not strand its first row."""
+    written: list[str] = []
+
+    class _Terminal(io.StringIO):
+        def write(self, text):
+            written.append(text)
+            return len(text)
+
+        def isatty(self):
+            return True
+
+    terminal = _Terminal()
+    monkeypatch.setenv("COLUMNS", "140")
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr(sys, "stderr", terminal)
+    monkeypatch.setattr(sys, "stdout", terminal)
+    monkeypatch.setattr(controller._AssessmentConsole, "max_columns", None)
+    console = controller._AssessmentConsole(False, live=True)
+    console.plan_components(4)
+    console.start_ticker()
+    try:
+        console.step("Running deterministic source scanners")
+        console.step("Remaining files · 132 of 132 examined · 4 findings")
+        console.tick()
+        assert controller._AssessmentConsole.status_lines == 2
+        print("TRUST_BOUNDARY_REF_WARN: component-a: dropped reference", file=getattr(sys, stream))
+        console.tick()
+        console.step("Reviewing merge candidates (ambiguous, 1/1)")
+    finally:
+        controller._AssessmentConsole.stop()
+    assert sys.stderr is terminal and sys.stdout is terminal
+    rows = [row for row in _screen("".join(written), 140) if row]
+    # The printed line stays readable, and the phase ends right below it without a spinner or bar row.
+    printed = next(index for index, row in enumerate(rows) if "TRUST_BOUNDARY_REF_WARN" in row)
+    assert "Threat analysis   done" in rows[printed + 1]
+    assert not any("━" in row or "─" in row for row in rows)
+
+
 @pytest.mark.parametrize("columns", [140, 90], ids=["after the bar", "below the bar"])
 @pytest.mark.parametrize("colour", [True, False], ids=["colour", "no colour"])
 def test_a_long_status_line_wraps_whole_and_a_shorter_redraw_leaves_no_row_behind(monkeypatch, columns, colour):

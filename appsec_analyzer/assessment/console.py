@@ -351,6 +351,27 @@ class _AssessmentProgress:
             print(f"⚠ progress file disabled: {exc.strerror or exc}", file=sys.stderr, flush=True)
 
 
+class _StatusGuard:
+    """Stands in for a terminal stream while the status line is live.
+
+    Code in the run's process, such as a module's warning, may print to the terminal itself. A line printed
+    onto the status area pushes the cursor a row lower; the next clear then leaves the status line's first
+    row behind and erases the printed line. The guard removes the status area first.
+    """
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, text: str) -> int:
+        with _AssessmentConsole._lock:
+            if text:
+                _AssessmentConsole.clear_status()
+            return self.stream.write(text)
+
+    def __getattr__(self, name: str):
+        return getattr(self.stream, name)
+
+
 class _AssessmentConsole:
     """The run's console view: every line in one fixed column grid.
 
@@ -736,6 +757,11 @@ class _AssessmentConsole:
         if not self.live:
             return
         _AssessmentConsole._stopped.clear()
+        # Lines printed past the console clear the status line first; standard output only on a terminal.
+        if not isinstance(sys.stderr, _StatusGuard):
+            sys.stderr = _StatusGuard(sys.stderr)
+        if sys.stdout.isatty() and not isinstance(sys.stdout, _StatusGuard):
+            sys.stdout = _StatusGuard(sys.stdout)
 
         def tick():
             while not _AssessmentConsole._stopped.wait(self.TICK_SECONDS):
@@ -752,6 +778,10 @@ class _AssessmentConsole:
         with _AssessmentConsole._lock:
             _AssessmentConsole._stopped.set()
             _AssessmentConsole.clear_status()
+            if isinstance(sys.stderr, _StatusGuard):
+                sys.stderr = sys.stderr.stream
+            if isinstance(sys.stdout, _StatusGuard):
+                sys.stdout = sys.stdout.stream
 
     def tick(self) -> None:
         """Redraw the status line: what runs right now and for how long."""
@@ -903,10 +933,17 @@ class _AssessmentConsole:
         """Remove the in-place status lines before any permanent line is written."""
         with _AssessmentConsole._lock:
             if _AssessmentConsole.status_shown:
-                sys.stderr.write(_AssessmentConsole._clear_sequence())
-                sys.stderr.flush()
+                terminal = _AssessmentConsole._terminal()
+                terminal.write(_AssessmentConsole._clear_sequence())
+                terminal.flush()
                 _AssessmentConsole.status_shown = False
                 _AssessmentConsole.status_lines = 0
+
+    @staticmethod
+    def _terminal():
+        """The stream the status line is drawn on, past its guard."""
+        stream = sys.stderr
+        return stream.stream if isinstance(stream, _StatusGuard) else stream
 
     @staticmethod
     def _clear_sequence() -> str:
@@ -986,14 +1023,15 @@ class _AssessmentConsole:
             if self.prompting:
                 return
             up = _AssessmentConsole.status_lines - 1 if _AssessmentConsole.status_shown else 0
-            sys.stderr.write(
+            terminal = self._terminal()
+            terminal.write(
                 _AssessmentConsole.FRAME_OPEN
                 + (f"\033[{up}A" if up > 0 else "")
                 + "\033[K\n".join(lines)
                 + "\033[K\033[J"
                 + _AssessmentConsole.FRAME_CLOSE
             )
-            sys.stderr.flush()
+            terminal.flush()
             _AssessmentConsole.status_shown = True
             _AssessmentConsole.status_lines = len(lines)
 
