@@ -1,5 +1,5 @@
 # Runs one Analyzer assessment as an OpenShift or Kubernetes Job.
-# Replace the image, the repository URL, the output directory, and the budget.
+# Replace the image digest, the repository URL, the output directory, and the budget.
 # See docs/container.md.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -19,6 +19,8 @@ metadata:
 spec:
   # A retry would start new paid model calls; resume a paused run deliberately.
   backoffLimit: 0
+  # Stops the pod after four hours; Analyzer keeps accepted results for --resume.
+  activeDeadlineSeconds: 14400
   template:
     spec:
       restartPolicy: Never
@@ -31,7 +33,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: appsec-analyzer
-          image: registry.example.com/security/appsec-analyzer:1
+          # A digest always names the same image; a tag can be moved to another one.
+          image: registry.example.com/security/appsec-analyzer@sha256:<digest>
           args:
             - assess
             - --repo
@@ -62,10 +65,16 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # Estimates for up to five parallel Claude CLI processes and a cloned
+          # repository in /tmp; adjust them to your repositories and runs.
           resources:
             requests:
               cpu: "1"
               memory: 2Gi
+              ephemeral-storage: 2Gi
+            limits:
+              memory: 4Gi
+              ephemeral-storage: 10Gi
           volumeMounts:
             - name: output
               mountPath: /output

@@ -1,6 +1,8 @@
 # Container image for the appsec-analyzer command. Usage: docs/container.md
 #
-# Every external input is pinned. To update one, change its version and its
+# The base image, Python packages, and Claude CLI are pinned by digest or hash,
+# the named Debian packages by version; apt resolves their dependencies from
+# Debian's signed package lists. To update a pin, change its version and its
 # digest or hash together, rebuild, and run tests/test_container_smoke.py.
 # Dependabot proposes base image and Python updates; container/check_pins.py
 # reports newer Debian packages and Claude CLI releases.
@@ -54,6 +56,12 @@ RUN pip install --require-hashes --only-binary=:all: -r /tmp/build-requirements.
 
 # The build reads .git to stamp the version, as an installation from a checkout does.
 COPY . /src
+# Only files that Git tracks go into the wheel. setup.py copies whole runtime
+# directories, which would otherwise include ignored files such as local
+# assessment results. A git worktree keeps its Git data outside the build context.
+RUN git -C /src rev-parse --git-dir >/dev/null \
+ || { echo "Build from a Git checkout or clone, not from a git worktree" >&2; exit 1; }; \
+    git -C /src clean -ffdxq
 RUN pip wheel --no-deps --no-build-isolation --wheel-dir /wheels /src
 
 

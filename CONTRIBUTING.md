@@ -83,7 +83,7 @@ Enabling the upload sends coverage paths, line-hit data, and commit metadata to 
 
 The [container workflow](.github/workflows/container.yml) builds the image from the [Dockerfile](Dockerfile) and runs `tests/test_container_smoke.py` against it. It runs on pull requests and pushes that change the image's inputs, every Monday, and on manual dispatch. It needs no provider credentials, makes no model calls, and builds only `amd64`.
 
-Every external input of the image is pinned to a version and a digest or hash, so updates need a change in the repository:
+The base image, the Python packages, and Claude CLI are pinned to a digest or hash, and the Debian packages that the Dockerfile names are pinned to a version. Updates of these inputs need a change in the repository:
 
 - Dependabot opens weekly pull requests for the base image and for the Python packages in `container/`. The workflow then builds and tests the updated image.
 - Debian packages and Claude CLI have no Dependabot source. The weekly **Check pinned versions** job runs [check_pins.py](container/check_pins.py) and fails when apt offers a newer package version or npm's `stable` Claude CLI release differs from the pinned one. It prints the new pins, including the Claude CLI hashes.

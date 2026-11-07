@@ -110,6 +110,44 @@ def test_build_context_keeps_git_for_the_version_stamp():
     assert ".git" not in ignored and ".git/" not in ignored
 
 
+def _wheel_from_tracked_files(text: str) -> bool:
+    """The build copies the checkout, removes what Git does not track, then builds the wheel."""
+    steps = _instructions(text)
+
+    def first(op: str, word: str) -> int:
+        return next((index for index, (name, args) in enumerate(steps) if name == op and word in args), -1)
+
+    copy, clean, wheel = first("COPY", ". /src"), first("RUN", "git -C /src clean -ffdx"), first("RUN", "pip wheel")
+    return -1 < copy < clean < wheel
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "expected"),
+    [
+        (DOCKERFILE, True),
+        ("FROM x\nCOPY . /src\nRUN pip wheel /src\n", False),
+        ("FROM x\nRUN git -C /src clean -ffdx\nCOPY . /src\nRUN pip wheel /src\n", False),
+    ],
+)
+def test_wheel_contains_only_files_git_tracks(dockerfile, expected):
+    # setup.py copies whole runtime directories; ignored files such as local reports must not reach the image.
+    assert _wheel_from_tracked_files(dockerfile) is expected
+
+
+def test_build_stops_without_readable_git_data():
+    assert re.search(
+        r"git -C /src rev-parse --git-dir >/dev/null\s+\|\|\s+\{[^}]*exit 1; \}", _run_commands(DOCKERFILE)
+    )
+
+
+def test_docker_examples_drop_rights():
+    guide = re.sub(r"\\\n", " ", (ROOT / "docs" / "container.md").read_text(encoding="utf-8"))
+    runs = [line for line in guide.splitlines() if line.strip().startswith("docker run")]
+    assert runs
+    for run in runs:
+        assert "--cap-drop ALL" in run and "--security-opt no-new-privileges" in run, run
+
+
 @pytest.mark.parametrize(
     ("check", "dockerfile", "found"),
     [
@@ -146,6 +184,14 @@ def test_openshift_job_runs_once_with_least_privilege():
     assert context["capabilities"]["drop"] == ["ALL"]
     assert "ports" not in container
     assert {"--non-interactive", "--budget", "--output", "--profile"} <= set(container["args"])
+
+
+def test_openshift_job_pins_its_image_and_bounds_its_resources():
+    job, pod = _job_and_pod()
+    (container,) = pod["containers"]
+    assert "@sha256:" in container["image"]
+    assert job["spec"]["activeDeadlineSeconds"] > 0
+    assert {"memory", "ephemeral-storage"} <= set(container["resources"]["limits"])
 
 
 def test_openshift_job_takes_credentials_only_from_a_secret():

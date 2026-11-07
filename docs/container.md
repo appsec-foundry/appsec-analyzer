@@ -16,7 +16,7 @@ The image leaves out:
 
 ## Build the image
 
-You need Docker or Podman and network access to Docker Hub, Debian, PyPI, and the npm registry. The build checks every download against a version and hash pinned in the [Dockerfile](../Dockerfile) and in [container/requirements.txt](../container/requirements.txt). The image supports `amd64` and `arm64`.
+You need Docker or Podman and network access to Docker Hub, Debian, PyPI, and the npm registry. The build checks the base image, the Python packages, and Claude CLI against digests and hashes pinned in the [Dockerfile](../Dockerfile) and in [container/requirements.txt](../container/requirements.txt). Git and pandoc are pinned by version; apt checks them and their dependencies against Debian's signed package lists. The image supports `amd64` and `arm64`.
 
 Run in the Analyzer checkout:
 
@@ -24,7 +24,9 @@ Run in the Analyzer checkout:
 docker build -t appsec-analyzer .
 ```
 
-To build with Podman, replace `docker` with `podman`; the run examples below are written for Docker. Uncommitted changes in the checkout go into the image, and `--version` then shows `+local changes`.
+To build with Podman, replace `docker` with `podman`; the run examples below are written for Docker.
+
+The image contains only files that Git tracks. Uncommitted changes to them go into the image, and `--version` then shows `+local changes`. Files that Git ignores or does not track, such as local assessment results, stay out. Build in a checkout or a clone. In a git worktree the build stops, because the worktree keeps its Git data outside the build context.
 
 ## Run with Docker
 
@@ -44,7 +46,7 @@ Mount the source read-only and the result directory writable. Keep the result di
 ```sh
 mkdir -p "$HOME/assessments"
 docker run --rm --name appsec-assessment \
-  --user "$user" \
+  --user "$user" --cap-drop ALL --security-opt no-new-privileges \
   --env ANTHROPIC_API_KEY \
   --volume /path/to/project:/repo:ro \
   --volume "$HOME/assessments":/output \
@@ -52,12 +54,12 @@ docker run --rm --name appsec-assessment \
   --profile claude --standard --budget 20 --non-interactive
 ```
 
-Replace `/path/to/project` with your checkout. `--env ANTHROPIC_API_KEY` without a value passes the variable from your shell, so the key does not appear in the command. The report is written to `$HOME/assessments/project`. Always pass `--output` on a mounted directory: without it, Analyzer writes into the container, and the results are lost when it exits.
+Replace `/path/to/project` with your checkout. `--cap-drop ALL` and `--security-opt no-new-privileges` take away rights that Analyzer does not need. `--env ANTHROPIC_API_KEY` without a value passes the variable from your shell, so the key does not appear in the command. The report is written to `$HOME/assessments/project`. Always pass `--output` on a mounted directory: without it, Analyzer writes into the container, and the results are lost when it exits.
 
 Commands without model calls need no credentials:
 
 ```sh
-docker run --rm --user "$user" \
+docker run --rm --user "$user" --cap-drop ALL --security-opt no-new-privileges \
   --volume /path/to/project:/repo:ro \
   appsec-analyzer score /repo
 ```
@@ -81,16 +83,18 @@ The Job does not retry a failed run, because a retry would start new paid model 
    docker push registry.example.com/security/appsec-analyzer:1
    ```
 
-2. Store the API key in a secret. The command reads the key from your shell variable, so it does not appear in your shell history:
+   `docker push` prints the image digest at the end, `digest: sha256:…`. The Job refers to the image by this digest, because a digest always names the same image. A tag can be moved to another image, and a node may keep starting an older image it has cached under the same tag.
+
+2. Store the API key in a secret. The command, for bash or zsh, reads the key from your shell variable, so it appears neither in your shell history nor in the process list:
 
    ```sh
    oc create secret generic appsec-analyzer-credentials \
-     --from-literal=ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
+     --from-env-file=<(printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY")
    ```
 
    For a private repository, add a read-only `APPSEC_GIT_TOKEN` to the same secret and remove the comment markers in the Job.
 
-3. Copy the example and replace the image, the repository URL, the output directory, and the budget. Then start the Job:
+3. Copy the example and replace the image digest, the repository URL, the output directory, and the budget. The Job stops after four hours and limits memory to 4 GiB and local storage to 10 GiB. These are estimates; adjust them to your repositories and runs. Then start the Job:
 
    ```sh
    oc apply -f assessment-job.yaml
@@ -105,6 +109,6 @@ The Job does not retry a failed run, because a retry would start new paid model 
 
    While that shell is open, run `oc rsync <debug-pod>:/output/project ./project-assessment` in a second terminal. `oc debug` prints the pod name when it starts.
 
-If the run paused with exit code 3, delete the Job, add `--resume` to its arguments, and apply it again. The results on the volume remain.
+If the run paused with exit code 3 or reached the time limit, delete the Job, add `--resume` to its arguments, and apply it again. The results on the volume remain.
 
 Reports and intermediate files can contain sensitive code details. Restrict access to the namespace and its volume, and delete the volume when you no longer need it.
