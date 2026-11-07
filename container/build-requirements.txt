@@ -1,0 +1,4 @@
+# Build tool for the wheel in the container image, installed with pip --require-hashes.
+# Must satisfy build-system.requires in pyproject.toml; setuptools 70.1 and newer build wheels without the wheel package.
+setuptools==84.2.1 \
+    --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2

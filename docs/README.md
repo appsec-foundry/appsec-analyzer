@@ -8,6 +8,7 @@ Start with the [repository README](../README.md) to choose a source scan, full a
 | --- | --- |
 | Analyze a complete system | [Security assessment](security-assessment.md) |
 | Run unattended and inspect results | [Command-line operation](headless-mode.md) |
+| Run in Docker or OpenShift | [Container](container.md) |
 | Select settings and organization defaults | [Configuration](configuration.md), [organization profiles](org-profiles.md) |
 | Understand provider, model, and cost limits | [Hosts and models](model-selection.md), [security policy](../SECURITY.md) |
 | Review a design, change, or hypothesis | [Focused Threat Analyst](threat-analyst.md) |

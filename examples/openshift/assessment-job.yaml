@@ -1,0 +1,83 @@
+# Runs one Analyzer assessment as an OpenShift or Kubernetes Job.
+# Replace the image, the repository URL, the output directory, and the budget.
+# See docs/container.md.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: appsec-assessments
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: appsec-assessment
+spec:
+  # A retry would start new paid model calls; resume a paused run deliberately.
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      # Time for Analyzer to keep accepted results when the pod is stopped.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: appsec-analyzer
+          image: registry.example.com/security/appsec-analyzer:1
+          args:
+            - assess
+            - --repo
+            - https://github.com/your-org/your-project.git
+            - --output
+            - /output/project
+            - --profile
+            - claude
+            - --standard
+            - --budget
+            - "20"
+            - --non-interactive
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: appsec-analyzer-credentials
+                  key: ANTHROPIC_API_KEY
+            # For a private repository, add a read-only token to the secret:
+            # - name: APPSEC_GIT_TOKEN
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: appsec-analyzer-credentials
+            #       key: APPSEC_GIT_TOKEN
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: output
+              mountPath: /output
+            - name: home
+              mountPath: /home/analyzer
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: output
+          persistentVolumeClaim:
+            claimName: appsec-assessments
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

@@ -33,3 +33,7 @@ The `requirements-auditor/` directory retains an Advisor-era demo audit of OWASP
 ## Scan and model profiles
 
 Copy [developer.yaml](profiles/developer.yaml) or [release.yaml](profiles/release.yaml) to your Analyzer `profiles/` directory. The release profile also needs [team-sol.yaml](model-profiles/team-sol.yaml) in `model-profiles/`. [team-claude.yaml](model-profiles/team-claude.yaml) shows Claude overrides. See the [profile guide](../docs/profiles.md) for paths, precedence, and validation commands.
+
+## Container
+
+[assessment-job.yaml](openshift/assessment-job.yaml) runs one assessment as an OpenShift or Kubernetes Job with a volume for the results. Replace the image, repository URL, output directory, and budget before you apply it. See [Run Analyzer in a container](../docs/container.md).

@@ -181,6 +181,10 @@ Replace `appsec-analyzer` with `python3 -m appsec_analyzer` in all examples. `as
 
 </details>
 
+### Container
+
+The [Dockerfile](Dockerfile) builds an image that runs one `appsec-analyzer` command, locally with Docker or as a Job in OpenShift. It contains Claude CLI and HTML export but no PDF export. See [Run Analyzer in a container](docs/container.md).
+
 ## Commands
 
 `appsec-analyzer --help` shows the commands in the same groups as the lists below. `appsec-analyzer <command> --help` lists the options of each command.
@@ -622,6 +626,7 @@ abuse_cases:
 - [Configuration](docs/configuration.md) and [organization profiles](docs/org-profiles.md): settings for local and team use.
 - [Hosts, models, and cost](docs/model-selection.md): provider support and spending limits.
 - [Command-line operation](docs/headless-mode.md): unattended runs and lifecycle commands.
+- [Container](docs/container.md): runs with Docker or as an OpenShift Job.
 - [Documentation index](docs/README.md): all current guides and maintainer references.
 - [AppSec Analyzer Tools](https://github.com/appsec-foundry/appsec-analyzer-tools): companion repository.
 

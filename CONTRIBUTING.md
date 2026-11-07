@@ -79,6 +79,22 @@ Tests run without the Codecov secret. A separate upload job consumes only the XM
 
 Enabling the upload sends coverage paths, line-hit data, and commit metadata to Codecov. It does not send assessment reports or model inputs. The uploader's plugins and automatic report search are disabled, so only the named coverage report is selected. The workflow pins action commits and the Codecov CLI version and keeps the uploader's integrity checks enabled.
 
+## Container image
+
+The [container workflow](.github/workflows/container.yml) builds the image from the [Dockerfile](Dockerfile) and runs `tests/test_container_smoke.py` against it. It runs on pull requests and pushes that change the image's inputs, every Monday, and on manual dispatch. It needs no provider credentials, makes no model calls, and builds only `amd64`.
+
+Every external input of the image is pinned to a version and a digest or hash, so updates need a change in the repository:
+
+- Dependabot opens weekly pull requests for the base image and for the Python packages in `container/`. The workflow then builds and tests the updated image.
+- Debian packages and Claude CLI have no Dependabot source. The weekly **Check pinned versions** job runs [check_pins.py](container/check_pins.py) and fails when apt offers a newer package version or npm's `stable` Claude CLI release differs from the pinned one. It prints the new pins, including the Claude CLI hashes.
+
+To run the smoke test locally:
+
+```sh
+docker build -t appsec-analyzer:dev .
+APPSEC_CONTAINER_IMAGE=appsec-analyzer:dev python3 -m pytest -q tests/test_container_smoke.py
+```
+
 ## Live qualification
 
 Live tests call a paid provider and require an explicitly authorized budget. They are not part of offline review:

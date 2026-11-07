@@ -524,6 +524,7 @@ GROUPS = {
         assessment_diagnostics
         assessment_scope
         authnz_review_cli
+        container_image
         depth_settings
         distribution
         interactive_budget
@@ -567,6 +568,7 @@ GROUPS = {
 
 MANUAL_TESTS = {
     "tests/test_host_isolation_live.py": "Calls the real claude host and spends money; enabled by APPSEC_LIVE_HOST=1.",
+    "tests/test_container_smoke.py": "Runs a built container image with Docker; enabled by APPSEC_CONTAINER_IMAGE.",
 }
 
 # These sources retain the full suite until their behavior has measured coverage.
@@ -1502,6 +1504,12 @@ SOURCE_TESTS = {
     "README.md": _tests("""
         requirements_verification
     """),
+    "Dockerfile": _tests("container_image requirements_verification"),
+    ".dockerignore": _tests("container_image requirements_verification"),
+    "container/requirements.txt": _tests("container_image requirements_verification"),
+    "container/build-requirements.txt": _tests("container_image requirements_verification"),
+    "container/check_pins.py": _tests("container_image requirements_verification"),
+    "examples/openshift/assessment-job.yaml": _tests("container_image requirements_verification"),
     "agents/shared/finding-title-contract.md": _tests("""
         agent_doc_shell_snippets
         check_target_specificity

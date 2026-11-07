@@ -21,6 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- A container image runs Analyzer with Docker or as an OpenShift Job. It contains Claude CLI and HTML export but no PDF export, runs without root rights, and takes credentials only when it starts. The build checks every download against a pinned version and hash. See [Run Analyzer in a container](docs/container.md).
 - `assess --abuse-cases` checks technical and business abuse cases at `quick` depth, which otherwise skips them. It adds model calls.
 - Every finding card states how reliable the finding is, as high, medium, or low, with the reason. The level says how sure the report is that the weakness is real, not how severe it is.
 - `assess`, `scan-sources`, `score`, and `audit-requirements` accept a local directory without Git. A `.gitignore` applies as in a checkout, nothing is written into the directory, and the report shows no commit. See [Directories without Git](docs/security-assessment.md#directories-without-git).
