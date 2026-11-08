@@ -75,6 +75,50 @@ def source_rows(value):
         stack.extend((child, depth + 1, ancestors) for child in children)
 
 
+def cites_admitted_sources(schema) -> bool:
+    """Whether a result contract has source citations and each can carry its repository and content hash.
+
+    Every object with a ``file`` property is a source citation (`source_rows`).
+    One citation shape without ``repository_id`` or ``sha256`` makes the whole
+    contract answer False, so `set_admitted_hashes` never adds a field that
+    such a contract would reject.
+    """
+    found = False
+    stack = [schema]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+        elif isinstance(node, dict):
+            fields = node.get("properties")
+            if isinstance(fields, dict) and "file" in fields:
+                if not {"repository_id", "sha256"} <= fields.keys():
+                    return False
+                found = True
+            stack.extend(node.values())
+    return found
+
+
+def set_admitted_hashes(scope, artifact):
+    """Set each citation of an admitted file to that file's admitted content hash, in place (MR-17).
+
+    The controller holds these bytes, so it sets the hash instead of checking
+    the model's copy of 64 hex digits; a missing or mistyped copy would
+    otherwise reject a correct citation. A citation outside the admitted scope
+    keeps the model's value, so the source checks still reject it; scope,
+    retrieval and line checks are unchanged.
+    """
+    files = {repo.repository_id: repo.files for repo in scope.repositories}
+    hashes: dict[tuple[str, str], str] = {}
+    for row in source_rows(artifact):
+        rid, path = row.get("repository_id"), row.get("file")
+        if isinstance(rid, str) and isinstance(path, str) and path in files.get(rid, {}):
+            if (rid, path) not in hashes:
+                hashes[rid, path] = hashlib.sha256(files[rid][path]).hexdigest()
+            row["sha256"] = hashes[rid, path]
+    return artifact
+
+
 def claim_cited_files(document: dict) -> list[str]:
     """Let each component list the files its findings and controls are anchored in.
 

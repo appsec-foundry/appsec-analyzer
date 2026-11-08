@@ -18,8 +18,8 @@ import yaml
 from jsonschema import Draft202012Validator
 from runtime.assessment_host import ExchangeError, Rejection, read_slice
 from runtime.multi_repo_scope import ScopeError
-from shared.assessment_sources import source_key, source_rows, validate_verification_variants
-from validators.validate_assessment_architecture import validate_source
+from shared.assessment_sources import set_admitted_hashes, source_key, source_rows, validate_verification_variants
+from validators.validate_assessment_architecture import AssessmentArchitectureError, validate_source
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = (
@@ -1022,15 +1022,9 @@ def controls_normalizer(scope, identity):
     unchanged.
     """
     identify = identity_normalizer(identity)
-    files = {repo.repository_id: repo.files for repo in scope.repositories}
 
     def normalize(artifact):
-        artifact = identify(artifact)
-        for row in source_rows(artifact):
-            rid, path = row.get("repository_id"), row.get("file")
-            if isinstance(rid, str) and isinstance(path, str) and path in files.get(rid, {}):
-                row["sha256"] = hashlib.sha256(files[rid][path]).hexdigest()
-        return artifact
+        return set_admitted_hashes(scope, identify(artifact))
 
     normalize.version = "controls-1"
     return normalize
@@ -1295,14 +1289,19 @@ def component_neighborhood(components: dict, flows: dict, component_id: str) -> 
 def validate_retrieved_sources(scope, artifact, ranges, allowed_sources):
     """Every evidence claim must cite bytes actually delivered to this job.
 
-    The rejection names each unretrieved citation; a stateless correction turn
-    cannot otherwise tell which claim to read or remove. Context anchors invite
-    such citations, so the host also serves each authorized unread anchor
-    before the correction turn.
+    The rejection names each unretrieved or inadmissible citation; a stateless
+    correction turn cannot otherwise tell which claim to read, correct or
+    remove. Context anchors invite such citations, so the host also serves
+    each authorized unread anchor before the correction turn.
     """
-    missing, anchors = [], []
+    missing, anchors, inadmissible = [], [], False
     for row in source_rows(artifact):
-        validate_source(scope, row, path_key="file")
+        try:
+            validate_source(scope, row, path_key="file")
+        except AssessmentArchitectureError as exc:
+            inadmissible = True
+            missing.append(f"{exc}; correct the citation or remove the claim")
+            continue
         key = (row["repository_id"], row["file"])
         location = f"{row['repository_id']}/{row['file']}:{row['line']}"
         if key not in allowed_sources:
@@ -1318,10 +1317,13 @@ def validate_retrieved_sources(scope, artifact, ranges, allowed_sources):
     if missing:
         # The correction feedback is capped at 2,000 characters; name the rest by count.
         unique = list(dict.fromkeys(missing))
-        shown = unique[:12] + ([f"{len(unique) - 12} more unretrieved citations"] if len(unique) > 12 else [])
-        raise Rejection(
-            "Analysis evidence was not retrieved by its authorized job", shown, reads=list(dict.fromkeys(anchors))
+        shown = unique[:12] + ([f"{len(unique) - 12} more rejected citations"] if len(unique) > 12 else [])
+        summary = (
+            "Analysis evidence cites sources outside the admitted bytes or not retrieved by its authorized job"
+            if inadmissible
+            else "Analysis evidence was not retrieved by its authorized job"
         )
+        raise Rejection(summary, shown, reads=list(dict.fromkeys(anchors)))
 
 
 def validate_identity(scope, artifact, component_fingerprint):

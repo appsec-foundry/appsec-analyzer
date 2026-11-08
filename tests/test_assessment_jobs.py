@@ -1050,6 +1050,61 @@ def test_the_receipt_records_the_normalized_artifact_and_names_its_normalizer(tm
         jobs.execute(**kwargs, normalize=normalize)
 
 
+def _citing(sha256=True):
+    row = {"repository_id": {"type": "string"}, "file": {"type": "string"}, "line": {"type": "integer"}}
+    if sha256:
+        row["sha256"] = {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    item = {"type": "object", "additionalProperties": False, "required": ["repository_id", "file", "line"]}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["evidence"],
+        "properties": {"evidence": {"type": "array", "items": {**item, "properties": row}}},
+    }
+
+
+def test_the_controller_sets_each_admitted_citation_hash_and_names_that_step(tmp_path, monkeypatch):
+    """A missing or mistyped hash copy never rejects a correct citation (MR-17), for every role."""
+    import hashlib
+
+    from runtime import assessment_jobs
+
+    admitted = hashlib.sha256(b"print('test')\n").hexdigest()
+    rows = [
+        {"repository_id": RID, "file": "app.py", "line": 1},
+        {"repository_id": RID, "file": "app.py", "line": 1, "sha256": "f" * 64},
+        {"repository_id": RID, "file": "gone.py", "line": 1, "sha256": "e" * 64},
+    ]
+    replies = [{"action": "complete", "reads": [], "artifact": {"evidence": rows}}]
+    reviewed = []
+    jobs, host, kwargs, _ = setup(tmp_path, replies=replies, validate=lambda a, r: reviewed.append(a))
+    kwargs["schema"] = _citing()
+    result = jobs.execute(**kwargs)
+    # A citation outside the admitted scope keeps the model's value for the source checks to reject.
+    assert [row["sha256"] for row in result["evidence"]] == [admitted, admitted, "e" * 64]
+    assert reviewed[0] == result and host.calls == 1
+    assert jobs.execute(**kwargs) == result and host.calls == 1
+    # A changed hash step is a changed request, never a silent reuse.
+    monkeypatch.setattr(assessment_jobs, "ADMITTED_HASHES", "admitted-hashes-0")
+    with pytest.raises(ExchangeError, match="stale"):
+        jobs.execute(**kwargs)
+
+
+def test_a_contract_whose_citations_cannot_carry_a_hash_is_left_to_its_own_rules(tmp_path, monkeypatch):
+    from runtime import assessment_jobs
+    from shared.assessment_sources import cites_admitted_sources
+
+    rows = [{"repository_id": RID, "file": "app.py", "line": 1}]
+    replies = [{"action": "complete", "reads": [], "artifact": {"evidence": rows}}]
+    jobs, host, kwargs, _ = setup(tmp_path, replies=replies)
+    kwargs["schema"] = _citing(sha256=False)
+    assert not cites_admitted_sources(kwargs["schema"]) and not cites_admitted_sources(SCHEMA)
+    assert jobs.execute(**kwargs) == {"evidence": rows}
+    # The hash step is not part of this request, so its version does not touch the receipt.
+    monkeypatch.setattr(assessment_jobs, "ADMITTED_HASHES", "admitted-hashes-0")
+    assert jobs.execute(**kwargs) == {"evidence": rows} and host.calls == 1
+
+
 def test_an_optional_job_the_model_cannot_answer_is_replaced_without_a_receipt(tmp_path):
     """OR-39: the replacement stands in, the gap is named, and a later run retries the job."""
 

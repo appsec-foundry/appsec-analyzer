@@ -571,6 +571,64 @@ def test_unretrieved_evidence_rejection_names_each_citation(tmp_path, path, line
     stage.validate_retrieved_sources(scope, artifact, ranges, allowed)
 
 
+def test_inadmissible_nested_citations_are_each_named_in_one_rejection(tmp_path):
+    """A correction turn sees which citation lacks its hash or leaves the scope, not only a summary."""
+    files = {"app.py": b"row = 1\nrow = 2\n"}
+    scope, component = _owned_sources(tmp_path, files, ["app.py"])
+    rid = scope.repositories[0].repository_id
+    digest = hashlib.sha256(files["app.py"]).hexdigest()
+    nested = [dict(repository_id=rid, file="app.py", line=2), dict(repository_id=rid, file="gone.py", line=1)]
+    artifact = {
+        "threats": [
+            {
+                "evidence": dict(repository_id=rid, file="app.py", line=1, sha256=digest),
+                "verification_context": {"variants": [{"evidence": nested}]},
+            }
+        ]
+    }
+    ranges = [dict(repository_id=rid, path="app.py", sha256=digest, start_line=1, end_line=2)]
+    with pytest.raises(Rejection) as raised:
+        stage.validate_retrieved_sources(scope, artifact, ranges, stage.source_selection([component]))
+    assert sorted(raised.value.errors) == [
+        f"Architecture source {rid}/app.py:2 has no content hash; correct the citation or remove the claim",
+        f"Architecture source {rid}/gone.py:1 is outside admitted scope; correct the citation or remove the claim",
+    ]
+    # With the hash the controller sets, only the citation outside the scope remains.
+    nested[0]["sha256"] = digest
+    with pytest.raises(Rejection) as raised:
+        stage.validate_retrieved_sources(scope, artifact, ranges, stage.source_selection([component]))
+    assert raised.value.errors == [
+        f"Architecture source {rid}/gone.py:1 is outside admitted scope; correct the citation or remove the claim"
+    ]
+
+
+@pytest.mark.parametrize(
+    "role,build",
+    [
+        ("architecture_analyst", lambda: stage.contract("multi-repo-architecture.schema.json")),
+        ("trust_boundary_analyst", lambda: stage.contract("fragments/trust-boundary-candidates-v2.schema.json")),
+        ("control_analyst", lambda: stage.controls_contract()),
+        ("stride_analyzer", lambda: stage.component_stride_contract(1)),
+        ("evidence_verifier", lambda: stage.evidence_review_contract("thorough")),
+        ("evidence_verifier", lambda: stage.evidence_review_contract("standard")),
+        ("test_case_investigator", lambda: _case_analysis().investigation_model_contract()),
+        ("open_review", lambda: _case_analysis().contract("open-review.schema.json")),
+    ],
+)
+def test_every_citing_role_contract_gets_controller_set_hashes(role, build):
+    """A citation shape without repository_id or sha256, such as a shared fragment's, would hand every
+    hash of that role back to the model, where one missing or mistyped copy rejects the whole result."""
+    from shared.assessment_sources import cites_admitted_sources
+
+    assert cites_admitted_sources(build()), role
+
+
+def _case_analysis():
+    from contexts import case_analysis
+
+    return case_analysis
+
+
 @pytest.mark.parametrize(
     "source,expected",
     [
@@ -972,8 +1030,6 @@ def test_exploitation_review_returns_every_incomplete_finding_for_correction(tmp
 
 @pytest.mark.parametrize("kind", ["unread", "unauthorized", "stale"])
 def test_exploitation_review_cannot_borrow_the_producers_source_reads(tmp_path, kind):
-    from validators.validate_assessment_architecture import AssessmentArchitectureError
-
     scope, components, finding, ranges, review = _mechanism_review(tmp_path)
     allowed = stage.source_selection(components)
     if kind == "unread":
@@ -983,9 +1039,11 @@ def test_exploitation_review_cannot_borrow_the_producers_source_reads(tmp_path, 
     else:
         review = copy.deepcopy(review)
         review["decisions"][0]["evidence"][0]["sha256"] = "0" * 64
-    expected = AssessmentArchitectureError if kind == "stale" else Rejection
-    with pytest.raises(expected):
+    with pytest.raises(Rejection) as caught:
         stage.validate_evidence_review(scope, [finding], FP, review, ranges, allowed, depth="thorough")
+    if kind == "stale":
+        row = review["decisions"][0]["evidence"][0]
+        assert any(f"{row['repository_id']}/{row['file']}:{row['line']} content hash" in e for e in caught.value.errors)
 
 
 @pytest.mark.parametrize("verdict", ["verified", "ambiguous", "refuted"])

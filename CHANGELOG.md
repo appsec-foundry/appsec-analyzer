@@ -103,6 +103,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- `assess` no longer stops in Threat analysis with "Architecture source content hash does not match admitted bytes" when a finding's runtime verification context cites a source without its content hash. Analyzer now sets the content hash of each cited file itself for every analysis role instead of checking the model's copy; scope, retrieval and line checks are unchanged. A citation that is still rejected is named by repository, file and line, so the correction turn can repair it. A run resumed after this update repeats the accepted jobs of analysis roles that cite sources.
 - On a terminal, `assess` progress no longer leaves a frozen copy of its status line, with spinner and progress bar, when code in the run prints a warning directly. The warning used to be overwritten; it now stays readable above the next progress line.
 - PHP source checks: the path and file-inclusion check no longer matches `require` or `include` inside a longer name such as `$requiredIndent`. PHP findings name `php_source` as their source type instead of `nodejs_source`.
 - The weak-random checks of all languages also find secret names written as `session_token`, `resetToken` or `API_KEY`, and still ignore longer words such as `tokenizer`.

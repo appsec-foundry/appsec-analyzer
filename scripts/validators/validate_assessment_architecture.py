@@ -45,17 +45,27 @@ def validate_schema(document: dict, name: str) -> None:
 
 
 def validate_source(scope: AssessmentScope, row: dict, *, path_key: str) -> None:
+    """Reject a citation outside the admitted bytes; the message names the citation.
+
+    A result can hold many citations, and a correction turn given only the
+    reason cannot tell which one to repair.
+    """
     rid, path = row.get("repository_id"), row.get(path_key)
+    where = f"{rid if rid is not None else '(no repository_id)'}/{path}"
+    if path_key == "file":
+        where += f":{row.get('line')}"
     repo = next((r for r in scope.repositories if r.repository_id == rid), None)
     if repo is None or not isinstance(path, str) or path not in repo.files:
-        raise AssessmentArchitectureError("Architecture source is outside admitted scope")
-    if row.get("sha256") != hashlib.sha256(repo.files[path]).hexdigest():
-        raise AssessmentArchitectureError("Architecture source content hash does not match admitted bytes")
+        raise AssessmentArchitectureError(f"Architecture source {where} is outside admitted scope")
+    if "sha256" not in row:
+        raise AssessmentArchitectureError(f"Architecture source {where} has no content hash")
+    if row["sha256"] != hashlib.sha256(repo.files[path]).hexdigest():
+        raise AssessmentArchitectureError(f"Architecture source {where} content hash does not match admitted bytes")
     if path_key == "file":
         try:
             scope.read(rid, path, row["line"], row["line"])
         except (ScopeError, KeyError):
-            raise AssessmentArchitectureError("Architecture evidence line is not in admitted source") from None
+            raise AssessmentArchitectureError(f"Architecture evidence line {where} is not in admitted source") from None
 
 
 def _evidence_rows(value):

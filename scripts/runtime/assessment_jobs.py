@@ -22,6 +22,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 from shared._atomic_io import atomic_write_json
+from shared.assessment_sources import cites_admitted_sources, set_admitted_hashes
 
 from appsec_analyzer.execution_limits import DEFAULT_MAX_PARALLEL, DIVISIBLE_MAX_PARALLEL, validate_max_parallel
 from runtime.analyst_host import HostCancelled, HostTimeout, TransportError
@@ -62,6 +63,8 @@ MIN_MEASURED_CALL_USD = 0.5
 REPORT_SURVEY_JOBS = 2
 REPORT_JOB = "stage2:security-architecture"
 SUMMARY_JOB = "stage2:management-summary"
+# Request identity of the controller-set citation hashes (`set_admitted_hashes`).
+ADMITTED_HASHES = "admitted-hashes-1"
 
 
 def digest(value) -> str:
@@ -409,6 +412,16 @@ def _job_id(role, selector) -> str:
     return "job-" + digest({"role": role, "selector": selector})[:24]
 
 
+def _with_admitted_hashes(scope, normalize):
+    """The role's ``normalize`` after the controller has set each admitted citation's content hash."""
+
+    def derive(artifact):
+        artifact = set_admitted_hashes(scope, artifact)
+        return artifact if normalize is None else normalize(artifact)
+
+    return derive
+
+
 class AssessmentJobs:
     def __init__(
         self,
@@ -627,7 +640,10 @@ class AssessmentJobs:
         ``normalize`` derives controller-known fields of each complete result
         before review (see ``run_exchange``); the receipt records the
         normalized artifact. Its identity joins the request, so a changed
-        normalizer redoes the job instead of failing a resumed one.
+        normalizer redoes the job instead of failing a resumed one. When every
+        citation of the contract can carry its repository and content hash,
+        the controller first sets each admitted citation's hash for every role
+        (`set_admitted_hashes`), and that step joins the identity as well.
 
         ``preload`` slices reach the first packet (see ``run_exchange``) and
         join the request identity, as does ``salvage``, which may keep part
@@ -664,6 +680,9 @@ class AssessmentJobs:
             request["salvage"] = getattr(salvage, "version", None) or salvage.__qualname__
         if preload:
             request["preload"] = [list(key) for key in preload]
+        if cites_admitted_sources(schema):
+            request["source_hashes"] = ADMITTED_HASHES
+            normalize = _with_admitted_hashes(self.scope, normalize)
         request_sha256 = digest(request)
         if trace:
             trace.emit("job_request", request_sha256=request_sha256)
