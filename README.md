@@ -90,6 +90,8 @@ Request more formats when you start the assessment, for example `assess --repo /
 
 To convert a finished assessment later, use [`export`](#export-other-report-formats).
 
+For runtime-testable findings, `security-assessment.yaml` can include `verification_context` with source-cited query construction, input processing and filter order, existing controls, prerequisites, and expected observations with control experiments. Missing facts stay explicit. Each route or input variant keeps its own context, including in pentest-task exports. This helps a separate authorized runtime test; Analyzer does not contact the target, and these hypotheses do not establish exploitation or grant permission. Older assessments remain readable without this optional context.
+
 ## Security and data use
 
 > [!IMPORTANT]

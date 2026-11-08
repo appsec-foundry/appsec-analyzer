@@ -114,6 +114,7 @@ def _schema_registry() -> Registry:
     """Registry for the actor schemas that reference one another by ``$id``."""
     registry = Registry()
     for filename in (
+        "verification-context.schema.json",
         "actors.schema.yaml",
         "actors-discovered.schema.yaml",
         "actors-merged-static.schema.yaml",

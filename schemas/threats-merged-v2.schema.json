@@ -338,6 +338,9 @@
           },
           "cvss_v4": {
             "$ref": "https://appsec-advisor/schemas/threats-merged.schema.yaml#/properties/threats/items/properties/cvss_v4"
+          },
+          "verification_context": {
+            "$ref": "https://appsec-advisor/schemas/verification-context.schema.json"
           }
         }
       }

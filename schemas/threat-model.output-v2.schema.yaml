@@ -823,6 +823,8 @@ properties:
               sha256:
                 type: string
                 pattern: ^[a-f0-9]{64}$
+        verification_context:
+          $ref: https://appsec-advisor/schemas/verification-context.schema.json
         mechanism_trace:
           description: Source and sink evidence retained from a confirmed STRIDE input-to-sink finding.
           type: object

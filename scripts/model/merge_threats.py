@@ -2444,6 +2444,23 @@ def _merge_member_metadata(survivor: dict, members: list[dict], *, systemic: boo
             if isinstance(category, str) and category and category not in additional_categories:
                 additional_categories.append(category)
 
+    contexts = [m["verification_context"] for m in members if m.get("verification_context")]
+    if contexts:
+        variants, unknowns, seen = [], [], set()
+        for context in contexts:
+            for gap in context.get("unknowns", []):
+                if gap not in unknowns:
+                    unknowns.append(gap)
+            for variant in context.get("variants", []):
+                payload = {k: v for k, v in variant.items() if k != "id"}
+                key = json.dumps(payload, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    variants.append({**payload, "id": f"variant-{len(variants) + 1:03d}"})
+        if len(variants) > 12:
+            unknowns.insert(0, f"{len(variants) - 12} further runtime variants omitted by the context limit.")
+        survivor["verification_context"] = {"version": 1, "variants": variants[:12], "unknowns": unknowns[:12]}
+
     survivor["instances"] = instances
     survivor["affected_files"] = sorted(files)
     survivor["instance_count"] = len(instances)

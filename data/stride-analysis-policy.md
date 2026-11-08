@@ -57,6 +57,14 @@ Critical findings require two to four chronological attacker-voice `attack_steps
 
 Leave `cvss_v4` null; this analysis assigns no CVSS score.
 
+## Runtime verification context
+
+For a finding with a runtime-testable mechanism, add optional `verification_context` version 1 in this same response. Use only served evidence. Add one variant per evidenced request/input path; include request method, route template, input location and name, and a hypothesis tied to that mechanism. Keep unresolved route mappings in top-level `unknowns` instead of inventing a route. Do not contact a running application or request additional model work.
+
+Record the relevant query or sink expression with secrets and private literals replaced by placeholders, its binding mode, and database dialect/driver only where evidenced. List `processing` in execution order, including decoding, normalization, validation, blacklist or allow-list filtering, escaping and the sink. Cite their sources. For each control distinguish observed, inferred and unknown behavior. Explain source-supported limitations and what a test would need to distinguish; do not assume that a filter is bypassable. Unknown upstream controls remain unknown.
+
+Each variant includes source evidence, prerequisites, expected observations, negative controls and unknowns. Prerequisites name roles, ownership, setup or state that an operator must provide, never credentials or invented runtime IDs. Describe a working baseline and matched true/false or rejection controls, the response field or execution event to observe, a repeatability check, and outcomes that would contradict the hypothesis. Status changes, reflected payloads, generic errors and a single slow response are insufficient. For SQL, fit the hypothesis to the evidenced string/numeric/identifier context and encoding/filter order; do not generate a generic payload list. Mark required capabilities such as form input, header input, browser navigation, browser interaction and state changes. These are planning data, never permission to test. Omit unsupported details, put gaps in `unknowns`, and retain inherited evidence uncertainty.
+
 ## Boundary references
 
 A boundary ref is never a finding. In `boundary_refs`, reference a resolved entry of `adjacent_boundaries` (max two) where the finding shows its mechanism at its crossing, e.g. a sink on the interface it cites; not for a shared CWE. Use exactly `{"boundary_id":"tb-N","origin_component_id":"<COMPONENT_ID>","rationale":"<20-240 chars>","leg":"<assumption_legs value>","evidence_locations":[{"file":"<evidence.file>","line":<evidence.line>}]}`. Never emit `id`; copy it to `boundary_id`. Origin is this component; each location exactly repeats its evidence. Omit a vague `leg`; omit a ref missing a value.

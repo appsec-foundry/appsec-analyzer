@@ -2923,3 +2923,34 @@ requirements:
       - tests/test_analysis_contributions.py::test_persistence_uses_receipted_jobs_and_charged_cost_without_model_calls
       - tests/test_compose_threat_model.py::test_run_statistics_include_recorded_analysis_contributions
       - tests/test_multi_repo_assessment.py::test_root_causes_are_synthesized_after_abuse_verification
+
+  REQ-049:
+    applies_to:
+      - data/stride-analysis-policy.md
+      - data/test-case-investigation-policy.md
+      - data/open-review-policy.md
+      - schemas/verification-context.schema.json
+      - schemas/pentest-tasks.schema.yaml
+      - schemas/multi-repo-stride.schema.json
+      - schemas/stride.schema.yaml
+      - schemas/threats-merged.schema.yaml
+      - schemas/threats-merged-v2.schema.json
+      - schemas/threat-model.output.schema.yaml
+      - schemas/threat-model.output-v2.schema.yaml
+      - scripts/contexts/multi_repo_analysis.py
+      - scripts/shared/assessment_sources.py
+      - scripts/validators/validate_intermediate.py
+      - scripts/model/merge_threats.py
+      - scripts/renderers/render_pentest_tasks.py
+    decisions: []
+    documents:
+      - README.md
+      - docs/security-assessment.md
+      - docs/internal/contracts/requirement-acceptance.md
+    coverage: partial
+    guards:
+      - tests/test_verification_context.py::test_context_survives_assembly_and_pentest_export
+      - tests/test_verification_context.py::test_context_sources_must_be_served
+      - tests/test_verification_context.py::test_context_schema_rejects_malformed_data
+      - tests/test_verification_context.py::test_combined_findings_keep_distinct_variants
+      - tests/test_verification_context.py::test_every_finding_role_receives_runtime_context_guidance

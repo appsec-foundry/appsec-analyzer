@@ -20,6 +20,7 @@ from referencing import Registry, Resource
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_SCHEMA = "threat-model.output-v2.schema.yaml"
 RESOURCES = (
+    "verification-context.schema.json",
     "threat-model.output.schema.yaml",
     OUTPUT_SCHEMA,
     "multi-repo-scope.schema.json",
@@ -118,6 +119,16 @@ def claim_cited_files(document: dict) -> list[str]:
     return added
 
 
+def validate_verification_variants(document: dict) -> None:
+    """Variant IDs identify one concrete experiment within a finding (REQ-049)."""
+    for finding in document.get("threats", []):
+        context = finding.get("verification_context")
+        if context:
+            ids = [variant["id"] for variant in context["variants"]]
+            if len(ids) != len(set(ids)):
+                raise ValueError("verification_context variant ids must be unique within a finding")
+
+
 def validate_portable_model(document: dict) -> None:
     """Validate the portable model without granting access to local sources."""
     # Check expansion before recursive JSON-Schema validation.
@@ -131,6 +142,7 @@ def validate_portable_model(document: dict) -> None:
         )
         more = f" (+{len(errors) - 5} more)" if len(errors) > 5 else ""
         raise ValueError(f"Multi-repository model violates its versioned output schema: {details}{more}")
+    validate_verification_variants(document)
     inventory = document["source_inventory"]
     rows = inventory["repositories"]
     encoded = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()

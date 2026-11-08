@@ -202,6 +202,12 @@ When any threat has a Critical or High finding, the overview table, the figures,
 
 Provide a readable report with consistent finding references, legible architecture diagrams, and detailed catalogs for omitted connections. Show evidenced build-time risks separately, using a table when needed. Highlight up to three unresolved business, design, or deployment decisions and list any further ones with the supporting detail. Do not delegate finding verification to the reader.
 
+## REQ-049: Prepare targeted runtime checks
+
+Preserve source-cited SQL or other sink construction and the order of decoding, normalization, filtering and escaping where the served source establishes them. Distinguish observed controls from inferred ones and identify missing information, assumptions and runtime prerequisites. Test hypotheses include a working reference, negative controls and observations that would support or contradict the claim. Each concrete route or input variant retains its own sources. Combined findings retain these variants; a bounded omission is explicit.
+
+The optional version-1 `verification_context` is analysis data, never execution authority or runtime proof. Older assessments without it remain readable. Record it during existing analysis calls; do not add calls or send requests to a running target. Source admission, secret filtering, model budgets and publication checks remain in force. Do not fabricate deployment facts, account credentials, resource ownership or filter bypasses that the source cannot establish.
+
 ## REQ-014: Use results in other tools
 
 Publish Markdown and structured YAML and offer requested HTML, PDF, SARIF, Threat Dragon, and pentest-task exports. Preserve applicable references, requirements results, abuse outcomes, and bounded context provenance. Explain unsupported content and missing export tools.

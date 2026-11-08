@@ -50,6 +50,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-013:** **Make the report easy to follow.** Architecture diagrams are readable, and finding references stay consistent throughout the report. Supporting detail is easy to find, and the most important open decisions are highlighted without hiding the rest. The report does not leave finding verification to the reader.
 
+- **REQ-049:** **Prepare targeted runtime checks.** For findings that can be tested, users receive the evidenced input processing, existing controls, prerequisites, and expected observations so they can plan a suitable runtime test.
+
 - **REQ-014:** **Use results in other tools.** Results come in Markdown and structured YAML, with optional HTML, PDF, SARIF, Threat Dragon, and penetration-test task exports. Exports retain the relevant evidence references and conclusions. Analyzer explains any format limitations or missing export tools.
 
 - **REQ-015:** **Export without running the analysis again.** A saved, validated assessment can be exported without repeating the analysis or paying for new model calls.

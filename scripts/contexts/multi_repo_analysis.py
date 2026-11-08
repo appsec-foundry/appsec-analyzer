@@ -18,11 +18,12 @@ import yaml
 from jsonschema import Draft202012Validator
 from runtime.assessment_host import ExchangeError, Rejection, read_slice
 from runtime.multi_repo_scope import ScopeError
-from shared.assessment_sources import source_key, source_rows
+from shared.assessment_sources import source_key, source_rows, validate_verification_variants
 from validators.validate_assessment_architecture import validate_source
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = (
+    "verification-context.schema.json",
     "multi-repo-architecture.schema.json",
     "multi-repo-stride.schema.json",
     "multi-repo-controls.schema.json",
@@ -1666,6 +1667,10 @@ def validate_stride(
 
     if not Draft202012Validator(contract("multi-repo-stride.schema.json")).is_valid(artifact):
         raise ExchangeError("STRIDE job violates its versioned contract")
+    try:
+        validate_verification_variants(artifact)
+    except ValueError as exc:
+        raise ExchangeError(str(exc)) from exc
     if artifact["component_id"] != component["id"] or artifact["component_name"] != component["name"]:
         raise ExchangeError("STRIDE job changed its component identity")
     if artifact["source_scope_sha256"] != scope.inventory()["scope_sha256"]:

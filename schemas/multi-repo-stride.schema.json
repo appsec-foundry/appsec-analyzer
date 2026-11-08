@@ -653,6 +653,9 @@
               "steps",
               "verification"
             ]
+          },
+          "verification_context": {
+            "$ref": "https://appsec-advisor/schemas/verification-context.schema.json"
           }
         }
       }
