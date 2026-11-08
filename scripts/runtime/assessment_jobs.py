@@ -65,6 +65,11 @@ REPORT_JOB = "stage2:security-architecture"
 SUMMARY_JOB = "stage2:management-summary"
 # Request identity of the controller-set citation hashes (`set_admitted_hashes`).
 ADMITTED_HASHES = "admitted-hashes-1"
+# Request keys that name how the controller processes an answer, not what the model is asked. A
+# resume after a plugin change that alters only these checks the stored answer again (REQ-016):
+# today's normalizer runs on the stored artifact, not on the model's original answer, so a fix that
+# needs the original answer must also change the question, for example its instructions or schema.
+POST_PROCESSING = ("normalizer", "source_hashes")
 
 
 def digest(value) -> str:
@@ -447,10 +452,17 @@ class AssessmentJobs:
         `redo_stale` says the run resumed after a plugin change (REQ-016): a
         receipt that no longer fits is then redone as well, and the cost it
         recorded stays in the run's accounting. A changed artifact still stops.
+
+        Where a job may be redone, a receipt whose question to the model is
+        unchanged and whose request differs only in `POST_PROCESSING` is kept
+        when today's normalizer leaves the stored artifact as it is and today's
+        acceptance checks pass; its receipt then names today's request.
         """
         self.scope = scope
         self.directory = Path(directory)
         self.redo_stale = redo_stale
+        # Calls and cost of this run's own stale receipts redone after a plugin change, shared by views.
+        self.redone = {"calls": 0, "usd": 0.0}
         self.budget = budget
         self.host_factory = host_factory
         self.prompt_capacity = prompt_capacity
@@ -684,6 +696,7 @@ class AssessmentJobs:
             request["source_hashes"] = ADMITTED_HASHES
             normalize = _with_admitted_hashes(self.scope, normalize)
         request_sha256 = digest(request)
+        question_sha256 = digest({key: value for key, value in request.items() if key not in POST_PROCESSING})
         if trace:
             trace.emit("job_request", request_sha256=request_sha256)
         job_id = _job_id(role, selector)
@@ -714,32 +727,43 @@ class AssessmentJobs:
             )
         if found_path.exists() or found_path.is_symlink():
             receipt = _read_json(found_path)
-            current = (
-                validator.is_valid(receipt)
+            valid = validator.is_valid(receipt)
+            matches = (
+                valid
                 and receipt["schema_version"] == (2 if self.budget.subscription else 1)
                 and receipt["job_id"] == job_id
                 and receipt["role"] == role
-                and receipt["request_sha256"] == request_sha256
                 and receipt["scope_sha256"] == self.scope_sha256
             )
+            current = matches and receipt["request_sha256"] == request_sha256
             # A stale cached job is redone; a stale receipt of this run only after a plugin change.
             redo = inherited or self.redo_stale
             if not current and not redo:
                 raise ExchangeError("Assessment job receipt is stale or belongs to another request")
-            if current and inherited and not found_artifact.is_file():
-                current = False
-            if current:
+            # Only the post-processing changed: the stored answer is checked again instead of asked again.
+            revalidate = matches and not current and receipt.get("question_sha256") == question_sha256
+            if (current or revalidate) and inherited and not found_artifact.is_file():
+                current = revalidate = False
+            if current or revalidate:
                 artifact = _read_json(found_artifact)
                 # A changed artifact is tampering, not a changed request: never redo it silently.
                 if digest(artifact) != receipt["artifact_sha256"]:
                     raise ExchangeError("Assessment job artifact changed after acceptance")
-                try:
-                    accept(artifact, receipt["source_ranges"])
-                except ValueError:
-                    if not redo:
-                        raise
-                    current = False
-            if current:
+                if (
+                    revalidate
+                    and normalize is not None
+                    and digest(normalize(copy.deepcopy(artifact))) != digest(artifact)
+                ):
+                    # Today's processing would change the accepted answer, so the model is asked again.
+                    revalidate = False
+                if current or revalidate:
+                    try:
+                        accept(artifact, receipt["source_ranges"])
+                    except ValueError:
+                        if not redo:
+                            raise
+                        current = revalidate = False
+            if current or revalidate:
                 if inherited:
                     # Charge before the receipt joins this run's jobs, so its accounting
                     # covers every receipt there; the receipt moves last.
@@ -754,6 +778,12 @@ class AssessmentJobs:
                     self.checkpoint()
                     os.replace(found_artifact, artifact_path)
                     os.replace(found_path, receipt_path)
+                if revalidate:
+                    # The receipt now names today's request, so a later resume matches it directly.
+                    receipt = {**receipt, "request_sha256": request_sha256, "question_sha256": question_sha256}
+                    validator.validate(receipt)
+                    atomic_write_json(receipt_path, receipt)
+                    receipt_path.chmod(0o600)
                 slices = tuple(
                     self.scope.read(r["repository_id"], r["path"], r["start_line"], r["end_line"])
                     for r in receipt["source_ranges"]
@@ -762,10 +792,15 @@ class AssessmentJobs:
                 self.budget.accepted(group, role, receipt["usd"])
                 self._remember(role, selector, artifact)
                 if trace:
-                    trace.emit("job_reused")
+                    trace.emit("job_reused", **({"revalidated": True} if revalidate else {}))
                 if self.on_reused is not None:
                     self.on_reused()
                 return ExchangeResult(copy.deepcopy(artifact), slices, receipt["calls"], receipt["usd"])
+            if valid and not inherited:
+                # This run already paid for the replaced answer; the closing summary names that cost.
+                with self._lock:
+                    self.redone["calls"] += receipt["calls"]
+                    self.redone["usd"] += receipt["usd"] or 0.0
             found_path.unlink()
             found_artifact.unlink(missing_ok=True)
 
@@ -840,6 +875,7 @@ class AssessmentJobs:
             "role": role,
             "scope_sha256": self.scope_sha256,
             "request_sha256": request_sha256,
+            "question_sha256": question_sha256,
             "artifact_sha256": digest(artifact),
             "source_ranges": ranges,
             "calls": result.calls,

@@ -11,6 +11,7 @@
     "role": {"type": "string", "pattern": "^[a-z][a-z_]{1,63}$"},
     "scope_sha256": {"$ref": "#/$defs/hash"},
     "request_sha256": {"$ref": "#/$defs/hash"},
+    "question_sha256": {"$ref": "#/$defs/hash"},
     "artifact_sha256": {"$ref": "#/$defs/hash"},
     "calls": {"type": "integer", "minimum": 1, "maximum": 6},
     "usd": {"type": ["number", "null"], "minimum": 0},

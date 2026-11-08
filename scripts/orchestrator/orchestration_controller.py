@@ -3847,7 +3847,7 @@ def _assessment_continuation(state, budget, *, show_costs=True) -> tuple[str, st
             f"deadline {utc(deadline, '%H:%M UTC') if same_day else utc(deadline)}"
         )
         if state.runtime_changed:
-            value += "\nthe plugin changed, so only unchanged model steps are reused"
+            value += "\nthe plugin changed, so accepted steps are checked again and redone only if they no longer fit"
         return "Resumed", value
     if state.reused_run_started is not None:
         # A reused step is charged to this run, so it counts toward the new limit. Hidden costs show
@@ -5305,6 +5305,9 @@ def assess_repositories(
         # Jobs reused from an earlier run count toward this run's limits at their original cost.
         "reused_calls": budget.reused_calls,
         "reused_usd": None if budget.subscription else round(budget.reused_usd, 2),
+        # Earlier answers of this run redone after a plugin change; their cost stays in the total.
+        "redone_calls": jobs.redone["calls"],
+        "redone_usd": None if budget.subscription else round(jobs.redone["usd"], 2),
         "subscription_label": budget.subscription_label if budget.subscription else None,
         "usage": budget.usage_report(),
         **({"diagnostics": str(jobs.diagnostics.path)} if jobs.diagnostics else {}),
@@ -5829,6 +5832,12 @@ def _completion_cost_rows(outcome: dict) -> list[tuple[str, str, str | None]]:
         text = f"{_count_noun(reused, 'call')} reused from an earlier run"
         if show_costs and outcome.get("reused_usd") is not None:
             text += f" (USD {outcome['reused_usd']:.2f} of the total)"
+        rows.append(("", text, "muted"))
+    redone = outcome.get("redone_calls") or 0
+    if redone:
+        text = f"{_count_noun(redone, 'call')} of an earlier attempt redone after the plugin change"
+        if show_costs and outcome.get("redone_usd") is not None:
+            text += f" (USD {outcome['redone_usd']:.2f} of the total)"
         rows.append(("", text, "muted"))
     if len(models) > 1:
         model_width = max(*(len(model) for model in models), len("not itemised") if unitemised else 0)

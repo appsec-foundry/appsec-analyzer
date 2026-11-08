@@ -403,6 +403,8 @@ def test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_
         assert len(dispatched) == 3  # only the job whose request changed ran again
         # The replaced answer's cost stays counted; the repeated job adds its own.
         assert resumed.budget.calls == 3 and resumed.budget.spent_usd == pytest.approx(0.03)
+        # The closing summary names what the earlier attempt's redone answer cost.
+        assert jobs.redone == {"calls": 1, "usd": pytest.approx(0.01)}
     assert stored(scope)["identity"]["runtime_sha256"] == "b" * 64
     assert stored(scope)["worked_seconds"] >= 780
 
@@ -417,6 +419,108 @@ def test_resume_after_a_plugin_change_still_stops_on_a_changed_artifact(scope):
         with resumed.hold():
             _plugin_change_jobs(resumed, factory).execute(**_plugin_change_job("kept", "same prompt"))
     assert len(dispatched) == 2
+
+
+def _processing_change(derive=None, validate=None):
+    """The `kept` job after a plugin change that adds only a normalizer, the processing of its answer."""
+
+    def normalize(artifact):
+        return derive(artifact) if derive else artifact
+
+    normalize.version = "kept-2"
+    job = {**_plugin_change_job("kept", "same prompt"), "normalize": normalize}
+    if validate is not None:
+        job["validate"] = validate
+    return job
+
+
+def _kept_receipt(scope):
+    from runtime.assessment_jobs import _job_id
+
+    return scope.output / ".assessment-work" / "jobs" / f"{_job_id('recon_scanner', 'kept')}.receipt.json"
+
+
+def test_resume_after_a_processing_change_checks_the_stored_answer_instead_of_asking_again(scope):
+    _, dispatched, factory = _interrupted_with_two_jobs(scope)
+    before = json.loads(_kept_receipt(scope).read_text())
+    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
+    with resumed.hold():
+        jobs = _plugin_change_jobs(resumed, factory)
+        assert jobs.execute(**_processing_change()) == {"ok": True}
+        # REQ-016: the still valid answer is kept without a call or a second charge.
+        assert len(dispatched) == 2 and jobs.redone == {"calls": 0, "usd": 0.0}
+        assert resumed.budget.calls == 2 and resumed.budget.spent_usd == pytest.approx(0.02)
+        after = json.loads(_kept_receipt(scope).read_text())
+        assert after["request_sha256"] != before["request_sha256"]
+        assert after["question_sha256"] == before["question_sha256"]
+        assert {k: v for k, v in after.items() if k != "request_sha256"} == {
+            k: v for k, v in before.items() if k != "request_sha256"
+        }
+        # The receipt names today's request, so a session without a further change reuses it strictly.
+        strict = AssessmentJobs(
+            resumed.scope, resumed.directory / "jobs", resumed.budget, factory, resumed.should_stop, resumed.checkpoint
+        )
+        assert strict.execute(**_processing_change()) == {"ok": True} and len(dispatched) == 2
+
+
+@pytest.mark.parametrize("cause", ["processing changes the answer", "fails today's checks", "no fingerprint"])
+def test_resume_after_a_processing_change_redoes_a_stored_answer_that_no_longer_fits(scope, cause):
+    _, dispatched, factory = _interrupted_with_two_jobs(scope)
+
+    def derive(artifact):
+        artifact["note"] = "derived today"
+        return artifact
+
+    def today(artifact, ranges):
+        if artifact.get("v") != 2:
+            raise ValueError("answer of the earlier attempt")
+
+    class Fresh:
+        def invoke(self, *args):
+            dispatched.append("recon_scanner")
+            return HostReply({"action": "complete", "reads": [], "artifact": {"ok": True, "v": 2}}, 0.01)
+
+    job, host = _processing_change(), factory
+    if cause == "processing changes the answer":
+        job = _processing_change(derive=derive)
+    elif cause == "fails today's checks":
+        job, host = _processing_change(validate=today), lambda role, ceiling: Fresh()
+    else:
+        # A receipt written before the question fingerprint existed cannot show an unchanged question.
+        receipt = json.loads(_kept_receipt(scope).read_text())
+        del receipt["question_sha256"]
+        _kept_receipt(scope).write_text(json.dumps(receipt))
+    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
+    with resumed.hold():
+        jobs = _plugin_change_jobs(resumed, host)
+        jobs.execute(**job)
+        assert len(dispatched) == 3
+        assert jobs.redone == {"calls": 1, "usd": pytest.approx(0.01)}
+        assert resumed.budget.calls == 3 and resumed.budget.spent_usd == pytest.approx(0.03)
+
+
+def test_resume_after_a_processing_change_still_stops_on_a_changed_artifact(scope):
+    _, dispatched, factory = _interrupted_with_two_jobs(scope)
+    artifact = _kept_receipt(scope).with_name(_kept_receipt(scope).name.replace(".receipt", ""))
+    artifact.write_text(json.dumps({"ok": True, "added": 1}))
+    resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
+    with pytest.raises(ExchangeError, match="artifact changed after acceptance"):
+        with resumed.hold():
+            _plugin_change_jobs(resumed, factory).execute(**_processing_change())
+    assert len(dispatched) == 2
+
+
+def test_a_new_run_adopts_a_cached_answer_after_a_processing_change(scope):
+    _, dispatched, factory = _interrupted_with_two_jobs(scope)
+    with lifecycle(scope, runtime_sha256="b" * 64).hold() as fresh:
+        assert not fresh.resume
+        jobs = _plugin_change_jobs(fresh, factory)
+        assert jobs.execute(**_processing_change()) == {"ok": True}
+        # Adopted from the unfinished run and charged to this one, as an unchanged cached job is.
+        assert len(dispatched) == 2 and fresh.budget.reused_calls == 1
+        assert fresh.budget.spent_usd == pytest.approx(0.01) and jobs.redone == {"calls": 0, "usd": 0.0}
+        receipt = json.loads(_kept_receipt(scope).read_text())
+        assert receipt["question_sha256"] and not (fresh.directory / CACHE_NAME / _kept_receipt(scope).name).exists()
 
 
 def _utc(epoch):
@@ -438,7 +542,8 @@ def test_the_header_names_a_resumed_run_with_its_start_work_spending_and_deadlin
     assert key == "Resumed"
     assert first.startswith(f"continues the run started {_utc(earlier['started_at'])} · 47m worked · USD 0.02 spent")
     assert first.endswith(_utc(earlier["expires_at"])[-9:])
-    assert rest == (["the plugin changed, so only unchanged model steps are reused"] if runtime_changed else [])
+    changed = "the plugin changed, so accepted steps are checked again and redone only if they no longer fit"
+    assert rest == ([changed] if runtime_changed else [])
 
 
 def test_the_header_names_the_unfinished_run_a_new_run_reuses(scope):

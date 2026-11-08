@@ -261,6 +261,8 @@ def test_completion_preserves_counts_and_accounting(enabled, spent):
         "calls": 5,
         "reused_calls": 1,
         "reused_usd": 0.2 if spent is not None else None,
+        "redone_calls": 2,
+        "redone_usd": 0.4 if spent is not None else None,
         "usage": {
             "models": {
                 "m1": {"calls": 2, "usd": 0.6 if spent is not None else None, "input": 1200},
@@ -275,12 +277,13 @@ def test_completion_preserves_counts_and_accounting(enabled, spent):
     text = "\n".join(row[1] for row in rows)
     assert rows[0][0] == ("Cost" if enabled else "Usage")
     assert "5 model calls" in text and "2k tokens" in text and "1 call reused" in text
+    assert "2 calls of an earlier attempt redone after the plugin change" in text
     assert ("USD" in text) is enabled
     if enabled and spent is None:
         assert "USD cost unavailable" in text
         assert "USD 0.00" not in text
     if enabled and spent is not None:
-        assert "≈ USD 1.50" in text and "USD 0.20 of the total" in text
+        assert "≈ USD 1.50" in text and "USD 0.20 of the total" in text and "USD 0.40 of the total" in text
     assert outcome == original
 
 
