@@ -118,27 +118,28 @@ def _file_route_tokens(file_path: str) -> set[str]:
     return _tokens(base)
 
 
-_HANDLER_NOTE_RE = re.compile(r"\bhandler:\s*(?P<file>[^\s;:]+):(?P<line>\d+)")
+_HANDLER_NOTE_RE = re.compile(r"\b(?:handler|registered):\s*(?P<file>[^\s;:]+):(?P<line>\d+)")
 
 
 def _handler_auth_required(file_path: str, line, attack_surface: list[dict]) -> bool | None:
-    """The auth_required of the route whose handler in the same file precedes the evidence line.
+    """The auth_required of the route whose handler or registration in the same file precedes the evidence line.
 
-    The inventory records each entry's handler as ``handler: <file>:<line>``;
-    the closest preceding registration is the route the evidence belongs to.
+    The inventory records each entry's handler as ``handler: <file>:<line>``, and a handler defined
+    in another module also as ``registered: <file>:<line>``; the closest preceding location is the
+    route the evidence belongs to.
     """
     target = file_path.replace("\\", "/").lstrip("./")
     evidence_line = line if isinstance(line, int) else None
     best: tuple[int, bool] | None = None
     for entry in attack_surface or []:
-        match = _HANDLER_NOTE_RE.search(str(entry.get("notes") or ""))
-        if not match or match.group("file").lstrip("./") != target:
-            continue
-        handler_line = int(match.group("line"))
-        if evidence_line is not None and handler_line > evidence_line:
-            continue
-        if best is None or handler_line > best[0]:
-            best = (handler_line, entry.get("auth_required"))
+        for match in _HANDLER_NOTE_RE.finditer(str(entry.get("notes") or "")):
+            if match.group("file").lstrip("./") != target:
+                continue
+            handler_line = int(match.group("line"))
+            if evidence_line is not None and handler_line > evidence_line:
+                continue
+            if best is None or handler_line > best[0]:
+                best = (handler_line, entry.get("auth_required"))
     return best[1] if best else None
 
 

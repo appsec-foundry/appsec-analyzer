@@ -109,6 +109,30 @@ def test_context_sources_must_be_served(tmp_path, mutation):
         stage.validate_stride(scope, components[0], components, flows, artifact, ranges[:1])
 
 
+@pytest.mark.parametrize("mutation", ["unread", "stale", "duplicate"])
+def test_a_context_that_alone_keeps_a_survey_result_rejected_goes_and_the_findings_stay(tmp_path, mutation):
+    """REQ-049: after the last correction a faulty runtime context costs the context, not the survey job."""
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    artifact = stride(components[0], evidence[0], identity)
+    artifact["threats"][0]["verification_context"] = context(copy.deepcopy(evidence[0]))
+    ctx = artifact["threats"][0]["verification_context"]
+    if mutation == "unread":
+        ctx["variants"][0]["evidence"] = [evidence[1]]
+    elif mutation == "stale":
+        ctx["variants"][0]["evidence"][0]["sha256"] = "0" * 64
+    else:
+        ctx["variants"].append(copy.deepcopy(ctx["variants"][0]))
+    flows = dict(component_inventory_fingerprint=FP, data_flows=[])
+    with pytest.raises((ExchangeError, ValueError)) as rejected:
+        stage.validate_stride(scope, components[0], components, flows, artifact, ranges[:1])
+    kept = stage.stride_salvage(copy.deepcopy(artifact), rejected.value)
+    stage.validate_stride(scope, components[0], components, flows, kept, ranges[:1])
+    assert [t["local_id"] for t in kept["threats"]] == [t["local_id"] for t in artifact["threats"]]
+    assert not any("verification_context" in t for t in kept["threats"])
+    # Without a context to drop there is nothing to salvage: any other fault keeps the result rejected.
+    assert stage.stride_salvage(copy.deepcopy(kept), rejected.value) is None
+
+
 @pytest.mark.parametrize("mutation", ["version", "authority", "oversize", "evidence", "order", "unknowns"])
 def test_context_schema_rejects_malformed_data(mutation):
     schema = json.loads((ROOT / "schemas/verification-context.schema.json").read_text())
@@ -147,7 +171,10 @@ def test_every_finding_role_receives_runtime_context_guidance(role):
     from orchestrator.orchestration_controller import _assessment_role_instructions
 
     prompt = _assessment_role_instructions(role, "Inspect this component.")
-    assert "optional `verification_context` version 1" in prompt
+    # REQ-049: expected for every finding an input path reaches, and named where each finding's fields are listed.
+    assert "Add `verification_context` version 1 in this same response to every finding that an evidenced" in prompt
+    assert "optional `verification_context`" not in prompt
+    assert "and `verification_context` when an input path reaches it" in prompt
     assert "processing` in execution order" in prompt
     assert "negative controls" in prompt and "only served evidence" in prompt
     assert "Do not contact a running application" in prompt

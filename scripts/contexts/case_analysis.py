@@ -325,7 +325,7 @@ def _fold_duplicate_findings(combined: dict) -> None:
     so do findings whose candidates name different routes: a line that registers several routes, such as one
     call of a REST resource generator, is no single location.
     """
-    from model.merge_threats import _evidence_identity_key, _risk_rank
+    from model.merge_threats import _evidence_identity_key, _risk_rank, combined_verification_context
 
     route = {row["candidate_id"]: row.get("route_id") for case in combined["test_cases"] for row in case["candidates"]}
 
@@ -351,6 +351,11 @@ def _fold_duplicate_findings(combined: dict) -> None:
         )
         for field in ("candidate_ids", "test_case_ids"):
             stays[field] = list(dict.fromkeys([*first[field], *finding[field]]))
+        # REQ-049: the folded finding keeps both runtime contexts, as the survey merge does.
+        if context := combined_verification_context(
+            [first.get("verification_context"), finding.get("verification_context")]
+        ):
+            stays["verification_context"] = context
         # A finding folded earlier into the one that goes now follows it.
         for old, new in list(alias.items()):
             if new == goes["local_id"]:

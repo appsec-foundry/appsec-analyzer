@@ -257,6 +257,21 @@ def test_the_handler_location_outweighs_a_shared_file_name_token() -> None:
     assert etv._derive_vektor(threat, surface) == "internet-anon"
 
 
+def test_a_handler_defined_in_its_own_module_links_the_finding_there_not_the_registration() -> None:
+    surface = [
+        {
+            "entry_point": "POST /profile/image/url",
+            "auth_required": True,
+            "notes": "registered: server.ts:311; handler: routes/imageUpload.ts:16",
+        },
+        {"entry_point": "GET /", "auth_required": False, "notes": "handler: server.ts:200"},
+    ]
+    assert etv._handler_auth_required("routes/imageUpload.ts", 24, surface) is True
+    # A finding at the registration still belongs to that route, not to the inline route above it.
+    assert etv._handler_auth_required("server.ts", 312, surface) is True
+    assert etv._handler_auth_required("server.ts", 250, surface) is False
+
+
 def test_a_nested_routes_directory_counts_as_a_route_file() -> None:
     threat = {"cwe": "CWE-613", "evidence": [{"file": "apps/api/src/routes/billing.ts", "line": 9}]}
     assert etv._derive_vektor(threat, []) == "internet-user"

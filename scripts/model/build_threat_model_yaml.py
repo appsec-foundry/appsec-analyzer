@@ -2249,7 +2249,17 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
                 if isinstance(note, str) and note and note not in notes_parts:
                     notes_parts.append(note)
             if r.get("handler_file"):
-                notes_parts.append(f"handler: {r['handler_file']}:{r.get('handler_line', '')}")
+                registered = f"{r['handler_file']}:{r.get('handler_line', '')}"
+                defined = (
+                    f"{r['handler_module']}:{r['handler_module_line']}"
+                    if r.get("handler_module") and r.get("handler_module_line")
+                    else None
+                )
+                # A handler defined elsewhere, such as an imported module, is named as the handler (REQ-014).
+                if defined and defined != registered:
+                    notes_parts += [f"registered: {registered}", f"handler: {defined}"]
+                else:
+                    notes_parts.append(f"handler: {registered}")
             # authn_signal is a STRING enum from analyzers/route_inventory.py:
             #   "middleware_present" / "decorator_present" → a guard was seen
             #   "unknown" (the default) / "absent" / "" → no guard observed
@@ -2277,6 +2287,9 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
             rel_tags = [t for t in (r.get("relevance_tags") or []) if isinstance(t, str)]
             if rel_tags:
                 entry["relevance_tags"] = rel_tags
+            # Findings name routes by inventory ID; the entry carries it so the reference resolves (REQ-014).
+            if isinstance(r.get("route_id"), str) and r["route_id"]:
+                entry["route_ids"] = [r["route_id"]]
             baseline_pairs.append((entry, r.get("route_id")))
 
     # Dedup baseline by entry_point. analyzers/route_inventory.py can emit the same
@@ -2300,6 +2313,10 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
                 )
                 if not prev.get("notes") and entry.get("notes"):
                     prev["notes"] = entry["notes"]
+                # One entry stands for every registration of its method and path, so it names all their IDs.
+                route_ids = list(dict.fromkeys([*(prev.get("route_ids") or []), *(entry.get("route_ids") or [])]))
+                if route_ids:
+                    prev["route_ids"] = route_ids
                 merged_tags = set(prev.get("relevance_tags") or []) | set(entry.get("relevance_tags") or [])
                 if merged_tags:
                     prev["relevance_tags"] = sorted(merged_tags)
@@ -2405,6 +2422,26 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
             )
 
     return out, warnings
+
+
+def keep_published_route_refs(threats: list[dict], attack_surface: list[dict]) -> int:
+    """Keep only the route IDs a reader can resolve in `attack_surface[].route_ids` (REQ-014).
+
+    Findings name their routes by route-inventory ID, but the inventory itself is not published.
+    A route a curation left out of the attack surface cannot be looked up, so its ID is dropped.
+    Returns how many references were dropped.
+    """
+    published = {rid for entry in attack_surface for rid in entry.get("route_ids") or []}
+    dropped = 0
+    for threat in threats:
+        for holder in (threat, *(threat.get("instances") or [])):
+            ids = holder.get("route_ids") if isinstance(holder, dict) else None
+            if not isinstance(ids, list):
+                continue
+            kept = [rid for rid in ids if rid in published]
+            dropped += len(ids) - len(kept)
+            holder["route_ids"] = kept
+    return dropped
 
 
 def build_threat_hypotheses(arch_cov: dict | None, hyp_start_id: int = 1) -> list[dict]:
@@ -3308,6 +3345,8 @@ def main() -> int:
         comp["threat_ids"] = sorted(t["id"] for t in threats if t.get("component") == cid)
 
     attack_surface, as_warnings = build_attack_surface(routes, sidecar_as)
+    if dropped_refs := keep_published_route_refs(threats, attack_surface):
+        as_warnings.append(f"route references: dropped {dropped_refs} that name no published entry point")
     for w in as_warnings:
         sys.stderr.write(f"  {w}\n")
     threat_hypotheses = build_threat_hypotheses(arch_cov)

@@ -51,7 +51,7 @@ Citations identify the vulnerable statement, route registration, unsafe API, or 
 
 Use `local_id` values `<COMPONENT_ID>-001`, `-002`, and so on. Set `threat_category_id` to the best match in `threat_categories`. The last-resort STRIDE defaults are S→TH-02, T→TH-01, R→TH-16, I→TH-17, D→TH-12, and E→TH-06. A title names the weakness class in at most 80 characters, without a file location.
 
-Every finding needs a specific attacker action and consequence, a base or variant primary CWE (never a pillar such as CWE-284), likelihood, impact, derived risk, existing controls in `controls_in_place`, an action-style `mitigation_title`, at least two remediation steps, and `remediation.verification`. For Critical and High findings the verification is executable. Use one CWE, RFC, or OWASP `remediation.reference`. Add a short project-language code example only when the correct implementation is non-obvious and evidenced dependencies support it.
+Every finding needs a specific attacker action and consequence, a base or variant primary CWE (never a pillar such as CWE-284), likelihood, impact, derived risk, existing controls in `controls_in_place`, an action-style `mitigation_title`, at least two remediation steps, `remediation.verification`, and `verification_context` when an input path reaches it (see Runtime verification context). For Critical and High findings the verification is executable. Use one CWE, RFC, or OWASP `remediation.reference`. Add a short project-language code example only when the correct implementation is non-obvious and evidenced dependencies support it.
 
 Critical findings require two to four chronological attacker-voice `attack_steps` leading from entry to impact, one sentence and at most 200 characters each. A finding that cannot support two actual attacker actions is not Critical; reduce its rating.
 
@@ -59,7 +59,7 @@ Leave `cvss_v4` null; this analysis assigns no CVSS score.
 
 ## Runtime verification context
 
-For a finding with a runtime-testable mechanism, add optional `verification_context` version 1 in this same response. Use only served evidence. Add one variant per evidenced request/input path; include request method, route template, input location and name, and a hypothesis tied to that mechanism. Keep unresolved route mappings in top-level `unknowns` instead of inventing a route. Do not contact a running application or request additional model work.
+Add `verification_context` version 1 in this same response to every finding that an evidenced request or input path reaches; omit it only for a finding that no such path reaches, such as a configuration, dependency or design finding. Use only served evidence. Add one variant per evidenced request/input path; include request method, route template, input location and name, and a hypothesis tied to that mechanism. Keep unresolved route mappings in top-level `unknowns` instead of inventing a route. Do not contact a running application or request additional model work.
 
 Record the relevant query or sink expression with secrets and private literals replaced by placeholders, its binding mode, and database dialect/driver only where evidenced. List `processing` in execution order, including decoding, normalization, validation, blacklist or allow-list filtering, escaping and the sink. Cite their sources. For each control distinguish observed, inferred and unknown behavior. Explain source-supported limitations and what a test would need to distinguish; do not assume that a filter is bypassable. Unknown upstream controls remain unknown.
 

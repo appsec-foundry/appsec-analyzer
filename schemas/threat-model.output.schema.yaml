@@ -1139,6 +1139,11 @@ properties:
         # a finding-free auth/registration/management/suspect route individually
         # listed instead of collapsing it into the "N further entry points" hint.
         relevance_tags: { type: array, items: { type: string } }
+        route_ids:
+          type: array
+          uniqueItems: true
+          description: "Route-inventory IDs of every registration this entry point stands for; findings' route_ids resolve here."
+          items: { type: string, pattern: "^R-[0-9]{3,5}$" }
 
   trust_boundaries:
     type: array

@@ -179,7 +179,32 @@ def test_factories_returning_each_other_stay_unresolved(tmp_path):
 
 def test_an_unresolved_handler_records_no_module(tmp_path):
     write(tmp_path, {"server.js": "const app = express()\napp.get('/feed', loadFeedFromPlugin())\n"})
-    assert "handler_module" not in route(ri.build_inventory(tmp_path), "/feed")
+    row = route(ri.build_inventory(tmp_path), "/feed")
+    assert "handler_module" not in row and "handler_module_line" not in row
+
+
+def test_an_imported_handler_records_the_line_that_defines_it_and_keeps_its_registration(tmp_path):
+    """The registration stays in handler_file/handler_line; the handler's own definition is added beside it."""
+    write(
+        tmp_path,
+        {
+            "server.ts": "import express from 'express'\n"
+            "import { imageUpload } from './routes/imageUpload'\n"
+            "import * as utils from './lib/utils'\n"
+            "const app = express()\n"
+            "app.post('/profile/image/url', utils.asyncHandler(imageUpload()))\n",
+            "routes/imageUpload.ts": "import logger from '../lib/logger'\n\n"
+            "export function imageUpload () {\n"
+            "  return async (req, res) => { res.json({}) }\n"
+            "}\n",
+            "lib/utils.ts": "export function asyncHandler (fn) {\n  return (req, res, next) => fn(req, res, next)\n}\n",
+        },
+    )
+    inventory = ri.build_inventory(tmp_path)
+    jsonschema.validate(inventory, SCHEMA)
+    row = route(inventory, "/profile/image/url")
+    assert (row["handler_file"], row["handler_line"]) == ("server.ts", 5)
+    assert (row["handler_module"], row["handler_module_line"]) == ("routes/imageUpload.ts", 3)
 
 
 def test_fastapi_dependency_in_another_module_authenticates_its_route(tmp_path):

@@ -1374,6 +1374,19 @@ def test_a_route_pattern_preselects_the_handler_of_a_matching_route(tmp_path: Pa
     assert m["preselected_sources"] == ["app/handlers/grants.py"]
 
 
+def test_a_route_pattern_also_preselects_the_module_that_defines_the_handler(tmp_path: Path):
+    """A route registered in one file and handled in an imported module brings both into the case."""
+    repo = _located_repo(tmp_path)
+    routes = [
+        {**_route("/api/Members/:id/roles", "app/handlers/billing.py"), "handler_module": "app/handlers/grants.py"}
+    ]
+    m = mac.match_case(_locating(route_patterns=["*/roles*"]), [], None, repo_root=repo, routes=routes)
+    assert m["preselected_sources"] == ["app/handlers/billing.py", "app/handlers/grants.py"]
+    outside = [{**routes[0], "handler_module": "../outside/grants.py"}]  # never a file outside the inventory
+    m = mac.match_case(_locating(route_patterns=["*/roles*"]), [], None, repo_root=repo, routes=outside)
+    assert m["preselected_sources"] == ["app/handlers/billing.py"]
+
+
 def test_a_detector_rule_preselects_the_file_of_its_finding_and_relates_the_finding(tmp_path: Path):
     repo = _located_repo(tmp_path)
     flagged = _finding("F-004", "privileged field bound from request", file="app/handlers/billing.py", line=2)

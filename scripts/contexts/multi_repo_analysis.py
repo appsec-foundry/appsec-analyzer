@@ -1054,6 +1054,24 @@ def controls_normalizer(scope, identity):
     return normalize
 
 
+def stride_salvage(artifact, exc):
+    """A STRIDE result still rejected after the last correction, without its runtime contexts, or None.
+
+    A runtime context is optional planning data (REQ-049). When it alone keeps the result rejected,
+    the findings stay and the contexts go. The exchange reviews the reduced result again, so any
+    other fault still rejects it.
+    """
+    threats = artifact.get("threats") or []
+    if not any(isinstance(threat, dict) and threat.get("verification_context") for threat in threats):
+        return None
+    for threat in threats:
+        threat.pop("verification_context", None)
+    return artifact
+
+
+stride_salvage.version = "stride-salvage-1"
+
+
 def stride_normalizer(targets, component, identity):
     """Derive what the controller knows instead of checking and returning it (MR-17).
 

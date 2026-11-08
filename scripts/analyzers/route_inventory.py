@@ -722,6 +722,7 @@ class RouteCandidate:
     authn_handler_scope: str | None = None
     authn_handler_evidence: list[dict] = field(default_factory=list)
     handler_module: str | None = None
+    handler_module_line: int | None = None
     operation_permission_present: bool = False
     guard_lines: list[int] = field(default_factory=list)
     # Not serialized: the registering object, the path as written there, and
@@ -1543,7 +1544,7 @@ def _lift_auth_signals(
         "mounts": r.mounts,
     }
     handler = resolver.route_signal(route_ref)
-    r.handler_module = resolver.handler_module(route_ref)
+    r.handler_module, r.handler_module_line = resolver.handler_site(route_ref) or (None, None)
     if r.framework in {"flask", "fastapi"}:
         r.operation_permission_present = _scope_permission_present(resolver.handler_code(route_ref) or "")
     if handler is not None:
@@ -1767,6 +1768,8 @@ def _serialize_route(i: int, r: RouteCandidate) -> dict:
             ordered["authn_handler_evidence"] = d["authn_handler_evidence"]
     if d["handler_module"]:
         ordered["handler_module"] = d["handler_module"]
+        if d["handler_module_line"]:
+            ordered["handler_module_line"] = d["handler_module_line"]
     if d["guard_lines"]:
         ordered["guard_lines"] = d["guard_lines"]
     if d["authentication_methods"]:
