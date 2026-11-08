@@ -1414,6 +1414,33 @@ def test_boundary_batches_cover_seventeen_crossings_in_two_calls_and_resume(tmp_
     assert {s["id"] for batch in batches for s in batch["signals"]} == {s["id"] for s in assessment["signals"]}
 
 
+def test_crossings_that_share_a_large_context_share_a_batch(monkeypatch):
+    """A big component's context comes with each of its crossings; they share one batch, not one each."""
+    from contexts import build_trust_boundary_assessment_input as inputs
+    from contexts import multi_repo_analysis as analysis
+
+    def project(assessment, ids, topology):
+        shared = "x" * 70_000 if any(i.startswith("big") for i in ids) else ""
+        own = "y" * ((1_000 if shared else 6_000) * len(ids))
+        return {"signals": [{"id": i} for i in ids], "components": [], "shared": shared, "own": own}
+
+    monkeypatch.setattr(inputs, "project_assessment_signals", project)
+    monkeypatch.setattr(analysis, "model_components", lambda rows: rows)
+
+    def sizes(prefix, count, context_limit):
+        rows = [{"id": f"{prefix}-{n:02}", "from": prefix, "to": f"t{n:02}"} for n in range(count)]
+        batches = controller._assessment_boundary_batches({"components": [], "signals": rows}, [], context_limit)
+        assert [s["id"] for b in batches for s in b["signals"]] == [row["id"] for row in rows]
+        return [len(b["signals"]) for b in batches]
+
+    # Each crossing alone already exceeds 64 KiB, so its batch may fill half the host's capacity.
+    assert sizes("big", 9, 262_144) == [9]
+    # Half the capacity still bounds that batch; each split halves what is left.
+    assert sizes("big", 9, 150_000) == [4, 2, 3]
+    # Crossings without a large shared context keep the 64 KiB split.
+    assert sizes("small", 12, 262_144) == [6, 6]
+
+
 def test_boundary_batches_run_concurrently_within_the_limit(tmp_path):
     """Each batch's candidate share is reserved before any job starts, so no batch waits for another."""
     import threading

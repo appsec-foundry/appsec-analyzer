@@ -1751,17 +1751,24 @@ def _assessment_boundary_batches(assessment, topology, context_limit):
         return source, signal["to"], signal["id"]
 
     signals = sorted(assessment["signals"], key=order)
+
+    def project(ids):
+        projection = project_assessment_signals(assessment, ids, topology)
+        view = {**projection, "components": analysis.model_components(projection["components"])}
+        return projection, len(json.dumps(view, ensure_ascii=False).encode())
+
     batches = []
     position = 0
     while position < len(signals):
         size = min(12, len(signals) - position)
+        # Leave room for cited source, further reads and correction feedback. A first signal that alone
+        # needs more than 64 KiB brings a large shared context, usually a big component's; its batch may
+        # then fill half the host's capacity, so related crossings do not each repeat that context.
+        alone = project([signals[position]["id"]])[1]
+        limit = context_limit // 2 if alone > 65_536 else min(65_536, context_limit // 2)
         while True:
-            projection = project_assessment_signals(
-                assessment, [row["id"] for row in signals[position : position + size]], topology
-            )
-            view = {**projection, "components": analysis.model_components(projection["components"])}
-            # Leave room for cited source, further reads and correction feedback.
-            if size == 1 or len(json.dumps(view, ensure_ascii=False).encode()) <= min(65_536, context_limit // 2):
+            projection, used = project([row["id"] for row in signals[position : position + size]])
+            if size == 1 or used <= limit:
                 break
             size = max(1, size // 2)
         batches.append(projection)
