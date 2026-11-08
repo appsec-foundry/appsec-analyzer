@@ -449,8 +449,65 @@ def test_attack_surface_maps_graphql_inventory_entries():
             "auth_required": None,
             "notes": "GraphQL Mutation; args: id,input; returns: User",
             "relevance_tags": ["graphql-mutation", "missing-auth"],
+            "route_ids": ["r0"],
         }
     ]
+
+
+def test_attack_surface_names_the_route_ids_of_every_registration():
+    """REQ-014: a finding's route ID resolves to the entry point that stands for that registration."""
+    routes = _routes(("POST", "/api/Users", "unknown"), ("GET", "/a", "unknown"), ("POST", "/api/Users", "unknown"))
+    out, _ = b.build_attack_surface(routes, None)
+    by_ep = {e["entry_point"]: e for e in out}
+    assert by_ep["POST /api/Users"]["route_ids"] == ["r0", "r2"]
+    assert by_ep["GET /a"]["route_ids"] == ["r1"]
+    no_id, _ = b.build_attack_surface({"routes": [{"method": "GET", "path": "/b", "authn_signal": "unknown"}]}, None)
+    assert "route_ids" not in no_id[0]
+
+
+def test_attack_surface_names_the_registration_and_a_handler_defined_elsewhere():
+    def route(path, line, module=None, module_line=None):
+        return {
+            "method": "GET",
+            "path": path,
+            "authn_signal": "unknown",
+            "handler_file": "server.ts",
+            "handler_line": line,
+            **({"handler_module": module} if module else {}),
+            **({"handler_module_line": module_line} if module_line else {}),
+        }
+
+    routes = {
+        "routes": [
+            route("/upload", 311, "routes/upload.ts", 16),
+            route("/inline", 408, "server.ts", 408),
+            route("/older", 500, "routes/older.ts"),
+        ]
+    }  # an older inventory has no handler line
+    out, _ = b.build_attack_surface(routes, None)
+    notes = {e["entry_point"]: e["notes"] for e in out}
+    assert notes == {
+        "GET /upload": "registered: server.ts:311; handler: routes/upload.ts:16",
+        "GET /inline": "handler: server.ts:408",
+        "GET /older": "handler: server.ts:500",
+    }
+
+
+def test_findings_keep_only_route_ids_the_attack_surface_publishes():
+    surface = [{"entry_point": "GET /a", "route_ids": ["R-001"]}, {"entry_point": "POST /add", "protocol": "HTTP"}]
+    threats = [
+        {
+            "id": "T-1",
+            "route_ids": ["R-001", "R-009"],
+            "instances": [{"file": "a.ts", "route_ids": ["R-009"]}, {"file": "b.ts", "route_ids": ["R-001"]}],
+        },
+        {"id": "T-2", "instances": [{"file": "c.ts"}]},
+    ]
+    assert b.keep_published_route_refs(threats, surface) == 2
+    assert threats[0]["route_ids"] == ["R-001"]
+    assert [i["route_ids"] for i in threats[0]["instances"]] == [[], ["R-001"]]
+    assert threats[1] == {"id": "T-2", "instances": [{"file": "c.ts"}]}  # nothing added where none was
+    assert b.keep_published_route_refs(threats, surface) == 0
 
 
 def test_attack_surface_relevance_tags_union_on_dedup():

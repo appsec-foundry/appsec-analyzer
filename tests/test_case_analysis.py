@@ -583,6 +583,46 @@ def test_a_weakness_two_jobs_found_at_one_line_is_reported_once(job):
     assert linked["m-1"] == linked[other] == [kept["local_id"]] and linked[near] == [neighbour["local_id"]]
 
 
+def test_a_folded_finding_keeps_the_runtime_variants_of_both(job):
+    """REQ-049: the finding that goes would otherwise take its route's runtime context with it."""
+    first, second = reply(job), reply(job)
+    other = "pc-" + "b" * 16
+    second["test_cases"] = [
+        dict(
+            test_case_id="TC-AUTHZ-02",
+            proposed_outcome="finding",
+            reason="Another job.",
+            candidates=[
+                dict(
+                    candidate_id=other,
+                    origin="pre-check",
+                    status="weakness",
+                    evidence=[job["at"]("server.js", 9)],
+                    finding_ids=["api-001"],
+                )
+            ],
+        )
+    ]
+    second["findings"] = [
+        finding(job["at"], candidate_ids=[other], test_case_ids=["TC-AUTHZ-02"], cwe="CWE-862", risk="Critical")
+    ]
+    route = {"method": "GET", "path": "/api/a/:id"}
+    first["findings"][0]["verification_context"] = {
+        "version": 1,
+        "variants": [{"id": "variant-001", "request": route}],
+        "unknowns": ["Proxy unknown"],
+    }
+    second["findings"][0]["verification_context"] = {
+        "version": 1,
+        "variants": [{"id": "variant-001", "request": {**route, "method": "PUT"}}],
+        "unknowns": [],
+    }
+    (kept,) = ca.combine_investigations([first, second])["findings"]
+    assert kept["risk"] == "Critical"
+    assert [v["request"]["method"] for v in kept["verification_context"]["variants"]] == ["GET", "PUT"]
+    assert kept["verification_context"]["unknowns"] == ["Proxy unknown"]
+
+
 @pytest.mark.parametrize(("route", "folded"), [("R-003", False), ("R-002", True)])
 def test_findings_on_different_routes_registered_at_one_line_stay_apart(job, route, folded):
     """One generator call registers several routes at one line; a weakness of each route is a finding of its own."""

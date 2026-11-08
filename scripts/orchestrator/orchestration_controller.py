@@ -2269,6 +2269,7 @@ def _assessment_stride(
                 schema=schema,
                 allowed_sources=readable,
                 normalize=analysis.stride_normalizer(target_batch, component, identity),
+                salvage=analysis.stride_salvage,
                 preload=analysis.supporting_preload(
                     scope,
                     target_batch,

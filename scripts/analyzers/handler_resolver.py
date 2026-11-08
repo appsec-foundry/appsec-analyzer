@@ -868,8 +868,8 @@ class HandlerResolver:
         args = _split_args(text[call.end() : _matching(text, call.end() - 1) - 1])
         return (rel, line, text, call, args) if len(args) >= 2 else None
 
-    def _js_handler_module(self, rel: str, expr: str) -> str | None:
-        """Module defining the handler expression, looking through repository wrappers such as `wrap(handler())`."""
+    def _js_handler_site(self, rel: str, expr: str) -> tuple[str, int] | None:
+        """(file, line) defining the handler expression, looking through repository wrappers such as `wrap(handler())`."""
         for _ in range(3):
             outer = _JS_CALLEE_RE.match(expr)
             callee = re.sub(r"\s+", "", outer.group(1)) if outer else (expr if _JS_PATH_RE.match(expr) else None)
@@ -889,7 +889,7 @@ class HandlerResolver:
                 else []
             )
             if not inner or not isinstance(self._resolve_js(rel, re.sub(r"\s+", "", inner[-1].split("(", 1)[0])), list):
-                return resolved[0][0]
+                return resolved[0][0], resolved[0][1]
             expr = inner[-1]
         return None
 
@@ -1364,13 +1364,18 @@ class HandlerResolver:
         middlewares and injected dependencies do not count: a flaw in code many
         routes share is no flaw of each route using it.
         """
+        site = self.handler_site(route)
+        return site[0] if site else None
+
+    def handler_site(self, route: dict) -> tuple[str, int] | None:
+        """(file, line) defining the route's own handler, or None; ``handler_module`` names its file."""
         if route.get("framework") in _CALL_FRAMEWORKS:
             found = self._js_registration(route)
-            return self._js_handler_module(found[0], found[4][-1].strip()) if found else None
+            return self._js_handler_site(found[0], found[4][-1].strip()) if found else None
         found = self._chain(route)
         if not found or not found[1] or not found[1][0][0] or not found[1][0][1]:
             return None
-        return found[1][0][1][0][0]
+        return found[1][0][1][0][0], found[1][0][1][0][1]
 
     def definition_site(self, rel: str, name: str) -> tuple[str, int] | None:
         """(file, line) defining the JavaScript name ``name`` as ``rel`` uses it, or None.

@@ -81,284 +81,535 @@ attack_surface:
   entry_point: OPTIONS *
   notes: 'handler: server.ts:182'
   protocol: HTTP
+  route_ids:
+  - R-001
 - auth_required: false
   entry_point: ALL /ftp(?!/quarantine)/:file
   notes: 'handler: server.ts:270'
   protocol: HTTP
+  route_ids:
+  - R-002
 - auth_required: false
   entry_point: ALL /ftp/quarantine/:file
   notes: 'handler: server.ts:271'
   protocol: HTTP
+  route_ids:
+  - R-003
 - auth_required: false
   entry_point: ALL /encryptionkeys/:file
   notes: 'handler: server.ts:278'
   protocol: HTTP
+  route_ids:
+  - R-004
 - auth_required: false
   entry_point: ALL /support/logs/:file
   notes: 'handler: server.ts:283'
   protocol: HTTP
+  route_ids:
+  - R-005
 - auth_required: false
   entry_point: POST /file-upload
   notes: 'handler: server.ts:309'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-006
 - auth_required: true
   entry_point: POST /profile/image/file
   notes: 'authorization-review-required; handler: server.ts:310'
   protocol: HTTP
+  route_ids:
+  - R-007
 - auth_required: true
   entry_point: POST /profile/image/url
   notes: 'authorization-review-required; handler: server.ts:311'
   protocol: HTTP
+  route_ids:
+  - R-008
 - auth_required: false
   entry_point: POST /rest/memories
   notes: 'handler: server.ts:312'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-009
 - auth_required: true
   entry_point: GET /api/Users
   notes: 'handler: server.ts:363'
   protocol: HTTP
+  route_ids:
+  - R-010
+  - R-114
+  - R-145
+  - R-179
+  - R-215
 - auth_required: true
   entry_point: POST /api/Products
   notes: 'authorization-review-required; handler: server.ts:369'
   protocol: HTTP
+  route_ids:
+  - R-011
+  - R-146
+  - R-180
+  - R-216
 - auth_required: true
   entry_point: DELETE /api/Products/:id
   notes: 'authorization-review-required; handler: server.ts:371'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-012
+  - R-148
+  - R-182
+  - R-217
 - auth_required: true
   entry_point: POST /api/Challenges
   notes: 'authorization-review-required; handler: server.ts:373'
   protocol: HTTP
+  route_ids:
+  - R-013
+  - R-115
+  - R-149
+  - R-183
+  - R-218
 - auth_required: true
   entry_point: POST /api/Hints
   notes: 'authorization-review-required; handler: server.ts:376'
   protocol: HTTP
+  route_ids:
+  - R-014
+  - R-116
+  - R-150
+  - R-184
+  - R-219
 - auth_required: true
   entry_point: GET /api/Complaints
   notes: 'handler: server.ts:381'
   protocol: HTTP
+  route_ids:
+  - R-015
+  - R-117
+  - R-151
+  - R-185
+  - R-220
 - auth_required: true
   entry_point: POST /api/Complaints
   notes: 'authorization-review-required; handler: server.ts:382'
   protocol: HTTP
+  route_ids:
+  - R-016
+  - R-118
+  - R-152
+  - R-186
+  - R-221
 - auth_required: false
   entry_point: GET /api/Recycles
   notes: 'handler: server.ts:385'
   protocol: HTTP
+  route_ids:
+  - R-017
+  - R-119
+  - R-153
+  - R-187
+  - R-222
 - auth_required: true
   entry_point: POST /api/Recycles
   notes: 'authorization-review-required; handler: server.ts:386'
   protocol: HTTP
+  route_ids:
+  - R-018
+  - R-120
+  - R-154
+  - R-188
+  - R-223
 - auth_required: false
   entry_point: GET /api/Recycles/:id
   notes: 'handler: server.ts:388'
   protocol: HTTP
+  route_ids:
+  - R-019
+  - R-121
+  - R-155
+  - R-189
+  - R-224
 - auth_required: true
   entry_point: PUT /api/Recycles/:id
   notes: 'authorization-review-required; handler: server.ts:389'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-020
+  - R-122
+  - R-156
+  - R-190
+  - R-225
 - auth_required: true
   entry_point: DELETE /api/Recycles/:id
   notes: 'authorization-review-required; handler: server.ts:390'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-021
+  - R-123
+  - R-157
+  - R-191
+  - R-226
 - auth_required: true
   entry_point: POST /api/SecurityQuestions
   notes: 'authorization-review-required; handler: server.ts:392'
   protocol: HTTP
+  route_ids:
+  - R-022
+  - R-124
+  - R-158
+  - R-192
+  - R-227
 - auth_required: true
   entry_point: GET /api/SecurityAnswers
   notes: 'handler: server.ts:395'
   protocol: HTTP
+  route_ids:
+  - R-023
+  - R-125
+  - R-159
+  - R-193
+  - R-228
 - auth_required: false
   entry_point: POST /api/Feedbacks
   notes: 'handler: server.ts:402'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-024
+  - R-025
+  - R-026
 - auth_required: false
   entry_point: POST /api/Users
   notes: 'handler: server.ts:408'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-027
+  - R-028
+  - R-029
+  - R-030
 - auth_required: true
   entry_point: PUT /api/BasketItems/:id
   notes: 'authorization-review-required; handler: server.ts:426'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-031
+  - R-126
+  - R-160
+  - R-194
+  - R-229
 - auth_required: true
   entry_point: POST /api/BasketItems
   notes: 'authorization-review-required; handler: server.ts:427'
   protocol: HTTP
+  route_ids:
+  - R-032
+  - R-127
+  - R-161
+  - R-195
+  - R-230
 - auth_required: true
   entry_point: DELETE /api/Quantitys/:id
   notes: 'authorization-review-required; handler: server.ts:429'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-033
+  - R-128
+  - R-162
+  - R-196
+  - R-231
 - auth_required: true
   entry_point: POST /api/Quantitys
   notes: 'authorization-review-required; handler: server.ts:430'
   protocol: HTTP
+  route_ids:
+  - R-034
+  - R-129
+  - R-163
+  - R-197
+  - R-232
 - auth_required: true
   entry_point: PUT /api/Feedbacks/:id
   notes: 'authorization-review-required; handler: server.ts:433'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-035
+  - R-130
+  - R-164
+  - R-198
+  - R-233
 - auth_required: false
   entry_point: POST /api/Cards
   notes: 'handler: server.ts:438'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-036
+  - R-131
+  - R-165
+  - R-199
+  - R-234
 - auth_required: false
   entry_point: GET /api/Cards
   notes: 'handler: server.ts:439'
   protocol: HTTP
+  route_ids:
+  - R-037
+  - R-132
+  - R-166
+  - R-200
+  - R-235
 - auth_required: true
   entry_point: PUT /api/Cards/:id
   notes: 'authorization-review-required; handler: server.ts:440'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-038
+  - R-133
+  - R-167
+  - R-201
+  - R-236
 - auth_required: false
   entry_point: DELETE /api/Cards/:id
   notes: 'handler: server.ts:441'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-039
+  - R-134
+  - R-168
+  - R-202
+  - R-237
 - auth_required: false
   entry_point: GET /api/Cards/:id
   notes: 'handler: server.ts:442'
   protocol: HTTP
+  route_ids:
+  - R-040
+  - R-135
+  - R-169
+  - R-203
+  - R-238
 - auth_required: true
   entry_point: POST /api/PrivacyRequests
   notes: 'authorization-review-required; handler: server.ts:444'
   protocol: HTTP
+  route_ids:
+  - R-041
+  - R-136
+  - R-170
+  - R-204
+  - R-239
 - auth_required: true
   entry_point: GET /api/PrivacyRequests
   notes: 'handler: server.ts:445'
   protocol: HTTP
+  route_ids:
+  - R-042
+  - R-137
+  - R-171
+  - R-205
+  - R-240
 - auth_required: false
   entry_point: POST /api/Addresss
   notes: 'handler: server.ts:448'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-043
+  - R-138
+  - R-172
+  - R-206
+  - R-241
 - auth_required: false
   entry_point: GET /api/Addresss
   notes: 'handler: server.ts:449'
   protocol: HTTP
+  route_ids:
+  - R-044
+  - R-139
+  - R-173
+  - R-207
+  - R-242
 - auth_required: false
   entry_point: PUT /api/Addresss/:id
   notes: 'handler: server.ts:450'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-045
+  - R-140
+  - R-174
+  - R-208
+  - R-243
 - auth_required: false
   entry_point: DELETE /api/Addresss/:id
   notes: 'handler: server.ts:451'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-046
+  - R-141
+  - R-175
+  - R-209
+  - R-244
 - auth_required: false
   entry_point: GET /api/Addresss/:id
   notes: 'handler: server.ts:452'
   protocol: HTTP
+  route_ids:
+  - R-047
+  - R-142
+  - R-176
+  - R-210
+  - R-245
 - auth_required: false
   entry_point: GET /api/Deliverys
   notes: 'handler: server.ts:453'
   protocol: HTTP
+  route_ids:
+  - R-048
+  - R-143
+  - R-177
+  - R-211
+  - R-246
 - auth_required: false
   entry_point: GET /api/Deliverys/:id
   notes: 'handler: server.ts:454'
   protocol: HTTP
+  route_ids:
+  - R-049
+  - R-144
+  - R-178
+  - R-212
+  - R-247
 - auth_required: false
   entry_point: POST /rest/2fa/verify
   notes: 'public-by-design; handler: server.ts:458'
   protocol: HTTP
   relevance_tags:
   - authentication
+  route_ids:
+  - R-050
 - auth_required: true
   entry_point: GET /rest/2fa/status
   notes: 'public-by-design; handler: server.ts:463'
   protocol: HTTP
   relevance_tags:
   - authentication
+  route_ids:
+  - R-051
 - auth_required: true
   entry_point: POST /rest/2fa/setup
   notes: 'public-by-design; handler: server.ts:465'
   protocol: HTTP
   relevance_tags:
   - authentication
+  route_ids:
+  - R-052
 - auth_required: true
   entry_point: POST /rest/2fa/disable
   notes: 'public-by-design; handler: server.ts:471'
   protocol: HTTP
   relevance_tags:
   - authentication
+  route_ids:
+  - R-053
 - auth_required: false
   entry_point: POST /rest/user/login
   notes: 'public-by-design; handler: server.ts:596'
   protocol: HTTP
   relevance_tags:
   - authentication
+  route_ids:
+  - R-054
 - auth_required: false
   entry_point: GET /rest/user/change-password
   notes: 'handler: server.ts:597'
   protocol: HTTP
+  route_ids:
+  - R-055
 - auth_required: false
   entry_point: POST /rest/user/reset-password
   notes: 'public-by-design; handler: server.ts:598'
   protocol: HTTP
   relevance_tags:
   - authentication
+  route_ids:
+  - R-056
 - auth_required: false
   entry_point: GET /rest/user/security-question
   notes: 'handler: server.ts:599'
   protocol: HTTP
+  route_ids:
+  - R-057
 - auth_required: false
   entry_point: GET /rest/user/whoami
   notes: 'handler: server.ts:600'
   protocol: HTTP
+  route_ids:
+  - R-058
 - auth_required: true
   entry_point: GET /rest/user/authentication-details
   notes: 'handler: server.ts:601'
   protocol: HTTP
+  route_ids:
+  - R-059
 - auth_required: false
   entry_point: GET /rest/products/search
   notes: 'handler: server.ts:602'
   protocol: HTTP
+  route_ids:
+  - R-060
 - auth_required: true
   entry_point: GET /rest/basket/:id
   notes: 'handler: server.ts:603'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-061
 - auth_required: true
   entry_point: POST /rest/basket/:id/checkout
   notes: 'authorization-review-required; handler: server.ts:604'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-062
 - auth_required: true
   entry_point: PUT /rest/basket/:id/coupon/:coupon
   notes: 'authorization-review-required; handler: server.ts:605'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-063
 - auth_required: false
   entry_point: GET /rest/admin/application-version
   notes: 'Management surface; handler: server.ts:606'
@@ -366,6 +617,8 @@ attack_surface:
   relevance_tags:
   - management
   - missing-auth
+  route_ids:
+  - R-064
 - auth_required: false
   entry_point: GET /rest/admin/application-configuration
   notes: 'Management surface; handler: server.ts:607'
@@ -373,126 +626,181 @@ attack_surface:
   relevance_tags:
   - management
   - missing-auth
+  route_ids:
+  - R-065
 - auth_required: false
   entry_point: GET /rest/repeat-notification
   notes: 'handler: server.ts:608'
   protocol: HTTP
+  route_ids:
+  - R-066
 - auth_required: false
   entry_point: GET /rest/continue-code
   notes: 'handler: server.ts:609'
   protocol: HTTP
+  route_ids:
+  - R-067
 - auth_required: false
   entry_point: GET /rest/continue-code-findIt
   notes: 'handler: server.ts:610'
   protocol: HTTP
+  route_ids:
+  - R-068
 - auth_required: false
   entry_point: GET /rest/continue-code-fixIt
   notes: 'handler: server.ts:611'
   protocol: HTTP
+  route_ids:
+  - R-069
 - auth_required: false
   entry_point: PUT /rest/continue-code-findIt/apply/:continueCode
   notes: 'handler: server.ts:612'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-070
 - auth_required: false
   entry_point: PUT /rest/continue-code-fixIt/apply/:continueCode
   notes: 'handler: server.ts:613'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-071
 - auth_required: false
   entry_point: PUT /rest/continue-code/apply/:continueCode
   notes: 'handler: server.ts:614'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-072
 - auth_required: false
   entry_point: GET /rest/captcha
   notes: 'public-by-design; handler: server.ts:615'
   protocol: HTTP
+  route_ids:
+  - R-073
 - auth_required: false
   entry_point: GET /rest/image-captcha
   notes: 'handler: server.ts:616'
   protocol: HTTP
+  route_ids:
+  - R-074
 - auth_required: false
   entry_point: GET /rest/track-order/:id
   notes: 'handler: server.ts:617'
   protocol: HTTP
+  route_ids:
+  - R-075
 - auth_required: false
   entry_point: GET /rest/country-mapping
   notes: 'handler: server.ts:618'
   protocol: HTTP
+  route_ids:
+  - R-076
 - auth_required: false
   entry_point: GET /rest/saveLoginIp
   notes: 'handler: server.ts:619'
   protocol: HTTP
+  route_ids:
+  - R-077
 - auth_required: false
   entry_point: POST /rest/user/data-export
   notes: 'handler: server.ts:620'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-078
+  - R-079
 - auth_required: false
   entry_point: GET /rest/languages
   notes: 'handler: server.ts:622'
   protocol: HTTP
+  route_ids:
+  - R-080
 - auth_required: true
   entry_point: GET /rest/order-history
   notes: 'handler: server.ts:623'
   protocol: HTTP
+  route_ids:
+  - R-081
 - auth_required: true
   entry_point: GET /rest/order-history/orders
   notes: 'handler: server.ts:624'
   protocol: HTTP
+  route_ids:
+  - R-082
 - auth_required: true
   entry_point: PUT /rest/order-history/:id/delivery-status
   notes: 'authorization-review-required; handler: server.ts:625'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-083
 - auth_required: false
   entry_point: GET /rest/wallet/balance
   notes: 'handler: server.ts:626'
   protocol: HTTP
+  route_ids:
+  - R-084
 - auth_required: false
   entry_point: PUT /rest/wallet/balance
   notes: 'handler: server.ts:627'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-085
 - auth_required: false
   entry_point: GET /rest/deluxe-membership
   notes: 'handler: server.ts:628'
   protocol: HTTP
+  route_ids:
+  - R-086
 - auth_required: false
   entry_point: POST /rest/deluxe-membership
   notes: 'handler: server.ts:629'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-087
 - auth_required: false
   entry_point: GET /rest/memories
   notes: 'handler: server.ts:630'
   protocol: HTTP
+  route_ids:
+  - R-088
 - auth_required: false
   entry_point: GET /rest/products/:id/reviews
   notes: 'handler: server.ts:632'
   protocol: HTTP
+  route_ids:
+  - R-089
 - auth_required: false
   entry_point: PUT /rest/products/:id/reviews
   notes: 'handler: server.ts:633'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-090
 - auth_required: true
   entry_point: PATCH /rest/products/reviews
   notes: 'authorization-review-required; handler: server.ts:634'
   protocol: HTTP
+  route_ids:
+  - R-091
 - auth_required: true
   entry_point: POST /rest/products/reviews
   notes: 'authorization-review-required; handler: server.ts:635'
   protocol: HTTP
+  route_ids:
+  - R-092
 - auth_required: false
   entry_point: POST /rest/chat
   notes: 'handler: server.ts:638'
@@ -500,88 +808,126 @@ attack_surface:
   relevance_tags:
   - missing-auth
   - llm
+  route_ids:
+  - R-093
 - auth_required: false
   entry_point: POST /rest/web3/submitKey
   notes: 'handler: server.ts:641'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-094
 - auth_required: false
   entry_point: GET /rest/web3/nftUnlocked
   notes: 'handler: server.ts:642'
   protocol: HTTP
+  route_ids:
+  - R-095
 - auth_required: false
   entry_point: GET /rest/web3/nftMintListen
   notes: 'handler: server.ts:643'
   protocol: HTTP
+  route_ids:
+  - R-096
 - auth_required: false
   entry_point: POST /rest/web3/walletNFTVerify
   notes: 'handler: server.ts:644'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-097
 - auth_required: false
   entry_point: POST /rest/web3/walletExploitAddress
   notes: 'handler: server.ts:645'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-098
 - auth_required: true
   entry_point: POST /b2b/v2/orders
   notes: 'authorization-review-required; handler: server.ts:648'
   protocol: HTTP
+  route_ids:
+  - R-099
 - auth_required: false
   entry_point: GET /the/devs/are/so/funny/they/hid/an/easter/egg/within/the/easter/egg
   notes: 'handler: server.ts:651'
   protocol: HTTP
+  route_ids:
+  - R-100
 - auth_required: false
   entry_point: GET /this/page/is/hidden/behind/an/incredibly/high/paywall/that/could/only/be/unlocked/by/sending/1btc/to/us
   notes: 'handler: server.ts:652'
   protocol: HTTP
+  route_ids:
+  - R-101
 - auth_required: false
   entry_point: GET /we/may/also/instruct/you/to/refuse/all/reasonably/necessary/responsibility
   notes: 'handler: server.ts:653'
   protocol: HTTP
+  route_ids:
+  - R-102
 - auth_required: false
   entry_point: GET /redirect
   notes: 'handler: server.ts:659'
   protocol: HTTP
+  route_ids:
+  - R-103
 - auth_required: false
   entry_point: GET /promotion
   notes: 'handler: server.ts:662'
   protocol: HTTP
+  route_ids:
+  - R-104
 - auth_required: false
   entry_point: GET /video
   notes: 'handler: server.ts:663'
   protocol: HTTP
+  route_ids:
+  - R-105
 - auth_required: true
   entry_point: GET /profile
   notes: 'handler: server.ts:666'
   protocol: HTTP
+  route_ids:
+  - R-106
 - auth_required: true
   entry_point: POST /profile
   notes: 'authorization-review-required; handler: server.ts:667'
   protocol: HTTP
+  route_ids:
+  - R-107
 - auth_required: false
   entry_point: GET /snippets/:challenge
   notes: 'handler: server.ts:670'
   protocol: HTTP
+  route_ids:
+  - R-108
 - auth_required: false
   entry_point: POST /snippets/verdict
   notes: 'handler: server.ts:671'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-109
 - auth_required: false
   entry_point: GET /snippets/fixes/:key
   notes: 'handler: server.ts:672'
   protocol: HTTP
+  route_ids:
+  - R-110
 - auth_required: false
   entry_point: POST /snippets/fixes
   notes: 'handler: server.ts:673'
   protocol: HTTP
   relevance_tags:
   - missing-auth
+  route_ids:
+  - R-111
 - auth_required: false
   entry_point: GET /metrics
   notes: 'Management surface; handler: server.ts:676'
@@ -589,20 +935,33 @@ attack_surface:
   relevance_tags:
   - management
   - missing-auth
+  route_ids:
+  - R-112
+  - R-113
+  - R-213
+  - R-214
+  - R-248
 - auth_required: true
   entry_point: PUT /api/Products/:id
   notes: 'authorization-review-required; handler: data/static/codefixes/changeProductChallenge_3_correct.ts:17'
   protocol: HTTP
   relevance_tags:
   - missing-authz
+  route_ids:
+  - R-147
+  - R-181
 - auth_required: true
   entry_point: GET /
   notes: 'handler: routes/dataErasure.ts:24'
   protocol: HTTP
+  route_ids:
+  - R-249
 - auth_required: true
   entry_point: POST /
   notes: 'authorization-review-required; handler: routes/dataErasure.ts:74'
   protocol: HTTP
+  route_ids:
+  - R-250
 business_context_trace:
   applied_finding_count: 0
   component_coverage: []

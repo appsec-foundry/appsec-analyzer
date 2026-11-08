@@ -609,8 +609,8 @@ def _descriptive_preselection(
 
     Three locators select files, in this order: files of findings a
     detector raised under one of the ``detector_rules``, the case's
-    ``path_patterns``, and handlers of routes in the route inventory whose
-    path matches a ``route_patterns`` entry. A file must be executable runtime source in the
+    ``path_patterns``, and the registration files and handler modules of routes in the route
+    inventory whose path matches a ``route_patterns`` entry. A file must be executable runtime source in the
     bounded repository inventory; documentation, tests, styles, and catalog
     data are never admitted, and a route or finding cannot name a file outside
     the inventory.
@@ -633,10 +633,13 @@ def _descriptive_preselection(
     rules = {str(v) for v in qualifier.get("detector_rules") or []}
     path_patterns = [p for p in (_safe_repo_glob(v) for v in qualifier.get("path_patterns") or []) if p]
     located: dict[str, list[str]] = {
+        # The registration and, where the inventory resolved it, the module that defines the handler.
         "route_patterns": [
-            str(route["handler_file"]).replace("\\", "/").removeprefix("./")
+            str(file).replace("\\", "/").removeprefix("./")
             for route in routes or []
             if any(fnmatch.fnmatchcase(str(route["path"]).lower(), pattern) for pattern in route_patterns)
+            for file in (route["handler_file"], route.get("handler_module"))
+            if isinstance(file, str) and file
         ],
         "detector_rules": [
             file
