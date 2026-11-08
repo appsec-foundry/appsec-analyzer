@@ -2470,15 +2470,37 @@ def test_stride_coverage_and_identity_are_derived_before_validation(tmp_path, da
         ("Unvalidated input reaches the handler (old/place.py:99)", "Unvalidated input reaches the handler (app.py:1)"),
         ("Unvalidated input reaches the handler", "Unvalidated input reaches the handler (app.py:1)"),
         ("A" * 75, "A" * 75),
+        # The title rule allows one trailing bracket; a second one broke a valid model title.
+        ("Basket checkout lacks ownership check (IDOR)", "Basket checkout lacks ownership check (IDOR)"),
     ],
-    ids=["replaced", "added", "dropped-when-too-long"],
+    ids=["replaced", "added", "dropped-when-too-long", "own-bracket-kept"],
 )
 def test_a_title_location_comes_from_its_anchor(tmp_path, title, expected):
     scope, components, evidence, ranges, identity = sources(tmp_path)
     artifact = stride(components[0], evidence[0], identity)
     artifact["threats"][0]["title"] = title
     normalized = stage.stride_normalizer([], components[0], identity)(artifact)
-    assert normalized["threats"][0]["title"] == expected and len(expected) <= stage.TITLE_MAX
+    assert normalized["threats"][0]["title"] == expected
+    assert Draft202012Validator(stage.contract("multi-repo-stride.schema.json")).is_valid(normalized)
+
+
+@pytest.mark.parametrize("file", ["assets/logo@2x.ts", "src/app (copy).py"], ids=["at-digit", "bracket"])
+def test_a_title_keeps_no_location_its_rule_rejects(file):
+    assert stage.located_title("Weak hash protects reset tokens", {"file": file, "line": 3}) == (
+        "Weak hash protects reset tokens"
+    )
+
+
+def test_a_repeated_finding_id_is_named_by_the_review_not_the_derived_coverage(tmp_path):
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    component = components[0]
+    artifact = stride(component, evidence[0], identity)
+    artifact["threats"].append(copy.deepcopy(artifact["threats"][0]))
+    normalized = stage.stride_normalizer([], component, identity)(artifact)
+    assert Draft202012Validator(stage.contract("multi-repo-stride.schema.json")).is_valid(normalized)
+    flows = dict(component_inventory_fingerprint=FP, data_flows=[])
+    with pytest.raises(ExchangeError, match="identities are not unique"):
+        stage.validate_stride(scope, component, [component], flows, normalized, ranges[:1])
 
 
 def test_the_control_job_may_only_choose_a_placeable_domain():

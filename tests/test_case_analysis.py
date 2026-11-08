@@ -875,6 +875,14 @@ def test_the_normalizer_sets_controller_fields_and_fixes_precheck_candidates(job
     validate(job, result)
 
 
+def test_a_finding_title_with_its_own_bracket_stays_valid(job):
+    artifact = reply(job)
+    artifact["findings"][0]["title"] = "Invoice access lacks an owner check (IDOR)"
+    result = ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)(artifact)
+    assert result["findings"][0]["title"] == "Invoice access lacks an owner check (IDOR)"
+    assert Draft202012Validator(ca.contract(ca.INVESTIGATION)).is_valid(result)
+
+
 # --- open review ----------------------------------------------------------------
 
 

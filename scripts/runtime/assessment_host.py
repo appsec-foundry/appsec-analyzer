@@ -61,6 +61,16 @@ class InvalidHostReply(ExchangeError):
     """
 
 
+class NormalizationDefect(RuntimeError):
+    """The caller's ``normalize`` made a contract-valid result violate the contract.
+
+    The model cannot repair a value the controller wrote, so no correction
+    turn is spent on it. It is no ``ValueError``: neither the correction loop
+    nor an optional job's fallback hides it, and the run stops as a defect in
+    Analyzer that a resume continues once an update fixes it.
+    """
+
+
 class ModelAnswerFailure(ExchangeError):
     """The model returned no acceptable result within the exchange's limits.
 
@@ -696,7 +706,9 @@ def run_exchange(
     ``normalize(artifact)`` returns a contract-valid complete result with every
     field the controller can derive set or removed; review, correction and the
     returned artifact all see that result, so the model is never asked to
-    repair what the controller already knows. It must be idempotent.
+    repair what the controller already knows. It must be idempotent, and a
+    contract-valid result it makes invalid raises ``NormalizationDefect``
+    instead of spending a correction turn.
     ``review(artifact, slices)`` applies the caller's deterministic acceptance
     checks to a complete result. A rejection is returned to the model as a
     bounded controller-authored reason, at most ``MAX_CORRECTIONS`` times; the
@@ -739,6 +751,20 @@ def run_exchange(
     # below, outside the model. Nested artifact constraints are retained.
     projected = host_schema(schema)
     projected_envelope = Draft202012Validator(projected)
+
+    def normalized(answer):
+        """``normalize(answer)``, which must keep a contract-valid answer valid."""
+        result = normalize(copy.deepcopy(answer))
+        if artifact_validator.is_valid(answer):
+            error = next(iter(artifact_validator.iter_errors(result)), None)
+            if error is not None:
+                # The path names the contract's own keys and indices, never a value.
+                where = "/".join(str(part) for part in error.absolute_path) or "the root"
+                raise NormalizationDefect(
+                    f"Controller post-processing made a contract-valid model result invalid at {where}"
+                )
+        return result
+
     system = instructions_with_rules(instructions, artifact_schema)
     deadline = time.monotonic() + timeout_s
     slices: list[dict] = []
@@ -895,7 +921,7 @@ def run_exchange(
                 if contract_error is not None:
                     raise ExchangeError("Result violates its contract at " + contract_error)
                 if normalize is not None:
-                    artifact = normalize(copy.deepcopy(artifact))
+                    artifact = normalized(artifact)
                 if review is not None:
                     review(artifact, tuple(slices))
             except ValueError as exc:
@@ -953,7 +979,7 @@ def run_exchange(
                         artifact = fixed
                         try:
                             if normalize is not None:
-                                artifact = normalize(copy.deepcopy(artifact))
+                                artifact = normalized(artifact)
                             if not artifact_validator.is_valid(artifact):
                                 raise ExchangeError("Corrected quotations violate the artifact contract")
                             if review is not None:
@@ -977,7 +1003,7 @@ def run_exchange(
                         artifact = fixed
                         try:
                             if normalize is not None:
-                                artifact = normalize(copy.deepcopy(artifact))
+                                artifact = normalized(artifact)
                             if review is not None:
                                 review(artifact, tuple(slices))
                             return ExchangeResult(artifact, tuple(slices), number + extra, cost)

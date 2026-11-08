@@ -724,6 +724,32 @@ def test_a_normalized_result_is_what_review_correction_and_caller_see(tmp_path):
     assert packet["rejected_result"]["result"] == {"summary": "draft"}
 
 
+def test_a_normalizer_that_breaks_a_valid_result_stops_without_a_correction_turn(tmp_path):
+    """The model cannot repair a value the controller wrote, so no paid correction is spent on it."""
+    schema = {**ARTIFACT, "properties": {"summary": {"type": "string", "maxLength": 12}}}
+
+    def normalize(artifact):
+        artifact["summary"] += " (app.py:1)"
+        return artifact
+
+    model = Model([_result("valid"), _result("valid")])
+    with pytest.raises(host.NormalizationDefect, match="invalid at summary$"):
+        host.run_exchange(
+            model,
+            view(tmp_path),
+            instructions="trusted task",
+            context={},
+            artifact_schema=schema,
+            allowed_sources=frozenset({(REPO, "app.py")}),
+            timeout_s=60,
+            should_stop=lambda: False,
+            normalize=normalize,
+        )
+    assert len(model.prompts) == 1
+    # Neither the correction loop nor an optional job's fallback catches it.
+    assert not issubclass(host.NormalizationDefect, ValueError)
+
+
 @pytest.mark.parametrize(
     "anchor,served",
     [

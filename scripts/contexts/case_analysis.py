@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import posixpath
 from functools import lru_cache
 from typing import Any, Iterable, Mapping
 
@@ -193,7 +192,7 @@ def investigation_normalizer(scope, component, aspect, identity, candidates):
         _absent_at_sink(artifact)
         return artifact
 
-    normalize.version = "case-investigation-2"
+    normalize.version = "case-investigation-3"
     return normalize
 
 
@@ -240,7 +239,7 @@ def open_review_normalizer(scope, component, identity):
         _absent_at_sink(artifact)
         return artifact
 
-    normalize.version = "open-review-2"
+    normalize.version = "open-review-3"
     return normalize
 
 
@@ -262,17 +261,10 @@ def _fixed_candidates(candidates: Mapping[str, Iterable[Mapping]]) -> dict[str, 
 
 
 def _locate_titles(artifact) -> None:
-    """A title ends in its anchor's file and line when that fits, as in the STRIDE step (MR-17)."""
+    """A title ends in its anchor's file and line when the title rule allows it, as in the STRIDE step (MR-17)."""
     for finding in artifact.get("findings") or []:
-        title, anchor = (finding.get("title"), finding.get("evidence")) if isinstance(finding, dict) else (None, None)
-        if not isinstance(title, str):
-            continue
-        base = analysis._TITLE_LOCATION.sub("", title).rstrip()  # noqa: SLF001
-        if isinstance(anchor, dict) and isinstance(anchor.get("file"), str) and type(anchor.get("line")) is int:
-            located = f"{base} ({posixpath.basename(anchor['file'])}:{anchor['line']})"
-            finding["title"] = located if len(located) <= analysis.TITLE_MAX else base
-        else:
-            finding["title"] = base
+        if isinstance(finding, dict) and isinstance(finding.get("title"), str):
+            finding["title"] = analysis.located_title(finding["title"], finding.get("evidence"))
 
 
 # --- shared investigations ------------------------------------------------------

@@ -997,7 +997,31 @@ def surface_evidence_normalizer(targets):
 
 # A title's trailing location, which the controller derives from the anchor (MR-17).
 _TITLE_LOCATION = re.compile(r"\s*\([^()]*:\d+(?:-\d+)?\)\s*$")
-TITLE_MAX = 80
+
+
+@lru_cache(maxsize=1)
+def _title_rule() -> Draft202012Validator:
+    # Test case findings close over the STRIDE item, so this one rule governs every finding title.
+    return Draft202012Validator(
+        contract("multi-repo-stride.schema.json")["properties"]["threats"]["items"]["properties"]["title"]
+    )
+
+
+def located_title(title: str, anchor) -> str:
+    """The title without its trailing location, followed by the anchor's file and line when the title rule allows it.
+
+    The location is a convenience the controller adds, so it is left out
+    whenever the result would break the contract: a model title that is
+    valid on its own stays valid. A title that already ends in its own
+    bracket, such as "(IDOR)", allows no second one, and neither does a file
+    name the rule rejects or a result over the length limit.
+    """
+    base = _TITLE_LOCATION.sub("", title).rstrip()
+    if isinstance(anchor, dict) and isinstance(anchor.get("file"), str) and type(anchor.get("line")) is int:
+        located = f"{base} ({posixpath.basename(anchor['file'])}:{anchor['line']})"
+        if _title_rule().is_valid(located):
+            return located
+    return base
 
 
 def identity_normalizer(identity):
@@ -1035,9 +1059,11 @@ def stride_normalizer(targets, component, identity):
 
     Identity fields come from the job; each category's ``finding_ids`` and
     whether it holds findings come from the threats, keeping the model's reason;
-    a missing category is added as ``no-evidence``. A title's location bracket
-    is the anchor's file and line, appended when the title stays within its
-    limit. Coverage of investigation targets is normalized as before.
+    a missing category is added as ``no-evidence``. A repeated ``local_id``
+    is listed once, so ``validate_stride`` names the duplicate instead of the
+    contract rejecting the derived list. A title's location bracket is the
+    anchor's file and line when the title rule allows it (``located_title``).
+    Coverage of investigation targets is normalized as before.
     """
     surface = surface_evidence_normalizer(targets)
 
@@ -1060,6 +1086,7 @@ def stride_normalizer(targets, component, identity):
         for category in STRIDE_CATEGORIES:
             row = dict(rows.get(category) or {"reason": "No finding was reported for this category."})
             ids = [t["local_id"] for t in threats if t.get("stride") == category and isinstance(t.get("local_id"), str)]
+            ids = list(dict.fromkeys(ids))
             row.update(category=category, finding_ids=ids)
             if ids:
                 row["disposition"] = "finding"
@@ -1068,18 +1095,11 @@ def stride_normalizer(targets, component, identity):
             coverage.append(row)
         artifact["coverage"] = coverage
         for threat in threats:
-            title, anchor = threat.get("title"), threat.get("evidence")
-            if not isinstance(title, str):
-                continue
-            base = _TITLE_LOCATION.sub("", title).rstrip()
-            if isinstance(anchor, dict) and isinstance(anchor.get("file"), str) and type(anchor.get("line")) is int:
-                located = f"{base} ({posixpath.basename(anchor['file'])}:{anchor['line']})"
-                threat["title"] = located if len(located) <= TITLE_MAX else base
-            else:
-                threat["title"] = base
+            if isinstance(threat.get("title"), str):
+                threat["title"] = located_title(threat["title"], threat.get("evidence"))
         return artifact
 
-    normalize.version = surface.version + "+stride-derive-1"
+    normalize.version = surface.version + "+stride-derive-2"
     return normalize
 
 
