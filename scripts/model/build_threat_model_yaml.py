@@ -2311,8 +2311,18 @@ def build_attack_surface(routes: dict | None, sidecar: dict | None = None) -> tu
                 prev["auth_required"] = (
                     False if any(v is False for v in states) else True if all(v is True for v in states) else None
                 )
-                if not prev.get("notes") and entry.get("notes"):
-                    prev["notes"] = entry["notes"]
+                # Keep every registration's source, including identical paths in different repositories.
+                prev["notes"] = (
+                    "; ".join(
+                        dict.fromkeys(
+                            part
+                            for notes in (prev.get("notes"), entry.get("notes"))
+                            if notes
+                            for part in notes.split("; ")
+                        )
+                    )
+                    or None
+                )
                 # One entry stands for every registration of its method and path, so it names all their IDs.
                 route_ids = list(dict.fromkeys([*(prev.get("route_ids") or []), *(entry.get("route_ids") or [])]))
                 if route_ids:

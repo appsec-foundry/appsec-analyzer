@@ -98,6 +98,37 @@ class WebApplicationHost(FullHost):
             )
             artifact["components"] = [service, client]
             artifact["interfaces"] = []
+        if role == "architecture_analyst" and artifact and "external_entities" in artifact:
+            # The fixture's browser client needs its user and interaction under the current flow contract.
+            context = json.loads(prompt.split(f"<<<{MARKER}\n")[1].split(f"\n{MARKER}>>>")[0])["context"]
+            for index, client in enumerate(c for c in context["components"] if c["tier"] == "client"):
+                path = client["paths"][0]
+                evidence = [dict(repository_id=path["repository_id"], file=path["path"], line=1, sha256=path["sha256"])]
+                entity = f"ext-fixture-user-{index}"
+                artifact["external_entities"].append(
+                    dict(
+                        id=entity,
+                        name="Browser user",
+                        kind="legitimate-role",
+                        description="Uses the browser client.",
+                        evidence=evidence,
+                    )
+                )
+                artifact["data_flows"].append(
+                    {
+                        "id": f"df-{900 + index}",
+                        "from": "external",
+                        "from_entity": entity,
+                        "to": client["id"],
+                        "interaction": True,
+                        "label": "Use",
+                        "protocol": "HTTPS",
+                        "data_classification": "Public",
+                        "direction": "request-response",
+                        "provenance": "recon",
+                        "evidence": evidence,
+                    }
+                )
         _assert_schema_valid(role, schema, reply.payload)
         return reply
 
@@ -603,7 +634,7 @@ def test_resume_replays_accepted_investigations_without_new_model_calls(tmp_path
     assert ids == [f"TCF-{number:03d}" for number in range(1, len(ids) + 1)] and (len(ids) > 1) is batched
 
 
-def test_generated_routes_reach_only_the_pilot_marked_and_with_their_generator_call(tmp_path, monkeypatch):
+def test_generated_routes_reach_pilot_and_report_with_the_same_identity(tmp_path, monkeypatch):
     def seed(roots):
         _seed(roots)
         with (roots[0] / "server.js").open("a") as handle:
@@ -617,7 +648,8 @@ def test_generated_routes_reach_only_the_pilot_marked_and_with_their_generator_c
     host = PilotHost()
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=seed, host=host)
     assert outcome["status"] == "complete"
-    assert validate_threat_model_output(yaml.safe_load((out / "security-assessment.yaml").read_text()))[0]
+    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    assert validate_threat_model_output(model)[0]
     (listed,) = host.listed
     routes = {
         case["test_case_id"]: {(row["route"]["method"], row["route"]["path"]): row for row in case["candidates"]}
@@ -629,9 +661,15 @@ def test_generated_routes_reach_only_the_pilot_marked_and_with_their_generator_c
     assert "generated" not in routes["TC-AUTHZ-01"]["GET", "/api/orders/:id"]["route"]
     # The generator call is served with the first packet, as a candidate's anchor.
     assert any(path == "server.js" and start <= 15 <= end for path, start, end in host.served[0])
-    # STRIDE, the report and the other commands keep the inventory without generated routes.
+    # REQ-014: reporting consumes the planned inventory, including the generator's routes.
     (inventory,) = out.rglob(".route-inventory.json")
-    assert not any(row["path"].startswith("/api/Products") for row in json.loads(inventory.read_text())["routes"])
+    published = json.loads(inventory.read_text())["routes"]
+    route = next(row for row in published if row["route_id"] == update["route_id"])
+    assert (route["method"], route["path"]) == ("PUT", "/api/Products/:id")
+    assert route["handler_file"] == "server.js" and route["handler_line"] == 15
+    surface = next(row for row in model["attack_surface"] if update["route_id"] in row.get("route_ids", []))
+    assert surface["entry_point"] == "PUT /api/Products/:id"
+    assert surface["auth_required"] is None
 
 
 def test_each_aspect_gets_its_own_jobs_and_an_aspect_without_candidates_gets_none(tmp_path, monkeypatch):

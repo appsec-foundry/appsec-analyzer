@@ -130,6 +130,7 @@ def plan_pilot(scope, architecture, scanned, test_cases, *, progress) -> dict:
         "aspects": aspects,
         "deferred": deferred,
         "facts": facts,
+        "route_inventories": publication_inventories(architecture["route_inventories"], facts),
         "entries": entries,
         "work": work,
         "worked": worked,
@@ -348,6 +349,7 @@ def run_pilot(
         "results": results,
         "findings": findings,
         "candidates": candidates,
+        "route_inventories": planned["route_inventories"],
     }
 
 
@@ -587,6 +589,10 @@ def _repository_facts(scope, architecture, components, findings) -> dict[str, di
     A component whose flow the architecture shows reaching a language model service gets the AI items
     where the code patterns miss the call, with the flow's cited lines as their starting points."""
     facts = {}
+    number = max(
+        (int(row["route_id"][2:]) for inv in architecture["route_inventories"].values() for row in inv["routes"]),
+        default=0,
+    )
     models = analysis.llm_inference_flows(architecture.get("data_flows") or {})
     for repo in sorted(scope.repositories, key=lambda row: row.repository_id):
         rid = repo.repository_id
@@ -608,7 +614,46 @@ def _repository_facts(scope, architecture, components, findings) -> dict[str, di
             facts[rid] = case_candidates.route_facts(
                 root, architecture["route_inventories"][rid], findings[rid], components=owned, architecture=shown
             )
+        # Generated IDs follow all repositories' inventory IDs, not just this repository's.
+        remap = {}
+        for key, row in facts[rid]["routes"].items():
+            if row["generated"]:
+                number += 1
+                if number > 99_999:
+                    raise ValueError("Too many assessment routes")
+                remap[key] = f"R-{number:03d}"
+                row["route_id"] = remap[key]
+        facts[rid]["routes"] = {remap.get(key, key): row for key, row in facts[rid]["routes"].items()}
+        for component in facts[rid]["components"].values():
+            component["route_ids"] = [remap.get(key, key) for key in component["route_ids"]]
     return facts
+
+
+def publication_inventories(inventories: dict, facts: dict) -> dict:
+    """Carry deterministic generated routes to the report without guessing authentication (REQ-014)."""
+    import copy
+
+    from analyzers.route_inventory import RouteCandidate, _serialize_route
+
+    result = copy.deepcopy(inventories)
+    for rid, repository in facts.items():
+        for row in repository["routes"].values():
+            if not row["generated"]:
+                continue
+            result[rid]["routes"].append(
+                _serialize_route(
+                    int(row["route_id"][2:]),
+                    RouteCandidate(
+                        method=row["method"],
+                        path=row["path"],
+                        framework="unknown",
+                        handler_file=row["handler_file"],
+                        handler_line=row["handler_line"],
+                        notes=["Registered by a REST resource generator; authentication and authorization unknown"],
+                    ),
+                )
+            )
+    return result
 
 
 def _fixed(case, component_id: str, outcome: str, reason: str) -> dict:

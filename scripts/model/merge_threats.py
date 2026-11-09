@@ -4039,9 +4039,8 @@ def merge_assessment(
     finally:
         _COMBINING.reset(combining)
     _combine_texts(threats, combine_texts)
-    for threat in threats:
-        # Routes keep verification findings apart only while they are joined.
-        threat.pop("route_ids", None)
+    # REQ-014: route scopes also let consumers resolve standalone findings.
+    # Keep them after joining; the publisher checks them against the inventory.
     normalize_risks(threats)
     threats = _assign_t_ids(threats)
     threats = _remap_scenario_local_refs(threats)

@@ -90,7 +90,7 @@ Request more formats when you start the assessment, for example `assess --repo /
 
 To convert a finished assessment later, use [`export`](#export-other-report-formats).
 
-For findings that a request or other input reaches, the analysis records `verification_context` in `security-assessment.yaml` where the source supports it, with source-cited query construction, input processing and filter order, existing controls, prerequisites, and expected observations with control experiments. Missing facts stay explicit. Each route or input variant keeps its own context, including in pentest-task exports. This helps a separate authorized runtime test; Analyzer does not contact the target, and these hypotheses do not establish exploitation or grant permission. Older assessments remain readable without it.
+For findings that a request or other input reaches, the analysis records `verification_context` in `security-assessment.yaml` where the source supports it, with source-cited query construction, input processing and filter order, existing controls, prerequisites, and expected observations with control experiments. Missing facts stay explicit. If a survey, investigation or open-review response omits the context, its finding receives an empty variant list and an unresolved reason; this does not mean the finding is untestable. Each route or input variant keeps its own context, including in pentest-task exports. This helps a separate authorized runtime test; Analyzer does not contact the target, and these hypotheses do not establish exploitation or grant permission. Older assessments remain readable without it.
 
 ## Security and data use
 

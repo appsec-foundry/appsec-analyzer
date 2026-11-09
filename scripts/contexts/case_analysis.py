@@ -188,11 +188,13 @@ def investigation_normalizer(scope, component, aspect, identity, candidates):
                         row.pop("route_id", None)
         artifact = hashes(artifact)
         artifact.update(schema_version=1, component_id=component["id"], aspect=aspect)
+        for finding in artifact.get("findings") or []:
+            analysis.note_missing_verification_context(finding)
         _locate_titles(artifact)
         _absent_at_sink(artifact)
         return artifact
 
-    normalize.version = "case-investigation-3"
+    normalize.version = "case-investigation-4"
     return normalize
 
 
@@ -235,11 +237,12 @@ def open_review_normalizer(scope, component, identity):
         for finding in artifact.get("findings") or []:
             if isinstance(finding, dict):
                 finding["test_case_ids"] = []
+                analysis.note_missing_verification_context(finding)
         _locate_titles(artifact)
         _absent_at_sink(artifact)
         return artifact
 
-    normalize.version = "open-review-3"
+    normalize.version = "open-review-4"
     return normalize
 
 

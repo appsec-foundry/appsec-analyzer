@@ -923,6 +923,25 @@ def test_a_finding_title_with_its_own_bracket_stays_valid(job):
     assert Draft202012Validator(ca.contract(ca.INVESTIGATION)).is_valid(result)
 
 
+@pytest.mark.parametrize("role", ["investigation", "open-review"])
+def test_model_findings_keep_context_or_an_explicit_gap(job, role):
+    from tests.test_verification_context import context
+
+    normalize = (
+        ca.investigation_normalizer(job["scope"], job["api"], "AuthZ", job["identity"], CANDIDATES)
+        if role == "investigation"
+        else ca.open_review_normalizer(job["scope"], job["api"], job["identity"])
+    )
+    artifact = reply(job) if role == "investigation" else open_review(job)
+    missing = normalize(copy.deepcopy(artifact))["findings"][0]["verification_context"]
+    assert missing["variants"] == [] and "remain unresolved" in missing["unknowns"][0]
+    supplied = context(job["at"]("server.js", 9))
+    artifact["findings"][0]["verification_context"] = supplied
+    result = normalize(artifact)
+    assert result["findings"][0]["verification_context"] == supplied
+    (validate if role == "investigation" else validate_open)(job, result)
+
+
 # --- open review ----------------------------------------------------------------
 
 

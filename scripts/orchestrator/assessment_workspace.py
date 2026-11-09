@@ -112,6 +112,44 @@ def project_components(components: dict, names: Namespaces) -> dict:
     return {"schema_version": 1, "components": rows}
 
 
+def project_routes(inventories: dict, names: Namespaces) -> dict:
+    """Keep analyzed route identities and qualify their source locations for the report (REQ-014)."""
+    from analyzers.route_inventory import _coverage
+
+    routes, frameworks, unsupported, not_built, seen = [], set(), [], [], set()
+
+    def location(rid, path):
+        if rid not in names.files or path not in names.files[rid]:
+            raise WorkspaceError("Route location is outside the admitted repository")
+        return names.qualify(rid, path)
+
+    for rid, inventory in sorted(inventories.items()):
+        if rid not in names.files:
+            raise WorkspaceError("Route inventory names an unselected repository")
+        for original in inventory["routes"]:
+            row = copy.deepcopy(original)
+            key = row["route_id"]
+            if not isinstance(key, str) or not re.fullmatch(r"R-[0-9]{3,5}", key) or key in seen:
+                raise WorkspaceError("Assessment route IDs must be unique and well formed")
+            seen.add(key)
+            for field in ("handler_file", "handler_module"):
+                if row.get(field):
+                    row[field] = location(rid, row[field])
+            for evidence in row.get("authn_handler_evidence", []):
+                evidence["file"] = location(rid, evidence["file"])
+            routes.append(row)
+        coverage = inventory.get("coverage", {})
+        frameworks.update(coverage.get("frameworks_detected", []))
+        unsupported.extend(location(rid, path) for path in coverage.get("unsupported_route_files", []))
+        not_built.extend(location(rid, path) for path in inventory.get("not_built_files", []))
+    return {
+        "version": 1,
+        "routes": routes,
+        "coverage": _coverage(routes, frameworks, sorted(set(unsupported))),
+        "not_built_files": sorted(set(not_built)),
+    }
+
+
 def project_finalization(receipt: dict, legacy_components: dict) -> dict:
     return {
         "schema_version": 1,

@@ -1501,6 +1501,10 @@ requirements:
 
   REQ-014:
     applies_to:
+      - scripts/model/merge_threats.py
+      - scripts/orchestrator/assessment_test_cases.py
+      - scripts/orchestrator/assessment_workspace.py
+      - scripts/orchestrator/orchestration_controller.py
       - appsec_analyzer/authnz_review.py
       - scripts/shared/profile_metadata.py
       - skills/export-security-assessment/**
@@ -1530,6 +1534,10 @@ requirements:
       - tests/test_validate_intermediate.py::test_export_trace_cross_references_fail_closed
       - tests/test_build_threat_model_yaml.py::test_attack_surface_names_the_route_ids_of_every_registration
       - tests/test_build_threat_model_yaml.py::test_findings_keep_only_route_ids_the_attack_surface_publishes
+      - tests/test_multi_repo_builder.py::test_verification_findings_about_different_routes_on_one_line_stay_apart
+      - tests/test_multi_repo_assessment.py::test_analyzed_and_generated_routes_keep_their_identity_through_publication
+      - tests/test_multi_repo_assessment.py::test_route_publication_rejects_ambiguous_identity_or_unadmitted_sources
+      - tests/test_controller_fixture.py::test_generated_routes_reach_pilot_and_report_with_the_same_identity
 
   REQ-015:
     applies_to:
@@ -2954,6 +2962,9 @@ requirements:
     guards:
       - tests/test_verification_context.py::test_context_survives_assembly_and_pentest_export
       - tests/test_verification_context.py::test_context_sources_must_be_served
+      - tests/test_verification_context.py::test_survey_records_missing_context_without_inventing_runtime_facts
+      - tests/test_verification_context.py::test_gap_annotation_does_not_replace_invalid_model_context
+      - tests/test_case_analysis.py::test_model_findings_keep_context_or_an_explicit_gap
       - tests/test_verification_context.py::test_context_schema_rejects_malformed_data
       - tests/test_verification_context.py::test_combined_findings_keep_distinct_variants
       - tests/test_verification_context.py::test_every_finding_role_receives_runtime_context_guidance

@@ -716,8 +716,9 @@ def test_verification_findings_about_different_routes_on_one_line_stay_apart(tmp
     joined, alone = _held(merged, "TCF-001"), _held(merged, "TCF-002")
     assert joined["found_by"] == ["survey", "verification"] and alone is not joined
     assert alone["found_by"] == ["verification"]
-    # The routes only kept them apart; the merged findings do not carry them.
-    assert all("route_ids" not in t for t in merged["threats"])
+    # REQ-014: a standalone finding needs its route even when it has no instances.
+    assert alone["route_ids"] == ["route-2"]
+    assert joined["route_ids"] == ["route-1"]
 
 
 def test_verification_findings_must_belong_to_their_component(tmp_path):

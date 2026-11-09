@@ -2213,6 +2213,80 @@ def test_several_repositories_keep_their_namespace(tmp_path):
     assert card["name"].startswith("Records API [")
 
 
+@pytest.mark.parametrize("labels", [("solo",), ("edge", "service")])
+def test_analyzed_and_generated_routes_keep_their_identity_through_publication(tmp_path, labels):
+    from jsonschema import Draft202012Validator
+    from model.build_threat_model_yaml import build_attack_surface, keep_published_route_refs
+    from orchestrator import assessment_test_cases as cases
+    from orchestrator import assessment_workspace as ws
+
+    code = (
+        "const express = require('express')\nconst app = express()\n"
+        "const finale = require('finale-rest')\n"
+        "app.get('/health', (req, res) => res.json({ok: true}))\n"
+        "finale.resource({ model: Item, endpoints: ['/api/Items', '/api/Items/:id'] })\n"
+    )
+    scope = _scope(tmp_path, labels, {"server.js": code})
+    inventories = controller._assessment_inventories(scope)
+    architecture = {"route_inventories": {rid: row["routes"] for rid, row in inventories.items()}}
+    components = [
+        {
+            "id": f"c-{i}",
+            "repository_ids": [repo.repository_id],
+            "paths": [{"repository_id": repo.repository_id, "path": "server.js"}],
+        }
+        for i, repo in enumerate(scope.repositories)
+    ]
+    before = copy.deepcopy(architecture)
+    facts = cases._repository_facts(
+        scope, architecture, components, {repo.repository_id: [] for repo in scope.repositories}
+    )
+    assert architecture == before  # Planning must not change the next replay's inputs.
+    names = ws.Namespaces(scope)
+    projected = ws.project_routes(cases.publication_inventories(architecture["route_inventories"], facts), names)
+    schema = json.loads((controller.PLUGIN_ROOT / "schemas/route-inventory.schema.json").read_text())
+    Draft202012Validator(schema).validate(projected)
+    ids = [row["route_id"] for row in projected["routes"]]
+    assert len(ids) == len(set(ids))
+    assert projected["coverage"]["route_count"] == len(ids)
+    surface, _ = build_attack_surface(projected)
+    for rid, repository in facts.items():
+        update = next(row for row in repository["routes"].values() if row["method"] == "PUT")
+        emitted = next(row for row in projected["routes"] if row["route_id"] == update["route_id"])
+        assert emitted["handler_file"] == names.qualify(rid, "server.js")
+        assert emitted["path"] == "/api/Items/:id"
+        assert emitted["authn_signal"] == "unknown"
+        finding = {"route_ids": [update["route_id"]]}
+        assert keep_published_route_refs([finding], surface) == 0
+        entry = next(row for row in surface if update["route_id"] in row.get("route_ids", []))
+        assert entry["entry_point"] == "PUT /api/Items/:id" and entry["auth_required"] is None
+        assert names.qualify(rid, "server.js") + ":5" in entry["notes"]
+
+
+@pytest.mark.parametrize(
+    "mutation", ["duplicate", "malformed-id", "foreign-repository", "foreign-file", "foreign-evidence"]
+)
+def test_route_publication_rejects_ambiguous_identity_or_unadmitted_sources(tmp_path, mutation):
+    from orchestrator import assessment_workspace as ws
+
+    scope = _scope(tmp_path, ("solo",), {"app.py": "value = 1\n"})
+    rid = scope.repositories[0].repository_id
+    row = {"route_id": "R-001", "method": "GET", "path": "/", "handler_file": "app.py"}
+    routes = {rid: {"routes": [row]}}
+    if mutation == "duplicate":
+        routes[rid]["routes"].append(dict(row))
+    elif mutation == "malformed-id":
+        row["route_id"] = "R-100000"
+    elif mutation == "foreign-repository":
+        routes = {"unselected": routes[rid]}
+    elif mutation == "foreign-evidence":
+        row["authn_handler_evidence"] = [{"file": "../outside.py", "line": 1}]
+    else:
+        row["handler_file"] = "../outside.py"
+    with pytest.raises(ws.WorkspaceError):
+        ws.project_routes(routes, ws.Namespaces(scope))
+
+
 def _embedded_architecture(scope, path):
     components, flows = [], []
     for i, repo in enumerate(scope.repositories, 1):

@@ -128,9 +128,46 @@ def test_a_context_that_alone_keeps_a_survey_result_rejected_goes_and_the_findin
     kept = stage.stride_salvage(copy.deepcopy(artifact), rejected.value)
     stage.validate_stride(scope, components[0], components, flows, kept, ranges[:1])
     assert [t["local_id"] for t in kept["threats"]] == [t["local_id"] for t in artifact["threats"]]
-    assert not any("verification_context" in t for t in kept["threats"])
+    assert all(t["verification_context"]["variants"] == [] for t in kept["threats"])
+    assert "validation failed" in kept["threats"][0]["verification_context"]["unknowns"][0]
     # Without a context to drop there is nothing to salvage: any other fault keeps the result rejected.
     assert stage.stride_salvage(copy.deepcopy(kept), rejected.value) is None
+
+
+@pytest.mark.parametrize("supplied", [False, True])
+def test_survey_records_missing_context_without_inventing_runtime_facts(tmp_path, supplied):
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    artifact = stride(components[0], evidence[0], identity)
+    if supplied:
+        artifact["threats"][0]["verification_context"] = context(copy.deepcopy(evidence[0]))
+    expected = copy.deepcopy(artifact["threats"][0].get("verification_context"))
+    normalized = stage.stride_normalizer([], components[0], identity)(artifact)
+    stage.validate_stride(
+        scope,
+        components[0],
+        components,
+        dict(component_inventory_fingerprint=FP, data_flows=[]),
+        normalized,
+        ranges[:1],
+    )
+    result = normalized["threats"][0]["verification_context"]
+    if supplied:
+        assert result == expected
+    else:
+        assert result["variants"] == []
+        assert "remain unresolved" in result["unknowns"][0]
+        assert Draft202012Validator(
+            json.loads((ROOT / "schemas/verification-context.schema.json").read_text())
+        ).is_valid(result)
+
+
+def test_gap_annotation_does_not_replace_invalid_model_context():
+    finding = {"verification_context": {"version": 2, "variants": []}}
+    original = copy.deepcopy(finding)
+    stage.note_missing_verification_context(finding)
+    assert finding == original
+    validator = Draft202012Validator(json.loads((ROOT / "schemas/verification-context.schema.json").read_text()))
+    assert not validator.is_valid(finding["verification_context"])
 
 
 @pytest.mark.parametrize("mutation", ["version", "authority", "oversize", "evidence", "order", "unknowns"])
@@ -178,3 +215,6 @@ def test_every_finding_role_receives_runtime_context_guidance(role):
     assert "processing` in execution order" in prompt
     assert "negative controls" in prompt and "only served evidence" in prompt
     assert "Do not contact a running application" in prompt
+    assert "Before completing this response" in prompt
+    assert "write route and the later read/render route" in prompt
+    assert "Separate variants are alternatives, not a shared executable workflow" in prompt

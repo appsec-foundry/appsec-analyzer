@@ -70,9 +70,9 @@ def test_an_aspect_without_a_job_costs_nothing_and_keeps_its_item_results(monkey
         "repository_ids": ["r1"],
         "paths": [{"repository_id": "r1", "path": "index.php"}],
     }
-    architecture = {"components": {"components": [component]}}
+    architecture = {"components": {"components": [component]}, "route_inventories": {"r1": {"routes": []}}}
     monkeypatch.setattr(assessment_test_cases, "_repository_findings", lambda scope, scanned: {"r1": []})
-    monkeypatch.setattr(assessment_test_cases, "_repository_facts", lambda *args: {"r1": {}})
+    monkeypatch.setattr(assessment_test_cases, "_repository_facts", lambda *args: {"r1": {"routes": {}}})
     monkeypatch.setattr(
         assessment_test_cases.case_candidates, "applies", lambda case, facts, cid: (False, "no route in scope")
     )

@@ -1054,22 +1054,47 @@ def controls_normalizer(scope, identity):
     return normalize
 
 
+def note_missing_verification_context(finding):
+    """Record an omitted analysis result without inventing a request or claiming inapplicability (REQ-049)."""
+    if isinstance(finding, dict) and "verification_context" not in finding:
+        finding["verification_context"] = {
+            "version": 1,
+            "variants": [],
+            "unknowns": [
+                "The analysis supplied no runtime context; request mapping and runtime-test applicability remain unresolved."
+            ],
+        }
+
+
 def stride_salvage(artifact, exc):
     """A STRIDE result still rejected after the last correction, without its runtime contexts, or None.
 
     A runtime context is optional planning data (REQ-049). When it alone keeps the result rejected,
-    the findings stay and the contexts go. The exchange reviews the reduced result again, so any
+    the findings stay and the contexts become explicit gaps. The exchange reviews the reduced result again, so any
     other fault still rejects it.
     """
-    threats = artifact.get("threats") or []
-    if not any(isinstance(threat, dict) and threat.get("verification_context") for threat in threats):
+    threats = [
+        threat
+        for threat in artifact.get("threats") or []
+        if isinstance(threat, dict)
+        and isinstance(threat.get("verification_context"), dict)
+        and threat["verification_context"].get("variants")
+    ]
+    if not threats:
         return None
     for threat in threats:
         threat.pop("verification_context", None)
+        threat["verification_context"] = {
+            "version": 1,
+            "variants": [],
+            "unknowns": [
+                "Runtime context was removed after validation failed; source-grounded test details remain unresolved."
+            ],
+        }
     return artifact
 
 
-stride_salvage.version = "stride-salvage-1"
+stride_salvage.version = "stride-salvage-2"
 
 
 def stride_normalizer(targets, component, identity):
@@ -1113,11 +1138,12 @@ def stride_normalizer(targets, component, identity):
             coverage.append(row)
         artifact["coverage"] = coverage
         for threat in threats:
+            note_missing_verification_context(threat)
             if isinstance(threat.get("title"), str):
                 threat["title"] = located_title(threat["title"], threat.get("evidence"))
         return artifact
 
-    normalize.version = surface.version + "+stride-derive-2"
+    normalize.version = surface.version + "+stride-derive-3"
     return normalize
 
 

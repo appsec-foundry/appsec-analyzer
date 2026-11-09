@@ -1245,14 +1245,22 @@ def _assessment_inventories(scope) -> dict[str, dict]:
         return {key: value for key, value in document.items() if key not in ("generated_at", "repo_root")}
 
     inventories = {}
+    route_number = 0
     for repo in sorted(scope.repositories, key=lambda row: row.repository_id):
         with scope.scanner_snapshot(repo.repository_id) as root:
             routes = stable(route_inventory(root))
+            # IDs are run-wide, including when two repositories use the same paths.
+            for row in routes["routes"]:
+                route_number += 1
+                if route_number > 99_999:
+                    raise ValueError("Too many assessment routes")
+                row["route_id"] = f"R-{route_number:03d}"
             egress = scan_egress(root)
             # Component finalization resolves handlers from the unbounded rows.
             rows = copy.deepcopy(routes["routes"])
             # A route string is repository text; the boundary context bounds it alike.
-            for row in routes["routes"]:
+            projected_routes = copy.deepcopy(routes)
+            for row in projected_routes["routes"]:
                 row["path"] = _bounded_text(row.get("path"), 180)
             resolver = HandlerResolver(root)
             inventories[repo.repository_id] = {
@@ -1270,7 +1278,7 @@ def _assessment_inventories(scope) -> dict[str, dict]:
                     for row in rows
                     if row.get("route_id") and (spans := resolver.middleware_definitions(row))
                 },
-                "route_projection": project_routes(json.dumps(routes).encode("utf-8")),
+                "route_projection": project_routes(json.dumps(projected_routes).encode("utf-8")),
                 "role_units": project_role_units(root),
                 "egress": project_egress(root, sources=egress),
                 "egress_sources": egress,
@@ -4131,6 +4139,9 @@ def _assessment_workspace(
         {"schema_version": 1, "security_controls": ws._project(controls, names)},
     )
     ws.write_json(workspace / ".threats-merged.json", {**ws.project_document(merged, names), "version": 1})
+    route_inventories = (test_case_pilot or {}).get("route_inventories", architecture.get("route_inventories"))
+    if route_inventories is not None:
+        ws.write_json(workspace / ".route-inventory.json", ws.project_routes(route_inventories, names))
     if test_case_pilot:
         from orchestrator import assessment_test_cases
 
@@ -4374,12 +4385,15 @@ def _assessment_prepare_render(
     receipts: list[str] = []
     _run_script("validators/validate_intermediate.py", ["threats_merged", str(workspace / ".threats-merged.json")])
     progress("Building the deterministic route inventory and coverage checks")
-    _best_effort_script(
-        workspace,
-        "analyzers/route_inventory.py",
-        ["--repo-root", str(root), "--output-dir", str(workspace)],
-        receipts,
-    )
+    # The controller hands over the exact inventories the analysis used, including
+    # generated routes. A rescan here would lose their IDs and repository ownership.
+    if not (workspace / ".route-inventory.json").exists():
+        _best_effort_script(
+            workspace,
+            "analyzers/route_inventory.py",
+            ["--repo-root", str(root), "--output-dir", str(workspace)],
+            receipts,
+        )
     # Registration and authorization evidence for actor resolution, as the
     # single-repository prepass provides it. Its findings already entered the
     # model through the scanner stage; this sidecar is evidence, not a new merge.

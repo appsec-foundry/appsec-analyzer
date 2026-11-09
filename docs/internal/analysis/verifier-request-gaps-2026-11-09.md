@@ -107,4 +107,52 @@ Repair the two losses of already known information first. Verify the repair offl
 
 ## Verification status
 
-The offline review established schema-readable input, resolvable published references, the two information-loss paths, and conditional planning blockers. It included the in-memory T-036 reference restoration and inspection of T-050's generated-route candidate. No source or saved assessment was changed during that review. The implementation tests and gate listed above remain future work. Recording this plan requires diff, formatting, local-link, and consistency checks; it does not require pytest, broad gates, or live tests.
+The initial offline review established schema-readable input, resolvable published references, the two information-loss paths, and conditional planning blockers. It included the in-memory T-036 reference restoration and inspection of T-050's generated-route candidate. No source or saved assessment was changed during that review.
+
+## Local implementation, 2026-11-09
+
+The implementation is on `fix/verifier-assessment-handoff`, based on `acf11118`, in the separate worktree `/tmp/appsec-analyzer-verifier-handoff`. It fixes existing REQ-014 and REQ-049 behavior without changing the public schema, adding model calls, or running another assessment.
+
+| Plan item | Implemented behavior and limits |
+| --- | --- |
+| 1. Route references | Merging retains top-level references, including standalone verification findings. Existing publication still removes references whose routes are absent. Different route scopes remain distinct. |
+| 2. Generated routes | Static route IDs are unique across repositories. Generated IDs follow all static IDs. Reporting consumes these analyzed inventories instead of rescanning; source locations are qualified, and duplicate endpoint rows retain every registration's source. Generated-route authentication and authorization remain unknown. |
+| 3. Offline verification | Synthetic single- and multi-repository fixtures exercise extraction, generated-route planning, publication, schema validation and reference resolution. Negative cases reject duplicate or malformed IDs and sources outside admitted repositories. Saved Juice Shop evidence also passes the current Verifier reader in a route-only replay described below. |
+| 4. Missing context | Existing survey, investigation and open-review instructions now require a final check of request, input, controls and write/read links. Their normalizers preserve supplied context and mark omitted context with empty variants and an explicit unresolved reason. The final survey fallback records removed invalid context as a gap. This does not establish that future model responses will supply every missing fact. Scanner-only findings retain their existing evidence and links; no runtime request is inferred from a scanner rule. |
+| 5. Verifier extensions | No new proof classes were implemented. The follow-up scope below separates reader repair from new target-contact and proof behavior. Near-duplicate variants retain distinct hypotheses and evidence; existing exact-payload deduplication remains in effect. |
+
+The route-only replay reads the saved report inventory, verification findings and candidate sidecars, carries 26 candidate-backed generated routes through `publication_inventories` and `build_attack_surface`, and restores the saved verification references on an in-memory copy. The copied YAML passes Analyzer schema validation and the Verifier's `read_assessment`. No restored reference is removed as unresolved. The original YAML retains SHA-256 `782075988e82549ede7da18b5bb32e1996bb12b15a97e082bcb5fe63bff78dfc`.
+
+| Finding | Before | After, using the current Verifier reader |
+| --- | --- | --- |
+| T-036 | No endpoint | `ALL /encryptionkeys/:file`, `ALL /support/logs/:file` |
+| T-050 | No endpoint | `PUT /api/Products/:id`, plus three unrelated SecurityQuestions hints from the same registration line |
+
+The temporary replay script is `/tmp/appsec-verifier-handoff-replay.py`; its copied YAML and JSON result are under `/tmp/appsec-verifier-handoff-replay/`. This is a replay of the route handoff, not a complete pipeline rerun: the original combined-source directory no longer exists. No target or model was contacted, and no exploitability claim follows.
+
+The extra T-050 hints come from `appsec_verifier/endpoints.py::finding_endpoints`: after resolving explicit route IDs, it also matches every entry sharing a handler or registration location, then caps the result at four. Resource generators register several resources at one location. The reader should use this location heuristic only where explicit request or route evidence does not already resolve the finding; preparation routes should remain a separate, resource-specific decision. Add a regression with two generated resources at one line before changing this behavior. Analyzer must retain the true registration instead of hiding evidence to influence the heuristic.
+
+### Implementation checks
+
+| Check | Result |
+| --- | --- |
+| Context, merge, investigation and planning tests | 408 passed |
+| Route publication and attack-surface tests | 18 passed |
+| Export consumers and additional invalid-route cases | 56 passed |
+| Selected single- and multi-repository report runs and source-boundary cases | 5 passed |
+| Generated-route controller regression | 1 passed; the existing fake architecture first needed its browser user and interaction restored to satisfy the current flow contract. The same fixture failure was reproduced on unchanged main. |
+| `make check-analyzer BASE=acf11118` | Initial invocation: specification and lint checks passed; 1,105 public contract cases passed and seven failed because the sandbox's `/tmp/.git` placeholder made temporary outputs appear inside a checkout. All seven then passed outside the sandbox, with the last four repeated without concurrent sandbox processes. The remaining gate command was run separately: 168 passed, including prompt, documentation and distribution checks. The original Make invocation exited nonzero; it was not rerun wholesale. |
+| Final specification, Ruff lint/format, diff and documentation-link checks | Passed |
+| Golden replay | `test_replay_zero_drift_all_stages` skipped because the ignored `_last-run` fixture is absent. No golden success is claimed. |
+
+No whole-suite target, full controller suite, live assessment, target pentest or model-backed qualification ran. The improved instructions remain unqualified on a new live assessment. The existing source and runtime-context validation still rejects unserved, stale or malformed evidence; no check was weakened to obtain these results.
+
+### Verifier follow-up scope
+
+The Verifier's [AGENTS.md](/home/mrohr/appsec-verifier/AGENTS.md) requires agreed requirement wording before a new probe class, changed target contact or new proof behavior. The following are drafts for that separate decision; this implementation neither approves them nor changes Verifier code.
+
+- **Verify injection through path inputs.** Operators can test an evidenced path parameter using repeated baseline and matched control observations. Encode only the selected parameter, retain the rest of the route, enforce destination and path scope after substitution, and require a response-field contrast rather than reflected input or timing alone.
+- **Verify uploaded archive traversal.** Operators can test an evidenced multipart archive upload using only a designated test location and marker. Require explicit write authorization, bounded file content and archive entries, evidence linking the upload to the marker outside the intended extraction directory, and a defined cleanup procedure. A successful upload or a read-only traversal marker is insufficient proof.
+- **Verify state changes across requests.** Operators can test an evidenced create/change/read sequence on their own test resources with named identities. Require a baseline, ownership and identity contrast, readback that establishes the claimed state change, explicit write authorization and cleanup. Requests in separate runtime variants do not implicitly share state or become one workflow.
+
+These extensions would send additional or different requests to the target, can modify test data, and may increase model and request costs. The simpler current option is to retain explicit blockers and perform those checks manually under the operator's authorization. They need proof contracts and negative tests in Verifier before any additional Analyzer fields are proposed.
