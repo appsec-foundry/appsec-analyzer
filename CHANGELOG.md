@@ -29,6 +29,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- `assess --console-log` also saves the console output as `console.log` in the output directory, readable only by you and without the live status line. It has no colour codes unless you give `--console-log color`. `--resume` continues the file. The option makes no model call and changes no result. See [progress and diagnostics](docs/security-assessment.md#progress-and-diagnostics).
+
 - Source rules find code that turns off a framework's CSRF protection (Spring Security, Django and Flask-WTF, Rails, ASP.NET Core, Laravel), management or profiling features that configuration or an import turns on (Spring Boot Actuator, the H2 console, Go's `net/http/pprof`), production debug modes that show detailed error pages (Django, PHP, Rails, ASP.NET Core), and clients that accept any TLS certificate (Python, Go, Java and Kotlin, .NET, Ruby, PHP). Profile files for local development and tests are left out. Like every rule hit, each hit becomes a finding only after the evidence review, so hits add review calls.
 - Configuration rules IAC-098 and IAC-099 find Kubernetes Services and Helm chart values that expose a database, broker, or remote-administration port through a NodePort or a public load balancer.
 - Verification item `TC-AUTHN-08` asks whether routes that receive webhooks verify the sender's signature in constant time and reject replays. It applies only to components with a route whose path names a webhook or hook.

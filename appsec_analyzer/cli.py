@@ -700,6 +700,14 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         action="store_true",
         help="Show monetary costs even with subscription billing (default: API billing only; unavailable costs stay unknown)",
     )
+    output_group.add_argument(
+        "--console-log",
+        nargs="?",
+        const="plain",
+        choices=("plain", "color"),
+        help="Also save the console output as console.log in the output directory, without the status line; "
+        "plain leaves out the colour codes (default), color keeps the console's colour",
+    )
     control_group.add_argument(
         "--non-interactive",
         action="store_true",
@@ -1861,7 +1869,12 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
 
             return repo_profile(["--repo", ns.repo, *(["--json"] if ns.json else [])])
         if ns.command in ("assess", "preflight"):
-            return _assess(ns)
+            if not getattr(ns, "console_log", None):
+                return _assess(ns)
+            from appsec_analyzer.assessment.console import console_log
+
+            with console_log(plain=ns.console_log == "plain"):
+                return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)
         if ns.command == "export":

@@ -234,6 +234,37 @@ def test_one_repository_takes_the_combined_path(tmp_path, monkeypatch):
     scope.verify_unchanged()
 
 
+def test_console_log_starts_once_the_run_holds_its_output(tmp_path, monkeypatch):
+    import stat
+
+    from runtime.assessment_state import CONSOLE_LOG_NAME
+
+    from appsec_analyzer.assessment.console import console_log
+
+    monkeypatch.setattr(controller, "_assessment_architecture", lambda *a, **k: print("architecture") or 1 / 0)
+    with console_log(plain=True):
+        print("before the run")
+        with pytest.raises(ZeroDivisionError):
+            _assess(tmp_path, monkeypatch, ("solo",))
+    log = tmp_path / "out" / CONSOLE_LOG_NAME
+    text = log.read_text(encoding="utf-8")
+    assert text.index("before the run") < text.index("architecture")
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
+def test_console_log_is_not_written_for_a_refused_start(tmp_path, monkeypatch):
+    from runtime.assessment_state import CONSOLE_LOG_NAME
+
+    from appsec_analyzer.assessment.console import console_log
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "notes.txt").write_text("mine")
+    with console_log(), pytest.raises(ExchangeError):
+        _assess(tmp_path, monkeypatch, ("solo",))
+    assert not (out / CONSOLE_LOG_NAME).exists()
+
+
 @pytest.mark.parametrize("name", ["solo", "records-service"])
 def test_single_repository_controller_publishes_a_complete_report(tmp_path, monkeypatch, name):
     """Exercise the actual deterministic producers and publication gates with bounded host replies."""
@@ -3118,6 +3149,18 @@ def _outcome_lines(tmp_path, monkeypatch, capsys, **fields):
     monkeypatch.setattr(controller, "assess_repositories", lambda argv: outcome)
     assert controller.assess_main(["--repo", "edge"]) == 0
     return capsys.readouterr().out.splitlines()
+
+
+def test_the_closing_names_the_console_log_only_when_one_is_written(tmp_path, monkeypatch, capsys):
+    from appsec_analyzer.assessment.console import console_log
+
+    assert not any("Console" in line for line in _outcome_lines(tmp_path, monkeypatch, capsys))
+    path = tmp_path / "console.log"
+    with console_log(plain=True) as log:
+        log.start(path)
+        out = _outcome_lines(tmp_path, monkeypatch, capsys)
+    assert any(re.fullmatch(rf"\s+Console\s+{re.escape(str(path))}", line) for line in out)
+    assert f"Console     {path}" in path.read_text(encoding="utf-8")
 
 
 _SONNET = {"calls": 4, "input": 1000, "output": 2000, "cache_read": 500_000, "cache_write": 100_000, "usd": 1.5}

@@ -90,6 +90,7 @@ from shared.artifact_names import (  # noqa: E402
 from appsec_analyzer.assessment.console import (
     KEPT,
     RESUME,
+    ConsoleLog,
     _AssessmentConsole,
     _AssessmentProgress,
     _count_noun,
@@ -4992,6 +4993,11 @@ def assess_repositories(
                 test_cases=ns.test_case_config,
             )
             with session as (cfg, state, jobs):
+                if ConsoleLog.active is not None:
+                    # --console-log: written only once the run holds its output directory.
+                    from runtime.assessment_state import CONSOLE_LOG_NAME
+
+                    ConsoleLog.active.start(scope.output / CONSOLE_LOG_NAME, append=state.resume)
                 _assessment_unsupported_configuration(cfg, scope)
                 from appsec_analyzer.assessment.scope import scope_facts
                 from orchestrator.assessment_review import AssessmentReviewError
@@ -5778,6 +5784,8 @@ def _print_completion(outcome: dict, elapsed: str, out: Style, stream=None) -> N
         rows.append(("Report", files[0] + (f" (also {also})" if also else ""), "accent"))
     if outcome.get("runtime_files"):
         rows.append(("Run files", outcome["runtime_files"], "muted"))
+    if ConsoleLog.active is not None and ConsoleLog.active.path is not None:
+        rows.append(("Console", str(ConsoleLog.active.path), "muted"))
     # The path serves a run that needs a look, or one started with --verbose; a clean run's summary leaves it out.
     if outcome.get("diagnostics") and (outcome.get("warnings") or outcome.get("runtime_files")):
         rows.append(("Diagnostics", outcome["diagnostics"], "muted"))

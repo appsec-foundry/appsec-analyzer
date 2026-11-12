@@ -984,10 +984,12 @@ def test_an_earlier_scans_run_diagnostics_never_block_a_fresh_assessment(scope):
 
 @pytest.mark.parametrize("earlier", ["none", "completed"])
 def test_session_hook_files_never_block_a_start(scope, earlier):
-    """Hooks log, and the controller opens its progress feed, before the run holds the directory."""
-    from runtime.assessment_state import PROGRESS_NAME, SESSION_HOOK_NAMES
+    """Hooks log, and the controller opens its progress feed, before the run holds the directory.
 
-    names = (*SESSION_HOOK_NAMES, PROGRESS_NAME)
+    An earlier run with --console-log leaves its console log there."""
+    from runtime.assessment_state import CONSOLE_LOG_NAME, PROGRESS_NAME, SESSION_HOOK_NAMES
+
+    names = (*SESSION_HOOK_NAMES, PROGRESS_NAME, CONSOLE_LOG_NAME)
     if earlier == "completed":
         _completed(scope)
     scope.output.mkdir(exist_ok=True)

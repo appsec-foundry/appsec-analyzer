@@ -7,12 +7,14 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import textwrap
 import threading
 import time
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -349,6 +351,116 @@ class _AssessmentProgress:
             # A follower losing its feed must not end the assessment; the console still reports.
             cls.path = None
             print(f"⚠ progress file disabled: {exc.strerror or exc}", file=sys.stderr, flush=True)
+
+
+class ConsoleLog:
+    """The copy of the console for ``console.log`` (``--console-log``).
+
+    What is printed before the run holds its output directory is kept until `start` names the file, and
+    dropped if the run ends before that; from then on every write goes to the file as it comes, so a
+    stopped run keeps its log. Status line redraws are left out, and ``plain`` leaves out the colour codes.
+    A log that cannot be written never ends the run.
+    """
+
+    # The log of the running command; the controller starts it once the run holds its output directory.
+    active: ConsoleLog | None = None
+    _STATUS_CLEAR = re.compile(r"\r\033\[K(?:\033\[1A\033\[K)*")
+
+    def __init__(self, *, plain: bool = False):
+        self._plain = plain
+        self._lock = threading.Lock()
+        self._held: list[str] | None = []
+        self._file = None
+        self.path: Path | None = None
+        self.failed = ""
+
+    def start(self, path: Path, *, append: bool = False) -> None:
+        """Write to ``path``, owner-only; ``append`` continues it (--resume), otherwise it starts empty."""
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = None
+        try:
+            fd = os.open(path, flags, 0o600)
+            info = os.fstat(fd)
+            # Never written through a link, and never into a pipe or device someone left at the name.
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise OSError(f"{path} must be a regular file without links")
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)  # also when an earlier run left the file with wider rights
+            if not append:
+                os.ftruncate(fd, 0)
+        except OSError as exc:
+            if fd is not None:
+                os.close(fd)
+            with self._lock:
+                self._held = None
+            print(f"⚠ console log disabled: {exc.strerror or exc}", file=sys.stderr, flush=True)
+            return
+        with self._lock:
+            self._file = os.fdopen(fd, "a", encoding="utf-8", buffering=1)
+            self.path = path
+            self._save("".join(self._held or ()))
+            self._held = None
+
+    def write(self, text: str) -> None:
+        if text.startswith(_AssessmentConsole.FRAME_OPEN) or self._STATUS_CLEAR.fullmatch(text):
+            return
+        if self._plain:
+            text = ANSI_RE.sub("", text)
+        with self._lock:
+            if self._file is not None:
+                self._save(text)
+            elif self._held is not None:
+                self._held.append(text)
+
+    def _save(self, text: str) -> None:
+        try:
+            self._file.write(text)
+        except OSError as exc:
+            # A full disk must not end the assessment; the console still shows everything.
+            self.failed = str(exc.strerror or exc)
+            self._file = None
+
+    def close(self) -> None:
+        with self._lock:
+            if self._file is not None:
+                try:
+                    self._file.close()
+                except OSError as exc:
+                    self.failed = str(exc.strerror or exc)
+                self._file = None
+            self._held = None
+
+
+class _Tee:
+    """Stands in for standard output or error during `assess`: writes go to the console and to the log."""
+
+    def __init__(self, stream, log: ConsoleLog):
+        self.stream, self._log = stream, log
+
+    def write(self, text: str) -> int:
+        written = self.stream.write(text)
+        self._log.write(text)
+        return written
+
+    def __getattr__(self, name: str):
+        return getattr(self.stream, name)
+
+
+@contextmanager
+def console_log(*, plain: bool = False):
+    """Copy standard output and error to a `ConsoleLog` until the block ends (``--console-log``)."""
+    log = ConsoleLog(plain=plain)
+    out, err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = _Tee(out, log), _Tee(err, log)
+    ConsoleLog.active = log
+    try:
+        yield log
+    finally:
+        sys.stdout, sys.stderr = out, err
+        ConsoleLog.active = None
+        log.close()
+        if log.failed:
+            print(f"⚠ console log incomplete: {log.failed}", file=err, flush=True)
 
 
 class _StatusGuard:
