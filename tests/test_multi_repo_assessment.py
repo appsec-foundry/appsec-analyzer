@@ -586,6 +586,54 @@ def test_left_leaves_out_the_work_taken_over_from_the_earlier_attempt():
     assert console._run_fields(clock())[2] == "~" + controller._elapsed(120 * (1 - console.done) / worked)
 
 
+@pytest.mark.parametrize("taken_over", [False, True])
+def test_left_at_the_nominal_speed_is_the_nominal_time_ahead(taken_over):
+    """A run that works at the nominal minutes per phase has the nominal time ahead, after the verification plan too.
+
+    The plan enlarges the threat analysis, but the shown share never falls; measured against that share, the first
+    surveyed components added no work and LEFT came out too short, or with phases taken over far too long. Taken-over
+    phases finish in seconds, and concurrent Controls jobs start before the first of them finishes; neither may count
+    as taken over when this attempt runs the job.
+    """
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    reused, ran = [0], [0]
+    console.job_counts = lambda: (reused[0], ran[0])
+    weights, per_component = console.WEIGHTS, console.PER_COMPONENT
+    console.step("Discovering every selected repository")
+    for phase, step in (
+        ("Reconnaissance", "Analyzing local architecture: shop (1/1)"),
+        ("Architecture", "Reviewing trust crossing batch (1/1)"),
+        ("Trust boundaries", "Assessing controls: c1 (1/9)"),
+    ):
+        clock.tick(5 if taken_over else 60 * weights[phase])
+        (reused if taken_over else ran)[0] += 1
+        console.step(step)
+        if phase == "Reconnaissance":
+            console.plan_components(9)
+    # Four workers: the first four components start together, each finished job starts the next one.
+    controls = 60 * per_component["Controls"]
+    for number in range(2, 10):
+        if number > 4:
+            clock.tick(controls)
+            ran[0] += 1
+        console.step(f"Assessing controls: c{number} ({number}/9)")
+    clock.tick(4 * controls)
+    ran[0] += 4
+    console.step("Running deterministic source scanners")
+    console.step("Verify planned · 9 components for AuthN after the survey · 28 jobs")
+    for number in range(1, 5):
+        console.step(f"Surveying component: c{number} ({number}/9)")
+    clock.tick(60 * per_component["Threat analysis"])
+    ran[0] += 1
+    console.step("Finished survey job: c1 (1/1)")
+    console.step("Analyzed component: c1 (1/9)")
+    finished = sum(weights[phase] for phase in ("Reconnaissance", "Architecture", "Trust boundaries"))
+    finished += 9 * per_component["Controls"] + per_component["Threat analysis"]
+    ahead = console._expected_total() - 60 * finished
+    assert console._run_fields(clock())[2] == "~" + controller._elapsed(ahead)
+
+
 def test_components_reporting_together_start_a_phase_once(monkeypatch):
     """Controls run one component per worker thread; the first reports arrive together."""
     import threading

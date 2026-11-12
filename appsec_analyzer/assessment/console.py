@@ -592,9 +592,12 @@ class _AssessmentConsole:
     (``plan_components``), Controls and STRIDE weigh per component. LEFT
     extrapolates the speed this run measured once a component has finished;
     before that it scales a nominal run time to the planned phases and
-    components, so it changes as the run learns its size. Work taken over from
-    an earlier run finishes in seconds, so its share and time stay out of the
-    measured speed until a job of this attempt has advanced it. Before the component
+    components, so it changes as the run learns its size. Both count nominal
+    minutes, not the shown share: PROGRESS never falls, so when a plan enlarges
+    the run (verification jobs), it stands still while work goes on. Work taken
+    over from an earlier run finishes in seconds, so its work and time stay out
+    of the measured speed; the jobs that finish next decide whether work
+    advanced since the last finished job was taken over. Before the component
     count is known PROGRESS says ``planning``. Time stamps and durations read
     one clock. A resumed run's ELAPSED shows this attempt's time and, in
     parentheses, the working time of all its attempts (``continue_from``); a
@@ -888,9 +891,12 @@ class _AssessmentConsole:
         self.phase_usage = None
         self.step_usage = {}
         self.run_started = self.last = self.clock()
-        # The run's share and seconds that passed while it took over jobs, whether it does so now, and the job
-        # counts and time of the last advance; LEFT leaves the taken-over work out of the measured speed.
-        self.replayed_share, self.replayed_seconds, self.replaying = 0.0, 0.0, False
+        # Nominal minutes of finished work, never falling, and of the work taken over from the earlier run with
+        # the seconds that passed meanwhile; LEFT leaves the taken-over work out of the measured speed. Minutes,
+        # not shares, so a plan that enlarges the run leaves them as they are. The minutes and seconds since the
+        # jobs last finished, which the next finished jobs assign, and the job counts and time of the last advance.
+        self.finished_minutes, self.replayed_minutes, self.replayed_seconds = 0.0, 0.0, 0.0
+        self.open_stretch = (0.0, 0.0)
         self.advanced_jobs, self.advanced_at = (0, 0), self.run_started
         # Working seconds of the earlier attempts a resumed run continues, or of the unfinished run a new
         # run takes over (``continue_from``), and whether the run was resumed.
@@ -1058,11 +1064,12 @@ class _AssessmentConsole:
     def plan_components(self, count: int) -> None:
         """Scale Controls and STRIDE to the run's components; RUN then shows a share."""
         self.components = max(1, count)
-        # Recomputed with the scaled weights; the old share assumed nine components, and so did its replayed part.
-        old, self.done = self.done, 0.0
+        # Recomputed with the scaled weights; the old minutes assumed nine components, and so did their replayed part.
+        old, self.finished_minutes, self.done = self.finished_minutes, 0.0, 0.0
         if self.phase:
-            self.done = self._share()
-        self.replayed_share = self.replayed_share * self.done / old if old else 0.0
+            self.finished_minutes, total = self._weights()
+            self.done = self.finished_minutes / total
+        self.replayed_minutes = self.replayed_minutes * self.finished_minutes / old if old else 0.0
 
     def _stamp(self, now: float) -> str:
         return time.strftime("%H:%M:%S", time.localtime(now))
@@ -1416,31 +1423,36 @@ class _AssessmentConsole:
     def _advance(self, fraction: float) -> None:
         """Record ``fraction`` of the current phase as finished."""
         self.fraction = max(self.fraction, min(fraction, 1.0))
-        done = max(self.done, self._share())
-        self._count_replay(done - self.done)
-        self.done = done
+        finished, total = self._weights()
+        self._count_replay(max(0.0, finished - self.finished_minutes))
+        self.finished_minutes = max(self.finished_minutes, finished)
+        # The shown share never falls, so it can stand above the finished minutes once a plan enlarges the run.
+        self.done = max(self.done, finished / total)
 
-    def _share(self) -> float:
-        """The run's finished share at the current phase's ``fraction``."""
+    def _weights(self) -> tuple[float, float]:
+        """Nominal minutes of the run: finished at the current phase's ``fraction``, and of all planned phases."""
         plan = self.plan if self.phase in self.plan else [*self.plan, self.phase]
         before = sum(self._weight(name) for name in plan[: plan.index(self.phase)])
-        total = sum(self._weight(name) for name in plan)
-        return (before + self._weight(self.phase) * self.fraction) / total
+        return before + self._weight(self.phase) * self.fraction, sum(self._weight(name) for name in plan)
 
-    def _count_replay(self, share: float) -> None:
-        """Count ``share`` and the time since the last advance as replayed while the run takes over jobs.
+    def _count_replay(self, minutes: float) -> None:
+        """Count ``minutes`` of work and the time since the last advance as replayed when their jobs were taken over.
 
-        A stretch in which jobs were taken over and none ran is replayed, one in which a job ran is this
-        attempt's work. A stretch without a finished job continues the one before: concurrent subjects
-        advance the share at their start, before their jobs finish.
+        The jobs that finish next decide for the work since the last decision: taken over with none run, it is
+        replayed; with a job run, it is this attempt's work. Concurrent subjects advance the share at their start,
+        before their jobs finish, so the first subjects of a phase wait for their own jobs instead of following
+        the phase before.
         """
         now, counts = self.clock(), self.job_counts() if self.job_counts else (0, 0)
         reused, ran = (count - before for count, before in zip(counts, self.advanced_jobs, strict=True))
+        open_minutes, open_seconds = self.open_stretch
+        open_minutes, open_seconds = open_minutes + minutes, open_seconds + now - self.advanced_at
         if reused or ran:
-            self.replaying = not ran
-        if self.replaying:
-            self.replayed_share += share
-            self.replayed_seconds += now - self.advanced_at
+            if not ran:
+                self.replayed_minutes += open_minutes
+                self.replayed_seconds += open_seconds
+            open_minutes = open_seconds = 0.0
+        self.open_stretch = (open_minutes, open_seconds)
         self.advanced_jobs, self.advanced_at = counts, now
 
     def _expected_total(self) -> float:
@@ -1494,12 +1506,15 @@ class _AssessmentConsole:
             share = "100%"
         else:
             share = f"~{min(99, round(100 * self.done))}%" if self.components else "planning"
+            # In nominal minutes, not the shown share: that never falls and so hides work once a plan enlarges the run.
+            total = self._expected_total() / 60
+            ahead = max(0.0, total - self.finished_minutes)
             # Taken-over work would make the work ahead look as fast; below one percent its remainder is rounding.
-            worked = self.done - self.replayed_share
-            if worked >= 0.01 and self._measured():
-                left = "~" + _elapsed((elapsed - self.replayed_seconds) * (1 - self.done) / worked)
+            worked = self.finished_minutes - self.replayed_minutes
+            if worked >= 0.01 * total and self._measured():
+                left = "~" + _elapsed((elapsed - self.replayed_seconds) * ahead / worked)
             else:
-                left = "~" + _elapsed(self._expected_total() * (1 - self.done))
+                left = "~" + _elapsed(60 * ahead)
         return share, _elapsed(elapsed), left
 
     def _row(self, event: str, detail: str = "", now: float | None = None, live: bool = False) -> str:
