@@ -104,14 +104,21 @@ def set_admitted_hashes(scope, artifact):
 
     The controller holds these bytes, so it sets the hash instead of checking
     the model's copy of 64 hex digits; a missing or mistyped copy would
-    otherwise reject a correct citation. A citation outside the admitted scope
-    keeps the model's value, so the source checks still reject it; scope,
-    retrieval and line checks are unchanged.
+    otherwise reject a correct citation. A citation without a repository gets
+    the one admitted repository that holds its file; when several hold it, the
+    model must name one. A citation outside the admitted scope keeps the
+    model's value, so the source checks still reject it; scope, retrieval and
+    line checks are unchanged.
     """
     files = {repo.repository_id: repo.files for repo in scope.repositories}
     hashes: dict[tuple[str, str], str] = {}
     for row in source_rows(artifact):
-        rid, path = row.get("repository_id"), row.get("file")
+        path = row.get("file")
+        if "repository_id" not in row and isinstance(path, str):
+            holders = [rid for rid, admitted in files.items() if path in admitted]
+            if len(holders) == 1:
+                row["repository_id"] = holders[0]
+        rid = row.get("repository_id")
         if isinstance(rid, str) and isinstance(path, str) and path in files.get(rid, {}):
             if (rid, path) not in hashes:
                 hashes[rid, path] = hashlib.sha256(files[rid][path]).hexdigest()

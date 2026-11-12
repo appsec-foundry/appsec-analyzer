@@ -1050,11 +1050,12 @@ def test_the_receipt_records_the_normalized_artifact_and_names_its_normalizer(tm
         jobs.execute(**kwargs, normalize=normalize)
 
 
-def _citing(sha256=True):
+def _citing(sha256=True, repository_required=True):
     row = {"repository_id": {"type": "string"}, "file": {"type": "string"}, "line": {"type": "integer"}}
     if sha256:
         row["sha256"] = {"type": "string", "pattern": "^[a-f0-9]{64}$"}
-    item = {"type": "object", "additionalProperties": False, "required": ["repository_id", "file", "line"]}
+    required = ["repository_id", "file", "line"] if repository_required else ["file", "line"]
+    item = {"type": "object", "additionalProperties": False, "required": required}
     return {
         "type": "object",
         "additionalProperties": False,
@@ -1088,6 +1089,23 @@ def test_the_controller_sets_each_admitted_citation_hash_and_names_that_step(tmp
     monkeypatch.setattr(assessment_jobs, "ADMITTED_HASHES", "admitted-hashes-0")
     with pytest.raises(ExchangeError, match="stale"):
         jobs.execute(**kwargs)
+
+
+def test_a_citation_left_without_repository_costs_no_correction_when_one_repository_holds_its_file(tmp_path):
+    """A contract may let a citation leave out repository_id, as the verification context does; the controller
+    names the repository instead of rejecting the whole answer. A file no admitted repository holds stays unnamed."""
+    import hashlib
+
+    rows = [{"file": "app.py", "line": 1}, {"file": "gone.py", "line": 1}]
+    replies = [{"action": "complete", "reads": [], "artifact": {"evidence": rows}}]
+    jobs, host, kwargs, _ = setup(tmp_path, replies=replies)
+    kwargs["schema"] = _citing(repository_required=False)
+    admitted = hashlib.sha256(b"print('test')\n").hexdigest()
+    assert jobs.execute(**kwargs)["evidence"] == [
+        {"repository_id": RID, "file": "app.py", "line": 1, "sha256": admitted},
+        {"file": "gone.py", "line": 1},
+    ]
+    assert host.calls == 1
 
 
 def test_a_contract_whose_citations_cannot_carry_a_hash_is_left_to_its_own_rules(tmp_path, monkeypatch):

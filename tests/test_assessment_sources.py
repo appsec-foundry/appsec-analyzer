@@ -246,3 +246,26 @@ def test_a_listed_file_changes_nothing(tmp_path):
     document["threats"] = [_finding("component-1", cite(rid, "src/app.py"))]
     before = copy.deepcopy(document["components"])
     assert sources.claim_cited_files(document) == [] and document["components"] == before
+
+
+def test_a_citation_without_repository_gets_the_one_admitted_repository_that_holds_its_file(tmp_path):
+    """A path held by several repositories, or by none, keeps the model's citation, so the source checks still
+    reject it; a repository the model named is never replaced."""
+    first, second = "repo-" + "1" * 16, "repo-" + "2" * 16
+    views = (
+        RepositoryView(first, tmp_path / "a", "a" * 40, "b" * 64, {"src/app.py": b"a = 1\n", "src/only.py": b"x\n"}),
+        RepositoryView(second, tmp_path / "b", "a" * 40, "b" * 64, {"src/app.py": b"a = 2\n"}),
+    )
+    rows = [
+        {"file": "src/only.py", "line": 1},
+        {"file": "src/app.py", "line": 1},
+        {"file": "gone.py", "line": 1},
+        {"repository_id": second, "file": "src/only.py", "line": 1},
+    ]
+    sources.set_admitted_hashes(AssessmentScope(views, tmp_path / "out"), {"evidence": rows})
+    assert rows == [
+        {"repository_id": first, "file": "src/only.py", "line": 1, "sha256": hashlib.sha256(b"x\n").hexdigest()},
+        {"file": "src/app.py", "line": 1},
+        {"file": "gone.py", "line": 1},
+        {"repository_id": second, "file": "src/only.py", "line": 1},
+    ]

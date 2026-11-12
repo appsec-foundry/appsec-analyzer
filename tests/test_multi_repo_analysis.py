@@ -837,6 +837,41 @@ def test_inadmissible_nested_citations_are_each_named_in_one_rejection(tmp_path)
     ]
 
 
+def test_a_verification_citation_without_repository_keeps_the_retrieval_checks_once_named(tmp_path):
+    """The verification context's shared schema lets a citation leave out repository_id, and the source check
+    rejected each such citation as outside the scope: 13 survey answers of a thorough Juice Shop run were
+    corrected only to add it. The job layer names the one repository that holds the file; the named citation
+    still has to be read by its job."""
+    from shared.assessment_sources import set_admitted_hashes
+
+    files = {"app.py": b"row = 1\nrow = 2\n", "other.py": b"pass\n"}
+    scope, component = _owned_sources(tmp_path, files, ["app.py", "other.py"])
+    rid = scope.repositories[0].repository_id
+    digest = {path: hashlib.sha256(data).hexdigest() for path, data in files.items()}
+    nested = [dict(file="app.py", line=2), dict(file="other.py", line=1)]
+    artifact = {
+        "threats": [
+            {
+                "evidence": dict(repository_id=rid, file="app.py", line=1, sha256=digest["app.py"]),
+                "verification_context": {"variants": [{"evidence": nested}]},
+            }
+        ]
+    }
+    ranges = [dict(repository_id=rid, path="app.py", sha256=digest["app.py"], start_line=1, end_line=2)]
+    allowed = stage.source_selection([component])
+    with pytest.raises(Rejection) as raised:
+        stage.validate_retrieved_sources(scope, copy.deepcopy(artifact), ranges, allowed)
+    assert len(raised.value.errors) == 2 and all("(no repository_id)" in error for error in raised.value.errors)
+    set_admitted_hashes(scope, artifact)
+    assert nested[0] == dict(repository_id=rid, file="app.py", line=2, sha256=digest["app.py"])
+    # A named citation of a file this job did not read is still rejected.
+    with pytest.raises(Rejection) as raised:
+        stage.validate_retrieved_sources(scope, artifact, ranges, allowed)
+    assert raised.value.errors == [f"{rid}/other.py:1 was not read; read it or remove the claim"]
+    ranges.append(dict(repository_id=rid, path="other.py", sha256=digest["other.py"], start_line=1, end_line=1))
+    stage.validate_retrieved_sources(scope, artifact, ranges, allowed)
+
+
 @pytest.mark.parametrize(
     "role,build",
     [

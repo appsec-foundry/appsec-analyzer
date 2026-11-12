@@ -63,8 +63,8 @@ MIN_MEASURED_CALL_USD = 0.5
 REPORT_SURVEY_JOBS = 2
 REPORT_JOB = "stage2:security-architecture"
 SUMMARY_JOB = "stage2:management-summary"
-# Request identity of the controller-set citation hashes (`set_admitted_hashes`).
-ADMITTED_HASHES = "admitted-hashes-1"
+# Request identity of the controller-set citation hashes and missing repositories (`set_admitted_hashes`).
+ADMITTED_HASHES = "admitted-hashes-2"
 # Request keys that name how the controller processes an answer, not what the model is asked. A
 # resume after a plugin change that alters only these checks the stored answer again (REQ-016):
 # today's normalizer runs on the stored artifact, not on the model's original answer, so a fix that
@@ -654,7 +654,8 @@ class AssessmentJobs:
         normalized artifact. Its identity joins the request, so a changed
         normalizer redoes the job instead of failing a resumed one. When every
         citation of the contract can carry its repository and content hash,
-        the controller first sets each admitted citation's hash for every role
+        the controller first sets each admitted citation's hash, and a missing
+        repository when one admitted repository holds the file, for every role
         (`set_admitted_hashes`), and that step joins the identity as well.
 
         ``preload`` slices reach the first packet (see ``run_exchange``) and
