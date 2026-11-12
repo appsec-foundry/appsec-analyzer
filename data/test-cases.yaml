@@ -11,7 +11,7 @@
 #
 # unmapped_rules lists scanner rules that are deliberately not a starting point.
 version: 1
-catalog_version: '6'
+catalog_version: '7'
 aspects:
 - id: AuthN
   title: Authentication
@@ -88,8 +88,9 @@ test_cases:
   cwe:
   - CWE-347
   - CWE-345
+  - CWE-636
   mode: seeded
-  objective: Determine whether every token the application accepts is verified with a pinned algorithm and a key held by the server.
+  objective: Determine whether every token the application accepts is verified with a pinned algorithm and a key held by the server, and whether a failed verification rejects the request.
   applies_when:
   - signal: jwt_usage
   starting_points:
@@ -106,7 +107,7 @@ test_cases:
     - ARCH-JWT-001
     facts:
     - code_sites.token_handling
-  guidance: Check each place that parses or decodes tokens, including libraries wrapped by middleware. A decode without verification is a weakness only where its result is trusted.
+  guidance: Check each place that parses or decodes tokens, including libraries wrapped by middleware. A decode without verification is a weakness only where its result is trusted. A guard that lets the request through when verification throws or returns an error, such as a catch block that calls next(), fails open.
   scope: component
   controls:
   - Session Token Validation (JWT Based)
@@ -190,7 +191,7 @@ test_cases:
   references: []
   fixtures: tests/fixtures/test-cases/TC-AUTHN-04/
 - id: TC-AUTHN-05
-  title: Recovery, re-authentication, and login responses resist takeover and enumeration
+  title: Recovery, re-authentication, and login resist takeover, guessing, and enumeration
   aspect: AuthN
   stride:
   - Spoofing
@@ -198,8 +199,9 @@ test_cases:
   cwe:
   - CWE-640
   - CWE-204
+  - CWE-307
   mode: model
-  objective: Determine whether account recovery, password change, and login responses prevent takeover and do not reveal which accounts exist.
+  objective: Determine whether account recovery, password change, and login prevent takeover, limit repeated attempts, and do not reveal which accounts exist.
   applies_when:
   - signal: password_handling
   starting_points:
@@ -207,12 +209,13 @@ test_cases:
     - AUTHN-001
     facts:
     - route_inventory.credential_flow
-  guidance: Check whether a password change needs the current password, whether recovery relies on guessable answers, and whether responses and timing differ for known and unknown accounts.
+  guidance: Check whether a password change needs the current password, whether recovery relies on guessable answers, whether responses and timing differ for known and unknown accounts, whether login, recovery, and second-factor checks limit repeated attempts per account or client, and whether every login path requires a second factor once the account has one. A limit enforced only outside the examined sources is not evidence.
   scope: component
   controls:
   - Password Reset
   - Password Change
   - Multi-Factor Verification (TOTP)
+  - Authentication Rate Limiting
   evidence:
     finding: recovery, change, or login handler and the missing verification step
     control: location of the verification step or uniform response
@@ -279,8 +282,36 @@ test_cases:
   post: []
   references: []
   fixtures: tests/fixtures/test-cases/TC-AUTHN-07/
+- id: TC-AUTHN-08
+  title: Inbound webhooks verify the sender's signature
+  aspect: AuthN
+  stride:
+  - Spoofing
+  - Tampering
+  cwe:
+  - CWE-345
+  - CWE-208
+  - CWE-294
+  mode: model
+  objective: Determine whether every route that receives webhooks or callbacks from another service verifies a signature or shared secret over the request body, compares it in constant time, and rejects replayed deliveries.
+  applies_when:
+  - signal: webhook_routes
+  starting_points:
+    rules: []
+    facts:
+    - route_inventory.webhook
+  guidance: A webhook route is public by design, so its signature check is its authentication. Check that the check uses the provider's library or an HMAC over the raw body with a secret from configuration, that it compares in constant time, and that a timestamp or delivery ID stops replays. A check that only logs a mismatch, or that is skipped when the secret is not set, fails open.
+  scope: component
+  controls:
+  - Webhook HMAC Verification
+  evidence:
+    finding: webhook route and the missing, bypassable, or non-constant-time signature check
+    control: location of the signature verification
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-AUTHN-08/
 - id: TC-SESSION-01
-  title: Session tokens are protected in storage, transport, lifetime, and logout
+  title: Session tokens are renewed at login and protected in storage, transport, lifetime, and logout
   aspect: SessionMgmt
   stride:
   - Spoofing
@@ -289,14 +320,18 @@ test_cases:
   - CWE-613
   - CWE-1004
   - CWE-614
+  - CWE-1275
+  - CWE-384
   mode: model
-  objective: Determine whether session tokens are protected against theft and reuse in storage, transport, lifetime, and logout.
+  objective: Determine whether session tokens are protected against theft, fixation, and reuse in storage, transport, lifetime, and logout.
   applies_when:
   - signal: session_handling
   starting_points:
     rules:
     - ARCH-COOKIE-001
-  guidance: Check cookie attributes, token storage in the browser, server-side invalidation at logout and password change, and session lifetime.
+    facts:
+    - code_sites.session
+  guidance: Check the HttpOnly, Secure, and SameSite attributes of session cookies, token storage in the browser, whether login issues a new session identifier instead of keeping the one the browser brought, server-side invalidation at logout and password change, and session lifetime.
   scope: component
   controls:
   - Session Token Storage (Browser localStorage)
@@ -308,6 +343,37 @@ test_cases:
   post: []
   references: []
   fixtures: tests/fixtures/test-cases/TC-SESSION-01/
+- id: TC-SESSION-02
+  title: Requests that a session cookie authenticates are protected against cross-site request forgery
+  aspect: SessionMgmt
+  stride:
+  - Tampering
+  cwe:
+  - CWE-352
+  mode: seeded
+  objective: Determine whether every state-changing request that the browser authenticates with a cookie requires proof that it comes from the application's own pages.
+  applies_when:
+  - signal: session_handling
+  starting_points:
+    rules:
+    - CSRF-JAVA-001
+    - CSRF-PY-001
+    - CSRF-RB-001
+    - CSRF-CS-001
+    - CSRF-PHP-001
+    facts:
+    - code_sites.session
+    - route_inventory.state_changing
+  guidance: Check the framework's CSRF protection, every route or controller that turns it off, and routes that change state on GET. A synchronizer or double-submit token, a checked Origin header or custom request header, or a session cookie with SameSite Lax or Strict counts as protection; SameSite protects only requests that do not use GET. Routes that accept only a bearer token from the Authorization header need none, because the browser does not send it on its own.
+  scope: component
+  controls:
+  - CSRF Protection
+  evidence:
+    finding: state-changing route that accepts the session cookie without such proof
+    control: location of the CSRF token check, origin check, or SameSite setting
+  post: []
+  references: []
+  fixtures: tests/fixtures/test-cases/TC-SESSION-02/
 - id: TC-AUTHZ-01
   title: Object access checks the owner
   aspect: AuthZ
@@ -359,11 +425,16 @@ test_cases:
     rules:
     - AUTHZ-302
     - ARCH-AUTHZ-001
+    - ARCH-MGMT-001
+    - MGMT-SPRING-001
+    - MGMT-SPRING-002
+    - MGMT-GO-001
     facts:
     - route_inventory.missing_authz_suspect
+    - route_inventory.missing_auth_suspect
     - route_inventory.state_changing
     - route_inventory.authenticated_read_without_id
-  guidance: Compare the operations a client interface offers only to administrators with the checks on the server. Check administrative routes registered outside the main router. Authenticated reads without an object identifier are candidates as well, because a list of other users' records is a privileged operation unless the server limits it to the caller. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
+  guidance: Compare the operations a client interface offers only to administrators with the checks on the server. Check administrative routes registered outside the main router. Authenticated reads without an object identifier are candidates as well, because a list of other users' records is a privileged operation unless the server limits it to the caller. Management, debug, and metrics routes without a detected authentication guard are candidates too, because a route that checks no identity checks no role either. Management endpoints that configuration or an import turns on, such as Spring Boot Actuator, the H2 console, or Go's pprof handlers, have no route in the code; their candidate is the configuration line, and the question is whether a role check or a non-public listener protects them. Include routes a framework generates from data models. The candidates list those of finale-rest and epilogue resources, marked generated; look for other generators yourself.
   scope: component
   controls:
   - Role-Based Access Control
@@ -428,7 +499,7 @@ test_cases:
   starting_points:
     rules: []
     facts:
-    - capability_signals.tenant_identifier
+    - code_sites.tenant_identifier
   guidance: Check that the tenant identifier comes from the authenticated identity and not from the request, and that queries, caches, and background jobs are scoped by it.
   scope: component
   controls:
@@ -896,9 +967,10 @@ test_cases:
   - Tampering
   cwe:
   - CWE-319
+  - CWE-295
   - CWE-598
   mode: seeded
-  objective: Determine whether sensitive data travels only over encrypted channels and is kept out of URLs.
+  objective: Determine whether sensitive data travels only over encrypted channels that validate the server's certificate and is kept out of URLs.
   applies_when:
   - signal: always
   starting_points:
@@ -907,9 +979,15 @@ test_cases:
     - IAC-084
     - IAC-086
     - IAC-094
+    - TLS-PY-001
+    - TLS-GO-001
+    - TLS-JAVA-001
+    - TLS-CS-001
+    - TLS-RB-001
+    - TLS-PHP-001
     facts:
     - code_sites.transport
-  guidance: Check listener, client, and database connection settings and secrets or tokens in query strings. The candidates are code sites that fixed patterns found; examine other sites of the component too.
+  guidance: Check listener, client, and database connection settings, whether clients validate server certificates and host names, and secrets or tokens in query strings. The candidates are code sites that fixed patterns found; examine other sites of the component too.
   scope: component
   controls:
   - Transport Layer Security
@@ -1032,19 +1110,18 @@ test_cases:
   - CWE-942
   - CWE-346
   mode: model
-  objective: 'Determine whether the browser protections that apply to this application are configured: content security policy, framing, CORS, subresource integrity, cross-site request forgery, and message origins.'
+  objective: 'Determine whether the browser protections that apply to this application are configured: content security policy, framing, CORS, subresource integrity, and message origins.'
   applies_when:
   - signal: frontend_code
   starting_points:
     rules:
     - ARCH-CORS-001
-  guidance: Judge each protection separately and record the outcome of every one in the evidence, so that a configured policy does not hide a missing one.
+  guidance: Judge each protection separately and record the outcome of every one in the evidence, so that a configured policy does not hide a missing one. Cross-site request forgery is a separate session management item on the component that accepts the session cookie.
   scope: component
   controls:
   - HTTP Security Headers
   - Content Security Policy
   - CORS Policy
-  - CSRF Protection
   - Open Redirect Prevention
   evidence:
     finding: response or page missing a protection that applies to it
@@ -1086,14 +1163,19 @@ test_cases:
   - CWE-778
   - CWE-532
   - CWE-209
-  mode: model
+  - CWE-489
+  mode: seeded
   objective: Determine whether authentication, authorization failures, and administrative actions are logged, and whether logs and error responses are free of secrets and internal details.
   applies_when:
   - signal: always
   starting_points:
     rules:
     - IAC-014
-  guidance: Report only the kind and location of leaked data, never its value.
+    - DEBUG-PY-001
+    - DEBUG-PHP-001
+    - DEBUG-RB-001
+    - DEBUG-CS-001
+  guidance: Report only the kind and location of leaked data, never its value. Check whether production configuration turns on debug modes that show stack traces or settings in error responses.
   scope: component
   controls:
   - Security Event Logging
@@ -1376,6 +1458,10 @@ test_cases:
     iac_type: docker_compose
   - signal: iac_files
     iac_type: terraform
+  - signal: iac_files
+    iac_type: kubernetes
+  - signal: iac_files
+    iac_type: helm_values
   starting_points:
     rules:
     - IAC-024
@@ -1383,6 +1469,8 @@ test_cases:
     - IAC-091
     - IAC-095
     - IAC-096
+    - IAC-098
+    - IAC-099
   guidance: The outcome follows from the rules.
   scope: repository
   controls:

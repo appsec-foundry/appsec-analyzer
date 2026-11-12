@@ -19,8 +19,13 @@
 # docs/internal/analysis/verification-cost-open-points-2026-10-23.md). No depth verifies
 # AuthNRoutes since the depth comparison of 2026-10-27
 # (docs/internal/analysis/depth-comparison-juice-shop-2026-10-27.md): AuthZ verification reports
-# the same unguarded routes. Standard and thorough set abuse_cases to the highest allowed value,
-# so the limit no longer cuts built-in business cases: one case cost about USD 0.05 in the run of
+# the same unguarded routes, since 2026-11-12 including management routes without authentication.
+# Standard and thorough verify SessionMgmt since 2026-11-12, so that cross-site request forgery,
+# SameSite, and session fixation get an outcome per item. Estimated from the thorough run
+# juice-parallel-4 (25 verification jobs over five aspects for USD 6.27), one more aspect costs
+# about USD 1 per Juice Shop run; no run has measured it yet. Standard and thorough set
+# abuse_cases to the highest allowed value, so the limit no longer cuts built-in business cases:
+# one case cost about USD 0.05 in the run of
 # 2026-11-01. The bound stays because case files found in the assessed repository count toward it.
 # The other values are the behavior of each depth before this file existed.
 schema_version: 1
@@ -33,14 +38,14 @@ depths:
     actor_discovery: false
     budget: 12
   standard:
-    verify: [AuthN, AuthZ, InputVal, AI]
+    verify: [AuthN, SessionMgmt, AuthZ, InputVal, AI]
     abuse_cases: 16
     derived_abuse_cases: 0
     architect_review: false
     actor_discovery: true
     budget: 20
   thorough:
-    verify: [AuthN, AuthZ, InputVal, DataProt, AI]
+    verify: [AuthN, SessionMgmt, AuthZ, InputVal, DataProt, AI]
     abuse_cases: 16
     derived_abuse_cases: 3
     architect_review: true

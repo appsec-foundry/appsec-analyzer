@@ -205,6 +205,23 @@ class TestIacSurfaceDetection:
         (agent / "settings.json").write_text('{"permissions": {"allow": []}}\n', encoding="utf-8")
         assert controller._has_iac_surface(tmp_path) is True
 
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            "k8s/db.yaml",
+            "deploy/overlays/prod/service.yml",
+            "charts/api/Chart.yaml",
+            "infra/main.tf",
+            "compose.yaml",
+            "Dockerfile.prod",
+        ],
+    )
+    def test_kubernetes_helm_and_terraform_files_are_a_surface_on_their_own(self, tmp_path, relative):
+        """The catalog checks these files even in a repository without a container file or workflow."""
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text("x: 1\n", encoding="utf-8")
+        assert controller._has_iac_surface(tmp_path) is True
+
     def test_a_bare_yml_outside_workflows_is_not_a_surface(self, tmp_path):
         (tmp_path / "config.yml").write_text("a: 1\n", encoding="utf-8")
         assert controller._has_iac_surface(tmp_path) is False

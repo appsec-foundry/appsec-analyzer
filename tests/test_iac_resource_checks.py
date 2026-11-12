@@ -911,3 +911,49 @@ def test_catalog_judges_workflow_permissions_structurally():
     checks = {c["id"]: c for c in yaml.safe_load(scanner.DEFAULT_CHECKS.read_text(encoding="utf-8"))["checks"]}
     assert checks["IAC-010"]["evaluator"] == "github_workflow_permissions_missing"
     assert checks["IAC-015"]["evaluator"] == "github_workflow_token_scope_broad"
+
+
+def _service(service_type: str, extra_spec: str = "", annotations: str = "", port: int = 5432) -> str:
+    return (
+        "apiVersion: v1\nkind: Service\nmetadata:\n  name: db\n"
+        + (f"  annotations:\n{annotations}" if annotations else "")
+        + f"spec:\n  type: {service_type}\n{extra_spec}  ports:\n  - port: {port}\n    targetPort: {port}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "text,violates",
+    [
+        (_service("LoadBalancer"), True),
+        (_service("NodePort"), True),
+        (_service("LoadBalancer", "  loadBalancerSourceRanges:\n  - 0.0.0.0/0\n"), True),
+        # A NodePort opens every node; source ranges apply to load balancers only.
+        (_service("NodePort", "  loadBalancerSourceRanges:\n  - 10.0.0.0/8\n"), True),
+        (_service("ClusterIP"), False),
+        (_service("LoadBalancer", port=443), False),
+        (_service("LoadBalancer", "  loadBalancerSourceRanges:\n  - 10.0.0.0/8\n"), False),
+        (
+            _service("LoadBalancer", annotations='    service.beta.kubernetes.io/aws-load-balancer-internal: "true"\n'),
+            False,
+        ),
+        (_service("LoadBalancer", annotations="    networking.gke.io/load-balancer-type: Internal\n"), False),
+    ],
+)
+def test_kubernetes_service_exposing_a_sensitive_port(text, violates):
+    found = irc.kubernetes_sensitive_port_exposed(text, P)
+    assert (found is not None) is violates
+    if violates:
+        assert found[1].startswith("Service/db type ") and found[0] == 8 + text.count("loadBalancerSourceRanges") * 2
+
+
+def test_chart_values_exposing_a_sensitive_port(tmp_path):
+    path = tmp_path / "charts" / "db" / "values.yaml"
+    path.parent.mkdir(parents=True)
+    (path.parent / "Chart.yaml").write_text("apiVersion: v2\nname: db\n", encoding="utf-8")
+    assert irc.helm_values_sensitive_port_exposed("service:\n  type: LoadBalancer\n  port: 6379\n", path) == (
+        2,
+        "service type LoadBalancer with port 6379",
+    )
+    assert irc.helm_values_sensitive_port_exposed("service:\n  type: NodePort\n  ports:\n    postgresql: 5432\n", path)
+    assert irc.helm_values_sensitive_port_exposed("service:\n  type: ClusterIP\n  port: 5432\n", path) is None
+    assert irc.helm_values_sensitive_port_exposed("service:\n  type: LoadBalancer\n  port: 443\n", path) is None

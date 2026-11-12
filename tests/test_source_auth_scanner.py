@@ -506,7 +506,7 @@ def test_block_scope_and_rejecting_guard_are_catalog_options(tmp_path: Path) -> 
     (check,) = S.load_checks(path)
     assert (check.counter_scope, check.skip_rejecting_guard) == ("block", True)
     assert S.load_checks(_write_checks(tmp_path / "plain.yaml", pattern="secret"))[0].skip_rejecting_guard is False
-    with pytest.raises(ValueError, match="line\\|window\\|call\\|block"):
+    with pytest.raises(ValueError, match="line\\|window\\|preceding\\|call\\|block"):
         S.load_checks(_write_checks(tmp_path / "bad.yaml", pattern="secret", counter_scope="file"))
 
 
@@ -1845,5 +1845,174 @@ def test_omitted_claim_options_are_not_proof_of_missing_validation(tmp_path):
     ],
 )
 def test_claim_validation_words_in_values_are_not_opt_outs(tmp_path, filename, source, check):
+    (tmp_path / filename).write_text(source)
+    assert check not in _ids(_scan(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "filename,source,check",
+    [
+        ("SecurityConfig.java", "http.csrf().disable().authorizeRequests();", "CSRF-JAVA-001"),
+        ("SecurityConfig.java", "http.csrf(AbstractHttpConfigurer::disable);", "CSRF-JAVA-001"),
+        ("SecurityConfig.java", "http.csrf(csrf -> csrf.disable());", "CSRF-JAVA-001"),
+        ("SecurityConfig.kt", "http { csrf { disable() } }", "CSRF-JAVA-001"),
+        ("views.py", "@csrf_exempt\ndef transfer(request):\n    pass\n", "CSRF-PY-001"),
+        ("app.py", 'app.config["WTF_CSRF_ENABLED"] = False\n', "CSRF-PY-001"),
+        ("app/controllers/api_controller.rb", "skip_before_action :verify_authenticity_token\n", "CSRF-RB-001"),
+        (
+            "config/environments/production.rb",
+            "config.action_controller.allow_forgery_protection = false\n",
+            "CSRF-RB-001",
+        ),
+        ("AccountController.cs", "[IgnoreAntiforgeryToken]\npublic IActionResult Email() => Ok();", "CSRF-CS-001"),
+        ("Program.cs", 'app.MapPost("/email", Update).DisableAntiforgery();', "CSRF-CS-001"),
+        ("app/Http/Middleware/VerifyCsrfToken.php", "protected $except = ['*'];", "CSRF-PHP-001"),
+    ],
+)
+def test_csrf_opt_outs_are_detected(tmp_path, filename, source, check):
+    (tmp_path / filename).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / filename).write_text(source)
+    assert check in _ids(_scan(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "filename,source,check",
+    [
+        # A stateless API authenticated by bearer tokens is not exposed to CSRF.
+        (
+            "SecurityConfig.java",
+            "http.csrf(AbstractHttpConfigurer::disable)\n"
+            "    .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));\n",
+            "CSRF-JAVA-001",
+        ),
+        ("SecurityConfig.java", "http.csrf(Customizer.withDefaults());", "CSRF-JAVA-001"),
+        ("app.py", 'app.config["WTF_CSRF_ENABLED"] = True\n', "CSRF-PY-001"),
+        ("config/environments/test.rb", "config.action_controller.allow_forgery_protection = false\n", "CSRF-RB-001"),
+        ("app/controllers/application_controller.rb", "protect_from_forgery with: :exception\n", "CSRF-RB-001"),
+        ("AccountController.cs", "[ValidateAntiForgeryToken]\npublic IActionResult Email() => Ok();", "CSRF-CS-001"),
+        ("app/Http/Middleware/VerifyCsrfToken.php", "protected $except = ['stripe/*'];", "CSRF-PHP-001"),
+    ],
+)
+def test_csrf_protection_left_on_or_not_needed_is_not_flagged(tmp_path, filename, source, check):
+    (tmp_path / filename).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / filename).write_text(source)
+    assert check not in _ids(_scan(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "filename,source,check",
+    [
+        (
+            "src/main/resources/application.properties",
+            "management.endpoints.web.exposure.include=*\n",
+            "MGMT-SPRING-001",
+        ),
+        (
+            "src/main/resources/application.yml",
+            'management:\n  endpoints:\n    web:\n      exposure:\n        include: "*"\n',
+            "MGMT-SPRING-001",
+        ),
+        (
+            "src/main/resources/application.yml",
+            "management:\n  endpoints:\n    web:\n      exposure:\n        include:\n          - health\n          - heapdump\n",
+            "MGMT-SPRING-001",
+        ),
+        ("src/main/resources/application.properties", "spring.h2.console.enabled=true\n", "MGMT-SPRING-002"),
+        (
+            "src/main/resources/application.yml",
+            "spring:\n  h2:\n    console:\n      enabled: true\n",
+            "MGMT-SPRING-002",
+        ),
+        ("main.go", 'import (\n\t"net/http"\n\t_ "net/http/pprof"\n)\n', "MGMT-GO-001"),
+        ("shop/settings.py", "DEBUG = True\n", "DEBUG-PY-001"),
+        ("public/index.php", "<?php ini_set('display_errors', '1');\n", "DEBUG-PHP-001"),
+        ("php.ini", "display_errors = On\n", "DEBUG-PHP-001"),
+        ("config/environments/production.rb", "config.consider_all_requests_local = true\n", "DEBUG-RB-001"),
+        ("Program.cs", "var app = builder.Build();\napp.UseDeveloperExceptionPage();\n", "DEBUG-CS-001"),
+        (
+            "Startup.cs",
+            "if (!env.IsDevelopment())\n{\n    app.UseDeveloperExceptionPage();\n}\n",
+            "DEBUG-CS-001",
+        ),
+    ],
+)
+def test_management_and_debug_features_are_detected(tmp_path, filename, source, check):
+    (tmp_path / filename).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / filename).write_text(source)
+    assert check in _ids(_scan(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "filename,source,check",
+    [
+        (
+            "src/main/resources/application.properties",
+            "management.endpoints.web.exposure.include=health,info\n",
+            "MGMT-SPRING-001",
+        ),
+        (
+            "src/main/resources/application-dev.properties",
+            "management.endpoints.web.exposure.include=*\n",
+            "MGMT-SPRING-001",
+        ),
+        ("src/main/resources/application.yml", 'exposure:\n  include: "health,info"\n', "MGMT-SPRING-001"),
+        ("src/main/resources/application.properties", "spring.h2.console.enabled=false\n", "MGMT-SPRING-002"),
+        (
+            "src/main/resources/application-local.yml",
+            "spring:\n  h2:\n    console:\n      enabled: true\n",
+            "MGMT-SPRING-002",
+        ),
+        ("main_test.go", 'import _ "net/http/pprof"\n', "MGMT-GO-001"),
+        ("shop/settings.py", 'DEBUG = os.environ.get("DJANGO_DEBUG") == "1"\n', "DEBUG-PY-001"),
+        ("shop/settings/dev.py", "DEBUG = True\n", "DEBUG-PY-001"),
+        ("php.ini", "display_errors = Off\n", "DEBUG-PHP-001"),
+        ("config/environments/development.rb", "config.consider_all_requests_local = true\n", "DEBUG-RB-001"),
+        (
+            "Program.cs",
+            "if (app.Environment.IsDevelopment())\n{\n    app.UseDeveloperExceptionPage();\n}\n",
+            "DEBUG-CS-001",
+        ),
+    ],
+)
+def test_management_and_debug_features_limited_to_development_are_not_flagged(tmp_path, filename, source, check):
+    (tmp_path / filename).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / filename).write_text(source)
+    assert check not in _ids(_scan(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "filename,source,check",
+    [
+        ("client.py", "requests.get(url, verify=False)\n", "TLS-PY-001"),
+        ("client.py", "ctx = ssl._create_unverified_context()\n", "TLS-PY-001"),
+        ("client.go", "cfg := &tls.Config{InsecureSkipVerify: true}\n", "TLS-GO-001"),
+        ("Client.java", "builder.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE);\n", "TLS-JAVA-001"),
+        (
+            "Trust.java",
+            "public void checkServerTrusted(X509Certificate[] chain, String authType) {}\n",
+            "TLS-JAVA-001",
+        ),
+        ("Client.cs", "handler.ServerCertificateCustomValidationCallback = (m, c, ch, e) => true;\n", "TLS-CS-001"),
+        ("client.rb", "http.verify_mode = OpenSSL::SSL::VERIFY_NONE\n", "TLS-RB-001"),
+        ("client.php", "<?php curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);\n", "TLS-PHP-001"),
+    ],
+)
+def test_disabled_certificate_validation_is_detected(tmp_path, filename, source, check):
+    (tmp_path / filename).write_text(source)
+    assert check in _ids(_scan(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "filename,source,check",
+    [
+        ("client.py", 'requests.get(url, verify="/etc/ssl/private-ca.pem")\n', "TLS-PY-001"),
+        ("auth.py", 'claims = jwt.decode(token, options={"verify_signature": True}, verify=False)\n', "TLS-PY-001"),
+        ("client.go", "cfg := &tls.Config{RootCAs: pool}\n", "TLS-GO-001"),
+        ("Client.cs", "handler.ServerCertificateCustomValidationCallback = PinnedCa.Validate;\n", "TLS-CS-001"),
+        ("client.rb", "http.verify_mode = OpenSSL::SSL::VERIFY_PEER\n", "TLS-RB-001"),
+        ("client.php", "<?php curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);\n", "TLS-PHP-001"),
+    ],
+)
+def test_certificate_validation_left_on_is_not_flagged(tmp_path, filename, source, check):
     (tmp_path / filename).write_text(source)
     assert check not in _ids(_scan(tmp_path))

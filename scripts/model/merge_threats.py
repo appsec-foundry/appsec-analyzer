@@ -875,6 +875,10 @@ _CWE_TO_STRIDE: dict[str, str] = {
     "CWE-330": "Spoofing",  # Predictable secret or token
     "CWE-327": "Information Disclosure",  # Broken or hand-rolled cipher
     "CWE-916": "Information Disclosure",  # Weak password hash cost
+    "CWE-352": "Tampering",  # CSRF protection turned off
+    "CWE-306": "Elevation of Privilege",  # Management or profiling feature turned on
+    "CWE-209": "Information Disclosure",  # Debug mode with detailed error pages
+    "CWE-295": "Spoofing",  # Client accepts any TLS certificate
 }
 
 

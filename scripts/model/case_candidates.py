@@ -58,9 +58,9 @@ MAX_REACHING_ROUTES = 3
 #: Larger files are generated or bundled code, not reviewed source.
 _MAX_FILE_BYTES = 1_000_000
 
-# Keys of a scanner finding that name its rule: the threat shape the controller
-# holds, then the raw sidecar shape the scanners write.
-_RULE_KEYS = ("source_check_id", "config_check_id", "check_id")
+# Keys of a scanner finding that name its rule: the threat shapes the controller
+# holds (source, config and architecture rules), then the raw sidecar shape the scanners write.
+_RULE_KEYS = ("source_check_id", "config_check_id", "rule_id", "check_id")
 
 _CODE_EXTS = frozenset(
     {
@@ -257,14 +257,19 @@ _SIGNAL_PATHS: dict[str, re.Pattern] = {
     "frontend_code": re.compile(r"\.(?:html?|vue|svelte|jsx|tsx)$"),
     "mobile_code": re.compile(r"(?:^|/)(?:AndroidManifest\.xml|Info\.plist|pubspec\.yaml|Podfile)$|\.(?:swift|dart)$"),
 }
-# Signals the route rows decide rather than file content.
-_ROUTE_SIGNALS = ("routes", "object_id_routes")
+# Signals the route rows decide rather than file content, with the routes that show each.
+_ROUTE_SIGNALS = {
+    "routes": lambda row: True,
+    "object_id_routes": lambda row: _object_route(row),
+    "webhook_routes": lambda row: bool(_WEBHOOK_PATH.search(row["path"])),
+}
 
 # One fixed reason per signal; the reason never repeats repository text.
 APPLIES_REASONS = {
     "always": "the test case applies to every component",
     "routes": "the component registers routes",
     "object_id_routes": "the component registers routes that take an object identifier in the path or a request body",
+    "webhook_routes": "the component registers routes that receive webhooks",
     "jwt_usage": "the code issues, verifies or decodes JSON Web Tokens",
     "password_handling": "the code handles passwords",
     "sso_usage": "the code signs users in through OAuth, OpenID Connect or SAML",
@@ -309,12 +314,15 @@ _ROUTE_FACTS = {
     "route_inventory.reads_data": lambda row: row["method"].upper() == "GET" and row["reads_data"],
     # Login, registration, recovery, password change and second factor: the flows that create or prove an identity.
     "route_inventory.credential_flow": lambda row: bool(_CREDENTIAL_PATH.search(row["path"])),
+    # Routes that receive calls from another service, whose signature check is their authentication.
+    "route_inventory.webhook": lambda row: bool(_WEBHOOK_PATH.search(row["path"])),
 }
 _CREDENTIAL_PATH = re.compile(
     r"log-?in|log-?out|sign-?in|sign-?up|sign-?out|regist|passw|reset|forgot|recover|security-?question|2fa|mfa"
     r"|totp|\botp\b|webauthn|passkey|auth|sso|saml",
     re.IGNORECASE,
 )
+_WEBHOOK_PATH = re.compile(r"web-?hooks?|(?:^|/)hooks?(?:/|$)", re.IGNORECASE)
 # Besides a database read, what a read route's response can carry: a record the handler creates or
 # saves, and configuration.
 _STORED_OR_CONFIGURED = re.compile(
@@ -1212,7 +1220,7 @@ def _signal_found(signal: Any, facts: Mapping[str, Any], component: dict | None)
         return True
     if signal in _ROUTE_SIGNALS:
         route_ids = facts["routes"] if component is None else component["route_ids"]
-        return any(signal == "routes" or _object_route(facts["routes"][route_id]) for route_id in route_ids)
+        return any(_ROUTE_SIGNALS[signal](facts["routes"][route_id]) for route_id in route_ids)
     if not isinstance(signal, str) or signal not in facts["signals"]:
         return None
     files = facts["signals"][signal]

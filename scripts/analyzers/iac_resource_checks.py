@@ -506,6 +506,66 @@ def helm_values_ingress_without_tls(text: str, path: Path) -> tuple[int, str] | 
     return None
 
 
+_OUTSIDE_SERVICE_TYPES = ("LoadBalancer", "NodePort")
+_ANY_SOURCE = {"0.0.0.0/0", "::/0"}
+
+
+def _sensitive_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value in SENSITIVE_PORTS
+
+
+def _kept_inside(service_type: str, spec: dict, annotations: Any) -> bool:
+    """Whether a load balancer is internal or admits only listed source ranges; a NodePort opens every node."""
+    if service_type != "LoadBalancer":
+        return False
+    # Provider annotations: ``…-load-balancer-internal: "true"`` or a load balancer type or scheme ``internal``.
+    if isinstance(annotations, dict) and any(
+        ("internal" in str(key).lower() and str(value).strip().lower() == "true")
+        or ("load-balancer" in str(key).lower() and str(value).strip().lower() == "internal")
+        for key, value in annotations.items()
+    ):
+        return True
+    ranges = spec.get("loadBalancerSourceRanges")
+    return isinstance(ranges, list) and bool(ranges) and not any(str(item).strip() in _ANY_SOURCE for item in ranges)
+
+
+def kubernetes_sensitive_port_exposed(text: str, path: Path) -> tuple[int, str] | None:
+    """A NodePort or public LoadBalancer Service that forwards a database, broker, or remote-administration port."""
+    for doc in _manifests(text):
+        spec = doc.get("spec")
+        if doc.get("kind") != "Service" or not isinstance(doc.get("apiVersion"), str) or not isinstance(spec, dict):
+            continue
+        service_type = spec.get("type")
+        if service_type not in _OUTSIDE_SERVICE_TYPES or _kept_inside(
+            service_type, spec, _get(doc, "metadata", "annotations")
+        ):
+            continue
+        ports = spec.get("ports")
+        for index, item in enumerate(ports if isinstance(ports, list) else []):
+            if isinstance(item, dict) and (
+                _sensitive_number(item.get("port")) or _sensitive_number(item.get("targetPort"))
+            ):
+                name = _get(doc, "metadata", "name")
+                return _line_of(ports, index), f"Service/{name} type {service_type} port {item.get('port')}"
+    return None
+
+
+def helm_values_sensitive_port_exposed(text: str, path: Path) -> tuple[int, str] | None:
+    """Chart values that put a database, broker, or remote-administration port on a NodePort or public LoadBalancer."""
+    service = _get(_chart_values(text, path), "service")
+    if not isinstance(service, dict) or service.get("type") not in _OUTSIDE_SERVICE_TYPES:
+        return None
+    if _kept_inside(service["type"], service, service.get("annotations")):
+        return None
+    ports = service.get("ports")
+    numbers = [service.get("port"), *(ports.values() if isinstance(ports, dict) else [])]
+    if any(_sensitive_number(number) for number in numbers):
+        return _line_of(
+            service, "type"
+        ), f"service type {service['type']} with port {next(n for n in numbers if _sensitive_number(n))}"
+    return None
+
+
 # --------------------------------------------------------------------------- Terraform (HCL)
 
 
@@ -991,6 +1051,8 @@ EVALUATORS: dict[str, Callable[[str, Path], tuple[int, str] | None]] = {
     "kubernetes_route_without_tls": kubernetes_route_without_tls,
     "helm_values_privileged_container": helm_values_privileged_container,
     "helm_values_ingress_without_tls": helm_values_ingress_without_tls,
+    "kubernetes_sensitive_port_exposed": kubernetes_sensitive_port_exposed,
+    "helm_values_sensitive_port_exposed": helm_values_sensitive_port_exposed,
     "terraform_open_sensitive_ingress": terraform_open_sensitive_ingress,
     "terraform_public_storage": terraform_public_storage,
     "terraform_unencrypted_storage": terraform_unencrypted_storage,

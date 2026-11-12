@@ -1,0 +1,11 @@
+function requireLogin (req, res, next) {
+  if (!req.session || !req.session.userId) return res.status(401).end()
+  req.user = { id: req.session.userId, role: req.session.role }
+  next()
+}
+
+function requireRole (role) {
+  return (req, res, next) => (req.user && req.user.role === role ? next() : res.status(403).end())
+}
+
+module.exports = { requireLogin, requireRole }

@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 from analyzers import authz_confirm
+from analyzers.arch_coverage_to_threats import select_and_build
 from analyzers.route_inventory import build_inventory
 from model import case_candidates as cc
 from model.case_outcomes import load_catalog
+from model.finding_intake import apply_intake
 
 from tests.test_controller_fixture import FILES
 
@@ -275,14 +277,16 @@ def test_route_facts_select_the_candidates_of_each_case(catalog, shop):
     authn = cc.starting_candidates(_case(catalog, "TC-AUTHN-01"), "api", facts, findings)["candidates"]
     assert {row["route_id"] for row in authn} == set(facts["components"]["api"]["route_ids"])
     routes = facts["components"]["api"]["route_ids"]
-    # Privileged operations start from the missing-authorization suspects and every state-changing route,
-    # whatever its guards: a guard known by name proves no role check.
+    # Privileged operations start from the missing-authentication and missing-authorization suspects and every
+    # state-changing route, whatever its guards: a guard known by name proves no role check.
     authz = cc.starting_candidates(_case(catalog, "TC-AUTHZ-02"), "api", facts, findings)["candidates"]
     changing = {"POST", "PUT", "PATCH", "DELETE", "ALL"}
     assert {row["route_id"] for row in authz} == {
         rid
         for rid in routes
-        if facts["routes"][rid]["missing_authz_suspect"] or facts["routes"][rid]["method"].upper() in changing
+        if facts["routes"][rid]["missing_auth_suspect"]
+        or facts["routes"][rid]["missing_authz_suspect"]
+        or facts["routes"][rid]["method"].upper() in changing
     }
     # Privileged fields start from every route that accepts a request body.
     fields = cc.starting_candidates(_case(catalog, "TC-AUTHZ-03"), "api", facts, findings)["candidates"]
@@ -345,6 +349,45 @@ def test_role_checks_also_start_from_authenticated_reads_without_an_identifier(c
     candidates = cc.starting_candidates(_case(catalog, "TC-AUTHZ-02"), "api", facts, [])["candidates"]
     # The public catalog needs no role.
     assert [row["route_id"] for row in candidates] == [users["route_id"]]
+
+
+def test_architecture_rule_hits_start_their_test_cases(catalog, tmp_path):
+    files = {
+        "server.js": "const express = require('express')\nconst app = express()\n"
+        "app.get('/api/orders/:id', (req, res) => res.json(orders.find(req.params.id)))\n",
+    }
+    root = write_repo(tmp_path, files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(files)})
+    candidate = {
+        "rule_id": "ARCH-BOLA-001",
+        "confidence": "high",
+        "severity_cap": "High",
+        "stride": "Elevation of Privilege",
+        "cwe": "CWE-639",
+        "evidence": [{"file": "server.js", "line": 3}],
+    }
+    # The bridge names the rule as rule_id; the controller then gives the hit its component.
+    (threat,), _ = select_and_build({"anti_pattern_candidates": [candidate]})
+    apply_intake(threat, dispatch_component="api", component_name="API")
+    candidates = cc.starting_candidates(_case(catalog, "TC-AUTHZ-01"), "api", facts, [threat])["candidates"]
+    assert [row.get("rule_ids") for row in candidates] == [["ARCH-BOLA-001"]]
+
+
+def test_role_checks_also_start_from_management_reads_without_authentication(catalog, tmp_path):
+    files = {
+        "server.js": "const express = require('express')\nconst app = express()\n"
+        "app.get('/actuator/heapdump', (req, res) => res.send(dump()))\n"
+        "app.get('/actuator/health', (req, res) => res.json({ status: 'UP' }))\n"
+        "app.get('/rest/products', (req, res) => res.json([]))\n",
+    }
+    root = write_repo(tmp_path, files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(files)})
+    heapdump = facts["routes"][route_id(facts, "GET", "/actuator/heapdump")]
+    # An anonymous read is no authorization suspect, which needs an authenticated route, and changes no state.
+    assert heapdump["missing_auth_suspect"] and not heapdump["missing_authz_suspect"]
+    candidates = cc.starting_candidates(_case(catalog, "TC-AUTHZ-02"), "api", facts, [])["candidates"]
+    # The health probe is public by design, and the product list is no management route.
+    assert [row["route_id"] for row in candidates] == [heapdump["route_id"]]
 
 
 def _at(name, line):
@@ -1365,7 +1408,7 @@ def test_insecure_authentication_methods_start_from_where_credentials_travel(cat
 def test_the_route_check_is_an_aspect_of_its_own(catalog):
     aspects = {case["id"]: case["aspect"] for case in catalog["test_cases"] if case["id"].startswith("TC-AUTHN-")}
     assert aspects.pop("TC-AUTHN-01") == "AuthNRoutes"
-    assert set(aspects.values()) == {"AuthN"} and len(aspects) == 6
+    assert set(aspects.values()) == {"AuthN"} and len(aspects) == 7
 
 
 @pytest.mark.parametrize(
@@ -1481,3 +1524,22 @@ def test_a_finding_may_anchor_at_a_candidate_the_controller_assigned_even_in_ano
     assert (rid, "routes/api.ts") not in pilot._anchorable(allowed, owned, anchors)
     assert pilot._anchorable(allowed, frozenset(allowed), set()) == frozenset()
     assert "never as its anchor" in pilot._ADAPTATION
+
+
+def test_webhook_signature_checks_apply_only_to_webhook_routes(catalog, tmp_path):
+    case = _case(catalog, "TC-AUTHN-08")
+    files = {
+        "server.js": "const express = require('express')\nconst app = express()\n"
+        "app.post('/api/orders', (req, res) => res.status(201).end())\n"
+        "app.post('/hooks/github', (req, res) => res.status(204).end())\n",
+    }
+    root = write_repo(tmp_path / "with", files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(files)})
+    assert cc.applies(case, facts, "api") == (True, cc.APPLIES_REASONS["webhook_routes"])
+    candidates = cc.starting_candidates(case, "api", facts, [])["candidates"]
+    assert [row["route_id"] for row in candidates] == [route_id(facts, "POST", "/hooks/github")]
+
+    files = {"server.js": files["server.js"].replace("/hooks/github", "/api/hooks-config")}
+    root = write_repo(tmp_path / "without", files)
+    facts = cc.route_facts(root, build_inventory(root), [], components={"api": list(files)})
+    assert cc.applies(case, facts, "api") == (False, cc.NOT_APPLICABLE_REASON)

@@ -560,6 +560,7 @@ GROUPS = {
     "test-cases": _tests("""
         case_analysis
         case_candidates
+        case_fixtures
         case_outcomes
         case_postchecks
         test_case_catalog
@@ -5337,6 +5338,7 @@ SOURCE_TESTS = {
     """),
     "scripts/model/case_candidates.py": _tests("""
         case_candidates
+        case_fixtures
         case_postchecks
         assessment_scanner_findings
         verification_budget
@@ -6200,6 +6202,7 @@ SOURCE_TESTS = {
 SOURCE_PREFIX_TESTS = {
     "docs/": _tests("requirements_verification"),
     "tests/fixtures/report-anatomy/": _tests("report_anatomy"),
+    "tests/fixtures/test-cases/": _tests("case_fixtures"),
 }
 
 

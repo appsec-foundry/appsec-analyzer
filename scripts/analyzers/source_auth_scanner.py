@@ -27,6 +27,8 @@ query or command argument of a PHP SQL or shell call without a matching safeguar
 Counter-pattern scopes:
     line    — only the matched line is searched
     window  — match_line .. match_line + counter_window  (inclusive)
+    preceding — match_line - counter_window .. match_line (inclusive), for a
+              guard written before the hit, such as an enclosing `if`
     call    — match_line until balanced close-paren OR counter_window
               lines (whichever comes first)
     block   — match_line until the enclosing block ends (a less indented
@@ -163,7 +165,7 @@ class Check:
     file_patterns: list[str]
     exclude_file_patterns: list[str]
     pattern: re.Pattern[str]
-    counter_scope: str  # line | window | call | block
+    counter_scope: str  # line | window | preceding | call | block
     counter_window: int
     counter_patterns: list[re.Pattern[str]]
     required_context_patterns: list[re.Pattern[str]]
@@ -230,8 +232,10 @@ def load_checks(checks_path: Path) -> list[Check]:
             raise ValueError(f"check is missing id: {entry}")
         try:
             scope = entry.get("counter_scope") or "window"
-            if scope not in ("line", "window", "call", "block"):
-                raise ValueError(f"check {cid}: counter_scope must be one of line|window|call|block, got {scope!r}")
+            if scope not in ("line", "window", "preceding", "call", "block"):
+                raise ValueError(
+                    f"check {cid}: counter_scope must be one of line|window|preceding|call|block, got {scope!r}"
+                )
             flow = entry.get("flow")
             if flow is not None and flow not in _FLOW_SINKS:
                 raise ValueError(f"check {cid}: flow must be one of {'|'.join(_FLOW_SINKS)}, got {flow!r}")
@@ -481,6 +485,8 @@ def _scope_lines(lines: list[str], match_line_idx: int, check: Check) -> list[st
         return _scope_lines_for_call(lines, match_line_idx, check.counter_window)
     if check.counter_scope == "block":
         return _scope_lines_for_block(lines, match_line_idx, check.counter_window)
+    if check.counter_scope == "preceding":
+        return lines[max(0, match_line_idx - check.counter_window) : match_line_idx + 1]
     end = min(len(lines), match_line_idx + check.counter_window + 1)
     return lines[match_line_idx:end]
 

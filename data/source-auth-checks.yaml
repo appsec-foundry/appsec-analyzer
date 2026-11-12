@@ -20,9 +20,11 @@
 #   pattern                  — primary regex (must match for finding)
 #   counter_window           — lines AFTER match to scan for counter-pattern
 #                              (0 = same line only; default 5)
-#   counter_scope            — line | window | call | block (default: window)
+#   counter_scope            — line | window | preceding | call | block (default: window)
 #                              `line`  : only the matched line
 #                              `window`: match_line .. match_line + counter_window
+#                              `preceding`: match_line - counter_window .. match_line,
+#                                        for a guard written before the hit
 #                              `call`  : match_line until balanced close-paren
 #                                        or counter_window lines (whichever first)
 #                              `block` : match_line until the enclosing block
@@ -1604,3 +1606,301 @@ checks:
     breach_vector: "Internet Anon"
     rationale: "An explicitly disabled token-claim check can admit a signed token intended for another recipient or issuer, or outside its validity period, when no independent validator enforces that check on the same token."
     remediation: "Enable claim validation against the trusted issuer, intended recipient and validity period; verify any equivalent upstream enforcement on the same token."
+
+  # ===================================================================
+  # CSRF-* — the framework's cross-site request forgery protection is
+  # explicitly turned off. Only opt-outs match; a framework that never had
+  # the protection leaves nothing to match, and TC-SESSION-02 asks about it.
+  # ===================================================================
+  - id: CSRF-JAVA-001
+    name: "CSRF protection is disabled (Spring Security)"
+    description: "The security configuration turns off Spring Security's CSRF protection. A stateless session policy in the same configuration suppresses the hit, because a bearer-token API is not exposed to CSRF."
+    file_patterns: ["**/*.java", "**/*.kt"]
+    exclude_file_patterns: ["**/src/test/**", "**/*Test.java", "**/*Tests.java", "**/*Test.kt", "**/fixtures/**"]
+    pattern: '\.csrf\s*\(\s*\)\s*\.\s*disable\s*\(|\.csrf\s*\(\s*(?:AbstractHttpConfigurer|CsrfConfigurer)::disable\b|\.csrf\s*\(\s*\w+\s*->\s*\w+\s*\.\s*disable\s*\(|\bcsrf\s*\{\s*disable\s*\(\s*\)'
+    counter_scope: block
+    counter_window: 30
+    counter_patterns:
+      - 'SessionCreationPolicy\s*\.\s*STATELESS'
+    severity_if_violated: Medium
+    cwe: CWE-352
+    finding_type: FT-110
+    breach_vector: "Victim-Required"
+    rationale: "With CSRF protection off, a page on another site can make a signed-in user's browser send state-changing requests that the session cookie authenticates."
+    remediation: "Keep Spring Security's CSRF protection on for cookie-authenticated requests, or make the API stateless and authenticate it only with bearer tokens."
+
+  - id: CSRF-PY-001
+    name: "CSRF protection is disabled (Django or Flask)"
+    description: "A Django view is exempt from CSRF checks, or Flask-WTF's CSRF protection is exempted or turned off."
+    file_patterns: ["**/*.py"]
+    exclude_file_patterns: ["**/test_*.py", "**/*_test.py", "**/tests/**", "**/conftest.py", "**/test_settings.py", "**/settings/test*.py", "**/fixtures/**"]
+    pattern: '@csrf_exempt\b|@csrf\.exempt\b|\bWTF_CSRF_ENABLED\b[''"]?\]?\s*[=:]\s*False\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-352
+    finding_type: FT-110
+    breach_vector: "Victim-Required"
+    rationale: "Without the CSRF check, a page on another site can make a signed-in user's browser submit this request with the user's session cookie."
+    remediation: "Remove the exemption, or authenticate the endpoint by a signature or bearer token instead of the session cookie."
+
+  - id: CSRF-RB-001
+    name: "CSRF protection is disabled (Rails)"
+    description: "A controller skips the authenticity token check, or the application turns forgery protection off."
+    file_patterns: ["**/*.rb"]
+    exclude_file_patterns: ["**/spec/**", "**/test/**", "**/config/environments/test.rb", "**/fixtures/**"]
+    pattern: '\bskip_before_action\s+:verify_authenticity_token\b|\bskip_forgery_protection\b|\ballow_forgery_protection\s*=\s*false\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-352
+    finding_type: FT-110
+    breach_vector: "Victim-Required"
+    rationale: "Without the authenticity token check, a page on another site can make a signed-in user's browser send state-changing requests with the session cookie."
+    remediation: "Keep protect_from_forgery for controllers that use the session; authenticate API controllers without the session instead."
+
+  - id: CSRF-CS-001
+    name: "CSRF protection is disabled (ASP.NET Core)"
+    description: "An action or endpoint opts out of antiforgery token validation."
+    file_patterns: ["**/*.cs"]
+    exclude_file_patterns: ["**/*Tests.cs", "**/*Test.cs", "**/*.Tests/**", "**/obj/**", "**/bin/**", "**/fixtures/**"]
+    pattern: '\[\s*IgnoreAntiforgeryToken\b|\.\s*DisableAntiforgery\s*\(\s*\)'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-352
+    finding_type: FT-110
+    breach_vector: "Victim-Required"
+    rationale: "Without antiforgery validation, a page on another site can make a signed-in user's browser send this request with the authentication cookie."
+    remediation: "Validate antiforgery tokens for cookie-authenticated requests, or authenticate the endpoint only with bearer tokens."
+
+  - id: CSRF-PHP-001
+    name: "CSRF protection is disabled for every route (Laravel)"
+    description: "The CSRF middleware exempts all routes."
+    file_patterns: ["**/*.php"]
+    exclude_file_patterns: ["**/tests/**", "**/vendor/**", "**/fixtures/**"]
+    pattern: '\$except\s*=\s*\[\s*[''"]\*[''"]|\bvalidateCsrfTokens\s*\(\s*except:\s*\[\s*[''"]\*[''"]'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-352
+    finding_type: FT-110
+    breach_vector: "Victim-Required"
+    rationale: "With every route exempt, a page on another site can make a signed-in user's browser send state-changing requests with the session cookie."
+    remediation: "Exempt only routes that do not use the session, such as signed webhooks."
+
+  # ===================================================================
+  # MGMT-* — configuration or an import turns on management, profiling or
+  # database consoles that answer over HTTP. DEBUG-* — production
+  # configuration shows detailed error pages. Profile files for local
+  # development and tests are excluded (REQ-009).
+  # ===================================================================
+  - id: MGMT-SPRING-001
+    name: "Spring Boot Actuator exposes sensitive endpoints over HTTP"
+    description: "The configuration exposes all Actuator endpoints, or ones such as heapdump, env, threaddump, logfile, jolokia or shutdown, over HTTP, or turns Actuator security off."
+    file_patterns: ["**/application*.properties", "**/application*.yml", "**/application*.yaml", "**/bootstrap*.properties", "**/bootstrap*.yml", "**/bootstrap*.yaml"]
+    exclude_file_patterns: ["**/src/test/**", "**/application-dev*", "**/application-local*", "**/application-test*", "**/fixtures/**"]
+    pattern: '(?m)\bmanagement\.endpoints\.web\.exposure\.include\s*[=:]|^[ \t]*exposure:[ \t]*$|\bmanagement\.security\.enabled\s*[=:]\s*false\b'
+    counter_scope: window
+    counter_window: 4
+    required_context_patterns:
+      - '\binclude\s*[=:]\s*[''"]?[^''"\n]*(?:\*|heapdump|threaddump|\benv\b|logfile|jolokia|shutdown|configprops|httpexchanges|httptrace)'
+      - '(?m)^[ \t]*-[ \t]*[''"]?(?:\*|heapdump|threaddump|env|logfile|jolokia|shutdown|configprops)[''"]?[ \t]*$'
+      - '\bmanagement\.security\.enabled\s*[=:]\s*false\b'
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-306
+    finding_type: FT-080
+    breach_vector: "Internet Anon"
+    rationale: "Endpoints such as heapdump and env return memory contents, credentials and configuration; shutdown stops the service. Without a role check in front of them, anyone who reaches the port can call them."
+    remediation: "Expose only health and info over HTTP, serve the rest on a separate management port that is not public, and require an operator role."
+
+  - id: MGMT-SPRING-002
+    name: "H2 database console is enabled"
+    description: "The configuration turns on the H2 web console, which runs SQL against the application database."
+    file_patterns: ["**/application*.properties", "**/application*.yml", "**/application*.yaml"]
+    exclude_file_patterns: ["**/src/test/**", "**/application-dev*", "**/application-local*", "**/application-test*", "**/fixtures/**"]
+    pattern: '(?m)\bspring\.h2\.console\.enabled\s*[=:]|^[ \t]*h2:[ \t]*$'
+    counter_scope: window
+    counter_window: 3
+    required_context_patterns:
+      - '\benabled\s*[=:]\s*true\b'
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-306
+    finding_type: FT-080
+    breach_vector: "Internet Anon"
+    rationale: "The console runs any SQL statement and, on older versions, Java code; whoever reaches it controls the database."
+    remediation: "Turn the console off outside local development."
+
+  - id: MGMT-GO-001
+    name: "Go profiling endpoints are imported (net/http/pprof)"
+    description: "Importing net/http/pprof registers /debug/pprof/ handlers on the default HTTP mux."
+    file_patterns: ["**/*.go"]
+    exclude_file_patterns: ["**/*_test.go", "**/vendor/**", "**/testdata/**", "**/fixtures/**"]
+    pattern: '(?m)^[ \t]*(?:import[ \t]+)?_[ \t]+"net/http/pprof"'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-306
+    finding_type: FT-080
+    breach_vector: "Internet Anon"
+    rationale: "If the service serves the default mux on a public address, anyone can read heap and goroutine profiles, which can contain secrets, and start CPU profiles that load the process."
+    remediation: "Serve the pprof handlers on a separate listener bound to localhost, or remove the import from production builds."
+
+  - id: DEBUG-PY-001
+    name: "Django runs with DEBUG enabled"
+    description: "A settings module that is not for development or tests sets DEBUG = True."
+    file_patterns: ["**/settings.py", "**/settings/*.py", "**/settings_*.py"]
+    exclude_file_patterns: ["**/settings/dev*.py", "**/settings/local*.py", "**/settings/test*.py", "**/settings_dev*.py", "**/settings_local*.py", "**/settings_test*.py", "**/test_settings.py", "**/tests/**", "**/fixtures/**"]
+    pattern: '(?m)^[ \t]*DEBUG[ \t]*=[ \t]*True\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-209
+    finding_type: FT-131
+    breach_vector: "Internet Anon"
+    rationale: "With DEBUG on, every error page shows the stack trace, local variables, settings and URL patterns to the caller."
+    remediation: "Read DEBUG from the environment with False as the default, and keep it off in production."
+
+  - id: DEBUG-PHP-001
+    name: "PHP displays errors to the client"
+    description: "Code or a PHP configuration file turns display_errors on."
+    file_patterns: ["**/*.php", "**/php.ini", "**/.user.ini"]
+    exclude_file_patterns: ["**/tests/**", "**/vendor/**", "**/fixtures/**"]
+    pattern: '(?im)\bini_set\s*\(\s*[''"]display_errors[''"]\s*,\s*[''"]?(?:1|on|true)\b|^[ \t]*display_errors[ \t]*=[ \t]*(?:on|1|true)\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-209
+    finding_type: FT-131
+    breach_vector: "Internet Anon"
+    rationale: "Error messages in responses reveal file paths, queries and other internal details that help an attacker."
+    remediation: "Set display_errors off and log errors instead."
+
+  - id: DEBUG-RB-001
+    name: "Rails production shows detailed error pages"
+    description: "The production environment sets consider_all_requests_local to true."
+    file_patterns: ["**/config/environments/production.rb"]
+    exclude_file_patterns: ["**/fixtures/**"]
+    pattern: '\bconsider_all_requests_local\s*=\s*true\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-209
+    finding_type: FT-131
+    breach_vector: "Internet Anon"
+    rationale: "Every caller then gets the debug error page with the stack trace and request details."
+    remediation: "Set consider_all_requests_local to false in production."
+
+  - id: DEBUG-CS-001
+    name: "ASP.NET Core developer exception page is used outside development"
+    description: "UseDeveloperExceptionPage is called without a preceding IsDevelopment check."
+    file_patterns: ["**/*.cs"]
+    exclude_file_patterns: ["**/*Tests.cs", "**/*Test.cs", "**/*.Tests/**", "**/obj/**", "**/bin/**", "**/fixtures/**"]
+    pattern: '\.\s*UseDeveloperExceptionPage\s*\('
+    counter_scope: preceding
+    counter_window: 3
+    counter_patterns:
+      - '(?<![!\w.])(?:\w+\s*\.\s*)*IsDevelopment\s*\('
+    severity_if_violated: Medium
+    cwe: CWE-209
+    finding_type: FT-131
+    breach_vector: "Internet Anon"
+    rationale: "The developer exception page shows stack traces, source lines, headers and cookies to every caller."
+    remediation: "Call UseDeveloperExceptionPage only inside an IsDevelopment check and use UseExceptionHandler in production."
+
+  # ===================================================================
+  # TLS-* — an HTTP or TLS client accepts any server certificate. Node.js
+  # (rejectUnauthorized, NODE_TLS_REJECT_UNAUTHORIZED) is ARCH-TLS-001.
+  # ===================================================================
+  - id: TLS-PY-001
+    name: "TLS certificate validation is disabled (Python)"
+    description: "An HTTP client or SSL context skips certificate or host name checks."
+    file_patterns: ["**/*.py"]
+    exclude_file_patterns: ["**/test_*.py", "**/*_test.py", "**/tests/**", "**/conftest.py", "**/fixtures/**"]
+    pattern: '\bverify\s*=\s*False\b|\.verify\s*=\s*False\b|\bssl\._create_unverified_context\s*\(|\bCERT_NONE\b|\bcheck_hostname\s*=\s*False\b'
+    counter_scope: line
+    counter_patterns:
+      - '\b(?:jwt|jws|jose)\b|\bdecode\s*\('
+    severity_if_violated: Medium
+    cwe: CWE-295
+    finding_type: FT-053
+    breach_vector: "Internet Anon"
+    rationale: "A client that accepts any certificate lets anyone on the network path impersonate the server and read or change the traffic, including credentials it sends."
+    remediation: "Keep certificate validation on; trust a private CA by passing its bundle instead of turning validation off."
+
+  - id: TLS-GO-001
+    name: "TLS certificate validation is disabled (Go)"
+    description: "A tls.Config sets InsecureSkipVerify to true."
+    file_patterns: ["**/*.go"]
+    exclude_file_patterns: ["**/*_test.go", "**/vendor/**", "**/testdata/**", "**/fixtures/**"]
+    pattern: '\bInsecureSkipVerify\s*:\s*true\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-295
+    finding_type: FT-053
+    breach_vector: "Internet Anon"
+    rationale: "A client that accepts any certificate lets anyone on the network path impersonate the server and read or change the traffic."
+    remediation: "Remove InsecureSkipVerify; add a private CA to RootCAs instead."
+
+  - id: TLS-JAVA-001
+    name: "TLS certificate or host name validation is disabled (Java or Kotlin)"
+    description: "A trust manager accepts every certificate, or a host name verifier accepts every host."
+    file_patterns: ["**/*.java", "**/*.kt"]
+    exclude_file_patterns: ["**/src/test/**", "**/*Test.java", "**/*Tests.java", "**/*Test.kt", "**/fixtures/**"]
+    pattern: '\bNoopHostnameVerifier\b|\bALLOW_ALL_HOSTNAME_VERIFIER\b|\bInsecureTrustManagerFactory\b|\bsetHostnameVerifier\s*\(\s*\(\s*\w*\s*,\s*\w*\s*\)\s*->\s*true|\bcheckServerTrusted\s*\([^)]*\)\s*(?:throws\s+[\w.]+\s*)?\{\s*\}'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-295
+    finding_type: FT-053
+    breach_vector: "Internet Anon"
+    rationale: "A client that accepts any certificate or host lets anyone on the network path impersonate the server and read or change the traffic."
+    remediation: "Use the default trust manager and host name verifier; load a private CA into a trust store instead."
+
+  - id: TLS-CS-001
+    name: "TLS certificate validation is disabled (.NET)"
+    description: "A certificate validation callback accepts every certificate."
+    file_patterns: ["**/*.cs"]
+    exclude_file_patterns: ["**/*Tests.cs", "**/*Test.cs", "**/*.Tests/**", "**/obj/**", "**/bin/**", "**/fixtures/**"]
+    pattern: '\bServerCertificate(?:Custom)?ValidationCallback\s*\+?=\s*(?:\([^)]*\)|\w+)\s*=>\s*true\b|\bDangerousAcceptAnyServerCertificateValidator\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-295
+    finding_type: FT-053
+    breach_vector: "Internet Anon"
+    rationale: "A client that accepts any certificate lets anyone on the network path impersonate the server and read or change the traffic."
+    remediation: "Remove the callback, or compare the certificate with a pinned private CA instead of returning true."
+
+  - id: TLS-RB-001
+    name: "TLS certificate validation is disabled (Ruby)"
+    description: "An HTTP or TLS client sets verify_mode to VERIFY_NONE."
+    file_patterns: ["**/*.rb"]
+    exclude_file_patterns: ["**/spec/**", "**/test/**", "**/fixtures/**"]
+    pattern: '\bOpenSSL::SSL::VERIFY_NONE\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-295
+    finding_type: FT-053
+    breach_vector: "Internet Anon"
+    rationale: "A client that accepts any certificate lets anyone on the network path impersonate the server and read or change the traffic."
+    remediation: "Use VERIFY_PEER and add a private CA with ca_file instead."
+
+  - id: TLS-PHP-001
+    name: "TLS certificate validation is disabled (PHP)"
+    description: "cURL, a stream context, or Guzzle turns peer verification off."
+    file_patterns: ["**/*.php"]
+    exclude_file_patterns: ["**/tests/**", "**/vendor/**", "**/fixtures/**"]
+    pattern: '\bCURLOPT_SSL_VERIFYPEER\s*(?:=>|,)\s*(?:false|0)\b|[''"]verify_peer[''"]\s*=>\s*false\b|[''"]verify[''"]\s*=>\s*false\b'
+    counter_scope: line
+    counter_patterns: []
+    severity_if_violated: Medium
+    cwe: CWE-295
+    finding_type: FT-053
+    breach_vector: "Internet Anon"
+    rationale: "A client that accepts any certificate lets anyone on the network path impersonate the server and read or change the traffic."
+    remediation: "Keep peer verification on and point the client at a private CA bundle if needed."

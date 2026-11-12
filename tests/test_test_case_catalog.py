@@ -121,15 +121,15 @@ def test_a_verification_finding_carries_the_owasp_llm_categories_of_its_test_cas
     assert "owasp_llm_ids" not in row(["TC-AUTHZ-01"])
 
 
-def test_every_route_and_site_fact_and_site_check_has_an_evaluator(catalog):
+def test_every_starting_fact_and_site_check_has_an_evaluator(catalog):
     from model import case_candidates
 
-    # A misspelled fact or site would silently select or confirm nothing.
+    # A misspelled fact or site, or a fact of a source nothing reads, would silently select or confirm nothing.
     kinds, _ = case_candidates.site_kinds()
     known = set(case_candidates._ROUTE_FACTS) | {f"code_sites.{kind}" for kind in kinds}
     for case in catalog["test_cases"]:
         facts = case["starting_points"].get("facts") or []
-        assert {fact for fact in facts if fact.startswith(("route_inventory.", "code_sites."))} <= known, case["id"]
+        assert set(facts) <= known, case["id"]
         sites = {entry.get("site") for entry in case["post"] if entry["check"] == "site-reached"}
         assert None not in sites and sites <= {*kinds, "any"}, case["id"]
 

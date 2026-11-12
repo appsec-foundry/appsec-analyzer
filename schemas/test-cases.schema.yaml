@@ -102,6 +102,7 @@ properties:
                   - always
                   - routes
                   - object_id_routes
+                  - webhook_routes
                   - jwt_usage
                   - password_handling
                   - sso_usage

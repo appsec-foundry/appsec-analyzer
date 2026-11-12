@@ -902,6 +902,34 @@ checks:
     rationale: "An enabled ingress without a `tls` section serves the application over plain HTTP, so credentials and session tokens cross the network readable and alterable."
     remediation: "Add `ingress.tls` with the hosts and certificate secret to the chart values"
 
+  - id: IAC-098
+    stride: Information Disclosure
+    name: "Kubernetes Services keep data and admin ports inside the cluster"
+    violation_title: "Data or Admin Port Exposed Outside the Cluster"
+    iac_type: kubernetes
+    file_pattern: "k8s/*.yaml"
+    expect: structured
+    evaluator: kubernetes_sensitive_port_exposed
+    severity_if_violated: Medium
+    cwe: CWE-668
+    finding_type: FT-163
+    rationale: "A NodePort Service opens the port on every node, and a LoadBalancer Service without an internal annotation or source ranges gives it a public address, so a database, broker, or remote-administration port becomes reachable from outside the cluster."
+    remediation: "Use a ClusterIP Service, or make the load balancer internal or limit `loadBalancerSourceRanges`"
+
+  - id: IAC-099
+    stride: Information Disclosure
+    name: "Helm chart values keep data and admin ports inside the cluster"
+    violation_title: "Helm Chart Exposes a Data or Admin Port Outside the Cluster"
+    iac_type: helm_values
+    file_pattern: "values.yaml"
+    expect: structured
+    evaluator: helm_values_sensitive_port_exposed
+    severity_if_violated: Medium
+    cwe: CWE-668
+    finding_type: FT-163
+    rationale: "A NodePort or public LoadBalancer service type for a database, broker, or remote-administration port makes it reachable from outside the cluster."
+    remediation: "Set `service.type: ClusterIP`, or make the load balancer internal or limit `loadBalancerSourceRanges`"
+
   # ============ Terraform ============
   - id: IAC-090
     stride: Information Disclosure

@@ -106,12 +106,40 @@ kinds:
   - 'const upload = multer({ storage })'
   ignores:
   - 'const uploaded = true'
+- kind: tenant_identifier
+  description: code reads or filters by a tenant or organization identifier
+  signal: tenant_identifier
+  matches:
+  - "const tenantId = req.get('X-Tenant-Id')"
+  - 'rows = Invoice.objects.filter(org_id=request.user.org_id)'
+  ignores:
+  - 'const tender = await bids.latest()'
+- kind: session
+  description: code creates or configures a session, sets a cookie, or stores a session token
+  signal: session_handling
+  anchor: site
+  matches:
+  - "const session = require('express-session')"
+  - "res.cookie('token', token, { httpOnly: true })"
+  - 'req.session.regenerate(done)'
+  ignores:
+  - 'const sessions = await stats.count()'
 - kind: transport
   description: code starts a server or sets transport security
   ignore_case: true
   patterns:
   - 'rejectUnauthorized\s*:\s*false'
   - 'NODE_TLS_REJECT_UNAUTHORIZED'
+  - '\bverify\s*=\s*false\b'
+  - '\bcheck_hostname\s*=\s*false\b'
+  - '\b_create_unverified_context\s*\('
+  - '\bCERT_NONE\b'
+  - '\bInsecureSkipVerify\s*:\s*true\b'
+  - '\b(?:NoopHostnameVerifier|ALLOW_ALL_HOSTNAME_VERIFIER|InsecureTrustManagerFactory)\b'
+  - '\bServerCertificate(?:Custom)?ValidationCallback\b'
+  - '\bDangerousAcceptAnyServerCertificateValidator\b'
+  - '\bVERIFY_NONE\b'
+  - '\bCURLOPT_SSL_VERIFYPEER\b'
   - '\bsecure\s*:\s*false'
   - '\bhelmet\b'
   - '\bhsts\b'
@@ -122,6 +150,9 @@ kinds:
   - 'const agent = new https.Agent({ rejectUnauthorized: false })'
   - 'app.listen(port)'
   - "res.cookie('token', token, { secure: false })"
+  - 'response = requests.get(url, verify=False)'
+  - 'TLSClientConfig: &tls.Config{InsecureSkipVerify: true},'
+  - 'handler.ServerCertificateCustomValidationCallback = (m, c, ch, e) => true;'
   ignores:
   - 'const server = createWorker()'
 - kind: sensitive_field

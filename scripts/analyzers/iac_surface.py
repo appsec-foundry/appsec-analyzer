@@ -6,9 +6,28 @@ from pathlib import Path
 
 _IAC_SURFACE_GLOBS = (
     "Dockerfile",
+    "Dockerfile.*",
     "*.dockerfile",
     "docker-compose*.yml",
     "docker-compose*.yaml",
+    "compose*.yml",
+    "compose*.yaml",
+    # Kubernetes manifests, Helm charts and Terraform, which the catalog checks
+    # (data/config-iac-checks.yaml, file_patterns_by_type) even without a container file.
+    "k8s/*.yaml",
+    "k8s/*.yml",
+    "kubernetes/*.yaml",
+    "kubernetes/*.yml",
+    "manifests/*.yaml",
+    "manifests/*.yml",
+    "deploy/*.yaml",
+    "deploy/*.yml",
+    "deployment/*.yaml",
+    "deployment/*.yml",
+    "Chart.yaml",
+    ".gitlab/auto-deploy-values.yaml",
+    "*.tf",
+    "*.tfvars",
     ".github/workflows/*.yml",
     ".github/workflows/*.yaml",
     ".github/dependabot.yml",

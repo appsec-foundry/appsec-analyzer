@@ -38,8 +38,8 @@ def test_the_shipped_file_reproduces_each_depth_before_it_existed():
         assert tuple(values[key] for key in keys) == expected[depth], depth
     assert [depth_settings.shipped(depth)["verify"] for depth in DEPTHS] == [
         [],
-        ["AuthN", "AuthZ", "InputVal", "AI"],
-        ["AuthN", "AuthZ", "InputVal", "DataProt", "AI"],
+        ["AuthN", "SessionMgmt", "AuthZ", "InputVal", "AI"],
+        ["AuthN", "SessionMgmt", "AuthZ", "InputVal", "DataProt", "AI"],
     ]
 
 
