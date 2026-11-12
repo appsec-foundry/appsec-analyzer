@@ -234,19 +234,21 @@ def test_one_repository_takes_the_combined_path(tmp_path, monkeypatch):
     scope.verify_unchanged()
 
 
-def test_console_log_starts_once_the_run_holds_its_output(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "mode, name, other", [("plain", "console.log", "console.html"), ("html", "console.html", "console.log")]
+)
+def test_console_log_starts_once_the_run_holds_its_output(tmp_path, monkeypatch, mode, name, other):
     import stat
-
-    from runtime.assessment_state import CONSOLE_LOG_NAME
 
     from appsec_analyzer.assessment.console import console_log
 
     monkeypatch.setattr(controller, "_assessment_architecture", lambda *a, **k: print("architecture") or 1 / 0)
-    with console_log(plain=True):
+    with console_log(mode=mode):
         print("before the run")
         with pytest.raises(ZeroDivisionError):
             _assess(tmp_path, monkeypatch, ("solo",))
-    log = tmp_path / "out" / CONSOLE_LOG_NAME
+    log = tmp_path / "out" / name
+    assert not (tmp_path / "out" / other).exists()
     text = log.read_text(encoding="utf-8")
     assert text.index("before the run") < text.index("architecture")
     assert stat.S_IMODE(log.stat().st_mode) == 0o600
@@ -3156,7 +3158,7 @@ def test_the_closing_names_the_console_log_only_when_one_is_written(tmp_path, mo
 
     assert not any("Console" in line for line in _outcome_lines(tmp_path, monkeypatch, capsys))
     path = tmp_path / "console.log"
-    with console_log(plain=True) as log:
+    with console_log() as log:
         log.start(path)
         out = _outcome_lines(tmp_path, monkeypatch, capsys)
     assert any(re.fullmatch(rf"\s+Console\s+{re.escape(str(path))}", line) for line in out)

@@ -704,9 +704,10 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         "--console-log",
         nargs="?",
         const="plain",
-        choices=("plain", "color"),
+        choices=("plain", "color", "html"),
         help="Also save the console output as console.log in the output directory, without the status line; "
-        "plain leaves out the colour codes (default), color keeps the console's colour",
+        "plain leaves out the colour codes (default), color keeps the console's colour, "
+        "html writes console.html with that colour for a browser",
     )
     control_group.add_argument(
         "--non-interactive",
@@ -1873,7 +1874,7 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                 return _assess(ns)
             from appsec_analyzer.assessment.console import console_log
 
-            with console_log(plain=ns.console_log == "plain"):
+            with console_log(mode=ns.console_log):
                 return _assess(ns)
         if ns.command in ("status", "progress", "stop", "results"):
             return _inspect(ns)

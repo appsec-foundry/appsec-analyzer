@@ -987,9 +987,9 @@ def test_session_hook_files_never_block_a_start(scope, earlier):
     """Hooks log, and the controller opens its progress feed, before the run holds the directory.
 
     An earlier run with --console-log leaves its console log there."""
-    from runtime.assessment_state import CONSOLE_LOG_NAME, PROGRESS_NAME, SESSION_HOOK_NAMES
+    from runtime.assessment_state import CONSOLE_HTML_NAME, CONSOLE_LOG_NAME, PROGRESS_NAME, SESSION_HOOK_NAMES
 
-    names = (*SESSION_HOOK_NAMES, PROGRESS_NAME, CONSOLE_LOG_NAME)
+    names = (*SESSION_HOOK_NAMES, PROGRESS_NAME, CONSOLE_LOG_NAME, CONSOLE_HTML_NAME)
     if earlier == "completed":
         _completed(scope)
     scope.output.mkdir(exist_ok=True)

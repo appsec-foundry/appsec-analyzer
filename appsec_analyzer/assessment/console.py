@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import html
 import json
 import os
 import re
@@ -22,7 +23,7 @@ from appsec_analyzer.engine import initialize
 from appsec_analyzer.version_info import describe
 
 initialize()
-from renderers.term_style import ANSI_RE, SPINNER, Style, logo
+from renderers.term_style import _PALETTE, ANSI_RE, SPINNER, Style, logo
 
 ASSESS_PAUSED_EXIT = 3
 
@@ -353,21 +354,97 @@ class _AssessmentProgress:
             print(f"⚠ progress file disabled: {exc.strerror or exc}", file=sys.stderr, flush=True)
 
 
+class _HtmlConsole:
+    """Turns the console's text and colour codes into the page of ``console.html``.
+
+    Every text is escaped, so text from a repository or a model stays text. The page has no closing
+    tags: a browser ends ``<pre>`` at the end of the file, so --resume can append to it and a stopped
+    run's page shows as much as a finished one.
+    """
+
+    HEAD = (
+        '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        # No script and nothing loaded from elsewhere; inline styles carry the colours.
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; "
+        "base-uri 'none'; form-action 'none'\">\n"
+        "<title>appsec-analyzer console</title>\n"
+        "<style>body{margin:0;background:#2e3440;color:#d8dee9}"
+        "pre{margin:0;padding:16px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}</style>\n"
+        "</head>\n<body><pre>"
+    )
+    _SGR = re.compile(r"\033\[([0-9;]*)m")
+    # Any other escape sequence or control character; line breaks and tabs stay.
+    _CONTROL = re.compile(r"\033\[[0-?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f]")
+    # A base colour shows in the 24-bit tone of the first console role that uses it.
+    _BASE = {code: rgb for rgb, code in reversed(_PALETTE.values())}
+
+    def __init__(self):
+        self.colour: tuple[int, ...] | None = None
+        self.bold = self.dim = False
+
+    def __call__(self, text: str) -> str:
+        parts = []
+        for index, piece in enumerate(self._SGR.split(text)):
+            if index % 2:
+                self._apply(piece.split(";"))
+            elif piece := self._CONTROL.sub("", piece):
+                parts.append(self._span(html.escape(piece, quote=False)))
+        return "".join(parts)
+
+    def _apply(self, codes: list[str]) -> None:
+        index = 0
+        while index < len(codes):
+            code = codes[index]
+            if code in ("", "0"):
+                self.colour, self.bold, self.dim = None, False, False
+            elif code == "1":
+                self.bold = True
+            elif code == "2":
+                self.dim = True
+            elif code == "22":
+                self.bold = self.dim = False
+            elif code == "39":
+                self.colour = None
+            elif code == "38" and codes[index + 1 : index + 2] == ["2"] and len(codes) >= index + 5:
+                self.colour = tuple(min(int(part or 0), 255) for part in codes[index + 2 : index + 5])
+                index += 4
+            elif code == "38" and codes[index + 1 : index + 2] == ["5"]:
+                index += 2
+            elif code in self._BASE:
+                self.colour = self._BASE[code]
+            index += 1
+
+    def _span(self, text: str) -> str:
+        style = ";".join(
+            part
+            for part in (
+                self.colour and "color:rgb({},{},{})".format(*self.colour),
+                self.bold and "font-weight:bold",
+                self.dim and "opacity:.7",
+            )
+            if part
+        )
+        return f'<span style="{style}">{text}</span>' if style else text
+
+
 class ConsoleLog:
-    """The copy of the console for ``console.log`` (``--console-log``).
+    """The copy of the console for ``console.log`` or ``console.html`` (``--console-log``).
 
     What is printed before the run holds its output directory is kept until `start` names the file, and
     dropped if the run ends before that; from then on every write goes to the file as it comes, so a
-    stopped run keeps its log. Status line redraws are left out, and ``plain`` leaves out the colour codes.
-    A log that cannot be written never ends the run.
+    stopped run keeps its log. Status line redraws are left out. ``plain`` leaves out the colour codes,
+    ``color`` keeps them and ``html`` shows them as colours of a web page. A log that cannot be written
+    never ends the run.
     """
 
     # The log of the running command; the controller starts it once the run holds its output directory.
     active: ConsoleLog | None = None
     _STATUS_CLEAR = re.compile(r"\r\033\[K(?:\033\[1A\033\[K)*")
 
-    def __init__(self, *, plain: bool = False):
-        self._plain = plain
+    def __init__(self, *, mode: str = "plain"):
+        self._mode = mode
+        self._html = _HtmlConsole() if mode == "html" else None
+        self.html = self._html is not None
         self._lock = threading.Lock()
         self._held: list[str] | None = []
         self._file = None
@@ -388,6 +465,7 @@ class ConsoleLog:
                 os.fchmod(fd, 0o600)  # also when an earlier run left the file with wider rights
             if not append:
                 os.ftruncate(fd, 0)
+            empty = not append or info.st_size == 0
         except OSError as exc:
             if fd is not None:
                 os.close(fd)
@@ -398,15 +476,17 @@ class ConsoleLog:
         with self._lock:
             self._file = os.fdopen(fd, "a", encoding="utf-8", buffering=1)
             self.path = path
-            self._save("".join(self._held or ()))
+            self._save(("" if self._html is None or not empty else _HtmlConsole.HEAD) + "".join(self._held or ()))
             self._held = None
 
     def write(self, text: str) -> None:
         if text.startswith(_AssessmentConsole.FRAME_OPEN) or self._STATUS_CLEAR.fullmatch(text):
             return
-        if self._plain:
-            text = ANSI_RE.sub("", text)
         with self._lock:
+            if self._mode == "plain":
+                text = ANSI_RE.sub("", text)
+            elif self._html is not None:
+                text = self._html(text)
             if self._file is not None:
                 self._save(text)
             elif self._held is not None:
@@ -447,9 +527,9 @@ class _Tee:
 
 
 @contextmanager
-def console_log(*, plain: bool = False):
+def console_log(*, mode: str = "plain"):
     """Copy standard output and error to a `ConsoleLog` until the block ends (``--console-log``)."""
-    log = ConsoleLog(plain=plain)
+    log = ConsoleLog(mode=mode)
     out, err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = _Tee(out, log), _Tee(err, log)
     ConsoleLog.active = log

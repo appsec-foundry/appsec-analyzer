@@ -4993,11 +4993,11 @@ def assess_repositories(
                 test_cases=ns.test_case_config,
             )
             with session as (cfg, state, jobs):
-                if ConsoleLog.active is not None:
+                if (log := ConsoleLog.active) is not None:
                     # --console-log: written only once the run holds its output directory.
-                    from runtime.assessment_state import CONSOLE_LOG_NAME
+                    from runtime.assessment_state import CONSOLE_HTML_NAME, CONSOLE_LOG_NAME
 
-                    ConsoleLog.active.start(scope.output / CONSOLE_LOG_NAME, append=state.resume)
+                    log.start(scope.output / (CONSOLE_HTML_NAME if log.html else CONSOLE_LOG_NAME), append=state.resume)
                 _assessment_unsupported_configuration(cfg, scope)
                 from appsec_analyzer.assessment.scope import scope_facts
                 from orchestrator.assessment_review import AssessmentReviewError

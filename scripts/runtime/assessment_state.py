@@ -47,9 +47,10 @@ RUN_DIAGNOSTIC_NAMES = (RUN_ISSUES_NAME, ".run-issues-fixes.json", ".run-bugs.js
 # The progress feed the skill passes as --progress-file. The controller replaces
 # it before this check runs, so it never blocks a start.
 PROGRESS_NAME = ".assessment-progress.jsonl"
-# The console copy of `assess --console-log`. Each run with the option replaces
-# or, with --resume, continues it; it never blocks a start.
+# The console copy of `assess --console-log`, and of `--console-log html`. Each
+# run with the option replaces or, with --resume, continues it; it never blocks a start.
 CONSOLE_LOG_NAME = "console.log"
+CONSOLE_HTML_NAME = "console.html"
 # The session hooks log into an existing assessment directory without any run
 # holding it (decision AS-1), for example between an import and the launch, so
 # their files never block a start.
@@ -465,6 +466,7 @@ class AssessmentState:
             *SESSION_HOOK_NAMES,
             PROGRESS_NAME,
             CONSOLE_LOG_NAME,
+            CONSOLE_HTML_NAME,
         }
         if self.scope.output_in_checkout():
             leftovers &= self._own_names()

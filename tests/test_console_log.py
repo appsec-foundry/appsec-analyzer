@@ -32,10 +32,49 @@ def test_the_log_holds_output_until_start_and_leaves_out_the_status_line(tmp_pat
 def test_the_log_is_plain_unless_color(tmp_path):
     for mode, expected in (("plain", "✓ done\n"), ("color", "\033[32m✓ done\033[0m\n")):
         path = tmp_path / f"{mode}.log"
-        with console_log(plain=mode == "plain") as log:
+        with console_log(mode=mode) as log:
             log.start(path)
             print("\033[32m✓ done\033[0m")
         assert path.read_text(encoding="utf-8") == expected
+
+
+def test_html_shows_the_console_colours_on_a_page_without_script(tmp_path):
+    path = tmp_path / "console.html"
+    with console_log(mode="html") as log:
+        print("\033[1;36mPreflight\033[0m held")
+        log.start(path)
+        sys.stderr.write(STATUS)
+        print("\033[38;2;236;109;118mcritical\033[0m and \033[90mmuted\033[0m plain")
+    page = path.read_text(encoding="utf-8")
+    assert page.startswith("<!doctype html>") and page.count("<!doctype html>") == 1
+    assert "default-src 'none'" in page and "<script" not in page and "status" not in page
+    body = page.split("<body><pre>", 1)[1]
+    assert body == (
+        '<span style="color:rgb(124,196,228);font-weight:bold">Preflight</span> held\n'
+        '<span style="color:rgb(236,109,118)">critical</span> and '
+        '<span style="color:rgb(109,118,134)">muted</span> plain\n'
+    )
+
+
+def test_html_keeps_text_from_repositories_and_models_as_text(tmp_path):
+    path = tmp_path / "console.html"
+    with console_log(mode="html") as log:
+        log.start(path)
+        print('<script>alert(1)</script> & <img src=x onerror="x"> \033]8;;http://evil\a\033[2Jlink\r')
+    body = path.read_text(encoding="utf-8").split("<body><pre>", 1)[1]
+    assert body == '&lt;script&gt;alert(1)&lt;/script&gt; &amp; &lt;img src=x onerror="x"&gt; ]8;;http://evillink\n'
+
+
+def test_html_resume_appends_without_a_second_head(tmp_path):
+    path = tmp_path / "console.html"
+    with console_log(mode="html") as log:
+        log.start(path)
+        print("first")
+    with console_log(mode="html") as log:
+        log.start(path, append=True)
+        print("resumed")
+    page = path.read_text(encoding="utf-8")
+    assert page.count("<!doctype html>") == 1 and page.endswith("<body><pre>first\nresumed\n")
 
 
 def test_resume_continues_the_log_and_a_new_run_replaces_it(tmp_path):
@@ -101,8 +140,16 @@ def test_a_failing_write_ends_the_log_not_the_run(tmp_path, capsys):
     assert "⚠ console log incomplete: No space left on device" in shown.err
 
 
-@pytest.mark.parametrize("flag, plain", [((), None), (("--console-log",), True), (("--console-log", "color"), False)])
-def test_the_flag_wraps_the_run_and_stays_out_of_the_request(tmp_path, monkeypatch, flag, plain):
+@pytest.mark.parametrize(
+    "flag, mode",
+    [
+        ((), None),
+        (("--console-log",), "plain"),
+        (("--console-log", "color"), "color"),
+        (("--console-log", "html"), "html"),
+    ],
+)
+def test_the_flag_wraps_the_run_and_stays_out_of_the_request(tmp_path, monkeypatch, flag, mode):
     from appsec_analyzer import cli, hosts
     from tests.test_public_scan_cli import _repo
 
@@ -111,7 +158,7 @@ def test_the_flag_wraps_the_run_and_stays_out_of_the_request(tmp_path, monkeypat
     seen = []
 
     def assess(request, **kwargs):
-        seen.append(None if ConsoleLog.active is None else ConsoleLog.active._plain)
+        seen.append(None if ConsoleLog.active is None else ConsoleLog.active._mode)
         # Where the console goes is no part of the run's identity.
         assert not any(argument.startswith("--console-log") for argument in request.arguments)
         return 0
@@ -119,4 +166,4 @@ def test_the_flag_wraps_the_run_and_stays_out_of_the_request(tmp_path, monkeypat
     monkeypatch.setattr(controller, "assess_main", assess)
     arguments = ["assess", "--repo", str(repo), "--profile", "claude", "--skip-preflight", "--non-interactive"]
     assert cli.main([*arguments, *flag]) == 0
-    assert seen == [plain] and ConsoleLog.active is None
+    assert seen == [mode] and ConsoleLog.active is None

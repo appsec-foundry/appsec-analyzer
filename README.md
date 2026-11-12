@@ -483,7 +483,7 @@ These options apply to `assess`. Command-line options override the defaults from
 | `--non-interactive` | For CI. Without it, an interactive terminal may ask for the depth when none is given, and for a higher budget before skipping work. |
 | `--verbose` | Show job and call identities and detailed correction messages. |
 | `--show-costs` | Show costs even with subscription billing; default cost display is API billing only. |
-| `--console-log [color]` | Also save the console output as `console.log` in the output directory, without the live status line. Without colour codes unless you add `color`. See [progress and diagnostics](docs/security-assessment.md#progress-and-diagnostics). |
+| `--console-log [color\|html]` | Also save the console output as `console.log` in the output directory, without the live status line. Without colour codes unless you add `color`; `html` writes `console.html` with the colours for a browser. See [progress and diagnostics](docs/security-assessment.md#progress-and-diagnostics). |
 
 `--assessment-depth` sets how much [each method](#how-assess-finds-weaknesses) checks:
 
