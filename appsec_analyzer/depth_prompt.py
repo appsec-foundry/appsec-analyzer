@@ -33,23 +33,27 @@ def choose(profiles: dict[str, dict]) -> str:
 
     depths = tuple(profiles)
     priced = usd_at_api_prices(profiles[depths[0]].get("adapter"))
-    sys.stderr.write(
-        "No --assessment-depth given. Every depth makes model calls.\n"
-        + (
-            "Limit: the most subscription usage a run may take, valued at API prices.\n\n"
-            if priced
-            else "Limit: the most a run may cost.\n\n"
-        )
+    meaning = (
+        "the most subscription usage a run may take, valued at API prices" if priced else "the most a run may cost"
     )
-    limits = [
-        f"USD {settings['budget']:g}" if settings["budget"] is not None else f"{settings['max_calls']} calls"
-        for settings in (profiles[depth]["settings"] for depth in depths)
-    ]
-    width = max(len("Limit"), *map(len, limits))
-    sys.stderr.write(f"     {'Depth':<9} {'Limit':<{width}}  {'Cost, runtime':<16}  Covers\n")
-    for number, (depth, limit) in enumerate(zip(depths, limits), 1):
+    settings = [profiles[depth]["settings"] for depth in depths]
+    limits = [f"USD {s['budget']:g}" if s["budget"] is not None else f"{s['max_calls']} calls" for s in settings]
+    if len(set(limits)) == 1:
+        # One limit for every depth, such as one from --budget, is named once instead of in each row.
+        key = "budget" if settings[0]["budget"] is not None else "max_calls"
+        flag = key.replace("_", "-")
+        source = f" from --{flag}" if profiles[depths[0]]["origins"]["settings"].get(key) == "CLI" else ""
+        limit_line = f"Limit: {limits[0]}{source} for every depth, {meaning}."
+        columns = [""] * (len(depths) + 1)
+    else:
+        limit_line = f"Limit: {meaning}."
+        width = max(len("Limit"), *map(len, limits))
+        columns = [f"{text:<{width}}  " for text in ("Limit", *limits)]
+    sys.stderr.write(f"No --assessment-depth given. Every depth makes model calls.\n{limit_line}\n\n")
+    sys.stderr.write(f"     {'Depth':<9} {columns[0]}{'Cost, runtime':<16}  Covers\n")
+    for number, (depth, column) in enumerate(zip(depths, columns[1:]), 1):
         sys.stderr.write(
-            f"  {number}) {depth:<9} {limit:<{width}}  {_RELATIVE[depth]:<16}  "
+            f"  {number}) {depth:<9} {column}{_RELATIVE[depth]:<16}  "
             f"{_coverage(profiles[depth]['settings']['depth_settings'], depth)}\n"
         )
     sys.stderr.write("\n")

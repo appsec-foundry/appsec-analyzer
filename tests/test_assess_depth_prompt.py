@@ -41,7 +41,8 @@ def test_enter_picks_standard_and_the_question_names_cost_runtime_and_coverage(r
     assert (code, depth) == (0, "standard")
     for depth_name in ("quick", "standard", "thorough"):
         assert depth_name in err
-    assert err.count("USD 20") == 3
+    assert all(err.count(limit) == 1 for limit in ("USD 12", "USD 20", "USD 40"))
+    assert "Limit  " in err and "for every depth" not in err
     assert "Cost, runtime" in err and "lowest, shortest" in err and "highest, longest" in err
     assert "survey only" in err and "architect review" in err
 
@@ -126,6 +127,20 @@ def test_a_scan_profile_without_a_depth_still_asks(run, tmp_path_factory):
     profile = tmp_path_factory.mktemp("profiles") / "plain-scan.yaml"
     profile.write_text("schema_version: 1\nmodel_profile: claude\n")
     assert run(profile=str(profile), typed="3\n")[:2] == (0, "thorough")
+
+
+def test_a_budget_option_is_named_once_for_every_depth(run):
+    code, depth, err = run("--budget", "30", typed="1\n")
+    assert (code, depth) == (0, "quick")
+    assert "Limit: USD 30 from --budget for every depth" in err
+    assert err.count("USD 30") == 1 and "Limit  " not in err
+
+
+def test_a_scan_profile_budget_is_named_once_without_the_option(run, tmp_path_factory):
+    profile = tmp_path_factory.mktemp("profiles") / "budget-scan.yaml"
+    profile.write_text("schema_version: 1\nmodel_profile: claude\nbudget: 25\n")
+    err = run(profile=str(profile))[2]
+    assert "Limit: USD 25 for every depth" in err and "from --budget" not in err
 
 
 @pytest.mark.parametrize("typed", ["", "9\nx\n\x00\n"])
