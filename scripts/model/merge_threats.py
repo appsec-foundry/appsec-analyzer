@@ -191,7 +191,9 @@ def backfill_threat_category_id(threat: dict) -> bool:
     return False
 
 
-_CVSS_V4_SOURCES = {"stride-analyzer", "dep-scan", "nvd", "osv", "known-vuln", "manual"}
+# The sources the merged contract accepts; `dep-scan` was removed in 2026-05, so
+# the canonical form never keeps it and the merge gate never stops on it.
+_CVSS_V4_SOURCES = {"stride-analyzer", "nvd", "osv", "known-vuln", "manual"}
 _CVSS_V4_SEVERITIES = {"None", "Low", "Medium", "High", "Critical"}
 
 

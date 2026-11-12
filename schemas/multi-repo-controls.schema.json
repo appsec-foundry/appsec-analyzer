@@ -40,7 +40,8 @@
             "type": "string"
           },
           "control": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "kind": {
             "type": "string",

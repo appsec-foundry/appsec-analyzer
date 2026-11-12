@@ -279,11 +279,9 @@
           "likelihood": {
             "type": "string",
             "enum": [
-              "Critical",
               "High",
               "Medium",
-              "Low",
-              "Informational"
+              "Low"
             ]
           },
           "impact": {
@@ -292,8 +290,7 @@
               "Critical",
               "High",
               "Medium",
-              "Low",
-              "Informational"
+              "Low"
             ]
           },
           "risk": {
@@ -302,8 +299,7 @@
               "Critical",
               "High",
               "Medium",
-              "Low",
-              "Informational"
+              "Low"
             ]
           },
           "owasp_llm_ids": {
@@ -480,9 +476,11 @@
           "violated_requirements": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 64
             },
-            "maxItems": 100
+            "maxItems": 8
           },
           "remediation_reference": {
             "type": [
@@ -492,10 +490,7 @@
             "description": "Optional direct URL (CWE entry, OWASP cheat-sheet, internal blueprint) for the threat. Consumed by `scripts/exporters/export_sarif.py` as the SARIF `rule.helpUri`. When null, the exporter falls back to the first non-null `mitigations[m].reference` reachable via `mitigation_ids`.\n"
           },
           "architectural_theme": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "enum": [
               "Separation",
               "SecretManagement",
@@ -511,15 +506,11 @@
               "LeastPrivilege",
               "InsecureDesign",
               "AttackSurfaceDesign",
-              "SessionDesign",
-              null
+              "SessionDesign"
             ]
           },
           "generic_threat_title": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "minLength": 5,
             "maxLength": 120
           },
@@ -561,7 +552,6 @@
                     "type": "string",
                     "enum": [
                       "stride-analyzer",
-                      "dep-scan",
                       "nvd",
                       "osv",
                       "known-vuln",
@@ -596,6 +586,7 @@
               "string",
               "null"
             ],
+            "minLength": 1,
             "maxLength": 128
           },
           "remediation": {

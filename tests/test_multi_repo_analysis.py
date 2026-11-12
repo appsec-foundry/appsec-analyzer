@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -241,6 +242,240 @@ def test_a_component_keeps_every_finding_its_bounded_jobs_returned():
     assert "maxItems" not in stage.component_stride_contract(None)["properties"]["threats"]
     # A single job keeps its own limit.
     assert stage.component_stride_contract(1)["properties"]["threats"]["maxItems"] == per_job
+
+
+def _types(node):
+    kind = node.get("type")
+    return None if kind is None else set(kind if isinstance(kind, list) else [kind])
+
+
+def _rejected_value(value, checked):
+    """Why `checked` rejects one value a contract enumerates, or None."""
+    kind = {str: "string", bool: "boolean", int: "integer", float: "number", type(None): "null"}[type(value)]
+    allowed = _types(checked)
+    if allowed is not None and kind not in allowed and not (kind == "integer" and "number" in allowed):
+        return f"{value!r} is not of type {sorted(allowed)}"
+    if "enum" in checked and value not in checked["enum"]:
+        return f"{value!r} is not one of {checked['enum']}"
+    if isinstance(value, str) and not (
+        checked.get("minLength", 0) <= len(value) <= checked.get("maxLength", len(value))
+    ):
+        return f"{value!r} breaks the length bounds"
+    if isinstance(value, str) and "pattern" in checked and not re.search(checked["pattern"], value):
+        return f"{value!r} does not match {checked['pattern']!r}"
+    return None
+
+
+def _admitted_but_rejected(offered, checked, path="", *, closed, ignored):
+    """Each value class the contract `offered` admits and the later schema `checked` rejects.
+
+    Covers the keywords these contracts use. A `closed` pair checks one document,
+    so required fields and closed objects count too; otherwise only the fields
+    the handoff passes on are compared. `ignored` names fields the handoff
+    replaces before the check sees them.
+    """
+    if not isinstance(offered, dict) or not isinstance(checked, dict):
+        return []
+    if "if" in checked and "else" in checked and "properties" not in checked:
+        checked = checked["else"]  # the legacy STRIDE root: a parse-error stub or the document
+    options = offered.get("oneOf") or offered.get("anyOf")
+    if options is not None:
+        expected = checked.get("oneOf") or checked.get("anyOf")
+        return [
+            gap
+            for index, option in enumerate(options)
+            for gap in _admitted_but_rejected(
+                option,
+                expected[index] if expected and len(expected) == len(options) else checked,
+                f"{path}<{index}>",
+                closed=closed,
+                ignored=ignored,
+            )
+        ]
+    if checked.get("oneOf") or checked.get("anyOf"):
+        return [f"{path}: only the later check branches; compare it by hand"]
+    values = offered["enum"] if "enum" in offered else [offered["const"]] if "const" in offered else None
+    if values is not None:
+        return [f"{path}: {reason}" for value in values if (reason := _rejected_value(value, checked))]
+    gaps = []
+    if "enum" in checked or "const" in checked:
+        gaps.append(f"{path}: the check allows only {checked.get('enum', [checked.get('const')])}")
+    checked_types = _types(checked)
+    if checked_types is not None:
+        extra = (_types(offered) or {"any"}) - checked_types - ({"integer"} if "number" in checked_types else set())
+        if extra:
+            gaps.append(f"{path}: the contract admits type {sorted(extra)}, the check {sorted(checked_types)}")
+    for key in ("minLength", "minItems", "minimum"):
+        if key in checked and offered.get(key, float("-inf")) < checked[key]:
+            gaps.append(f"{path}: {key} {offered.get(key)} is below the check's {checked[key]}")
+    for key in ("maxLength", "maxItems", "maximum"):
+        if key in checked and offered.get(key, float("inf")) > checked[key]:
+            gaps.append(f"{path}: {key} {offered.get(key)} exceeds the check's {checked[key]}")
+    if "pattern" in checked and offered.get("pattern") != checked["pattern"]:
+        gaps.append(f"{path}: the check requires the pattern {checked['pattern']!r}")
+    own, theirs = offered.get("properties") or {}, checked.get("properties") or {}
+    if closed:
+        if missing := set(checked.get("required") or ()) - set(offered.get("required") or ()) - ignored:
+            gaps.append(f"{path}: the check requires {sorted(missing)}")
+        if checked.get("additionalProperties") is False and (extra := set(own) - set(theirs) - ignored):
+            gaps.append(f"{path}: the check rejects the fields {sorted(extra)}")
+    for name in sorted(set(own) & set(theirs) - ignored):
+        gaps += _admitted_but_rejected(own[name], theirs[name], f"{path}.{name}", closed=closed, ignored=ignored)
+    if "items" in offered and "items" in checked:
+        gaps += _admitted_but_rejected(offered["items"], checked["items"], f"{path}[]", closed=closed, ignored=ignored)
+    return gaps
+
+
+_THREATS = ("properties", "threats", "items")
+_CONTROLS = ("properties", "security_controls", "items")
+# The STRIDE review checks a projection without repository IDs, hashes and the
+# schema version, and with an opaque locator in place of each file.
+_PROJECTED = frozenset({"repository_id", "sha256", "schema_version", "file"})
+_QUALIFIED = frozenset({"repository_id", "sha256"})
+
+
+@pytest.mark.parametrize(
+    "offered,offered_at,checked,checked_at,closed,ignored",
+    [
+        (lambda: stage.contract("multi-repo-stride.schema.json"), (), "stride.schema.yaml", (), True, _PROJECTED),
+        (
+            lambda: stage.contract("multi-repo-stride.schema.json"),
+            _THREATS,
+            "threats-merged-v2.schema.json",
+            _THREATS,
+            False,
+            _QUALIFIED,
+        ),
+        (
+            lambda: stage.contract("multi-repo-stride.schema.json"),
+            _THREATS,
+            "threats-merged.schema.yaml",
+            _THREATS,
+            False,
+            _QUALIFIED,
+        ),
+        (
+            stage.controls_contract,
+            _CONTROLS,
+            "fragments/security-controls.schema.json",
+            _CONTROLS,
+            False,
+            _QUALIFIED,
+        ),
+        *(
+            (
+                lambda: stage.contract("multi-repo-architecture.schema.json"),
+                ("properties", field, "items"),
+                "fragments/data-flows-v2.schema.json",
+                ("properties", field, "items"),
+                False,
+                frozenset(),
+            )
+            for field in ("data_flows", "external_entities")
+        ),
+    ],
+    ids=[
+        "stride-review",
+        "stride-merge",
+        "stride-merged-file",
+        "controls-posture",
+        "flows-combined-gate",
+        "entities-combined-gate",
+    ],
+)
+def test_every_value_a_job_contract_admits_passes_its_later_checks(
+    offered, offered_at, checked, checked_at, closed, ignored
+):
+    """MR-17: the output tool enforces the contract, so no later schema may reject what it lets through.
+
+    A value the review rejects costs correction turns that never named it; one
+    that only the merge or the report gate rejects stops the run after every
+    job was paid, with no turn left to repair it.
+    """
+    offered_schema, checked_schema = offered(), stage.contract(checked)
+    for key in offered_at:
+        offered_schema = offered_schema[key]
+    for key in checked_at:
+        checked_schema = checked_schema[key]
+    assert _admitted_but_rejected(offered_schema, checked_schema, closed=closed, ignored=ignored) == []
+
+
+_DEP_SCAN = dict(
+    vector="CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N",
+    base_score=9.3,
+    severity="Critical",
+    source="dep-scan",
+)
+_REQUIREMENTS = [f"REQ-{n:03d}" for n in range(1, 10)]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("likelihood", "Critical"),
+        ("likelihood", "Informational"),
+        ("impact", "Informational"),
+        ("risk", "Informational"),
+        ("control_scope", ""),
+        ("violated_requirements", _REQUIREMENTS),
+        ("architectural_theme", None),
+        ("generic_threat_title", None),
+        ("cvss_v4", _DEP_SCAN),
+    ],
+    ids=[
+        "critical-likelihood",
+        "informational-likelihood",
+        "informational-impact",
+        "informational-risk",
+        "empty-control-scope",
+        "nine-requirements",
+        "null-theme",
+        "null-generic-title",
+        "dep-scan-cvss",
+    ],
+)
+def test_a_value_a_later_check_rejects_is_refused_by_the_job_contract(tmp_path, field, value):
+    """The contract, which the output tool enforces, refuses it before any correction turn."""
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    artifact = stride(components[0], evidence[0], identity)
+    artifact["threats"][0][field] = copy.deepcopy(value)
+    with pytest.raises(ExchangeError, match="versioned contract"):
+        stage.validate_stride(
+            scope,
+            components[0],
+            components,
+            dict(component_inventory_fingerprint=FP, data_flows=[]),
+            artifact,
+            ranges[:1],
+            allowed_requirement_ids=frozenset(_REQUIREMENTS),
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        dict(likelihood="High", impact="Critical", risk="High"),
+        dict(likelihood="Low", impact="Low", risk="Low"),
+        dict(control_scope=None),
+        dict(control_scope="gateway-authz-middleware"),
+        dict(violated_requirements=_REQUIREMENTS[:8]),
+        dict(architectural_theme="InputValidation", generic_threat_title="Missing input validation"),
+    ],
+    ids=["high-likelihood", "low-ratings", "null-control-scope", "control-scope", "eight-requirements", "theme"],
+)
+def test_values_every_later_check_accepts_still_pass_the_review(tmp_path, changes):
+    scope, components, evidence, ranges, identity = sources(tmp_path)
+    artifact = stride(components[0], evidence[0], identity)
+    artifact["threats"][0].update(copy.deepcopy(changes))
+    stage.validate_stride(
+        scope,
+        components[0],
+        components,
+        dict(component_inventory_fingerprint=FP, data_flows=[]),
+        artifact,
+        ranges[:1],
+        allowed_requirement_ids=frozenset(_REQUIREMENTS),
+    )
 
 
 @pytest.mark.parametrize("corrected", [True, False])

@@ -3534,6 +3534,15 @@ def test_normalize_cvss_v4_keeps_valid_source(mt):
     assert mt.normalize_cvss_v4(raw)["source"] == "nvd"
 
 
+@pytest.mark.parametrize("source", ["stride-analyzer", "dep-scan", "nvd", "osv", "known-vuln", "manual", "made-up"])
+def test_normalize_cvss_v4_output_passes_the_merge_gate(mt, source):
+    """The canonical form is what the merged contract accepts; a removed source never stops the merge."""
+    from contexts.multi_repo_analysis import contract
+
+    gate = contract("threats-merged-v2.schema.json")["properties"]["threats"]["items"]["properties"]["cvss_v4"]
+    assert Draft202012Validator(gate).is_valid(mt.normalize_cvss_v4({**_DRIFTED_CVSS, "source": source}))
+
+
 def test_normalize_cvss_v4_drops_unsalvageable(mt):
     assert mt.normalize_cvss_v4(None) is None
     assert mt.normalize_cvss_v4({"vector": "not-cvss", "score": 5}) is None
