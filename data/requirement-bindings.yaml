@@ -1706,6 +1706,7 @@ requirements:
       - tests/test_scanner_cache.py::test_a_linked_file_is_not_used
       - tests/test_assessment_state.py::test_changed_settings_take_the_run_over_and_name_the_change
       - tests/test_assessment_state.py::test_expired_resume_takes_the_run_over_with_the_new_time_limit
+      - tests/test_assessment_state.py::test_a_pause_between_attempts_does_not_count_against_the_time_limit
       - tests/test_assessment_state.py::test_resume_of_a_completed_run_with_changed_settings_still_needs_a_new_scan
       - tests/test_assessment_state.py::test_an_unfinished_run_asks_and_only_an_explicit_answer_resumes_or_rebuilds
       - tests/test_assessment_state.py::test_the_question_omits_a_resume_that_cannot_succeed
@@ -2186,6 +2187,8 @@ requirements:
       - tests/test_console_cost_display.py::test_verification_estimate_without_costs_keeps_budget_coverage
       - tests/test_console_cost_display.py::test_retry_and_resume_details_hide_costs_without_hiding_work
       - tests/test_console_cost_display.py::test_budget_skip_details_keep_coverage_and_respect_cost_visibility
+      - tests/test_console_cost_display.py::test_budget_skip_details_name_the_reserve_that_ran_short
+      - tests/test_multi_repo_assessment.py::test_jobs_the_time_reserve_skipped_name_the_time_and_count_apart_from_budget_skips
       - tests/test_console_cost_display.py::test_saved_console_summary_respects_cost_visibility
       - tests/test_console_cost_display.py::test_offline_assessment_applies_visibility_and_keeps_real_accounting
       - tests/test_rate_limit_pause.py::test_other_worker_waits_before_host_creation_and_cancel_remains_available
@@ -2251,6 +2254,9 @@ requirements:
       - tests/test_assessment_jobs.py::test_optional_work_protects_pending_analysis_and_uses_measured_job_cost
       - tests/test_assessment_jobs.py::test_a_cold_optional_role_needs_the_run_average_above_the_full_report_reserve
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_the_report_and_local_finalization
+      - tests/test_assessment_jobs.py::test_an_unmeasured_report_reserves_twice_the_longest_job_of_the_session
+      - tests/test_assessment_jobs.py::test_the_report_keeps_the_full_call_limit_while_this_session_measured_nothing
+      - tests/test_assessment_jobs.py::test_a_skipped_job_names_the_limit_that_reserved_the_completion_work
       - tests/test_assessment_jobs.py::test_optional_work_keeps_time_for_pending_analysis_with_configured_workers
       - tests/test_assessment_jobs.py::test_assessment_budget_rejects_invalid_parallel_limits
       - tests/test_multi_repo_controller.py::test_components_run_concurrently_within_the_limit_and_keep_order

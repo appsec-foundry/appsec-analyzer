@@ -265,7 +265,7 @@ Handle statuses explicitly:
 
 Without an explicit gate, findings remain advisory. The example's `--fail-on high` checks new findings at high severity or above according to the engine's existing gate. It does not convert an unfinished assessment into a passing result.
 
-Collect output on failure as well as success. Reports and retained runtime state can contain proprietary source and analysis, so use private CI artifacts with restricted access and an appropriate retention period. Resume requires compatible sources, configuration, runtime and paths within the original deadline. Updating the engine or moving the installed profiles to another path can invalidate resume; do not promise that a different runner can resume an arbitrary saved directory.
+Collect output on failure as well as success. Reports and retained runtime state can contain proprietary source and analysis, so use private CI artifacts with restricted access and an appropriate retention period. Resume requires compatible sources, configuration, runtime and paths, and time left in the original time limit. Updating the engine or moving the installed profiles to another path can invalidate resume; do not promise that a different runner can resume an arbitrary saved directory.
 
 ### GitLab example
 

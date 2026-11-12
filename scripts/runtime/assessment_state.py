@@ -128,6 +128,14 @@ def _read_state(path: Path):
         raise ExchangeError("Assessment state is unreadable or malformed") from None
 
 
+def _time_used(state: dict) -> int:
+    """Seconds of its time limit a run used; a pause between its attempts does not count (REQ-016).
+
+    A state written before this rule has no such record; its working time stands in.
+    """
+    return state.get("time_used_seconds", state.get("worked_seconds", 0))
+
+
 def _accepted_steps(directory: Path) -> int:
     """How many accepted steps a work directory holds for a later run."""
     accepted = set()
@@ -303,7 +311,7 @@ class AssessmentState:
         if self.resume:
             earlier = self.state["identity"]
             # REQ-016: a changed plugin alone continues an unfinished run with its
-            # deadline, limits and accounting; the job layer rechecks each accepted job.
+            # time left, limits and accounting; the job layer rechecks each accepted job.
             self.runtime_changed = (
                 earlier != self.identity
                 and self.state["status"] != "complete"
@@ -325,8 +333,7 @@ class AssessmentState:
             accounting = self.state["accounting"]
             if not self.budget.subscription and not math.isfinite(accounting["spent_usd"]):
                 raise ExchangeError("Assessment resume cost accounting is invalid")
-            if self.state["expires_at"] != self.state["started_at"] + self.budget.timeout_s:
-                raise ExchangeError("Assessment resume deadline differs from its original limit")
+            left = self.budget.timeout_s - _time_used(self.state)
             if accounting["unavailable"]:
                 raise ExchangeError(
                     "Assessment resume cannot reconcile an unfinished cost reservation; rerun the same "
@@ -335,7 +342,7 @@ class AssessmentState:
             if (
                 accounting["calls"] > self.budget.max_calls
                 or (not self.budget.subscription and accounting["spent_usd"] > self.budget.max_usd)
-                or self.state["expires_at"] <= time.time()
+                or left < 1
             ):
                 raise ExchangeError("Assessment resume budget is exhausted")
             _real_directory(self.directory)
@@ -345,7 +352,9 @@ class AssessmentState:
             # Older states did not record what reused jobs charged.
             self.budget.reused_calls = accounting.get("reused_calls", 0)
             self.budget.reused_usd = accounting.get("reused_usd") or 0.0
-            self.budget.deadline = time.monotonic() + self.state["expires_at"] - time.time()
+            # The run goes on with the time it had left when it stopped; `expires_at` is this attempt's deadline.
+            self.budget.deadline = time.monotonic() + left
+            self.state["expires_at"] = int(time.time()) + left
             for name, expected in self.state["deliverables"].items():
                 if _deliverable(self.output, name) != expected:
                     raise ExchangeError("Assessment deliverable changed after completion")
@@ -406,7 +415,7 @@ class AssessmentState:
         if earlier != self.identity and not self.runtime_changed:
             return f"{self._changed(earlier)} changed since it started"
         if self.state["status"] != "complete":
-            if self.state["expires_at"] <= time.time():
+            if _time_used(self.state) >= self.budget.timeout_s:
                 return "its time limit has passed"
             if self.state["accounting"]["unavailable"]:
                 return "an unfinished cost reservation cannot be reconciled"
@@ -771,6 +780,9 @@ class AssessmentState:
             "reused_usd": None if self.budget.subscription else self.budget.reused_usd,
         }
         self.state["worked_seconds"] = self.worked_before + int(time.monotonic() - self._attempt_started)
+        # What the time limit counted so far, time the machine slept during an attempt included (REQ-016).
+        left = self.budget.deadline - time.monotonic()
+        self.state["time_used_seconds"] = min(self.budget.timeout_s, max(0, math.ceil(self.budget.timeout_s - left)))
         Draft202012Validator(json.loads(SCHEMA.read_text())).validate(self.state)
         atomic_write_json(self.path, self.state)
         self.path.chmod(0o600)
@@ -988,8 +1000,8 @@ def unfinished_run(output: Path, budget: AssessmentBudget) -> dict | None:
         blocked = "an unfinished cost reservation cannot be reconciled"
     elif state["identity"]["limits"] != limits:
         blocked = "the budget or time limits differ from its original limits"
-    elif state["expires_at"] <= time.time():
-        blocked = "its original time limit has expired"
+    elif _time_used(state) >= budget.timeout_s:
+        blocked = "its original time limit is used up"
     elif accounting["calls"] >= budget.max_calls or (
         not budget.subscription and (max_usd is None or accounting["spent_usd"] >= max_usd)
     ):

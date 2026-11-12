@@ -251,8 +251,10 @@ def run_pilot(
         if artifact.get("replaced"):
             gap = next(row for row in view.gaps if row["selector"] == selector)
             cause = "budget" if gap.get("budget") else "failure"
-            progress(f"Finished verifying {job} · no result ({cause})")
-            return {"cause": cause}
+            # The result keeps the cause; the console names the time limit when time ran short.
+            timed = gap.get("limit") == "time"
+            progress(f"Finished verifying {job} · no result ({'time' if timed else cause})")
+            return {"cause": cause, **({"limit": "time"} if timed else {})}
         if artifact.get("dropped_findings"):
             view.notes.append(
                 f"verification job {selector} dropped {len(artifact['dropped_findings'])} findings that still broke "
@@ -318,23 +320,22 @@ def run_pilot(
             candidates.setdefault(component["id"], []).extend(
                 {**row, "aspect": entry["aspect"]} for row in _context_candidates(entry["precheck"], rid, facts[rid])
             )
-    # REQ-040: an aspect whose jobs the budget cut short is incomplete, and the result says so.
-    incomplete = [
-        aspect
-        for aspect in aspects
-        if any(
-            answer.get("cause") == "budget"
-            for entry in entries
-            if entry["aspect"] == aspect
-            for _, answer in answered.get(id(entry), [])
-        )
-    ]
+    # REQ-040: an aspect whose jobs the budget or time limit cut short is incomplete, and the result says so.
+    cut = {
+        (entry["aspect"], answer.get("limit", "budget"))
+        for entry in entries
+        for _, answer in answered.get(id(entry), [])
+        if answer.get("cause") == "budget"
+    }
+    incomplete = [aspect for aspect in aspects if any(name == aspect for name, _ in cut)]
+    ended = {"budget": "the budget ended", "time": "time ran out"}
+    why = " and ".join(text for limit, text in ended.items() if any(found == limit for _, found in cut))
     # What each aspect found and cost in this session, so a reader can weigh one against the other, and what its
     # items showed; the aspects' costs add up to the step's. The console adds the step's duration and cost.
     progress(
         "Verify done"
         + (f" · {', '.join(planned['worked'])}" if planned["worked"] else " · no aspect verified")
-        + (f" · incomplete for {', '.join(incomplete)} because the budget ended" if incomplete else "")
+        + (f" · incomplete for {', '.join(incomplete)} because {why}" if incomplete else "")
     )
     for aspect in aspects:
         progress(

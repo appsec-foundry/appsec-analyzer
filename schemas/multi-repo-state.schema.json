@@ -28,11 +28,17 @@
       }
     },
     "started_at": {"type": "integer", "minimum": 1},
-    "expires_at": {"type": "integer", "minimum": 1},
+    "expires_at": {"description": "Deadline of the latest attempt: its start plus the time the run had left.", "type": "integer", "minimum": 1},
     "worked_seconds": {
-      "description": "Seconds the run worked across its attempts, without the pauses between them; the console continues it on resume. The time limit counts from started_at.",
+      "description": "Seconds the run worked across its attempts, without the pauses between them; the console continues it on resume. A run that took over an unfinished run continues that run's count.",
       "type": "integer",
       "minimum": 0
+    },
+    "time_used_seconds": {
+      "description": "Seconds of the time limit the run's own attempts used, without the pauses between them (REQ-016). A resume continues with the rest of the limit; a state without this field counts worked_seconds.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 43200
     },
     "stop": {
       "description": "Where and why the last attempt stopped, as fixed codes only.",

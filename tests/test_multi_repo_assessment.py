@@ -3508,6 +3508,24 @@ def test_budget_skips_of_one_role_get_one_line_per_phase_unless_verbose(verbose)
     assert "more" not in done[1]
 
 
+def test_jobs_the_time_reserve_skipped_name_the_time_and_count_apart_from_budget_skips():
+    lines, clock = [], _Clock()
+    console = controller._AssessmentConsole(False, lines.append, clock=clock)
+    console.step("Verifying abuse case: AC-T-001 (1/3)")
+    for case, limit in (("AC-T-001", None), ("AC-T-002", "time"), ("AC-T-003", "time")):
+        gap = {"role": "abuse_case_verifier", "selector": f"abuse:{case}", "budget": True}
+        console.step(controller._assessment_gap_message({**gap, **({"limit": limit} if limit else {})}))
+    console.close()
+    rows = _rows(lines)
+    notices = [row[5] for row in rows if row[1] == "⚠"]
+    assert [text for text in notices if "skipped" in text] == [
+        "Coverage gap: abuse-case verification (AC-T-001) job skipped: budget reserved for required completion work",
+        "Coverage gap: abuse-case verification (AC-T-002) job skipped: time reserved for required completion work",
+    ]
+    done = [row[5] for row in rows if row[1] == "done"]
+    assert done[0].endswith("1 more abuse-case verification job skipped for time")
+
+
 class _Call:
     def __init__(self, name, started, state):
         self.name, self.started, self._state = name, started, state

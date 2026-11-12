@@ -338,6 +338,19 @@ def test_budget_skip_details_keep_coverage_and_respect_cost_visibility(enabled, 
         assert "3 model calls" in text and "USD" not in text
 
 
+@pytest.mark.parametrize(
+    "limits, reserve", [((None,), "budget"), (("time",), "time"), ((None, "time"), "budget and time")]
+)
+def test_budget_skip_details_name_the_reserve_that_ran_short(limits, reserve):
+    budget = SimpleNamespace(subscription=False, calls=3, spent_usd=0.5, max_usd=5.0, api_prices=False)
+    gaps = [
+        {"role": "ms_renderer", "selector": f"summary:{number}", **({"limit": limit} if limit else {})}
+        for number, limit in enumerate(limits)
+    ]
+    text = controller._budget_skip_info(gaps, [], budget)
+    assert f"to keep the {reserve} reserve for the report" in text
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 def test_saved_console_summary_respects_cost_visibility(tmp_path, enabled):
     from runtime.assessment_state import WORK_NAME

@@ -236,6 +236,10 @@ class CostBudgetExhausted(BudgetExhausted):
     """A settled host call consumed the remaining assessment allowance."""
 
 
+class TimeBudgetExhausted(BudgetExhausted):
+    """The run's time limit, less what required completion work needs, leaves no time for another call."""
+
+
 class AdmissionTimeout(HostTimeout):
     """A job expired before a call was reserved; there is no paid call to retry."""
 

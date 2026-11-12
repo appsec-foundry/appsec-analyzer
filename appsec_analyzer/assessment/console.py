@@ -815,7 +815,7 @@ class _AssessmentConsole:
         r"(?: · no result \((\w+)\))?$"
     )
     _BUDGET_SKIP = re.compile(
-        r"Coverage gap: (.+?)(?: \([A-Z][A-Z0-9-]{1,79}\))? job skipped: budget reserved for required completion work"
+        r"Coverage gap: (.+?)(?: \([A-Z][A-Z0-9-]{1,79}\))? job skipped: (budget|time) reserved for required completion work"
     )
     _NAME_WIDTH = max(len(name) for name in WEIGHTS)
     # "n/N " before the phase name, then the event column.
@@ -1816,8 +1816,8 @@ class _AssessmentConsole:
             skip = None if self.verbose else self._BUDGET_SKIP.fullmatch(text)
             with _AssessmentConsole._lock:
                 if skip:
-                    self.budget_skips[skip[1]] += 1
-                if not skip or self.budget_skips[skip[1]] == 1:
+                    self.budget_skips[skip[1], skip[2]] += 1
+                if not skip or self.budget_skips[skip[1], skip[2]] == 1:
                     self.notice(text)
             return
         if text.startswith("Review coverage: "):
@@ -2136,8 +2136,8 @@ class _AssessmentConsole:
                 roles = ", ".join(f"{role} {count}" for role, count in sorted(self.corrections.items()))
                 produced.append(f"{_count_noun(total, 'answer')} corrected ({roles})")
             produced.extend(
-                f"{_count_noun(count - 1, f'more {role} job')} skipped for budget"
-                for role, count in self.budget_skips.items()
+                f"{_count_noun(count - 1, f'more {role} job')} skipped for {limit}"
+                for (role, limit), count in self.budget_skips.items()
                 if count > 1
             )
             if self.job_counts:

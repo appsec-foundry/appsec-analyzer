@@ -3272,7 +3272,8 @@ def _assessment_gap_message(gap: dict) -> str:
     case = selector.removeprefix("abuse:")
     subject = f" ({case})" if selector.startswith("abuse:") and re.fullmatch(r"[A-Z][A-Z0-9-]{1,79}", case) else ""
     if gap.get("budget"):
-        return f"Coverage gap: {role}{subject} job skipped: budget reserved for required completion work"
+        limit = "time" if gap.get("limit") == "time" else "budget"
+        return f"Coverage gap: {role}{subject} job skipped: {limit} reserved for required completion work"
     return f"Coverage gap: {role}{subject} job incomplete: no accepted model result; using fallback"
 
 
@@ -3347,8 +3348,10 @@ def _budget_skip_info(gaps: list[dict], components: list[dict], budget, *, show_
         if show_costs
         else f"{budget.calls} model calls"
     )
+    limits = {gap.get("limit") == "time" for gap in gaps}
+    reserve = "budget and time" if len(limits) > 1 else "time" if True in limits else "budget"
     return (
-        f"{_count_noun(len(gaps), 'optional model job')} did not run, to keep the budget reserve for the report: "
+        f"{_count_noun(len(gaps), 'optional model job')} did not run, to keep the {reserve} reserve for the report: "
         f"{jobs}; deterministic replacements are used ({accounting})"
     )
 

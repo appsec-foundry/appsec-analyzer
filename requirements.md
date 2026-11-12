@@ -60,7 +60,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 ## Run and maintain assessments
 
-- **REQ-016:** **Follow, stop, and resume a run.** Progress is visible while an assessment runs. A run can be stopped and later resumed in its result directory. Resuming reuses accepted steps that are still valid and says what changed since the stop. If something fails, Analyzer explains the cause and how to recover. Interrupted or unfinished work is never reported as complete.
+- **REQ-016:** **Follow, stop, and resume a run.** Progress is visible while an assessment runs. A run can be stopped and later resumed in its result directory. Time while a run is stopped does not count against its time limit. Resuming reuses accepted steps that are still valid and says what changed since the stop. If something fails, Analyzer explains the cause and how to recover. Interrupted or unfinished work is never reported as complete.
 
 - **REQ-017:** **Reassess without losing work.** Running another assessment preserves the history of earlier results and protects edits made since the last run. Starting over is an explicit choice, with a clear explanation that rebuilding can reset results and history.
 

@@ -40,6 +40,7 @@ from runtime.multi_repo_discovery import (
     BudgetedHost,
     BudgetExhausted,
     DiscoveryBudget,
+    TimeBudgetExhausted,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,9 @@ MIN_MEASURED_CALL_USD = 0.5
 # The report reserves this many times the largest survey job once a survey job is accepted: Run 1667's
 # largest was USD 0.56 and the report USD 0.57, one correction included, against a flat USD 2.
 REPORT_SURVEY_JOBS = 2
+# Until the report has a measurement of its own, it reserves twice the longest job of the session, but at least
+# this. In the eight runs of 2026-10-30 to 2026-11-12 that reached it, the report job took 69 to 136 s.
+MIN_REPORT_SECONDS = 300
 REPORT_JOB = "stage2:security-architecture"
 SUMMARY_JOB = "stage2:management-summary"
 # Request identity of the controller-set citation hashes and missing repositories (`set_admitted_hashes`).
@@ -303,6 +307,16 @@ class AssessmentBudget(DiscoveryBudget):
             return usd
         return min(usd, max(MIN_MEASURED_CALL_USD, REPORT_SURVEY_JOBS * surveyed))
 
+    def _report_seconds(self, role, seconds):
+        """What the report reserves in time: its own measurement, else twice the longest job of this session.
+
+        A resumed run measures only the jobs it runs itself; while it has measured none, the call limit stays.
+        """
+        longest = max((measured for _usd, _jobs, measured in self.observed.values()), default=0.0)
+        if self.observed.get(role, (0.0, 0, 0.0))[2] or not longest:
+            return seconds
+        return min(seconds, max(MIN_REPORT_SECONDS, 2 * longest))
+
     def _optional_usd(self, role):
         """What an optional job of ``role`` must find above the reserves before it starts."""
         if self.observed.get(role, (0.0, 0, 0.0))[0]:
@@ -325,7 +339,9 @@ class AssessmentBudget(DiscoveryBudget):
             if key == group or (not optional and key != REPORT_JOB):
                 continue
             usd, seconds = self._estimate(role)
-            dollars += count * (self._report_usd(role, usd) if key == REPORT_JOB else usd)
+            if key == REPORT_JOB:
+                usd, seconds = self._report_usd(role, usd), self._report_seconds(role, seconds)
+            dollars += count * usd
             if role == "stride_analyzer":
                 parallel_count += count
                 parallel = max(parallel, seconds)
@@ -375,7 +391,7 @@ class AssessmentBudget(DiscoveryBudget):
             _, reserved = self._reserve()
             seconds = math.floor(self.deadline - time.monotonic() - reserved)
             if seconds < 1:
-                raise BudgetExhausted("Assessment time budget reserved for required completion work")
+                raise TimeBudgetExhausted("Assessment time budget reserved for required completion work")
         return seconds
 
     def call_limit(self):
@@ -394,7 +410,7 @@ class AssessmentBudget(DiscoveryBudget):
         try:
             return min(3600, super().remaining_seconds())
         except HostCancelled as exc:
-            raise BudgetExhausted("Assessment aggregate time budget exhausted") from exc
+            raise TimeBudgetExhausted("Assessment aggregate time budget exhausted") from exc
 
 
 def _read_json(path: Path):
@@ -837,8 +853,18 @@ class AssessmentJobs:
         except BudgetExhausted as exc:
             if on_failure is None or self.budget.unsettled or self.should_stop():
                 raise
-            reason = "budget reserved for required completion work"
-            self._gap({"role": role, "selector": selector, "reason": reason, "budget": True})
+            # The console names the time limit when time, not money, was what ran short.
+            timed = isinstance(exc, TimeBudgetExhausted)
+            reason = f"{'time' if timed else 'budget'} reserved for required completion work"
+            self._gap(
+                {
+                    "role": role,
+                    "selector": selector,
+                    "reason": reason,
+                    "budget": True,
+                    **({"limit": "time"} if timed else {}),
+                }
+            )
             self._record(role, seconds=time.monotonic() - started)
             if trace:
                 trace.emit("job_replaced", reason="budget_reserved")

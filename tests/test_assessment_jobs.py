@@ -891,6 +891,49 @@ def test_optional_work_keeps_time_for_the_report_and_local_finalization(tmp_path
     assert host.calls == 1
 
 
+@pytest.mark.parametrize("longest, admitted", [(150, True), (60, True), (500, False)])
+def test_an_unmeasured_report_reserves_twice_the_longest_job_of_the_session(tmp_path, longest, admitted):
+    """A resumed run has not measured its report; the flat call limit kept the last 17 minutes from optional work.
+
+    Juice Shop, 2026-11-12: the report took 77 s, but 900 s plus finalization were held for it.
+    """
+    from runtime.assessment_jobs import FINALIZATION_SECONDS, MIN_REPORT_SECONDS
+
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget.plan_completion()
+    jobs.budget.accepted("verify:one", "test_case_investigator", 0.01, longest)
+    # MIN_REPORT_SECONDS is twice 150 s; 60 s stays at that floor, 500 s reaches the call limit.
+    jobs.budget.deadline = time.monotonic() + MIN_REPORT_SECONDS + FINALIZATION_SECONDS + 60
+    result = jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"})
+    assert result == {"result": "accepted" if admitted else "not reviewed"}
+    assert host.calls == (1 if admitted else 0)
+
+
+def test_the_report_keeps_the_full_call_limit_while_this_session_measured_nothing(tmp_path):
+    from runtime.assessment_jobs import FINALIZATION_SECONDS, MAX_CALL_SECONDS
+
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget.plan_completion()
+    jobs.budget.deadline = time.monotonic() + MAX_CALL_SECONDS + FINALIZATION_SECONDS - 30
+    assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "not reviewed"}
+    assert host.calls == 0
+
+
+@pytest.mark.parametrize("limit", ["time", "money"])
+def test_a_skipped_job_names_the_limit_that_reserved_the_completion_work(tmp_path, limit):
+    from runtime.assessment_jobs import FINALIZATION_SECONDS
+
+    jobs, host, kwargs, _ = setup(tmp_path)
+    jobs.budget.plan_completion()
+    if limit == "time":
+        jobs.budget.deadline = time.monotonic() + FINALIZATION_SECONDS + 30
+    else:
+        jobs.budget.deadline += 3600
+        jobs.budget.spent_usd = 0.99
+    assert jobs.execute(**kwargs, on_failure=lambda reason: {"result": "not reviewed"}) == {"result": "not reviewed"}
+    assert jobs.gaps[0]["budget"] and jobs.gaps[0].get("limit") == ("time" if limit == "time" else None)
+
+
 @pytest.mark.parametrize("failure", ["cancelled", "unknown_cost", "tampered"])
 def test_budget_fallback_never_masks_authority_or_accounting_failures(tmp_path, failure):
     jobs, host, kwargs, _ = setup(tmp_path)

@@ -19,7 +19,7 @@ from runtime import acquire_lock
 from runtime.analyst_host import HostCancelled, HostReply, TransportError
 from runtime.assessment_host import ExchangeError
 from runtime.assessment_jobs import AssessmentBudget, AssessmentJobs
-from runtime.assessment_state import CACHE_NAME, STOP_NAME, AssessmentState
+from runtime.assessment_state import CACHE_NAME, STOP_NAME, AssessmentState, unfinished_run
 from runtime.multi_repo_scope import AssessmentScope, ScopeError, admit
 
 
@@ -390,10 +390,11 @@ def test_resume_after_a_plugin_change_continues_the_run_and_redoes_only_changed_
     resumed = lifecycle(scope, resume=True, runtime_sha256="b" * 64)
     with resumed.hold():
         assert resumed.resume and resumed.runtime_changed
-        # REQ-016: the same run goes on with its deadline, accounting and elapsed time.
+        # REQ-016: the same run goes on with the time it had left, its accounting and elapsed time.
         assert resumed.state["run_id"] == first.state["run_id"]
         assert resumed.state["started_at"] == earlier["started_at"]
-        assert resumed.state["expires_at"] == earlier["expires_at"]
+        left = resumed.budget.timeout_s - earlier["time_used_seconds"]
+        assert abs(resumed.state["expires_at"] - (time.time() + left)) <= 2
         assert resumed.worked_before == 780
         jobs = _plugin_change_jobs(resumed, factory)
         jobs.execute(**_plugin_change_job("kept", "same prompt"))
@@ -541,7 +542,8 @@ def test_the_header_names_a_resumed_run_with_its_start_work_spending_and_deadlin
     first, *rest = value.split("\n")
     assert key == "Resumed"
     assert first.startswith(f"continues the run started {_utc(earlier['started_at'])} · 47m worked · USD 0.02 spent")
-    assert first.endswith(_utc(earlier["expires_at"])[-9:])
+    # The deadline is this attempt's: the time the run had left from now on (REQ-016).
+    assert first.endswith(_utc(resumed.state["expires_at"])[-9:])
     changed = "the plugin changed, so accepted steps are checked again and redone only if they no longer fit"
     assert rest == ([changed] if runtime_changed else [])
 
@@ -1166,12 +1168,35 @@ def test_expired_resume_takes_the_run_over_with_the_new_time_limit(scope):
     with lifecycle(scope).hold():
         pass
     state = stored(scope)
-    state["expires_at"] = int(time.time()) - 1
-    state["started_at"] = state["expires_at"] - 60
+    state["time_used_seconds"] = state["identity"]["limits"]["timeout_s"]
     (scope.output / ".assessment-state.json").write_text(json.dumps(state))
     with lifecycle(scope, resume=True).hold() as taken:
         assert not taken.resume and taken.resume_blocker == "its time limit has passed"
         assert taken.state["expires_at"] > time.time()
+
+
+@pytest.mark.parametrize("recorded", ["time_used_seconds", "worked_seconds"])
+def test_a_pause_between_attempts_does_not_count_against_the_time_limit(scope, recorded):
+    """REQ-016: a run stopped by a rate limit and resumed hours later keeps the time it had not used.
+
+    Juice Shop, 2026-11-12: a resume 3 h 16 min after the stop kept a deadline 25 minutes away. A state written
+    before the rule has no record of the time used and counts its working time.
+    """
+    with lifecycle(scope).hold():
+        pass
+    state = stored(scope)
+    state.pop("time_used_seconds", None)
+    state.update({recorded: 20, "status": "interrupted"})
+    state["started_at"] = int(time.time()) - 3 * 3600
+    state["expires_at"] = state["started_at"] + 60
+    (scope.output / ".assessment-state.json").write_text(json.dumps(state))
+    assert unfinished_run(scope.output, AssessmentBudget(1.0, 0.05, 10, 60))["resume_blocked"] is None
+    with lifecycle(scope, resume=True).hold() as resumed:
+        assert resumed.resume and resumed.resume_blocker is None
+        assert resumed.state["run_id"] == state["run_id"] and resumed.state["started_at"] == state["started_at"]
+        assert 38 <= resumed.budget.deadline - time.monotonic() <= 40
+        assert abs(resumed.state["expires_at"] - (time.time() + 40)) <= 2
+    assert stored(scope)["time_used_seconds"] >= 20
 
 
 def test_resume_of_a_completed_run_with_changed_settings_still_needs_a_new_scan(scope):
@@ -1189,15 +1214,16 @@ def test_resume_without_a_run_in_the_output_still_says_so(scope):
             pytest.fail("Nothing to resume")
 
 
-@pytest.mark.parametrize("change", ["nonfinite", "extended-deadline", "extra-field"])
+@pytest.mark.parametrize("change", ["nonfinite", "negative-time-used", "extra-field"])
 def test_malformed_accounting_or_lifecycle_cannot_resume(scope, change):
     with lifecycle(scope).hold():
         pass
     state = stored(scope)
     if change == "nonfinite":
         state["accounting"]["spent_usd"] = float("nan")
-    elif change == "extended-deadline":
-        state["expires_at"] += 60
+    elif change == "negative-time-used":
+        # The time limit counts the time used (REQ-016); a negative record would extend it.
+        state["time_used_seconds"] = -60
     else:
         state["model_selected_command"] = "ignored-command"
     (scope.output / ".assessment-state.json").write_text(json.dumps(state))
