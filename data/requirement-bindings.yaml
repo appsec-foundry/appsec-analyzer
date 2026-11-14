@@ -1827,7 +1827,8 @@ requirements:
       - tests/test_failure_debug.py::test_check_code_stays_inside_the_installation
       - tests/test_failure_debug.py::test_run_identity_names_versions_models_and_sources_without_connection_settings
       - tests/test_failure_debug.py::test_stop_and_completion_messages_name_the_debug_file
-      - tests/test_failure_debug.py::test_session_names_the_debug_file_on_the_error_that_stops_the_run
+      - tests/test_failure_debug.py::test_session_names_the_debug_file_and_keeps_the_error_that_stops_the_run
+      - tests/test_failure_debug.py::test_session_without_a_failed_job_names_no_debug_file
 
   REQ-017:
     applies_to:

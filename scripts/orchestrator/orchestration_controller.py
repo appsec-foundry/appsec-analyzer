@@ -1038,10 +1038,12 @@ def _assessment_session(
             failure_debug=failure_debug,
         )
 
-        def name_debug_file(exc: BaseException) -> None:
+        _RunDebug.path = None
+
+        def name_debug_file() -> None:
             # Every stop message names the debug file once a job has failed (REQ-050).
             if failure_debug is not None and failure_debug.written:
-                exc.debug_file = str(failure_debug.path)
+                _RunDebug.path = str(failure_debug.path)
 
         from model.assessment_scanner_findings import use_scanner_cache
         from runtime.analyst_host import HostCancelled, HostTimeout
@@ -1058,10 +1060,10 @@ def _assessment_session(
             if diagnostics:
                 diagnostics.emit("attempt_interrupted", reason="budget_exhausted")
             exc.report = state.budget_report(jobs)
-            name_debug_file(exc)
+            name_debug_file()
             raise
         except Exception as exc:
-            name_debug_file(exc)
+            name_debug_file()
             # A pause, a stop request or a refused setting is no failure to diagnose.
             stopped = isinstance(exc, (AssessmentPaused, CallError, HostCancelled)) and not isinstance(exc, HostTimeout)
             if diagnostics:
@@ -1083,8 +1085,8 @@ def _assessment_session(
                 text = _cap_reason(f"{type(exc).__name__}: {exc}" + (f" in {where}" if where else ""))
                 _write_run_issues(scope.output, cfg, [("run_incomplete", "error", f"Assessment stopped: {text}")])
             raise
-        except KeyboardInterrupt as exc:
-            name_debug_file(exc)
+        except KeyboardInterrupt:
+            name_debug_file()
             if diagnostics:
                 diagnostics.emit("attempt_interrupted", reason="cancelled")
             raise
@@ -6018,15 +6020,20 @@ def _save_closing(outcome: dict, elapsed: str) -> None:
         print(f"⚠ completion summary not saved: {_cap_reason(str(exc))}", file=sys.stderr)
 
 
-def _stop(headline: str, *rows: tuple[str, str], stream=None, error: BaseException | None = None) -> None:
-    """Print how a run stopped in the shared stop format.
+class _RunDebug:
+    """The private debug file of this process's assessment once a job failed (REQ-050).
 
-    `error` is the exception that ended the run; when an analysis job failed
-    before the stop, the message names the private debug file (REQ-050).
+    Kept here, not on the exception that ends the run: some exceptions, such as
+    jsonschema's, refuse new attributes, and the stop must keep its own error.
     """
-    debug_file = getattr(error, "debug_file", None)
-    if debug_file:
-        rows = (*rows, ("Debug file", f"{debug_file} (failed analysis jobs; private)"))
+
+    path: str | None = None
+
+
+def _stop(headline: str, *rows: tuple[str, str], stream=None) -> None:
+    """Print how a run stopped in the shared stop format; it names the debug file once a job failed."""
+    if _RunDebug.path:
+        rows = (*rows, ("Debug file", f"{_RunDebug.path} (failed analysis jobs; private)"))
     print(stop_message(headline, *rows), file=stream or sys.stderr, flush=True)
 
 
@@ -6049,6 +6056,7 @@ def assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     _AssessmentProgress.last_retry = None
     _AssessmentProgress.max_parallel = None
     _AssessmentProgress.budget = None
+    _RunDebug.path = None
     # REQ-035: every file the run creates is readable by the current user only.
     umask = os.umask(0o077)
     try:
@@ -6080,15 +6088,12 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         finally:
             # A stopped run must not print its last message onto the status line.
             _AssessmentConsole.stop()
-    except KeyboardInterrupt as exc:
-        _stop("⏸ Assessment interrupted", *_resume_rows(capacity=_AssessmentProgress.recent_rate_limit()), error=exc)
+    except KeyboardInterrupt:
+        _stop("⏸ Assessment interrupted", *_resume_rows(capacity=_AssessmentProgress.recent_rate_limit()))
         return 130
     except AssessmentPaused as exc:
         _stop(
-            f"⏸ Assessment paused after phase {exc.number}/{exc.total} {exc.phase}",
-            *_resume_rows(),
-            stream=sys.stdout,
-            error=exc,
+            f"⏸ Assessment paused after phase {exc.number}/{exc.total} {exc.phase}", *_resume_rows(), stream=sys.stdout
         )
         return ASSESS_PAUSED_EXIT
     except BudgetExhausted as exc:
@@ -6103,7 +6108,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         ]
         if getattr(exc, "report", None):
             rows.append(("Report", str(exc.report)))
-        _stop("⏸ Assessment paused", *rows, error=exc)
+        _stop("⏸ Assessment paused", *rows)
         return ASSESS_PAUSED_EXIT
     except CallError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -6128,9 +6133,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
     ) as exc:
         if isinstance(exc, HostCancelled) and not isinstance(exc, HostTimeout):
             # The host's text names internal jobs; the operator needs only the way on.
-            _stop(
-                "⏸ Assessment interrupted", *_resume_rows(capacity=_AssessmentProgress.recent_rate_limit()), error=exc
-            )
+            _stop("⏸ Assessment interrupted", *_resume_rows(capacity=_AssessmentProgress.recent_rate_limit()))
             return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason == "rate_limit":
             until = ""
@@ -6148,7 +6151,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                         f"--max-parallel {parallel // 2} (this run used {parallel}); finished steps are reused",
                     )
                 )
-            _stop("⏸ Assessment paused", *rows, error=exc)
+            _stop("⏸ Assessment paused", *rows)
             return ASSESS_PAUSED_EXIT
         if isinstance(exc, TransportError) and exc.reason in SHARED_FAILURES:
             connection = exc.reason in NETWORK_FAILURES
@@ -6156,7 +6159,6 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
                 "⏸ Assessment paused",
                 ("Reason", f"provider connection lost ({exc.reason})" if connection else "provider server failures"),
                 *_resume_rows("check your connection, then " if connection else "wait for provider recovery, then "),
-                error=exc,
             )
             return ASSESS_PAUSED_EXIT
         from appsec_analyzer.assessment.console import model_failure_rows
@@ -6165,7 +6167,7 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
         draft = _unpublished_draft(argv, before)
         if draft:
             rows.append(("Draft", f"unpublished, kept for diagnosis in {draft}; it did not pass publication"))
-        _stop("✗ Assessment stopped", *rows, error=exc)
+        _stop("✗ Assessment stopped", *rows)
         return 1
     except Exception as exc:  # noqa: BLE001 - a defect ends the run with a message, not a traceback
         # The failures a run expects stop above; any other exception is a defect in Analyzer itself.
@@ -6178,7 +6180,6 @@ def _assess_main(argv: list[str], *, api_profile=None, run_profile=None) -> int:
             ("Reason", error_summary(exc)),
             KEPT,
             ("Continue", "this is a defect in appsec-analyzer; once an update fixes it, " + RESUME),
-            error=exc,
         )
         if os.environ.get("APPSEC_PLUGIN_DEV") == "1":
             traceback.print_exception(exc)

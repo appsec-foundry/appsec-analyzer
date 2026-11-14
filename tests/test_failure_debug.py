@@ -209,17 +209,17 @@ def test_run_identity_names_versions_models_and_sources_without_connection_setti
     assert "SECRET_ENV" not in json.dumps(identity)
 
 
-def test_stop_and_completion_messages_name_the_debug_file(tmp_path):
+def test_stop_and_completion_messages_name_the_debug_file(tmp_path, monkeypatch):
     from orchestrator import orchestration_controller as controller
     from renderers.term_style import Style
 
-    error = ValueError("stopped")
-    error.debug_file = "/private/out/failed-jobs.json"
+    monkeypatch.setattr(controller._RunDebug, "path", "/private/out/failed-jobs.json")
     stream = io.StringIO()
-    controller._stop("✗ Assessment stopped", ("Reason", "stopped"), stream=stream, error=error)
+    controller._stop("✗ Assessment stopped", ("Reason", "stopped"), stream=stream)
     assert "Debug file" in stream.getvalue() and "/private/out/failed-jobs.json" in stream.getvalue()
+    monkeypatch.setattr(controller._RunDebug, "path", None)
     stream = io.StringIO()
-    controller._stop("✗ Assessment stopped", ("Reason", "stopped"), stream=stream, error=ValueError("no failed job"))
+    controller._stop("✗ Assessment stopped", ("Reason", "stopped"), stream=stream)
     assert "Debug file" not in stream.getvalue()
     outcome = dict(
         repositories=["demo"],
@@ -234,18 +234,29 @@ def test_stop_and_completion_messages_name_the_debug_file(tmp_path):
     assert "Debug file" in stream.getvalue()
 
 
-def test_session_names_the_debug_file_on_the_error_that_stops_the_run(tmp_path):
+class FrozenError(ValueError):
+    """Like jsonschema's errors, it refuses new attributes."""
+
+    def __setattr__(self, name, value):
+        if name.startswith("__"):
+            return super().__setattr__(name, value)
+        raise AttributeError(name)
+
+
+def test_session_names_the_debug_file_and_keeps_the_error_that_stops_the_run(tmp_path, monkeypatch):
     from orchestrator import orchestration_controller as controller
     from runtime.assessment_jobs import AssessmentBudget
     from runtime.multi_repo_scope import admit
 
     from tests.test_multi_repo_controller import checkout
 
+    monkeypatch.setattr(controller._RunDebug, "path", "/earlier/run/failed-jobs.json")
     roots = [tmp_path / "caller", tmp_path / "receiver"]
     for root in roots:
         checkout(root)
     scope = admit([str(root) for root in roots], str(tmp_path / "out"))
-    with pytest.raises(ValueError) as caught:
+    error = FrozenError("stopped")
+    with pytest.raises(FrozenError) as caught:
         with controller._assessment_session(
             scope,
             ["--no-requirements"],
@@ -254,10 +265,39 @@ def test_session_names_the_debug_file_on_the_error_that_stops_the_run(tmp_path):
             model="haiku",
         ) as (_cfg, _state, jobs):
             debug = jobs.failure_debug
+            # A new session never names an earlier run's file.
+            assert controller._RunDebug.path is None
             assert debug.run["sources"] and debug.run["analyzer"]["runtime_sha256"]
             debug.record(
                 None, ExchangeError("check failed"), outcome="stopped the run", role="r", selector="s", context={}
             )
-            raise ValueError("stopped")
-    assert caught.value.debug_file == str(debug.path)
+            raise error
+    # The run's own error ends it unchanged, and the stop message can still name the file.
+    assert caught.value is error
+    assert controller._RunDebug.path == str(debug.path)
     assert debug.path.parent == jobs.diagnostics.directory
+
+
+def test_session_without_a_failed_job_names_no_debug_file(tmp_path, monkeypatch):
+    from orchestrator import orchestration_controller as controller
+    from runtime.assessment_jobs import AssessmentBudget
+    from runtime.multi_repo_scope import admit
+
+    from tests.test_multi_repo_controller import checkout
+
+    monkeypatch.setattr(controller._RunDebug, "path", None)
+    roots = [tmp_path / "caller", tmp_path / "receiver"]
+    for root in roots:
+        checkout(root)
+    scope = admit([str(root) for root in roots], str(tmp_path / "out"))
+    with pytest.raises(ValueError):
+        with controller._assessment_session(
+            scope,
+            ["--no-requirements"],
+            budget=AssessmentBudget(2, 0.05, 60, 3600),
+            host_factory=lambda *args: pytest.fail("This lifecycle check must not dispatch a model call"),
+            model="haiku",
+        ) as (_cfg, _state, jobs):
+            raise ValueError("stopped")
+    assert controller._RunDebug.path is None
+    assert not jobs.failure_debug.path.exists()
