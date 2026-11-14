@@ -38,7 +38,14 @@ from validators.secret_scan import mask_structure
 
 SCHEMA_ROOT = Path(__file__).resolve().parents[2] / "schemas"
 SCHEMA_NAME = "architect-review-context.schema.json"
-_SOURCES = (SCHEMA_NAME, "threats-merged.schema.yaml", "stride-analyst-context.schema.json", "stride.schema.yaml")
+# Every schema the packet contract reaches; the registry resolves nothing else.
+_SOURCES = (
+    SCHEMA_NAME,
+    "threats-merged.schema.yaml",
+    "stride-analyst-context.schema.json",
+    "stride.schema.yaml",
+    "verification-context.schema.json",
+)
 _PROSE_FIELDS = (
     "scenario",
     "evidence_summary",

@@ -184,6 +184,18 @@ def test_contract_rejects_scope_forgery(mutation):
         context.validate_manifest(manifest)
 
 
+def test_findings_with_a_verification_context_pass_the_packet_contract():
+    """REQ-049: a merged finding may carry a verification context, whose schema the packet contract must resolve."""
+    from tests.test_verification_context import context as verification_context
+
+    item = finding()
+    item["verification_context"] = verification_context(dict(item["evidence"]))
+    manifest = build(merged(item))
+    rows = [row["finding"] for packet in manifest["packets"] for row in packet["findings"]]
+    assert rows[0]["verification_context"] == item["verification_context"]
+    context.validate_manifest(manifest)
+
+
 @pytest.mark.parametrize(
     "limits", [{"max_findings": 0}, {"max_findings": True}, {"max_packets": 0}, {"max_packet_bytes": 131073}]
 )

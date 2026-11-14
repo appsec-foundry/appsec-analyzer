@@ -2992,6 +2992,7 @@ requirements:
       - scripts/contexts/case_analysis.py
       - scripts/shared/assessment_sources.py
       - scripts/validators/validate_intermediate.py
+      - scripts/contexts/build_architect_context.py
       - scripts/model/merge_threats.py
       - scripts/renderers/render_pentest_tasks.py
     decisions: []
@@ -3001,6 +3002,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_build_architect_context.py::test_findings_with_a_verification_context_pass_the_packet_contract
       - tests/test_verification_context.py::test_context_survives_assembly_and_pentest_export
       - tests/test_verification_context.py::test_context_sources_must_be_served
       - tests/test_verification_context.py::test_survey_records_missing_context_without_inventing_runtime_facts
