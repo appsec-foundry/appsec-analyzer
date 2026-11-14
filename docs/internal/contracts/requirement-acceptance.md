@@ -244,6 +244,16 @@ Before full-assessment cloning or analysis, unless `--skip-preflight` is given, 
 
 For full assessments, retain bounded private diagnostics across compatible resume attempts. Correlate model calls, corrections, accepted or reused jobs, replacements, and failures with the run, attempt, role, job, and call identities independently of the selected provider. Verbose output identifies the job and retains bounded sanitized correction reasons beyond a short preview. Identify failed scanners and host failures through safe classifications and available exit or HTTP status codes. Do not record prompts, source excerpts, model answers, raw provider errors, or raw stderr in this shared diagnostic feed. Diagnostic storage failure must warn without changing analysis or publication decisions.
 
+## REQ-050: Find the cause of a failed run
+
+When an analysis job fails, write one private debug file in the output directory, separate from the shared diagnostic feed of REQ-016. Include every failed job of the run, whether the run stopped or finished with missing checks, and name the file's path in the final message.
+
+For each failed job, record the role, component, and batch, the exact request the model received, every model answer, each rejection with the Analyzer check that made it and that check's code, and the correction that followed. For calls that stopped without a valid answer, record the failure code, timing, retries, and the sanitized host message. Cover every supported model host, including hosts that keep no event stream of their own.
+
+Name the Analyzer version, profile, models, and the analyzed source revision, or that the source is a directory without Git. Mask secrets as in other generated files. Analyzer sends the file nowhere; sharing it follows REQ-034. When the content exceeds the file's size bound, keep it complete in private files next to it and refer to them; never shorten a request or an answer.
+
+Offer an offline rerun of a failed job's checks from the file, without model calls, on the same or a newer Analyzer version. When the file or the job's request no longer fits that version, say so instead of reporting a pass. The debug file explains execution failures; it does not show that a finding is correct.
+
 ## REQ-017: Reassess without losing work
 
 Let users deliberately rebuild. Preserve accepted work and earlier-result history across reassessment; a deliberate rebuild may reset the model and history. Protect intervening user edits. Identify stale or incompatible state and the review status of findings.
@@ -394,7 +404,7 @@ For Copilot CLI assessments, invoke the CLI from a fresh private temporary worki
 
 ## REQ-032: Keep secrets out of results
 
-Block publication of generated artifacts containing unmasked secrets. Avoid copying credentials or sensitive source details into reports and diagnostics; keep retained intermediate data private.
+Block publication of generated artifacts containing unmasked secrets. Avoid copying credentials or sensitive source details into reports and diagnostics; keep retained intermediate data private. The private debug file of a failed run (REQ-050) may hold requests, model answers, and cited source lines; it stays private and masks secrets.
 
 ## REQ-033: Explain what leaves the machine
 

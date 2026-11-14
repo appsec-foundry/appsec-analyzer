@@ -1795,6 +1795,26 @@ requirements:
       - tests/test_assessment_review.py::test_abuse_coverage_distinguishes_checked_partial_and_missing_results
       - tests/test_assessment_review.py::test_missing_architect_proposals_are_reported_as_unreviewed
 
+  REQ-050:
+    applies_to:
+      - scripts/runtime/assessment_diagnostics.py
+      - scripts/runtime/assessment_jobs.py
+      - scripts/runtime/analyst_host.py
+      - scripts/orchestrator/orchestration_controller.py
+      - appsec_analyzer/api_hosts.py
+      - appsec_analyzer/codex_cli.py
+      - appsec_analyzer/copilot_cli.py
+      - appsec_analyzer/assessment/console.py
+      - appsec_analyzer/cli.py
+      - docs/internal/contracts/requirement-acceptance.md
+    decisions: []
+    documents:
+      - docs/internal/contracts/requirement-acceptance.md
+      - docs/security-assessment.md
+      - specs/changes/failed-run-debug-file/proposal.md
+    coverage: advisory
+    guards: []
+
   REQ-017:
     applies_to:
       - scripts/runtime/resolve_config.py

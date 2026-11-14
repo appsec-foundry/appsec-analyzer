@@ -62,6 +62,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-016:** **Follow, stop, and resume a run.** Progress is visible while an assessment runs. A run can be stopped and later resumed in its result directory. Time while a run is stopped does not count against its time limit. Resuming reuses accepted steps that are still valid and says what changed since the stop. If something fails, Analyzer explains the cause and how to recover. Interrupted or unfinished work is never reported as complete.
 
+- **REQ-050:** **Find the cause of a failed run.** When model work fails, Analyzer writes one private debug file that lets a person or a model find the root cause and test a fix.
+
 - **REQ-017:** **Reassess without losing work.** Running another assessment preserves the history of earlier results and protects edits made since the last run. Starting over is an explicit choice, with a clear explanation that rebuilding can reset results and history.
 
 - **REQ-018:** **Use team settings.** Analyzer accepts documented settings and organization profiles, and reports conflicting or unsupported options. Repository content cannot choose provider credentials, weaken required analysis, or suppress findings supported by evidence.
@@ -108,7 +110,7 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-031:** **Treat repository content as data.** Files in a repository cannot activate their own instructions, hooks, or tools, or send the analysis outside the selected sources. Analyzer rejects paths and links that escape the permitted source boundary.
 
-- **REQ-032:** **Keep secrets out of results.** Analyzer blocks publication of generated files containing unmasked secrets. Reports and diagnostics avoid exposing credentials or sensitive code details. Intermediate data kept during analysis stays private.
+- **REQ-032:** **Keep secrets out of results.** Analyzer blocks publication of generated files containing unmasked secrets. Reports and diagnostics avoid exposing credentials or sensitive code details. The private debug file of a failed run may contain requests, model answers, and cited source lines. Intermediate data kept during analysis stays private.
 
 - **REQ-033:** **Explain what leaves the machine.** Before using a model, Analyzer explains what code, context, and answers it will send and which selected host receives them. It distinguishes this from fetching a Git repository and does not claim provider retention guarantees it cannot verify.
 
