@@ -1025,5 +1025,5 @@ def test_the_external_assessment_model_is_read_before_a_legacy_one(tmp_path, mon
     _write_model(tmp_path, {"status": "completed", "cases": []})
     external = application_directory(tmp_path)
     external.mkdir(parents=True)
-    (external / "security-assessment.yaml").write_text(yaml.safe_dump({"meta": {"project": "external"}}))
+    (external / "appsec-assessment.yaml").write_text(yaml.safe_dump({"meta": {"project": "external"}}))
     assert rac.load_threat_model(tmp_path)["meta"]["project"] == "external"

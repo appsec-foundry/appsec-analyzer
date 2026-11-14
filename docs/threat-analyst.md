@@ -21,7 +21,7 @@ For a local commit comparison use `--base BASE_SHA --head HEAD_SHA`. The default
 
 ## Existing threat models, requirements and specs
 
-The command looks for files named like a threat model or requirements document (for example `threat-model`, `security-assessment`, `requirements`) in the repository root, `docs/`, and `docs/security/`. It also reads documents under `specs/`, `docs/specs/`, `docs/architecture/`, and the business-context locations. Supported suffixes are `.md`, `.txt`, `.rst`, `.yaml`, `.yml`, and `.json`.
+The command looks for files named like a threat model or requirements document (for example `threat-model`, `appsec-assessment`, `requirements`) in the repository root, `docs/`, and `docs/security/`. It also reads documents under `specs/`, `docs/specs/`, `docs/architecture/`, and the business-context locations. Supported suffixes are `.md`, `.txt`, `.rst`, `.yaml`, `.yml`, and `.json`.
 
 ```sh
 appsec-analyzer analyze-threats "Does this violate our tenant isolation requirements?" \

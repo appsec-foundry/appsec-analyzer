@@ -902,12 +902,12 @@ def test_output_metadata_is_preserved_and_not_recorded_as_a_deliverable(scope, n
     metadata.write_text("User-owned metadata; never analysis instructions.\n")
     before = metadata.stat()
     with lifecycle(scope).hold() as state:
-        (scope.output / "security-assessment.md").write_text("report\n")
-        state.complete(["security-assessment.md"])
+        (scope.output / "appsec-assessment.md").write_text("report\n")
+        state.complete(["appsec-assessment.md"])
     assert metadata.read_text() == "User-owned metadata; never analysis instructions.\n"
     assert metadata.stat().st_ino == before.st_ino
     assert metadata.stat().st_mtime_ns == before.st_mtime_ns
-    assert set(stored(scope)["deliverables"]) == {"security-assessment.md"}
+    assert set(stored(scope)["deliverables"]) == {"appsec-assessment.md"}
 
 
 @pytest.mark.parametrize("earlier", ["interrupted", "completed"])
@@ -922,8 +922,8 @@ def test_output_metadata_never_blocks_restarting_or_rebuilding_a_run(scope, earl
     settings = metadata / "settings.json"
     settings.write_text("preserve\n")
     with lifecycle(scope, replace=replace).hold() as state:
-        (scope.output / "security-assessment.md").write_text("new report\n")
-        state.complete(["security-assessment.md"])
+        (scope.output / "appsec-assessment.md").write_text("new report\n")
+        state.complete(["appsec-assessment.md"])
     assert settings.read_text() == "preserve\n"
     assert not (scope.output / "threat-model.md").exists()
 
@@ -934,7 +934,7 @@ def test_output_metadata_never_blocks_restarting_or_rebuilding_a_run(scope, earl
         ("notes.txt", "file"),
         (".private-notes", "file"),
         (".unknown-tool", "directory"),
-        ("security-assessment.md", "file"),
+        ("appsec-assessment.md", "file"),
         (".claude", "file"),
         (".gitignore", "directory"),
         (".assessment-work", "directory"),

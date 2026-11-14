@@ -47,8 +47,8 @@ import json
 import sys
 
 result = json.load(open(sys.argv[1], encoding="utf-8"))
-required = {"security-assessment.md", "security-assessment.yaml",
-            "security-assessment.sarif.json", "pentest-tasks.yaml"}
+required = {"appsec-assessment.md", "appsec-assessment.yaml",
+            "appsec-assessment.sarif.json", "pentest-tasks.yaml"}
 assert result["assessment_status"] == "complete"
 assert required <= result["deliverables"].keys(), "missing expected deliverables"
 PY

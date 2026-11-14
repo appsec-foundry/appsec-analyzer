@@ -15,7 +15,7 @@ MAX_FILES = 24
 MAX_FILE_BYTES = 65536
 MAX_TOTAL_BYTES = 196608
 SUFFIXES = {".md", ".txt", ".rst", ".yaml", ".yml", ".json"}
-THREAT_NAMES = {"threat-model", "threatmodel", "threat_model", "security-assessment"}
+THREAT_NAMES = {"threat-model", "threatmodel", "threat_model", "security-assessment", "appsec-assessment"}
 
 
 class DocumentError(ValueError):

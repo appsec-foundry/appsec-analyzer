@@ -176,7 +176,7 @@ def import_legacy(legacy: Legacy, destination: Path) -> dict[str, str]:
             data = _read_regular(legacy.directory / name)
             if name == f"{legacy.stem}.md":
                 # The report links its figures by name; they are renamed with it.
-                data = data.replace(f"{legacy.stem}.figure".encode(), b"security-assessment.figure")
+                data = data.replace(f"{legacy.stem}.figure".encode(), b"appsec-assessment.figure")
             target = published_name(name)
             _write_private(staging / target, data)
             delivered[target] = hashlib.sha256(data).hexdigest()

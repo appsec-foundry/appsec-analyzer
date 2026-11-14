@@ -201,7 +201,7 @@ The script exits with `0` only when:
 
 - `appsec-analyzer assess --host claude-cli` completes against the selected fixture
   repo.
-- `security-assessment.md` and `security-assessment.yaml` exist in the output directory.
+- `appsec-assessment.md` and `appsec-assessment.yaml` exist in the output directory.
 - `<oracle>/verify_threat_model.py` finds all expected fixture signals.
 - The oracle is not located inside the scanned repo.
 

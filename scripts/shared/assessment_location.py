@@ -291,7 +291,7 @@ def default_report(cwd: Path) -> Path:
             return report_path(located)
     except ArtifactSetError:
         pass
-    return cwd / LEGACY_DIRECTORY / "security-assessment.md"
+    return cwd / LEGACY_DIRECTORY / "appsec-assessment.md"
 
 
 def main(argv: list[str] | None = None) -> int:

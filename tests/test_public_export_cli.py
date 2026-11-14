@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def _bundle(tmp_path, *, markdown="# Saved assessment\n\nVerified findings.\n", extra=None):
     source = tmp_path / "assessment"
     files = {
-        "security-assessment.yaml": (ROOT / "tests/fixtures/report-anatomy/quick-run/threat-model.yaml").read_bytes(),
-        "security-assessment.md": markdown.encode(),
+        "appsec-assessment.yaml": (ROOT / "tests/fixtures/report-anatomy/quick-run/threat-model.yaml").read_bytes(),
+        "appsec-assessment.md": markdown.encode(),
         **(extra or {}),
     }
     _state(source, deliverables={name: hashlib.sha256(body).hexdigest() for name, body in files.items()})
@@ -67,9 +67,9 @@ def test_public_export_runs_without_provider_and_preserves_model(tmp_path):
     public = json.loads(result.stdout)
     assert public["model_calls"] == 0 and public["export_status"] == "complete"
     assert {p.name: p.read_bytes() for p in source.iterdir()} == before
-    assert (output / "security-assessment.yaml").read_bytes() == before["security-assessment.yaml"]
-    assert json.loads((output / "security-assessment.sarif.json").read_text())["version"] == "2.1.0"
-    assert json.loads((output / "security-assessment.threatdragon.json").read_text())
+    assert (output / "appsec-assessment.yaml").read_bytes() == before["appsec-assessment.yaml"]
+    assert json.loads((output / "appsec-assessment.sarif.json").read_text())["version"] == "2.1.0"
+    assert json.loads((output / "appsec-assessment.threatdragon.json").read_text())
     assert yaml.safe_load((output / "pentest-tasks.yaml").read_text())
     assert output.stat().st_mode & 0o777 == 0o700
     for name, digest in public["deliverables"].items():
@@ -82,7 +82,7 @@ def test_public_export_runs_without_provider_and_preserves_model(tmp_path):
 )
 def test_export_rejects_untrusted_saved_state(tmp_path, defect):
     source = _bundle(tmp_path)
-    path = source / "security-assessment.yaml"
+    path = source / "appsec-assessment.yaml"
     if defect == "modified":
         path.write_text("changed")
     elif defect in ("symlink", "hardlink"):
@@ -207,7 +207,7 @@ def test_document_export_with_recorded_svg(tmp_path, format_):
     source = _bundle(tmp_path, markdown="# Saved assessment\n\n![Figure](figure.svg)\n", extra={"figure.svg": svg})
     output = tmp_path / "export"
     public = export_assessment(str(source), str(output), (format_,))
-    body = (output / ("security-assessment." + format_)).read_bytes()
+    body = (output / ("appsec-assessment." + format_)).read_bytes()
     assert public["model_calls"] == 0
     assert body.startswith(b"%PDF") if format_ == "pdf" else b"data:image/svg+xml" in body
 
@@ -220,7 +220,7 @@ def test_export_rechecks_source_after_conversion(tmp_path, monkeypatch):
 
     def change_after_conversion(arguments, work):
         real_run(arguments, work)
-        (source / "security-assessment.md").write_text("concurrent change")
+        (source / "appsec-assessment.md").write_text("concurrent change")
 
     monkeypatch.setattr(exports, "_run", change_after_conversion)
     output = tmp_path / "export"
@@ -251,7 +251,7 @@ def test_current_composed_report_exports_to_html(tmp_path):
     output = tmp_path / "export"
     public = export_assessment(str(source), str(output), ("html",))
     assert public["export_status"] == "complete"
-    assert (output / "security-assessment.html").stat().st_size > 1000
+    assert (output / "appsec-assessment.html").stat().st_size > 1000
 
 
 def test_converter_timeout_terminates_process(tmp_path, monkeypatch):

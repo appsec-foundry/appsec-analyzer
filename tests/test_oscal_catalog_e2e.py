@@ -252,7 +252,7 @@ def test_assess_carries_the_catalog_into_the_published_assessment(tmp_path):
     assert "Traceback" not in result.stderr
     _assert_published(out, 1)
 
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert model["meta"]["check_requirements"] is True
     provenance = model["requirements_provenance"]
     assert provenance["count"] == 29
@@ -262,7 +262,7 @@ def test_assess_carries_the_catalog_into_the_published_assessment(tmp_path):
         "version": "3.2",
         "sha256": hashlib.sha256(CATALOG.read_bytes()).hexdigest(),
     }
-    report = (out / "security-assessment.md").read_text()
+    report = (out / "appsec-assessment.md").read_text()
     for control in ("iam-1.1", "sup-4.1", "pay-1"):
         assert control in report
     assert "iam-8" not in report

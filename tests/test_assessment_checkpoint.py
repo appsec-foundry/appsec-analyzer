@@ -194,7 +194,7 @@ def test_summary_resume_skips_analysis_and_preparation_but_runs_publication_gate
     state = json.loads((output / ".assessment-state.json").read_text())
     assert state["render_checkpoint"] and state["status"] == "interrupted"
     assert "secarch_renderer" in host.roles and "ms_renderer" not in host.roles
-    assert not (output / "security-assessment.yaml").exists()
+    assert not (output / "appsec-assessment.yaml").exists()
     host.roles.clear()
     monkeypatch.setattr(controller, "_assessment_architecture", lambda *a, **k: pytest.fail("analysis replayed"))
     monkeypatch.setattr(controller, "_assessment_prepare_render", lambda *a, **k: pytest.fail("report rebuilt"))
@@ -245,7 +245,7 @@ def test_summary_resume_skips_analysis_and_preparation_but_runs_publication_gate
     assert any(script == "validators/qa_checks.py" and args[0] == "published_secrets" for script, args in gates)
     assert outcome["calls"] == state["accounting"]["calls"] + 1
     assert outcome["spent_usd"] == pytest.approx(state["accounting"]["spent_usd"] + 0.01)
-    assert (output / "security-assessment.md").is_file()
+    assert (output / "appsec-assessment.md").is_file()
     assert not list((output / ".assessment-work").glob("render-checkpoint-*"))
     events = [
         json.loads(line)

@@ -224,7 +224,7 @@ def test_stop_and_completion_messages_name_the_debug_file(tmp_path, monkeypatch)
     outcome = dict(
         repositories=["demo"],
         output=str(tmp_path),
-        deliverables=["security-assessment.md"],
+        deliverables=["appsec-assessment.md"],
         calls=1,
         spent_usd=0.1,
         debug_file="/private/out/failed-jobs.json",

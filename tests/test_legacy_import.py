@@ -37,13 +37,13 @@ def test_a_finished_set_is_copied_under_the_published_names(tmp_path):
     assert found is not None and found.complete
     delivered = legacy_import.import_legacy(found, destination)
     assert set(delivered) == {
-        "security-assessment.md",
-        "security-assessment.yaml",
-        "security-assessment.figure1.svg",
-        "security-assessment.sarif.json",
+        "appsec-assessment.md",
+        "appsec-assessment.yaml",
+        "appsec-assessment.figure1.svg",
+        "appsec-assessment.sarif.json",
         "pentest-tasks.yaml",
     }
-    assert "(security-assessment.figure1.svg)" in (destination / "security-assessment.md").read_text()
+    assert "(appsec-assessment.figure1.svg)" in (destination / "appsec-assessment.md").read_text()
     # Repository-owned inputs are not assessment results; the legacy files stay.
     assert not (destination / "business-context.md").exists()
     assert sorted(p.name for p in legacy.iterdir()) == sorted(
@@ -110,7 +110,7 @@ def test_no_offer_into_the_legacy_directory_itself_or_an_assessed_destination(tm
     assert legacy_import.offer(repo, legacy) is None
     destination = tmp_path / "dest"
     destination.mkdir()
-    (destination / "security-assessment.yaml").write_text("threats: []\n")
+    (destination / "appsec-assessment.yaml").write_text("threats: []\n")
     assert legacy_import.offer(repo, destination) is None
     assert legacy_import.offer(tmp_path / "plain", destination) is None
 
@@ -130,7 +130,7 @@ def test_without_a_choice_the_run_starts_without_it_and_names_it(tmp_path):
     assert controller._assessment_legacy(_ns(repo, ignore_legacy=True), destination) is None
     assert not any(destination.iterdir())
     note = controller._assessment_legacy(_ns(repo, migrate_legacy=True), destination)
-    assert note.startswith("imported the earlier assessment") and (destination / "security-assessment.md").is_file()
+    assert note.startswith("imported the earlier assessment") and (destination / "appsec-assessment.md").is_file()
 
 
 def test_an_incomplete_legacy_run_is_named_but_does_not_stop_the_run(tmp_path):

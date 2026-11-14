@@ -432,7 +432,7 @@ def test_provider_controller_publishes_with_selected_role_models(connections, tm
     assert dispatched["stride_analyzer"] == expected and dispatched["recon_scanner"] == expected
     state = json.loads((output / ".assessment-state.json").read_text())
     assert state["operator_profile"]["adapter"] == provider
-    model = yaml.safe_load((output / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((output / "appsec-assessment.yaml").read_text())
     assert model["meta"]["model_configuration"]["stride_analyzer"]["model"] == expected
 
 

@@ -91,7 +91,7 @@ def test_status_reports_assessment_scope_without_exposing_internal_identity(tmp_
 def test_results_verify_recorded_digest_and_reject_symlink(tmp_path: Path) -> None:
     output = tmp_path / "out"
     content = b"verified report\n"
-    name = "security-assessment.md"
+    name = "appsec-assessment.md"
     _state(output, deliverables={name: hashlib.sha256(content).hexdigest()})
     report = output / name
     report.write_bytes(content)
@@ -187,7 +187,7 @@ def test_assess_rejects_missing_operator_profile_before_host_call(tmp_path: Path
     )
     assert result.returncode != 0
     assert "org profile not found" in result.stdout + result.stderr
-    assert not (tmp_path / "out" / "security-assessment.yaml").exists()
+    assert not (tmp_path / "out" / "appsec-assessment.yaml").exists()
 
 
 def test_assess_forwards_hyphenated_export_and_control_flags(tmp_path: Path, monkeypatch) -> None:
@@ -698,7 +698,7 @@ def test_public_query_and_summary_keep_validation_and_do_not_call_models(tmp_pat
     summary = capsys.readouterr().out
     assert "Questions: use query" in summary and "/appsec-advisor:" not in summary
     assert {p.name: p.read_bytes() for p in output.iterdir()} == before
-    (output / "security-assessment.yaml").write_text("changed")
+    (output / "appsec-assessment.yaml").write_text("changed")
     assert cli.main(["query", "--output", str(output)]) == 2
 
 

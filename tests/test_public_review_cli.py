@@ -52,7 +52,7 @@ def test_preview_uses_recorded_assistant_and_bundled_skill(tmp_path, monkeypatch
     output = capsys.readouterr().out
     assert f"Review with {assistant}" in output
     assert (ROOT / "skills/review-assessment/SKILL.md").read_text() in output
-    assert str(source / "security-assessment.yaml") in output
+    assert str(source / "appsec-assessment.yaml") in output
     assert "query_argv" in output and "review_context.py" in output
     assert "assessment budget does not carry over" in output
     assert {p.name: p.read_bytes() for p in source.iterdir()} == before
@@ -124,7 +124,7 @@ def test_launch_passes_context_without_export_or_shell(tmp_path, assistant):
     args = launch["argv"]
     assert args[-2] == "--"
     assert not any("dangerously" in arg or "disableAllHooks" in arg or "hooks=false" in arg for arg in args[:-1])
-    assert str(source / "security-assessment.yaml") in args[-1]
+    assert str(source / "appsec-assessment.yaml") in args[-1]
     assert "UNTRUSTED STARTUP INSTRUCTIONS" not in args[-1]
     assert (ROOT / "skills/review-assessment/SKILL.md").read_text() in args[-1]
     work = Path(launch["cwd"])
@@ -158,7 +158,7 @@ def test_launch_passes_context_without_export_or_shell(tmp_path, assistant):
 def test_invalid_assessment_never_launches(tmp_path, monkeypatch, defect):
     marker = "AKIA" + "A" * 16
     source = _assessment(tmp_path, markdown=marker if defect == "secret" else "# Saved report\n")
-    model = source / "security-assessment.yaml"
+    model = source / "appsec-assessment.yaml"
     state_path = source / ".assessment-state.json"
     state = json.loads(state_path.read_text())
     if defect == "changed":
@@ -435,7 +435,7 @@ def test_completion_offers_review(tmp_path):
         "repositories": ["example"],
         "calls": 2,
         "spent_usd": 0.1,
-        "deliverables": {"security-assessment.yaml": "unused", "security-assessment.md": "unused"},
+        "deliverables": {"appsec-assessment.yaml": "unused", "appsec-assessment.md": "unused"},
     }
     output = io.StringIO()
     _print_completion(outcome, "1s", Style.for_stream(output), stream=output)
@@ -447,7 +447,7 @@ def test_legacy_artifact_names_remain_reviewable(tmp_path, capsys):
     state_path = source / ".assessment-state.json"
     state = json.loads(state_path.read_text())
     for old in list(state["deliverables"]):
-        new = old.replace("security-assessment", "threat-model")
+        new = old.replace("appsec-assessment", "threat-model")
         (source / old).rename(source / new)
         state["deliverables"][new] = state["deliverables"].pop(old)
     state_path.write_text(json.dumps(state))
@@ -463,7 +463,7 @@ def test_combined_context_keeps_repository_identity(tmp_path):
 
     scope, kwargs = inputs(tmp_path)
     model, _ = build_assessment_model(scope, **kwargs)
-    source = _assessment(tmp_path, extra={"security-assessment.yaml": yaml.safe_dump(model).encode()})
+    source = _assessment(tmp_path, extra={"appsec-assessment.yaml": yaml.safe_dump(model).encode()})
     facts = read_context(str(source))
     locations = [f["location"] for f in facts["findings"]]
     assert len(set(locations)) == 2
@@ -476,7 +476,7 @@ def test_change_during_preparation_prevents_launch(tmp_path, monkeypatch):
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
 
     def resolve(*args, **kwargs):
-        (source / "security-assessment.md").write_text("changed after admission")
+        (source / "appsec-assessment.md").write_text("changed after admission")
         return "/usr/bin/false"
 
     monkeypatch.setattr(review.shutil, "which", resolve)

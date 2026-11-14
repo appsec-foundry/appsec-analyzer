@@ -309,7 +309,7 @@ def test_slug_names_every_export_like_the_create_stamp():
         assert "$SFX" in name, f"export ignores --slug: {name}"
         unstamped = name.replace("$SFX", "")
         assert name.replace("$SFX", "-a3f9") == stamp_threat_model._stamped_name(unstamped, "a3f9")
-    assert {n.replace("$SFX", "") for n in outputs} >= {"pentest-tasks.yaml", "security-assessment.sarif.json"}
+    assert {n.replace("$SFX", "") for n in outputs} >= {"pentest-tasks.yaml", "appsec-assessment.sarif.json"}
 
 
 def test_slug_validation_matches_the_create_stamp():

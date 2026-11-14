@@ -903,10 +903,10 @@ def test_controller_dispatches_models_and_publishes_attributes(home, tmp_path, m
     assert result["status"] == "complete"
     assert dispatched["recon_scanner"] == "gpt-6-luna"
     assert dispatched["stride_analyzer"] == "gpt-6.1-sol"
-    model = yaml.safe_load((output / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((output / "appsec-assessment.yaml").read_text())
     assert model["meta"]["report_attributes"] == attributes
     assert model["meta"]["model_configuration"]["recon_scanner"]["model"] == "gpt-6-luna"
-    assert "payments" in (output / "security-assessment.md").read_text()
+    assert "payments" in (output / "appsec-assessment.md").read_text()
     state = json.loads((output / ".assessment-state.json").read_text())
     assert state["operator_profile"]["models"]["stride_analyzer"]["model"] == "gpt-6.1-sol"
     assert state["operator_profile"]["settings"]["max_parallel"] == 3

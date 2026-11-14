@@ -132,7 +132,8 @@ def _validate(ns) -> None:
     if ns.isolated and (
         ns.threat_model
         or any(
-            Path(p).stem.lower() in {"threat-model", "threatmodel", "threat_model", "security-assessment"}
+            Path(p).stem.lower()
+            in {"threat-model", "threatmodel", "threat_model", "security-assessment", "appsec-assessment"}
             for p in ns.context
         )
     ):

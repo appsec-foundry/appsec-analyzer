@@ -34,7 +34,7 @@ def test_e2e_spring_fixture_runs_oracle_after_pipeline_only():
     assert '--output "$OUTPUT"' in pipeline_block
     assert '--assessment-depth "$DEPTH"' in pipeline_block
     assert "--hard-budget" in pipeline_block
-    assert 'REPORT="$OUTPUT/security-assessment.md"' in text
+    assert 'REPORT="$OUTPUT/appsec-assessment.md"' in text
     assert "ORACLE" not in pipeline_block
     assert "expected-signals.json" not in pipeline_block
 

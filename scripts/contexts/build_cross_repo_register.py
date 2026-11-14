@@ -84,7 +84,7 @@ def _assessment_model(root: Path) -> Path:
     try:
         return model_path(locate(root)[0])
     except (LocationError, ArtifactSetError, OSError):
-        return root / "docs" / "security" / "security-assessment.yaml"
+        return root / "docs" / "security" / "appsec-assessment.yaml"
 
 
 def _should_skip_sibling_discovery(

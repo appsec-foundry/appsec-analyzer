@@ -605,7 +605,7 @@ def test_subscription_controller_publishes_validated_reports(tmp_path, monkeypat
     assert state["schema_version"] == 2 and state["accounting"]["spent_usd"] is None
     assert state["operator_profile"]["adapter"] == "codex-cli"
     assert state["identity"]["limits"]["max_calls"] == 1111
-    assert (output / "security-assessment.md").is_file()
+    assert (output / "appsec-assessment.md").is_file()
 
 
 def test_duplicate_json_fields_are_rejected(transport, monkeypatch):

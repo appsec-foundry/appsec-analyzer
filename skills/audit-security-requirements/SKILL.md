@@ -389,13 +389,13 @@ This map is used in Step 3b to show relevant blueprint guidance alongside violat
 
 ## Step 1.5 — Load threat model context (non-fatal)
 
-Locate the assessment directory and read its model — `security-assessment.yaml`, or `threat-model.yaml` in a legacy `docs/security` set. This step is always non-fatal — if the locate call fails or no model file is present or readable, skip silently and continue to Step 2 with an empty `req_to_threats` map.
+Locate the assessment directory and read its model — `appsec-assessment.yaml`, or `threat-model.yaml` in a legacy `docs/security` set. This step is always non-fatal — if the locate call fails or no model file is present or readable, skip silently and continue to Step 2 with an empty `req_to_threats` map.
 
 ```bash
 ASSESSMENT_DIR=$(python3 "$CLAUDE_PLUGIN_ROOT/scripts/shared/assessment_location.py" locate --repo "$PWD" 2>/dev/null)
 ```
 
-Remember which report file sits next to the model (`security-assessment.md` or `threat-model.md`) as `assessment_report`, for the F-NNN links in Steps 3b and 4.
+Remember which report file sits next to the model (`appsec-assessment.md` or `threat-model.md`) as `assessment_report`, for the F-NNN links in Steps 3b and 4.
 
 If the file exists and is valid YAML:
 
@@ -595,7 +595,7 @@ Evidence: routes/search.ts:23
 Fix     : replace string interpolation with bound parameters.
           Use `sequelize.query(sql, { replacements: { term } })` or the ORM query builder.
 Effort  : M
-Links   : https://reqs.example/sec-sql · [F-014](/home/dev/.local/share/appsec-advisor/assessments/shop-1a2b3c4d/security-assessment.md#f-014)
+Links   : https://reqs.example/sec-sql · [F-014](/home/dev/.local/share/appsec-advisor/assessments/shop-1a2b3c4d/appsec-assessment.md#f-014)
 ```
 
 Rules:

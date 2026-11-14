@@ -222,8 +222,8 @@ if [ "$PIPELINE_STATUS" -ne 0 ]; then
     exit 2
 fi
 
-REPORT="$OUTPUT/security-assessment.md"
-YAML_REPORT="$OUTPUT/security-assessment.yaml"
+REPORT="$OUTPUT/appsec-assessment.md"
+YAML_REPORT="$OUTPUT/appsec-assessment.yaml"
 
 [ -f "$REPORT" ] || { echo "ERROR: missing report: $REPORT" >&2; exit 3; }
 [ -f "$YAML_REPORT" ] || { echo "ERROR: missing YAML report: $YAML_REPORT" >&2; exit 3; }

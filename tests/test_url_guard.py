@@ -307,7 +307,7 @@ def test_profile_allowlist_read_from_the_checkouts_assessment_directory(tmp_path
     monkeypatch.chdir(tmp_path)
     directory = application_directory(tmp_path)
     directory.mkdir(parents=True)
-    (directory / "security-assessment.yaml").write_text("meta: {}\n")
+    (directory / "appsec-assessment.yaml").write_text("meta: {}\n")
     (directory / ".org-profile-effective.json").write_text(
         json.dumps({"defaults": {"url_allowlist": ["security.acme.example"]}})
     )

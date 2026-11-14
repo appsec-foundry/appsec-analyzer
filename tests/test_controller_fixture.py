@@ -337,7 +337,7 @@ def test_web_application_run_publishes_a_valid_model(tmp_path, monkeypatch):
     monkeypatch.setenv("APPSEC_SINGLE_REPO_CONTROLLER", "1")
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
 
     # Client-to-API flows from the routes the client requests, one per proven authentication.
@@ -393,9 +393,9 @@ def test_a_directory_without_git_resumes_on_its_content_and_reports_no_commit(tm
     assert outcome["status"] == "complete"
     assert "stride_analyzer" not in host.roles, "the same content must reuse its accepted jobs"
     assert not (tmp_path / "shop" / ".git").exists()
-    model = yaml.safe_load((tmp_path / "out" / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((tmp_path / "out" / "appsec-assessment.yaml").read_text())
     assert model["meta"]["git"]["commit_sha"] == ""
-    report = (tmp_path / "out" / "security-assessment.md").read_text()
+    report = (tmp_path / "out" / "appsec-assessment.md").read_text()
     assert "`shop` (directory without Git)" in report and "| Repository | shop (directory without Git) |" in report
     assert "appsec-remotes" not in report
 
@@ -408,12 +408,12 @@ def test_test_cases_are_recorded_and_reported_only_when_the_profile_enables_them
     assert outcome["status"] == "complete"
     # The boolean form selects no aspect, so no test case is investigated by a model.
     assert "test_case_investigator" not in host.roles
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     block = model["test_case_results"]
     assert {row["test_case_id"] for row in block["results"]} >= {"TC-CI-01", "TC-INFRA-01", "TC-SUPPLY-01"}
     assert all(row["outcome"] != "control" or row["candidates"]["evidenced"] for row in block["results"])
-    report = (out / "security-assessment.md").read_text()
+    report = (out / "appsec-assessment.md").read_text()
     assert "## Appendix: Verification Items" in report
     linked = [t for t in model["threats"] if t.get("test_case_ids")]
     assert all(t["rule_ids"] for t in linked)
@@ -436,7 +436,7 @@ def test_a_profile_disabled_test_case_reports_disabled_and_keeps_its_findings(tm
     )
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     rows = {row["test_case_id"]: row for row in model["test_case_results"]["results"]}
     assert rows["TC-CI-01"]["outcome"] == "disabled" and rows["TC-CI-01"]["reason"] == reason
     assert rows["TC-INFRA-01"]["outcome"] != "disabled"
@@ -450,10 +450,10 @@ def test_test_cases_stay_out_of_the_model_and_report_by_default(tmp_path, monkey
     outcome, host, out = _assess(tmp_path, monkeypatch, ("shop",), ("--no-pdf",), seed=_seed, host=WebApplicationHost())
     assert outcome["status"] == "complete"
     assert "test_case_investigator" not in host.roles
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert "test_case_results" not in model and "test_case_findings" not in model
     assert not any("test_case_ids" in threat for threat in model["threats"])
-    assert "Appendix: Verification Items" not in (out / "security-assessment.md").read_text()
+    assert "Appendix: Verification Items" not in (out / "appsec-assessment.md").read_text()
 
 
 _PILOT = ("--no-pdf", "--test-case-aspects", "AuthZ")
@@ -501,7 +501,7 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_it
     assert outcome["status"] == "complete"
     # The pilot runs after STRIDE on its own jobs: the STRIDE requests do not change.
     assert sorted(host.stride_prompts) == stride
-    model = yaml.safe_load((tmp_path / "pilot" / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((tmp_path / "pilot" / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     # Component IDs follow the checkout path, so their order varies; the service owns server.js.
     service = next(row for row in model["components"] if "server.js" in row["paths"])
@@ -530,7 +530,7 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_it
     # No post-check confirmed it, but the evidence review did, alone or as part of the survey's finding, so the
     # item's outcome no longer rests on model review only.
     assert threat["evidence_basis"] == "llm-verified" and owner["evidence_basis"] == "review"
-    without = yaml.safe_load((plain / "security-assessment.yaml").read_text())
+    without = yaml.safe_load((plain / "appsec-assessment.yaml").read_text())
     added = 0 if "survey" in threat["found_by"] or "scanners" in threat["found_by"] else 1
     assert len(model["threats"]) == len(without["threats"]) + added
     if not added:
@@ -547,7 +547,7 @@ def test_the_authz_pilot_investigates_each_applicable_component_once_and_puts_it
     candidates = json.loads(artifact.read_text())["test_cases"]
     assert {row["test_case_id"] for row in candidates} <= authz and all(row["aspect"] == "AuthZ" for row in candidates)
 
-    report = (tmp_path / "pilot" / "security-assessment.md").read_text()
+    report = (tmp_path / "pilot" / "appsec-assessment.md").read_text()
     assert f"| [TC-AUTHZ-01](#tc-authz-01) · {service['name']} | AuthZ | Finding |" in report
     assert "## Verification Findings" not in report and "**Found by:** " in report
     # The appendix names the verification finding by the register's finding it is part of.
@@ -561,7 +561,7 @@ def test_a_profile_that_selects_authentication_gets_its_verification_jobs(tmp_pa
     pilot = ("--no-pdf", "--test-case-aspects", "AuthN,AuthNRoutes")
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), pilot, seed=_seed, host=host)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     service = next(row for row in model["components"] if "server.js" in row["paths"])
     # Each component that owns the guard checks its token; the browser client has nothing to authenticate.
@@ -587,7 +587,7 @@ def test_a_failed_investigation_records_undecidable_with_a_warning_and_the_run_c
     host = PilotHost(fail=True)
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     investigated = [row for row in _component_rows(model) if row["outcome"] not in ("not_applicable", "disabled")]
     assert investigated and all(row["outcome"] == "undecidable" for row in investigated)
@@ -606,7 +606,7 @@ def test_a_control_cited_from_a_comment_never_becomes_a_control(tmp_path, monkey
     host = PilotHost(comment_line=13)
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=seed, host=host)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert all(row["outcome"] != "control" for row in _component_rows(model))
     owner = [row for row in _component_rows(model, "TC-AUTHZ-01") if row["outcome"] != "not_applicable"]
     assert [row["outcome"] for row in owner] == ["undecidable"]
@@ -648,7 +648,7 @@ def test_generated_routes_reach_pilot_and_report_with_the_same_identity(tmp_path
     host = PilotHost()
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=seed, host=host)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     (listed,) = host.listed
     routes = {
@@ -686,7 +686,7 @@ def test_each_aspect_gets_its_own_jobs_and_an_aspect_without_candidates_gets_non
     aspects = ("--no-pdf", "--test-case-aspects", "AuthZ,InputVal,DataProt,AI")
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), aspects, seed=seed, host=host)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     service = _service(model)
     # One job per component and aspect; no language model is called, so AI applies nowhere.
@@ -729,7 +729,7 @@ def test_a_language_model_call_gets_an_ai_job_whose_reply_passes_the_contract(tm
     aspects = ("--no-pdf", "--test-case-aspects", "AI")
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), aspects, seed=seed, host=host)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     service = _service(model)
     # The fake host's reply passes the projected schema the real CLI enforces, and the job is accepted.
     assert host.investigations == [(service, "AI")]
@@ -766,7 +766,7 @@ def test_shared_candidates_are_answered_once_and_combined_into_one_row_per_test_
     outcome = _assess_again(tmp_path, host, tmp_path / "pilot", _PILOT, progress=said.append)
     assert outcome["status"] == "complete"
     assert sorted(host.stride_prompts) == stride
-    model = yaml.safe_load((tmp_path / "pilot" / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((tmp_path / "pilot" / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     service = _service(model)
     calls = _calls(host)
@@ -854,7 +854,7 @@ def test_a_failed_job_makes_only_its_candidates_undecidable(tmp_path, monkeypatc
     outcome, _, out = _assess(tmp_path, monkeypatch, ("shop",), _PILOT, seed=_seed, host=host)
     assert outcome["status"] == "complete"
     assert any("verification job" in text for text in outcome["warnings"])
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     rows = {row["test_case_id"]: row for row in _component_rows(model) if row["component_id"] == _service(model)}
     failed = {case_id: ids for case_id, ids in _calls(host)[2][1].items() if ids}

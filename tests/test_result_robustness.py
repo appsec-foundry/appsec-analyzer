@@ -96,15 +96,15 @@ def test_changed_source_after_an_unreadable_commit_yields_new_findings_for_the_g
 
 @pytest.mark.parametrize("name", ["pentest-tasks.yaml", "tasks-renamed.json", "extra.svg", "report.html"])
 def test_the_delivery_gate_scans_every_text_file_whatever_its_name(tmp_path, name):
-    (tmp_path / "security-assessment.md").write_text("clean prose\n", encoding="utf-8")
+    (tmp_path / "appsec-assessment.md").write_text("clean prose\n", encoding="utf-8")
     (tmp_path / name).write_text("objective: key = AKIAIOSFODNN7EXAMPLE\n", encoding="utf-8")
     report = qa.check_published_secrets(tmp_path)
     assert any(name in issue for issue in report.issues)
 
 
 def test_the_delivery_gate_passes_clean_files_and_skips_binary_ones(tmp_path):
-    (tmp_path / "security-assessment.md").write_text("clean prose\n", encoding="utf-8")
-    (tmp_path / "security-assessment.pdf").write_bytes(b"%PDF-1.7\xff\xfe\x00AKIAIOSFODNN7EXAMPLE")
+    (tmp_path / "appsec-assessment.md").write_text("clean prose\n", encoding="utf-8")
+    (tmp_path / "appsec-assessment.pdf").write_bytes(b"%PDF-1.7\xff\xfe\x00AKIAIOSFODNN7EXAMPLE")
     (tmp_path / "subdirectory").mkdir()
     assert qa.check_published_secrets(tmp_path).ok == 1
 

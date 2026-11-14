@@ -28,7 +28,7 @@ This example assesses the intentionally vulnerable [OWASP Juice Shop](https://gi
    pipx install git+https://github.com/appsec-foundry/appsec-analyzer.git
    ```
 
-2. **Run a full assessment.** Analyzer creates the output directory, readable only by you, and writes the report to `security-assessment.md` there:
+2. **Run a full assessment.** Analyzer creates the output directory, readable only by you, and writes the report to `appsec-assessment.md` there:
 
    ```sh
    appsec-analyzer assess --repo https://github.com/juice-shop/juice-shop.git \
@@ -54,7 +54,7 @@ To update Analyzer later, run `appsec-analyzer update`. See [Install](#install) 
 
 ## Reports and exports
 
-Each assessment writes `security-assessment.md` for reading and `security-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
+Each assessment writes `appsec-assessment.md` for reading and `appsec-assessment.yaml` for further processing. The report includes diagrams of the analyzed system. The two details below come from an assessment of OWASP Juice Shop; click a diagram to open it in full.
 
 The run-statistics appendix compares the recorded contributions of survey, verification, evidence review, and abuse cases with their attributable model costs. Additional source locations are not necessarily new weaknesses; semantic novelty or missing comparison data is shown as unknown. This overview makes no additional model calls.
 
@@ -90,7 +90,7 @@ Request more formats when you start the assessment, for example `assess --repo /
 
 To convert a finished assessment later, use [`export`](#export-other-report-formats).
 
-For findings that a request or other input reaches, the analysis records `verification_context` in `security-assessment.yaml` where the source supports it, with source-cited query construction, input processing and filter order, existing controls, prerequisites, and expected observations with control experiments. Missing facts stay explicit. If a survey, investigation or open-review response omits the context, its finding receives an empty variant list and an unresolved reason; this does not mean the finding is untestable. Each route or input variant keeps its own context, including in pentest-task exports. This helps a separate authorized runtime test; Analyzer does not contact the target, and these hypotheses do not establish exploitation or grant permission. Older assessments remain readable without it.
+For findings that a request or other input reaches, the analysis records `verification_context` in `appsec-assessment.yaml` where the source supports it, with source-cited query construction, input processing and filter order, existing controls, prerequisites, and expected observations with control experiments. Missing facts stay explicit. If a survey, investigation or open-review response omits the context, its finding receives an empty variant list and an unresolved reason; this does not mean the finding is untestable. Each route or input variant keeps its own context, including in pentest-task exports. This helps a separate authorized runtime test; Analyzer does not contact the target, and these hypotheses do not establish exploitation or grant permission. Older assessments remain readable without it.
 
 ## Security and data use
 

@@ -59,9 +59,9 @@ def test_controls_and_stride_receive_only_the_allow_listed_projection(tmp_path, 
     for role in ("recon_scanner", "architecture_analyst", "trust_boundary_analyst"):
         assert all("platform_settings" not in prompt for prompt in host.prompts.get(role, [])), role
     assert json.dumps(DOCUMENT)  # the fixture document itself stays unchanged
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     block = model["meta"]["platform_security_settings"]["repositories"][0]
     assert (block["status"], block["visibility"], block["checks"][0]["id"]) == ("checked", "unknown", "PLATSEC-001")
-    report = (out / "security-assessment.md").read_text()
+    report = (out / "appsec-assessment.md").read_text()
     assert "### Platform Security Settings" in report and "PLATSEC-001" in report
     assert "IGNORE ALL RULES" not in report + json.dumps(model)

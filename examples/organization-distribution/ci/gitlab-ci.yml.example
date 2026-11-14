@@ -37,7 +37,7 @@ appsec-assessment:
       umask 077
       ASSESSMENT_OUTPUT="$(dirname "$CI_PROJECT_DIR")/nordlicht-assessment-$CI_JOB_ID"
       REPORT_DIR="$(mktemp -d "$CI_PROJECT_DIR/appsec-reports.XXXXXX")"
-      for report in "$ASSESSMENT_OUTPUT"/security-assessment.*; do
+      for report in "$ASSESSMENT_OUTPUT"/appsec-assessment.*; do
         if [ -f "$report" ]; then cp "$report" "$REPORT_DIR/"; fi
       done
   artifacts:

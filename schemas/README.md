@@ -1,6 +1,6 @@
 # Schemas
 
-The public source scan uses `deterministic-scan-result.schema.json`; full-assessment state uses `multi-repo-state.schema.json`; the independent audit uses `requirements-audit.schema.json`. Published full-assessment YAML uses `threat-model.output.schema.yaml` under the filename `security-assessment.yaml`. Historical schema IDs remain stable for compatibility.
+The public source scan uses `deterministic-scan-result.schema.json`; full-assessment state uses `multi-repo-state.schema.json`; the independent audit uses `requirements-audit.schema.json`. Published full-assessment YAML uses `threat-model.output.schema.yaml` under the filename `appsec-assessment.yaml`. Historical schema IDs remain stable for compatibility.
 
 The detailed table below also includes retained Advisor and context-v2 contracts. Inclusion here does not mean a standalone command produces that artifact. Check its current producer and consumer before changing or removing it.
 

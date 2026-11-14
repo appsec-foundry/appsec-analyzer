@@ -357,7 +357,7 @@ def test_saved_console_summary_respects_cost_visibility(tmp_path, enabled):
 
     directory = tmp_path / WORK_NAME
     directory.mkdir()
-    (tmp_path / "security-assessment.yaml").write_text("threats: []\n")
+    (tmp_path / "appsec-assessment.yaml").write_text("threats: []\n")
     outcome = {
         "output": str(tmp_path),
         "repositories": ["solo"],

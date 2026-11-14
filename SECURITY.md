@@ -14,7 +14,7 @@ Report vulnerabilities privately through the repository's security-advisory chan
 | --- | --- | --- |
 | `scan-sources` | Runs fixed checks without a model or model credentials. Downloads source when you select a Git URL. | Summary or JSON, optionally `scan-result.json`. Observations are unverified. |
 | `score REPO` | Four scanners read a checked source copy with recognized secrets masked. No model calls. Downloads source when you select a Git URL. | Text, JSON, or YAML on stdout. Writes nothing to the target checkout. Shows coverage and unverified observations. |
-| `assess` | Sends selected source excerpts, architecture information, context, and model responses through the selected model host. | Validated `security-assessment.md`, YAML, figures, and requested exports. |
+| `assess` | Sends selected source excerpts, architecture information, context, and model responses through the selected model host. | Validated `appsec-assessment.md`, YAML, figures, and requested exports. |
 | `audit-requirements` | Sends selected requirements, filenames, and limited source excerpts through Claude CLI. | Separate requirements verdict and optional Markdown report. |
 | `analyst` analysis / answer | Sends selected source, designs, context, and answers through Claude CLI. Optional exploration reads a source copy with recognized secrets masked. | Private job state and requested result files. |
 | `status`, `progress`, `stop`, `results` | Reads or updates local run state. No model analysis. | Run information or a cancellation request. |

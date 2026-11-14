@@ -612,7 +612,7 @@ def test_completion_rows_name_the_register_when_practice_sites_fold(tmp_path):
 
 def test_cli_reads_a_published_set_and_refuses_a_mixed_one(tmp_path):
     legacy = _write_model(tmp_path, SAMPLE)
-    published = legacy.rename(tmp_path / "security-assessment.yaml")
+    published = legacy.rename(tmp_path / "appsec-assessment.yaml")
     res = _run(["--output-dir", str(tmp_path), "--json"])
     assert res.returncode == 0, res.stderr
     legacy.write_text(published.read_text(encoding="utf-8"), encoding="utf-8")

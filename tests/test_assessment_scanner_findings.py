@@ -490,7 +490,7 @@ def test_a_full_assessment_publishes_a_confirmed_architecture_finding_without_a_
 
     outcome, _, out = _assess(tmp_path, monkeypatch, ("edge", "service"), ("--no-pdf",), seed=seed)
     assert outcome["status"] == "complete"
-    model = yaml.safe_load((out / "security-assessment.yaml").read_text())
+    model = yaml.safe_load((out / "appsec-assessment.yaml").read_text())
     assert validate_threat_model_output(model)[0]
     [threat] = [t for t in model["threats"] if t.get("rule_id") == "ARCH-CORS-001"]
     assert threat["source"] == "architecture-coverage" and "cvss_v4" not in threat

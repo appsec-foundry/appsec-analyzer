@@ -74,7 +74,7 @@ def test_context_survives_assembly_and_pentest_export(tmp_path):
         tasks = build_document(
             _merged(_stride_threat(verification_context=exported["verification_context"])),
             dialect,
-            "security-assessment.yaml",
+            "appsec-assessment.yaml",
             None,
             "fixture",
         )

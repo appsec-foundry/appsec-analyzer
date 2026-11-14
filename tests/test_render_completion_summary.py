@@ -1047,17 +1047,17 @@ class TestNextSteps:
     def test_sarif_hint_is_a_follow_up_not_an_alternative(self, tmp_path):
         # Uploading the SARIF is something a reader does as well as reading the
         # report; chained into the alternatives it read as instead of.
-        (tmp_path / "security-assessment.sarif.json").write_text("{}")
+        (tmp_path / "appsec-assessment.sarif.json").write_text("{}")
         cfg = self._cfg(write_sarif=True)
         steps = rcs.build_next_steps(tmp_path, tmp_path, self._metrics(), cfg)
         follow_ups = rcs.build_follow_ups(tmp_path, self._metrics(), cfg)
 
-        assert not any("security-assessment.sarif.json" in l for l in steps)
-        assert any("security-assessment.sarif.json" in l for l in follow_ups)
+        assert not any("appsec-assessment.sarif.json" in l for l in steps)
+        assert any("appsec-assessment.sarif.json" in l for l in follow_ups)
 
     def test_the_sarif_hint_names_a_tool_class_not_three_products(self, tmp_path):
         # A reader has one SARIF consumer; the product list read as a menu.
-        (tmp_path / "security-assessment.sarif.json").write_text("{}")
+        (tmp_path / "appsec-assessment.sarif.json").write_text("{}")
         follow_ups = rcs.build_follow_ups(tmp_path, self._metrics(), self._cfg(write_sarif=True))
         assert any("your SARIF consumer" in l for l in follow_ups)
 
@@ -2509,12 +2509,12 @@ class TestExportDeliverablesBackstop:
     def test_exports_threatdragon_when_requested(self, tmp_path: Path):
         self._seed(tmp_path, write_threatdragon=True)
         rcs._export_deliverables_if_configured(tmp_path)
-        assert (tmp_path / "security-assessment.threatdragon.json").is_file()
+        assert (tmp_path / "appsec-assessment.threatdragon.json").is_file()
 
     def test_noop_when_not_requested(self, tmp_path: Path):
         self._seed(tmp_path, write_threatdragon=False)
         rcs._export_deliverables_if_configured(tmp_path)
-        assert not (tmp_path / "security-assessment.threatdragon.json").exists()
+        assert not (tmp_path / "appsec-assessment.threatdragon.json").exists()
 
     def test_noop_when_no_config(self, tmp_path: Path, monkeypatch):
         calls = []
@@ -2524,7 +2524,7 @@ class TestExportDeliverablesBackstop:
 
     def test_leaves_an_existing_export_alone(self, tmp_path: Path, monkeypatch):
         self._seed(tmp_path, write_threatdragon=True)
-        (tmp_path / "security-assessment.threatdragon.json").write_text('{"mine": true}', encoding="utf-8")
+        (tmp_path / "appsec-assessment.threatdragon.json").write_text('{"mine": true}', encoding="utf-8")
         calls = []
         monkeypatch.setattr(rcs.subprocess, "run", lambda *a, **k: calls.append(a[0]) or None)
         rcs._export_deliverables_if_configured(tmp_path)
@@ -2599,9 +2599,9 @@ class TestRequestedDeliverablesAreReported:
     def test_missing_requested_deliverables_are_named(self, tmp_path):
         mod = _load_module()
         assert sorted(mod.missing_deliverables(tmp_path, self.ALL_REQUESTED)) == [
+            "appsec-assessment.sarif.json",
+            "appsec-assessment.threatdragon.json",
             "pentest-tasks.yaml",
-            "security-assessment.sarif.json",
-            "security-assessment.threatdragon.json",
             "threat-model.html",
             "threat-model.pdf",
         ]

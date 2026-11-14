@@ -77,7 +77,7 @@ def test_freshness_no_yaml_no_md(tmp_path):
 
 def test_freshness_refuses_a_directory_with_both_naming_sets(tmp_path):
     (tmp_path / "threat-model.yaml").write_text("meta: {}\n")
-    (tmp_path / "security-assessment.yaml").write_text("meta: {}\n")
+    (tmp_path / "appsec-assessment.yaml").write_text("meta: {}\n")
     res = tmh.check_freshness(tmp_path, tmp_path)
     assert res["verdict"] == "UNKNOWN" and "both" in res["reason"]
 

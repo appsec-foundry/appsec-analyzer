@@ -2,7 +2,7 @@
 """Stamp a finished assessment's deliverables with a shared random postfix so
 several assessments can be copied into one directory without overwriting each other.
 
-Copies ``security-assessment.{md,yaml,figure*.svg,pdf,html,sarif.json}`` and
+Copies ``appsec-assessment.{md,yaml,figure*.svg,pdf,html,sarif.json}`` and
 ``pentest-tasks.yaml`` (whichever exist) to their ``-<slug>`` stamped names and
 rewrites copied figure/pentest references inside the copied Markdown so they
 point at the stamped files. A directory holding the legacy ``threat-model.*``
@@ -47,7 +47,7 @@ _SLUG_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _STATIC_SUFFIXES = [".md", ".yaml", ".pdf", ".html", ".sarif.json", ".threatdragon.json"]
 
 # Known deliverable prefixes; none is a prefix of another, so the match is unambiguous.
-_STAMP_PREFIXES = ("security-assessment", "threat-model", "pentest-tasks")
+_STAMP_PREFIXES = ("appsec-assessment", "threat-model", "pentest-tasks")
 
 
 def _stem(src_dir: Path) -> str:
@@ -62,7 +62,7 @@ def _static_basenames(stem: str) -> list[str]:
 def _stamped_name(basename: str, slug: str) -> str:
     """Insert ``-<slug>`` after the deliverable prefix.
 
-    ``security-assessment.figure1.svg`` → ``security-assessment-<slug>.figure1.svg``
+    ``appsec-assessment.figure1.svg`` → ``appsec-assessment-<slug>.figure1.svg``
     ``pentest-tasks.yaml``       → ``pentest-tasks-<slug>.yaml``
     """
     for prefix in _STAMP_PREFIXES:

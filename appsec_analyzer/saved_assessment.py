@@ -66,7 +66,7 @@ def load_assessment(source: Path) -> tuple[bytes, dict, dict[str, bytes], str]:
                 "saved assessment artifacts exceed limits or no longer match their recorded hashes"
             )
         files[name] = body
-    stems = [s for s in ("security-assessment", "threat-model") if s + ".yaml" in files]
+    stems = [s for s in ("appsec-assessment", "threat-model") if s + ".yaml" in files]
     if len(stems) != 1:
         raise SavedAssessmentError("assessment needs one unambiguous recorded YAML model")
     stem = stems[0]

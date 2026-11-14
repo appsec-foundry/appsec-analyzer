@@ -1738,7 +1738,7 @@ def _write_assessment_summary(sid: str) -> None:
     output_dir = _output_dir()
     if output_dir:
         # One naming set per directory: the published name, or the legacy one.
-        for name in ("security-assessment.yaml", "threat-model.yaml"):
+        for name in ("appsec-assessment.yaml", "threat-model.yaml"):
             candidate = os.path.join(output_dir, name)
             if os.path.exists(candidate):
                 yaml_path = candidate

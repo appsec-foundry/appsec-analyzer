@@ -85,7 +85,7 @@ class TestSiblingDiscovery:
         legacy = _make_sibling_with_tm(tmp_path, "sib-a") / "docs" / "security" / "threat-model.yaml"
         external = application_directory(tmp_path / "workspace" / "sib-a")
         external.mkdir(parents=True)
-        legacy.rename(external / "security-assessment.yaml")
+        legacy.rename(external / "appsec-assessment.yaml")
         reg = bcrr.build(repo, declared_json_path=None, recon_summary_path=None)
         sib_a = next(e for e in reg["entries"] if e["name"] == "sib-a")
         assert sib_a["threat_model"]["status"] == "found"

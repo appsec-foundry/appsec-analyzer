@@ -60,7 +60,7 @@ echo "Log:            $LOG"
 APPSEC_SINGLE_REPO_CONTROLLER=1 appsec-analyzer assess --host claude-cli \
     --repo "$REPO" --output "$OUT" --assessment-depth "$DEPTH" --hard-budget "$BUDGET" 2>&1 | tee "$LOG" || true
 # Plain sh has no pipefail, so the runner's verdict line and the model file decide.
-if ! grep -q "^✓ " "$LOG" || [ ! -f "$OUT/security-assessment.yaml" ]; then
+if ! grep -q "^✓ " "$LOG" || [ ! -f "$OUT/appsec-assessment.yaml" ]; then
     echo "✗ live controller run failed. Per-call host events: $OUT/.assessment-work/host-events" >&2
     exit 1
 fi
@@ -77,4 +77,4 @@ if not ok:
     print("✗ published model failed validation:", *errors[:10], sep="\n  ", file=sys.stderr)
     sys.exit(2)
 print(f"✓ live controller run published {len(model.get(\"threats\") or [])} threats; model validates")
-' "$OUT/security-assessment.yaml" "$PLUGIN_ROOT" || exit 2
+' "$OUT/appsec-assessment.yaml" "$PLUGIN_ROOT" || exit 2

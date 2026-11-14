@@ -1538,8 +1538,8 @@ def _unpriced_token_lines(unpriced: int) -> list[str]:
 # — which is how a `--pdf --html --pentest-tasks` run printed "Assessment
 # complete" while producing none of the three (juice-shop 2026-08-18).
 _REQUESTABLE_DELIVERABLES: tuple[tuple[str, str, str], ...] = (
-    ("write_sarif", "SARIF", "security-assessment.sarif.json"),
-    ("write_threatdragon", "Threat Dragon", "security-assessment.threatdragon.json"),
+    ("write_sarif", "SARIF", "appsec-assessment.sarif.json"),
+    ("write_threatdragon", "Threat Dragon", "appsec-assessment.threatdragon.json"),
     ("write_pentest_tasks", "Pentest tasks", "pentest-tasks.yaml"),
     ("write_pdf", "PDF", "threat-model.pdf"),
     ("write_html", "HTML", "threat-model.html"),
@@ -2670,8 +2670,8 @@ def patch_placeholders(output_dir: Path, stats: dict) -> int:
 
 # Mirrors orchestration_controller._YAML_DERIVED_EXPORTS. Keep the two in sync.
 _YAML_DERIVED_EXPORTS: tuple[tuple[str, str, str], ...] = (
-    ("write_sarif", "exporters/export_sarif.py", "security-assessment.sarif.json"),
-    ("write_threatdragon", "exporters/export_threat_dragon.py", "security-assessment.threatdragon.json"),
+    ("write_sarif", "exporters/export_sarif.py", "appsec-assessment.sarif.json"),
+    ("write_threatdragon", "exporters/export_threat_dragon.py", "appsec-assessment.threatdragon.json"),
 )
 
 

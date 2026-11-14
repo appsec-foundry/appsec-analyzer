@@ -701,13 +701,13 @@ def _compose_if_ready(output_dir: Path, repo_root: str) -> bool:
 # that produces each under its published name. These take the same
 # `--threat-model` / `--output` pair.
 _YAML_DERIVED_EXPORTS: tuple[tuple[str, str, str], ...] = (
-    ("write_sarif", "exporters/export_sarif.py", "security-assessment.sarif.json"),
-    ("write_threatdragon", "exporters/export_threat_dragon.py", "security-assessment.threatdragon.json"),
+    ("write_sarif", "exporters/export_sarif.py", "appsec-assessment.sarif.json"),
+    ("write_threatdragon", "exporters/export_threat_dragon.py", "appsec-assessment.threatdragon.json"),
 )
 # The document exports, converted from the published report.
 _DOCUMENT_EXPORTS: tuple[tuple[str, str, str, list[str]], ...] = (
-    ("write_pdf", "exporters/export_pdf.py", "security-assessment.pdf", []),
-    ("write_html", "exporters/export_html.py", "security-assessment.html", ["--require-mermaid"]),
+    ("write_pdf", "exporters/export_pdf.py", "appsec-assessment.pdf", []),
+    ("write_html", "exporters/export_html.py", "appsec-assessment.html", ["--require-mermaid"]),
 )
 
 # `pentest-tasks` needs its own argv shape (merged findings, dialect, target
@@ -3058,13 +3058,13 @@ _ASSESSMENT_UNSUPPORTED = (
 # renamed on publication; compose already names the figures it links to.
 _ASSESSMENT_PUBLISHED = (
     LEGACY_REPORT,
-    "security-assessment.figure1.svg",
-    "security-assessment.figure1-dark.svg",
-    "security-assessment.figure1-detail.svg",
-    "security-assessment.figure1b.svg",
-    "security-assessment.figure1b-dark.svg",
-    "security-assessment.figure2.svg",
-    "security-assessment.figure2-dark.svg",
+    "appsec-assessment.figure1.svg",
+    "appsec-assessment.figure1-dark.svg",
+    "appsec-assessment.figure1-detail.svg",
+    "appsec-assessment.figure1b.svg",
+    "appsec-assessment.figure1b-dark.svg",
+    "appsec-assessment.figure2.svg",
+    "appsec-assessment.figure2-dark.svg",
     "pentest-tasks.yaml",
 )
 # The fixed product names an earlier, legacy-named report left in the output
@@ -3077,7 +3077,7 @@ _LEGACY_PUBLISHED = (
     "threat-model.html",
     "threat-model.sarif.json",
     "threat-model.threatdragon.json",
-    *(name.replace("security-assessment.", "threat-model.", 1) for name in _ASSESSMENT_PUBLISHED[1:-1]),
+    *(name.replace("appsec-assessment.", "threat-model.", 1) for name in _ASSESSMENT_PUBLISHED[1:-1]),
 )
 
 
@@ -5953,7 +5953,7 @@ def _completion_step_rows(output: Path, deliverables, review: str) -> list[tuple
     from renderers.summarize_threat_model import completion_severity_counts
 
     metrics = {"threats_by_sev": completion_severity_counts(output)}
-    cfg = {"write_sarif": "security-assessment.sarif.json" in deliverables}
+    cfg = {"write_sarif": "appsec-assessment.sarif.json" in deliverables}
     architect = [
         step for step in build_next_steps(output, output, metrics, cfg)[1:] if step.startswith("Read the architect")
     ]

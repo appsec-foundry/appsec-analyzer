@@ -968,7 +968,7 @@ def test_abuse_header_states_the_status_once(reason, header):
 
 def test_cli_reads_a_published_set_and_refuses_a_mixed_one(tmp_path):
     legacy = _write_model(tmp_path, SAMPLE)
-    published = legacy.rename(tmp_path / "security-assessment.yaml")
+    published = legacy.rename(tmp_path / "appsec-assessment.yaml")
     r = _run(["--output-dir", str(tmp_path), "--id", "F-001"])
     assert r.returncode == 0 and r.stdout.startswith("F-001 (T-001)")
     legacy.write_text(published.read_text(encoding="utf-8"), encoding="utf-8")

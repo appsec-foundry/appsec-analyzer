@@ -17,7 +17,7 @@ def test_manual_full_driver_uses_public_cli_and_explicit_budget() -> None:
     assert "CLAUDE_PLUGIN_ROOT" not in text
     assert 'git -C "$RUN_ROOT/repository" init -q' in text
     assert "appsec-analyzer results --output" in text
-    assert "security-assessment.yaml" in text
+    assert "appsec-assessment.yaml" in text
 
 
 def test_manual_make_targets_require_cost_limit() -> None:

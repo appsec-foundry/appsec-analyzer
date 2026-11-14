@@ -5545,8 +5545,8 @@ def _fig1_label(text: str) -> str:
 
 def _figure_basename_for_md(md_name: str) -> str:
     """Derive the published Figure 1 SVG filename from the output Markdown name:
-    ``threat-model.md`` → ``security-assessment.figure1.svg``,
-    ``threat-model-juice-shop-quick.md`` → ``security-assessment-juice-shop-quick.figure1.svg``.
+    ``threat-model.md`` → ``appsec-assessment.figure1.svg``,
+    ``threat-model-juice-shop-quick.md`` → ``appsec-assessment-juice-shop-quick.figure1.svg``.
 
     Tying the figure to the md stem lets several models share one output
     directory without their figure files colliding. The figure carries its

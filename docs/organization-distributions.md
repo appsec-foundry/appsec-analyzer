@@ -275,7 +275,7 @@ The job is manual and restricted to protected refs outside merge-request pipelin
 
 Use a private project and restrict CI/CD visibility to project members. Review the job-token allowlist and downstream artifact forwarding: `artifacts:access` restricts UI/API downloads but does not replace those project controls.
 
-The job verifies and installs the locked wheelhouse, validates the organization package, and runs the assessment. Its runtime and assessment directories are outside the assessed checkout. After the scan, it stages only generated `security-assessment.*` files into a newly created artifact directory. Artifact access is limited to maintainers, retention is one week, and collection runs on failed jobs too. Adjust retention to your policy. This published-report archive is not a portable resume bundle. Validate the YAML with your GitLab instance's CI Lint before enabling it; local tests do not exercise a hosted runner.
+The job verifies and installs the locked wheelhouse, validates the organization package, and runs the assessment. Its runtime and assessment directories are outside the assessed checkout. After the scan, it stages only generated `appsec-assessment.*` files into a newly created artifact directory. Artifact access is limited to maintainers, retention is one week, and collection runs on failed jobs too. Adjust retention to your policy. This published-report archive is not a portable resume bundle. Validate the YAML with your GitLab instance's CI Lint before enabling it; local tests do not exercise a hosted runner.
 
 ## 7. Release an update
 

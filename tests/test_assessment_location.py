@@ -167,7 +167,7 @@ def test_consumers_read_the_external_set_and_fall_back_to_legacy(tmp_path):
     (legacy / "threat-model.yaml").write_text("x")
     assert loc.locate(repo, base) == (legacy, True)
     external.mkdir(parents=True)
-    (external / "security-assessment.yaml").write_text("x")
+    (external / "appsec-assessment.yaml").write_text("x")
     assert loc.locate(repo, base) == (external, False)
 
 
@@ -178,7 +178,7 @@ def test_cli_refuses_a_mixed_set_without_a_traceback(tmp_path, monkeypatch, caps
     legacy = repo / "docs" / "security"
     legacy.mkdir(parents=True)
     (legacy / "threat-model.yaml").write_text("x")
-    (legacy / "security-assessment.yaml").write_text("x")
+    (legacy / "appsec-assessment.yaml").write_text("x")
     assert loc.main(["locate", "--repo", str(repo)]) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error:") and "Traceback" not in err
@@ -193,7 +193,7 @@ def test_hooks_and_exports_find_the_checkouts_assessment_from_any_subdirectory(t
     (repo / "src").mkdir()
     external = loc.application_directory(repo)
     assert loc.locate_from(repo / "src") == external
-    assert loc.default_report(repo / "src") == external / "security-assessment.md"
+    assert loc.default_report(repo / "src") == external / "appsec-assessment.md"
     legacy = repo / "docs" / "security"
     legacy.mkdir(parents=True)
     (legacy / "threat-model.md").write_text("x")
