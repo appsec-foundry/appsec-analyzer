@@ -522,6 +522,7 @@ GROUPS = {
         analyzer_distribution
         assessment_budget_holds
         assessment_diagnostics
+        failure_debug
         assessment_scope
         authnz_review_cli
         container_image
@@ -635,7 +636,7 @@ SOURCE_TESTS = {
     ),
     "tests/e2e/fake_claude.py": _tests("controller_e2e"),
     "scripts/runtime/assessment_jobs.py": _tests(
-        "assessment_jobs multi_repo_controller check_target_specificity finding_state gate_preconditions shared_paths stride_outputs"
+        "assessment_jobs failure_debug multi_repo_controller check_target_specificity finding_state gate_preconditions shared_paths stride_outputs"
     ),
     "schemas/assessment-job-receipt.schema.json": _tests(
         "assessment_jobs multi_repo_controller schemas check_target_specificity"
@@ -2456,6 +2457,7 @@ SOURCE_TESTS = {
     "scripts/orchestrator/orchestration_controller.py": _tests("""
         multi_repo_controller
         multi_repo_assessment
+        failure_debug
         single_repo_controller
         controller_fixture
         script_layout
@@ -5390,10 +5392,18 @@ SOURCE_TESTS = {
     """),
     "scripts/runtime/assessment_diagnostics.py": _tests("""
         assessment_diagnostics
+        failure_debug
         assessment_jobs
         assessment_host
         codex_cli
         analyzer_distribution
+        check_target_specificity
+    """),
+    "scripts/runtime/failure_debug.py": _tests("""
+        failure_debug
+        assessment_diagnostics
+        assessment_jobs
+        multi_repo_controller
         check_target_specificity
     """),
     "scripts/runtime/engine_meta.py": _tests("""

@@ -457,6 +457,7 @@ class AssessmentJobs:
         prompt_capacity=None,
         diagnostics=None,
         redo_stale=False,
+        failure_debug=None,
     ):
         """`cache` holds an earlier, unfinished run's accepted jobs (see assessment_state.CACHE_NAME).
 
@@ -483,6 +484,8 @@ class AssessmentJobs:
         self.host_factory = host_factory
         self.prompt_capacity = prompt_capacity
         self.diagnostics = diagnostics
+        # The private debug file of failed jobs (REQ-050); it needs the diagnostics' call records.
+        self.failure_debug = failure_debug if diagnostics is not None else None
         self.should_stop = should_stop
         # MR-16: concurrent jobs share receipts, timing and the checkpoint file.
         self._lock = threading.RLock()
@@ -622,6 +625,7 @@ class AssessmentJobs:
         try:
             return self._exchange(**kwargs, trace=trace)
         except BaseException as error:
+            self._debug(trace, error, "stopped the run", kwargs["role"], kwargs["selector"], kwargs.get("context"))
             error.assessment_role = kwargs["role"]
             if isinstance(error, ModelAnswerFailure):
                 context = kwargs.get("context") or {}
@@ -644,6 +648,15 @@ class AssessmentJobs:
                         f"{trace.fields['job_id']} {trace.fields['role']} {trace.fields['selector']}: {detail}",
                     )
             raise
+
+    def _debug(self, trace, error, outcome, role, selector, context) -> None:
+        """Record a failed job in the debug file, before its message is shortened for the console."""
+        from runtime.failure_debug import worth_recording
+
+        if self.failure_debug is not None and trace is not None and worth_recording(error):
+            self.failure_debug.record(
+                trace.calls, error, outcome=outcome, role=role, selector=selector, context=context
+            )
 
     def _exchange(
         self,
@@ -715,6 +728,7 @@ class AssessmentJobs:
         request_sha256 = digest(request)
         question_sha256 = digest({key: value for key, value in request.items() if key not in POST_PROCESSING})
         if trace:
+            trace.calls.request_sha256 = request_sha256
             trace.emit("job_request", request_sha256=request_sha256)
         job_id = _job_id(role, selector)
         artifact_path = self.directory / f"{job_id}.json"
@@ -887,6 +901,7 @@ class AssessmentJobs:
             from runtime.assessment_diagnostics import failure_fields
 
             failure = failure_fields(exc)
+            self._debug(trace, exc, "replaced; the run continued without this check", role, selector, context)
             reason = re.sub(r"\s+", " ", str(exc))[:300]
             self._gap({"role": role, "selector": selector, "reason": reason, "failure_code": failure["reason"]})
             self._record(role, seconds=time.monotonic() - started)

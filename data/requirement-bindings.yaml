@@ -1797,6 +1797,7 @@ requirements:
 
   REQ-050:
     applies_to:
+      - scripts/runtime/failure_debug.py
       - scripts/runtime/assessment_diagnostics.py
       - scripts/runtime/assessment_jobs.py
       - scripts/runtime/analyst_host.py
@@ -1809,11 +1810,24 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     decisions: []
     documents:
+      - README.md
       - docs/internal/contracts/requirement-acceptance.md
       - docs/security-assessment.md
+      - skills/appsec-analyzer/SKILL.md
       - specs/changes/failed-run-debug-file/proposal.md
-    coverage: advisory
-    guards: []
+    coverage: partial
+    guards:
+      - tests/test_failure_debug.py::test_stopped_job_keeps_every_request_answer_rejection_and_check_code
+      - tests/test_failure_debug.py::test_replaced_job_is_recorded_and_the_run_goes_on
+      - tests/test_failure_debug.py::test_stopped_call_keeps_code_timing_retries_and_a_masked_host_message
+      - tests/test_failure_debug.py::test_masked_answers_keep_their_shape
+      - tests/test_failure_debug.py::test_accepted_cancelled_and_budget_stopped_jobs_write_no_debug_file
+      - tests/test_failure_debug.py::test_oversized_calls_move_complete_into_their_own_file
+      - tests/test_failure_debug.py::test_debug_file_refuses_a_shared_directory
+      - tests/test_failure_debug.py::test_check_code_stays_inside_the_installation
+      - tests/test_failure_debug.py::test_run_identity_names_versions_models_and_sources_without_connection_settings
+      - tests/test_failure_debug.py::test_stop_and_completion_messages_name_the_debug_file
+      - tests/test_failure_debug.py::test_session_names_the_debug_file_on_the_error_that_stops_the_run
 
   REQ-017:
     applies_to:

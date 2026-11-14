@@ -2,6 +2,8 @@
 
 Only controller metadata and sanitized rejection reasons enter this log. Prompts,
 model answers, source excerpts, provider bodies and stderr are never recorded.
+Each job's calls are kept in memory only for the private debug file of failed
+jobs (``failure_debug``), which lives beside this log.
 """
 
 from __future__ import annotations
@@ -330,12 +332,15 @@ class JobTrace:
     def __init__(self, log: DiagnosticLog, role: str, selector: str):
         self.log = log
         from runtime.assessment_jobs import digest
+        from runtime.failure_debug import CallLog
 
         self.fields = {
             "role": identifier(role),
             "selector": identifier(selector),
             "job_id": "job-" + digest({"role": role, "selector": selector})[:24],
         }
+        # Requests and answers of this job for the debug file; dropped with the trace once the job ends.
+        self.calls = CallLog()
 
     def emit(self, event: str, **fields):
         self.log.emit(event, **self.fields, **fields)
@@ -365,10 +370,12 @@ class RecordedTransport:
 
     def invoke(self, system, prompt, schema, timeout_s, should_stop):
         self.trace.emit("call_start", call_id=self.call_id, **self.host_fields)
+        self.entry = self.trace.calls.start(self.call_id, self.host_fields, system, prompt, schema)
         started = time.monotonic()
         try:
             reply = self.inner.invoke(system, prompt, schema, timeout_s, should_stop)
         except BaseException as error:
+            self.trace.calls.failed(self.entry, error, time.monotonic() - started)
             self.trace.emit(
                 "call_failed",
                 call_id=self.call_id,
@@ -376,10 +383,16 @@ class RecordedTransport:
                 **failure_fields(error),
             )
             raise
+        self.trace.calls.answered(self.entry, reply, time.monotonic() - started)
         self.trace.emit("call_returned", call_id=self.call_id, seconds=round(time.monotonic() - started, 3))
         return reply
 
     def on_correction(self, reason: str):
+        from runtime.failure_debug import message
+
+        entry = getattr(self, "entry", None)
+        if entry is not None:
+            entry["rejection"] = message(reason)
         self.trace.emit("answer_rejected", call_id=self.call_id, detail=safe_reason(reason))
         notice = getattr(self.inner, "on_correction", None)
         if callable(notice):
