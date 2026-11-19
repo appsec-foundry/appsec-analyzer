@@ -550,3 +550,27 @@ def test_other_users_cannot_write_provider_connection(connections, mode):
     connections[0].chmod(mode)
     with pytest.raises(profiles.ProfileError, match="not writable"):
         profiles.resolve_scan("lite")
+
+
+@pytest.mark.parametrize(
+    "provider,synthetic", [("lite", "artificial-gateway-test-token"), ("bedrock", "artificial-bedrock-test-token")]
+)
+def test_routed_model_requests_mask_credentials_in_the_final_wire_body(
+    connections, wire, tmp_path, provider, synthetic
+):
+    from tests.test_model_secrets import exchange
+
+    answer = {"action": "complete", "reads": [], "artifact": {"summary": "checked"}}
+    if provider == "lite":
+        wire[0].response = _response(answer)
+    else:
+        response = bedrock_response()
+        response["output"]["message"]["content"][0]["text"] = json.dumps({"payload_json": json.dumps(answer)})
+        wire[0].response = json.dumps(response).encode()
+    selected = profiles.resolve_scan(provider)
+    profile = profiles.api_profile(selected["models"]["stride_analyzer"])
+    result = exchange(tmp_path, api_hosts.ResponsesTransport(profile, 2), context={"note": synthetic})
+    assert result.artifact == answer["artifact"]
+    _, _, body, headers = wire[0].instances[0].requests[0]
+    assert "[REDACTED]" in json.dumps(body) and synthetic not in json.dumps(body)
+    assert headers["Authorization"] == "Bearer " + synthetic

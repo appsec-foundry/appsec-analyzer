@@ -91,7 +91,7 @@ def gl_routes(**over):
             }
         ),
         f"{base}/approval_rules": ok([{"approvals_required": 2, "protected_branches": [{"name": "main"}]}]),
-        f"{base}/protected_branches": ok([{"name": "main", "allow_force_push": False}]),
+        f"{base}/protected_branches?per_page=100&page=1": ok([{"name": "main", "allow_force_push": False}]),
         f"{base}/security_settings": ok({"secret_push_protection_enabled": True}),
     }
     routes.update(over)
@@ -137,7 +137,7 @@ CASES = [
         GL,
         gl_routes(
             **{
-                "/projects/g%2Fs%2Fp/protected_branches": ok(
+                "/projects/g%2Fs%2Fp/protected_branches?per_page=100&page=1": ok(
                     [{"name": "*", "allow_force_push": True}, {"name": "main", "allow_force_push": False}]
                 )
             }
@@ -145,7 +145,7 @@ CASES = [
         None,
         NOT_SET,
     ),
-    ("PLATSEC-002", GL, gl_routes(**{"/projects/g%2Fs%2Fp/protected_branches": ok([])}), "t", NC),
+    ("PLATSEC-002", GL, gl_routes(**{"/projects/g%2Fs%2Fp/protected_branches?per_page=100&page=1": ok([])}), "t", NC),
     # PLATSEC-003
     ("PLATSEC-003", GH, gh_routes(), "t", SET),
     ("PLATSEC-003", GH, gh_routes(**{"/repos/o/r": ok({"visibility": "public", "default_branch": "main"})}), None, NC),
@@ -290,6 +290,50 @@ CASES = [
 def test_check_result(check, url, routes, token, expected):
     result, _ = run(url, routes, token)
     assert states(result)[check][0] == expected
+
+
+@pytest.mark.parametrize(
+    "second, expected",
+    [
+        (ok([{"name": "m*", "allow_force_push": True}]), NOT_SET),
+        (ok([{"name": "m*", "allow_force_push": False}]), SET),
+        (Response(403), NC),
+        (Response(429), NC),
+        (ok({"invalid": True}), NC),
+    ],
+)
+def test_force_push_uses_every_page(second, expected):
+    path = "/projects/g%2Fs%2Fp/protected_branches?per_page=100&page="
+    routes = gl_routes()
+    routes[path + "1"] = Response(200, [{"name": "main", "allow_force_push": False}], has_next_page=True)
+    routes[path + "2"] = second
+    result, fake = run(GL, routes)
+    assert states(result)["PLATSEC-002"][0] == expected
+    assert path + "2" in fake.requests
+
+
+def test_force_push_page_bound_is_unknown_without_pagination_headers(monkeypatch):
+    monkeypatch.setattr(checks, "GITLAB_PAGE_SIZE", 1)
+    monkeypatch.setattr(checks, "MAX_BRANCH_PAGES", 2)
+    path = "/projects/g%2Fs%2Fp/protected_branches?per_page=1&page="
+    full = ok([{"name": "main", "allow_force_push": False}])
+    result, fake = run(GL, gl_routes(**{path + "1": full, path + "2": full}))
+    assert states(result)["PLATSEC-002"] == (NC, checks.PLATFORM_ERROR)
+    assert path + "3" not in fake.requests
+
+
+def test_gitlab_pagination_reads_next_header_or_link():
+    from io import BytesIO
+
+    for headers, expected in [
+        ({"x-next-page": "2"}, True),
+        ({"x-next-page": ""}, False),
+        ({"link": '<https://other.invalid/page>; rel="next"'}, True),
+        ({}, None),
+    ]:
+        reply = BytesIO(b"[]")
+        reply.headers = headers
+        assert ApiClient._read(200, reply).has_next_page is expected
 
 
 def test_every_check_has_a_set_case_and_a_case_that_is_not_set():

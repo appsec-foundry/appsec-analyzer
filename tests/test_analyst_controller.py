@@ -1402,3 +1402,29 @@ def test_an_unchanged_baseline_line_does_not_prove_a_removal(tmp_path, state_roo
     outcome = ctl.run(review(repo, state_root), Fake(lambda p: response(p, findings=[finding])))
     assert outcome.state == "failed"
     assert "needs proposed evidence and a cited addition or removal" in outcome.report.replace("\\", "")
+
+
+def test_explore_and_resumed_answers_share_the_source_secret_check(repo, state_root):
+    value = "offline-fixture:recognize only by assignment"
+    (repo / "a.txt").write_text(value)
+    (repo / "z.js").write_text(f'const password = "{value}";')
+    git(repo, "add", "a.txt", "z.js")
+    git(repo, "commit", "-q", "-m", "synthetic source data")
+    question = {"asks": "Who may export?", "why": "Access scope.", "affects": "export.js", "required": True}
+
+    def inspect(prompt):
+        root = next(state_root.rglob("explore"))
+        assert value not in prompt
+        for path in ("a.txt", "z.js"):
+            assert value not in (root / path).read_text()
+            assert "[REDACTED]" in (root / path).read_text()
+        assert not (root / "unexpected.txt").exists()
+        return response(prompt, questions=[] if envelope(prompt)["answers"] else [question])
+
+    fake = Fake(inspect, inspect)
+    first = ctl.run(explore_design(repo, state_root), fake, interactive=True)
+    assert first.state == "awaiting_answers", first.report
+    (next(state_root.rglob("explore")) / "unexpected.txt").write_text(value)
+    done = ctl.answer(first.job_id, repo, None, fake, state_root, inline_answers={first.questions[0]["id"]: value})
+    assert done.state == "complete", done.report
+    assert envelope(fake.prompts[-1])["answers"][0]["answer"] == "[REDACTED]"

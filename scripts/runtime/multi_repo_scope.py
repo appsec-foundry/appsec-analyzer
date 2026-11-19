@@ -10,7 +10,6 @@ multi-repository assessment entry point.
 from __future__ import annotations
 
 import codecs
-import difflib
 import fnmatch
 import hashlib
 import json
@@ -32,8 +31,8 @@ from types import MappingProxyType
 
 from analyzers.scan_excludes import assessment_artifacts_in_inventory, declared_repository_input
 from jsonschema import Draft202012Validator
-from validators.secret_scan import mask_text
 
+from runtime.model_secrets import ModelSecrets
 from runtime.remote_repositories import DIRECTORY_SLOT, temporary_area
 
 SCHEMA = Path(__file__).resolve().parents[2] / "schemas" / "multi-repo-scope.schema.json"
@@ -211,39 +210,20 @@ def _lines(text: str) -> list[str]:
 
 
 def _masked_lines(text: str) -> list[str]:
-    """Redact the whole text, but keep each line at its source line number.
+    return _lines(_masked_source(text))
 
-    A masked multi-line secret collapses into fewer lines. Its redacted text
-    stays on the first line of that block and the rest become empty, so later
-    evidence lines still match the raw file. Every returned line is masked
-    output or empty.
-    """
-    raw = _lines(text)
-    masked = _lines(mask_text(text)[0])
-    if len(masked) == len(raw):
-        return masked
-    result: list[str] = []
-    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, raw, masked, autojunk=False).get_opcodes():
-        if tag == "equal":
-            result.extend(masked[j1:j2])
-            continue
-        block, width = masked[j1:j2], i2 - i1
-        if len(block) > width:
-            block = block[: max(width - 1, 0)] + [" ".join(block[max(width - 1, 0) :])]
-        if width:
-            result.extend(block + [""] * (width - len(block)))
-        elif block and result:
-            result[-1] = " ".join([result[-1], *block])
-    return result
+
+def _masked_source(text: str) -> str:
+    """Mask before splitting into lines so a credential cannot be cut into unchecked fragments."""
+    secrets = ModelSecrets()
+    secrets.learn(text)
+    masked = secrets.text(text, source=True)
+    secrets.require_clean(masked)
+    return masked
 
 
 def _masked_bytes(data: bytes) -> bytes:
-    """Redact captured bytes for a scanner file without moving any line."""
-    text = data.decode("utf-8")
-    masked = mask_text(text)[0]
-    if len(_lines(masked)) != len(_lines(text)):
-        masked = "\n".join(_masked_lines(text)) + ("\n" if text.endswith("\n") else "")
-    return masked.encode("utf-8")
+    return _masked_source(data.decode("utf-8")).encode("utf-8")
 
 
 def _relative(value: str) -> tuple[str, ...]:
@@ -289,8 +269,9 @@ def _binary_prefix(prefix: bytes) -> bool:
     return b"\0" in prefix
 
 
-def _read(root: Path, relative: str) -> bytes:
+def _read(root: Path, relative: str, *, limit: int | None = None) -> bytes:
     """Open every path segment relative to pinned descriptors without links."""
+    limit = MAX_FILE_BYTES if limit is None else limit
     parts = _relative(relative)
     descriptors: list[int] = []
     try:
@@ -309,16 +290,16 @@ def _read(root: Path, relative: str) -> bytes:
         before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode):
             raise ScopeError("Source is not a regular file")
-        if before.st_size > MAX_FILE_BYTES:
+        if before.st_size > limit:
             # An oversized binary would be excluded after capture anyway; an
             # oversized text file is excluded as not analysed (MR-10).
             if _binary_prefix(os.read(fd, 8192)):
                 raise OversizedBinary("Oversized binary source is excluded")
             raise OversizedText("Oversized text source is excluded")
         result = bytearray()
-        while chunk := os.read(fd, min(65_536, MAX_FILE_BYTES + 1 - len(result))):
+        while chunk := os.read(fd, min(65_536, limit + 1 - len(result))):
             result.extend(chunk)
-            if len(result) > MAX_FILE_BYTES:
+            if len(result) > limit:
                 raise ScopeError("Source file exceeds the admission limit")
         after = os.fstat(fd)
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
@@ -558,6 +539,19 @@ def _status_paths(status: bytes) -> list[str]:
 class AssessmentScope:
     repositories: tuple[RepositoryView, ...]
     output: Path
+
+    platform_token_env: str | None = None
+    _exchange_secrets: ModelSecrets = field(default_factory=ModelSecrets, init=False, repr=False, compare=False)
+
+    @cached_property
+    def model_secrets(self) -> ModelSecrets:
+        secrets = ModelSecrets.configured(self.platform_token_env)
+        for repo in self.repositories:
+            for content in repo.files.values():
+                secrets.learn(content.decode("utf-8"))
+        # Parallel roles and correction turns share discoveries only inside this admission.
+        self._exchange_secrets.add(secrets.values)
+        return self._exchange_secrets
 
     def inventory(self) -> dict:
         rows = [r.inventory() for r in sorted(self.repositories, key=lambda row: row.repository_id)]

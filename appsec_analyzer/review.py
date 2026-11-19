@@ -118,6 +118,9 @@ def _select(state: dict, assistant: str | None, *, interactive: bool) -> str:
 
 
 def _prompt(path: Path, state: dict, files: dict, stem: str) -> str:
+    import yaml
+    from runtime.model_secrets import ModelSecretError, ModelSecrets
+
     skill = resource_root() / "skills/review-assessment/SKILL.md"
     try:
         instructions = skill.read_text(encoding="utf-8")
@@ -131,6 +134,14 @@ def _prompt(path: Path, state: dict, files: dict, stem: str) -> str:
         "reports": [str(path / name) for name in (stem + ".md", stem + ".yaml") if name in files],
         "query_argv": [sys.executable, str(Path(__file__).with_name("review_context.py")), str(path)],
     }
+    # The assistant can open these two reports directly. Masking just their
+    # paths or the query helper's output would still expose the original files.
+    try:
+        reports = [files[name].decode("utf-8") for name in (stem + ".md", stem + ".yaml") if name in files]
+        guard = ModelSecrets.configured()
+        guard.require_clean([yaml.safe_load(files[stem + ".yaml"]), context, instructions, *reports])
+    except (UnicodeError, ModelSecretError):
+        raise ReviewError("Review handoff withheld because its material could not be cleared of secrets") from None
     return (
         "Use the following bundled AppSec Analyzer review skill for this session.\n\n"
         + instructions

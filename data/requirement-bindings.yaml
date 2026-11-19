@@ -219,6 +219,8 @@ requirements:
       - docs/internal/contracts/platform-security-settings.md
     coverage: partial
     guards:
+      - tests/test_platform_security_settings.py::test_force_push_uses_every_page
+      - tests/test_platform_security_settings.py::test_force_push_page_bound_is_unknown_without_pagination_headers
       - tests/test_platform_security_settings.py::test_every_check_has_a_set_case_and_a_case_that_is_not_set
       - tests/test_platform_security_settings.py::test_unreadable_settings_never_count_as_set_and_name_a_reason
       - tests/test_platform_security_settings.py::test_missing_security_block_is_missing_permission_not_unset
@@ -1559,6 +1561,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_export_cli.py::test_yaml_export_verifies_a_large_optional_pdf
       - tests/test_public_export_cli.py::test_public_export_runs_without_provider_and_preserves_model
       - tests/test_public_export_cli.py::test_export_rejects_untrusted_saved_state
       - tests/test_public_export_cli.py::test_document_export_with_recorded_svg
@@ -1667,6 +1670,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_public_assessment_operations.py::test_resume_without_a_depth_keeps_the_depth_of_the_saved_run
       - tests/test_multi_repo_assessment.py::test_failed_jobs_are_summarised_by_role_and_cause_with_details_only_when_verbose
       - tests/test_multi_repo_assessment.py::test_failure_summaries_keep_distinct_errors_and_sanitise_names
       - tests/test_multi_repo_assessment.py::test_a_recorded_error_closes_with_the_local_diagnostic_file
@@ -2101,6 +2105,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_multi_repo_assessment.py::test_publication_keeps_the_rendered_figure_1a_detail_and_its_stamped_link
       - tests/test_architect_review_runtime.py::test_tampered_transaction_and_foreign_run_are_rejected
       - tests/test_compose_threat_model.py::TestSecurityPostureV2::test_v2_invalid_figure_data_stops_publication
       - tests/test_enrichment_pass.py::test_continuation_never_heals_an_unverified_receipt
@@ -2204,6 +2209,7 @@ requirements:
       - docs/internal/contracts/requirement-acceptance.md
     coverage: partial
     guards:
+      - tests/test_single_repo_controller.py::test_nonpositive_duration_is_rejected_by_cli_and_controller
       - tests/test_rate_limit_pause.py::test_only_one_pending_call_checks_recovery_before_other_workers_restart
       - tests/test_rate_limit_pause.py::test_a_success_from_before_the_outage_cannot_release_waiting_workers
       - tests/test_rate_limit_pause.py::test_cooldown_does_not_extend_run_deadline
@@ -2704,6 +2710,38 @@ requirements:
       - tests/test_redact_known_secrets.py::test_a_clean_report_passes_the_secret_gate
       - tests/test_requirements_audit_cli.py::test_audit_rejects_unmasked_secret_before_publishing_either_artifact
       - tests/test_requirements_audit_cli.py::test_audit_rejects_secret_in_catalog_even_when_markdown_omits_row
+
+  REQ-051:
+    applies_to:
+      - scripts/runtime/model_secrets.py
+      - scripts/orchestrator/analyst_controller.py
+      - scripts/runtime/analyst_state.py
+      - scripts/runtime/assessment_host.py
+      - scripts/runtime/analyst_host.py
+      - scripts/contexts/build_analyst_snapshot.py
+      - scripts/runtime/multi_repo_scope.py
+      - appsec_analyzer/authnz_review.py
+      - appsec_analyzer/review.py
+      - appsec_analyzer/review_context.py
+      - appsec_analyzer/preflight.py
+      - appsec_analyzer/requirements_audit.py
+    decisions: []
+    documents:
+      - README.md
+      - docs/internal/contracts/requirement-acceptance.md
+      - specs/changes/protect-secrets-before-model-use/proposal.md
+    coverage: partial
+    guards:
+      - tests/test_public_review_cli.py::test_assistant_handoff_checks_paths_and_reports_before_launch
+      - tests/test_model_secrets.py::test_model_handoff_masks_source_repeats_and_corrections
+      - tests/test_model_secrets.py::test_subscription_cli_receives_only_the_checked_prompt
+      - tests/test_model_secrets.py::test_claude_cache_blocks_reach_the_cli_without_secrets
+      - tests/test_model_secrets.py::test_uncheckable_contract_withholds_the_call_without_echoing_values
+      - tests/test_provider_backends.py::test_routed_model_requests_mask_credentials_in_the_final_wire_body
+      - tests/test_api_hosts.py::test_generation_handoff_keeps_credentials_out_of_the_wire_body
+      - tests/test_analyst_controller.py::test_explore_and_resumed_answers_share_the_source_secret_check
+      - tests/test_requirements_audit_cli.py::test_audit_rejects_secret_in_catalog_even_when_markdown_omits_row
+      - tests/test_analyst_controller.py::test_secrets_never_reach_the_model_or_the_question_output
 
   REQ-033:
     applies_to:

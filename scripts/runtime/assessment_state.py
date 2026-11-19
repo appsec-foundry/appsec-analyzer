@@ -26,6 +26,7 @@ from jsonschema import Draft202012Validator
 from shared._atomic_io import atomic_write_json, atomic_write_text
 from shared.artifact_names import LEGACY_MODEL, MODEL
 
+from appsec_analyzer.artifacts import MAX_DELIVERABLE_BYTES
 from runtime import acquire_lock
 from runtime.analyst_host import HostCancelled, TransportError
 from runtime.assessment_host import ExchangeError
@@ -90,7 +91,6 @@ CACHE_NAME = "cache"
 # interruption still continue it; --rebuild drops it with the earlier run.
 HISTORY_NAME = "history.json"
 MAX_STATE_BYTES = 2_097_152
-MAX_DELIVERABLE_BYTES = 67_108_864
 
 
 class AssessmentPaused(Exception):

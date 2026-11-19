@@ -262,6 +262,12 @@ def _remove_tree(path: Path) -> None:
         os.unlink(path)
 
 
+def clear_exploration(job: Job) -> None:
+    """Discard the owned, derived copy before rebuilding it for a model call."""
+    _require_owner(job)
+    _remove_tree(job.root / "explore")
+
+
 def cleanup_temporaries(job: Job) -> None:
     """Remove captured source, prompts, and partial writes; keep artifacts."""
     _require_owner(job)

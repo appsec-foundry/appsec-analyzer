@@ -45,12 +45,15 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import stat
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from runtime.analyst_state import Job, utc_now
+from runtime.model_secrets import ModelSecretError, ModelSecrets
+from runtime.multi_repo_scope import OversizedBinary, OversizedText, ScopeError, _read
 from validators.secret_scan import scan_text
 from validators.validate_analyst import validate_snapshot
 
@@ -78,7 +81,6 @@ SENSITIVE_NAMES = (
     "*.jks",
 )
 BINARY_PROBE_BYTES = 8192
-REDACTION = "[REDACTED secret value]"
 MAX_EXCLUDED_ENTRIES = 1900
 VIEW_FILE = ".view.json"
 SUBMODULE_MODE = "160000"
@@ -263,24 +265,20 @@ def _redact_secrets(content: bytes) -> tuple[bytes | None, list[int]]:
     evidence still point at the same code. Returns ``(None, [])`` when a value
     cannot be located or a secret is still detected afterwards.
     """
-    text = content.decode("utf-8", "replace")
-    hits = scan_text(text)
-    if not hits:
-        return content, []
-    lines: set[int] = set()
-    for hit in hits:
-        if not hit.value:
-            return None, []
-        span = hit.value.count("\n")
-        start = text.find(hit.value)
-        while start != -1:
-            first = text.count("\n", 0, start) + 1
-            lines.update(range(first, first + span + 1))
-            start = text.find(hit.value, start + 1)
-        text = text.replace(hit.value, "\n".join([REDACTION] * (span + 1)))
-    if scan_text(text):
+    try:
+        text = content.decode("utf-8")
+        secrets = ModelSecrets.configured()
+        masked = secrets.protect(text)
+    except UnicodeError:
         return None, []
-    return text.encode("utf-8"), sorted(lines)
+    if text == masked:
+        return content, []
+    lines = [
+        number
+        for number, (old, new) in enumerate(zip(text.split("\n"), masked.split("\n"), strict=True), 1)
+        if old != new
+    ]
+    return masked.encode("utf-8"), lines
 
 
 def _excluded_by_mode(capture: _Capture, path: str, mode: str) -> bool:
@@ -474,11 +472,61 @@ def capture(request: dict, job: Job, design_text: str | None = None) -> dict:
     return snapshot
 
 
-def export_view(request: dict, job: Job, snapshot: dict, limits: dict) -> dict:
+def _frozen_content(repo, path, kind, oid, limit):
+    """Read a bounded captured file, refusing a changed worktree or an invalid receipt."""
+    if not _safe_path(path) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid):
+        raise ModelSecretError()
+    if kind == "blob":
+        if int(_git(repo, "cat-file", "-s", oid)) > limit:
+            return None
+        return _blobs(repo, [oid])[oid]
+    if kind != "worktree":
+        raise ModelSecretError()
+    try:
+        content = _read(repo, path, limit=limit)
+    except (OversizedBinary, OversizedText):
+        return None
+    except ScopeError:
+        raise ModelSecretError() from None
+    if _hash_blob(repo, content) != oid:
+        raise SnapshotError("worktree changed since capture")
+    return content
+
+
+def learn_snapshot_secrets(request: dict, job: Job, snapshot: dict, secrets: ModelSecrets) -> None:
+    """Recover recognized values from frozen originals, including on answer/resume.
+
+    Raw values never enter a checkpoint. If a redacted worktree file has
+    changed, its old values cannot be recovered and the call is withheld.
+    """
+    entries = [entry for entry in snapshot["admitted"] if entry.get("redacted_lines")]
+    if not entries:
+        return
+    try:
+        repo = Path(request["repository"]["root"])
+        view = json.loads((job.root / "source" / VIEW_FILE).read_text(encoding="utf-8"))
+        objects = snapshot["objects"]
+        baseline = {}
+        if any(entry["side"] == "baseline" for entry in entries):
+            baseline = _tree(repo, objects.get("merge_base") or objects.get("base") or objects["head"])
+        for entry in entries:
+            path = entry["path"]
+            kind, oid = (
+                ("blob", baseline[entry.get("previous_path", path)][1]) if entry["side"] == "baseline" else view[path]
+            )
+            raw = _frozen_content(repo, path, kind, oid, request["limits"]["file_kib"] * 1024)
+            if raw is None:
+                raise ModelSecretError()
+            secrets.learn(raw.decode("utf-8"))
+    except (OSError, ValueError, KeyError, SnapshotError):
+        raise ModelSecretError() from None
+
+
+def export_view(request: dict, job: Job, snapshot: dict, limits: dict, secrets: ModelSecrets) -> dict:
     """Write the redacted explore copy of the frozen proposed view; return its counts.
 
-    Each file passes the snapshot's own rejection and redaction rules, so the
-    copy holds exactly what ``admit_context`` would admit for the same path.
+    Each file passes source admission and the shared model-input check. A
+    credential identified in one file is also masked in the other files.
     A worktree view contributes tracked files and the files of the change
     itself, not other untracked files. The copy stops at ``explore_files``
     files or ``explore_kib`` KiB.
@@ -492,26 +540,40 @@ def export_view(request: dict, job: Job, snapshot: dict, limits: dict) -> dict:
     root = job.root / "explore"
     root.mkdir(mode=0o700)
     cap = _Capture(repo, job, request["limits"])
-    written = total = 0
-    blobs = _blobs(repo, sorted({oid for kind, oid in view.values() if kind == "blob"}))
+    selected: dict[str, str] = {}
+    selected_size = 0
     for path in sorted(view):
+        if not _safe_path(path):
+            raise ModelSecretError()
         kind, oid = view[path]
-        if kind == "blob":
-            content = blobs[oid]
-        else:
-            content = _read_worktree(repo, path)
-            if _hash_blob(repo, content) != oid:
-                raise SnapshotError("worktree changed since capture")
-        reason = cap.reason_to_reject(path, content)
-        if reason is None:
-            content, _lines = _redact_secrets(content)
-            reason = "sensitive" if content is None else None
-        if reason is None and (
-            written >= limits["explore_files"] or total + len(content) > limits["explore_kib"] * 1024
-        ):
+        reason = cap.reason_to_reject(path, b"")
+        if reason is None and len(selected) >= limits["explore_files"]:
             reason = "limit_reached"
-        if reason is not None:
+        if reason is None:
+            content = _frozen_content(repo, path, kind, oid, cap.limits["file_kib"] * 1024)
+            reason = "too_large" if content is None else cap.reason_to_reject(path, content)
+        if reason is None:
+            try:
+                text = content.decode("utf-8")
+            except UnicodeError:
+                reason = "binary"
+            else:
+                if selected_size + len(content) > limits["explore_kib"] * 1024:
+                    reason = "limit_reached"
+                else:
+                    secrets.learn([path, text])
+                    selected[path] = text
+                    selected_size += len(content)
+        if reason:
             cap.counts[reason] = cap.counts.get(reason, 0) + 1
+    # Learn the entire readable selection before writing even the first file:
+    # an unlabeled value may be identified by an assignment in a later file.
+    written = total = 0
+    for path, text in selected.items():
+        secrets.require_clean(path)
+        content = secrets.protect(text).encode("utf-8")
+        if total + len(content) > limits["explore_kib"] * 1024:
+            cap.counts["limit_reached"] = cap.counts.get("limit_reached", 0) + 1
             continue
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

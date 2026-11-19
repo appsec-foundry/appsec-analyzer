@@ -169,6 +169,7 @@ def audit_repository(
     from runtime.analyst_host import ClaudeCliTransport
     from runtime.assessment_host import run_exchange
     from runtime.assessment_state import _real_directory
+    from runtime.model_secrets import ModelSecretError
     from runtime.multi_repo_discovery import BudgetedHost, DiscoveryBudget
     from runtime.multi_repo_scope import admit
     from runtime.source_preflight import check_repositories as _assessment_preflight
@@ -192,6 +193,10 @@ def audit_repository(
         raise ValueError("audit output must be outside the selected checkout")
     view = scope.repositories[0]
     catalog_body, catalog, catalog_source = _bounded_catalog(catalog_path)
+    try:
+        scope.model_secrets.require_clean(catalog)
+    except ModelSecretError:
+        raise ValueError("requirements catalog contains an unmasked secret or could not be checked") from None
     selected = _items(catalog, category_filter)
     filenames = sorted(view.files)
     if len(filenames) > 4000 or len(json.dumps(filenames).encode()) > MAX_INVENTORY_BYTES:

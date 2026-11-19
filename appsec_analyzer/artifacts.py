@@ -6,6 +6,9 @@ import os
 import stat
 from pathlib import Path
 
+MAX_DELIVERABLE_BYTES = 64 * 1024 * 1024
+MAX_DELIVERABLE_TOTAL = 128 * 1024 * 1024
+
 
 def read_bounded(path: Path, limit: int) -> bytes:
     """Read a regular, singly linked owned artifact without following links."""

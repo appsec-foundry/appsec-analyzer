@@ -17,6 +17,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from runtime.analyst_host import HostCancelled, HostTimeout, Transport, TransportError
+from runtime.model_secrets import ModelSecrets
 from runtime.multi_repo_scope import AssessmentScope, ScopeError, _relative
 
 MAX_EXCHANGES = 6
@@ -356,7 +357,9 @@ def _packet_pieces(data: dict, shared: int, preloaded: int) -> list[str]:
     return [head + body, tail] if not shared else [head, body, tail]
 
 
-def _prompt(data: dict, *, max_context_bytes=MAX_CONTEXT_BYTES, shared=0, preloaded=0) -> Prompt:
+def _prompt(data: dict, *, max_context_bytes=MAX_CONTEXT_BYTES, shared=0, preloaded=0, secrets=None) -> Prompt:
+    if secrets is not None:
+        data = secrets.protect(data)
     pieces = _packet_pieces(data, shared, preloaded)
     if sum(len(piece.encode()) for piece in pieces) > max_context_bytes:
         raise ExchangeError("Assessment packet exceeds its context limit")
@@ -414,7 +417,7 @@ def _anchor_slots(value, row) -> list[tuple[dict, dict | None]]:
 
 
 def _correct_anchors(
-    transport, artifact, anchors, slices, deadline, should_stop, context_limit_bytes=MAX_CONTEXT_BYTES
+    transport, artifact, anchors, slices, deadline, should_stop, context_limit_bytes=MAX_CONTEXT_BYTES, secrets=None
 ):
     """Ask for replacement lines of non-executable citations only; return ``(artifact or None, usd)``.
 
@@ -467,11 +470,12 @@ def _correct_anchors(
     remaining = math.floor(deadline - time.monotonic())
     if remaining < 1 or should_stop():
         return None, 0.0
+    secrets = secrets or ModelSecrets.configured()
     try:
-        prompt = _prompt(packet, max_context_bytes=context_limit_bytes)
+        prompt = _prompt(packet, max_context_bytes=context_limit_bytes, secrets=secrets)
     except ExchangeError:
         return None, 0.0
-    reply = transport.invoke(_ANCHOR_INSTRUCTIONS, prompt, host_schema(_ANCHOR_SCHEMA), remaining, should_stop)
+    reply = secrets.invoke(transport, _ANCHOR_INSTRUCTIONS, prompt, host_schema(_ANCHOR_SCHEMA), remaining, should_stop)
     usd = reply.usd
     if usd is not None and (type(usd) not in (int, float) or not math.isfinite(usd) or usd < 0):
         raise TransportError("Host returned invalid cost accounting")
@@ -503,7 +507,9 @@ class ExchangeResult:
     usd: float | None
 
 
-def _correct_quotations(transport, artifact, quotations, slices, deadline, should_stop, context_limit_bytes):
+def _correct_quotations(
+    transport, artifact, quotations, slices, deadline, should_stop, context_limit_bytes, secrets=None
+):
     """Repair only line/quote fields using already retrieved windows; never expand sources."""
     import time
 
@@ -566,11 +572,13 @@ def _correct_quotations(transport, artifact, quotations, slices, deadline, shoul
     remaining = math.floor(deadline - time.monotonic())
     if remaining < 1 or should_stop():
         return None, 0.0, False
+    secrets = secrets or ModelSecrets.configured()
     try:
-        prompt = _prompt(packet, max_context_bytes=context_limit_bytes)
+        prompt = _prompt(packet, max_context_bytes=context_limit_bytes, secrets=secrets)
     except ExchangeError:
         return None, 0.0, False
-    reply = transport.invoke(
+    reply = secrets.invoke(
+        transport,
         "Correct only the listed evidence quotations. Each reference has a wrong quote or line number. "
         "Use its supplied source window and claim to return an exact literal substring and its file line number. "
         "Exclude the displayed line-number prefix. Return every citation_id exactly once. "
@@ -783,7 +791,8 @@ def run_exchange(
     if slices and not _slices_fit(context, slices, max_context_bytes=context_limit_bytes):
         raise ExchangeError("Preloaded sources exceed the context limit")
     # Every call sends the context and the preloaded slices first, unchanged; served reads follow them.
-    blocks = {"shared": shared_context_keys, "preloaded": len(slices)}
+    secrets = scope.model_secrets
+    blocks = {"shared": shared_context_keys, "preloaded": len(slices), "secrets": secrets}
     cost: float | None = 0.0
     feedback: dict | None = None
 
@@ -845,7 +854,7 @@ def run_exchange(
             call_schema["properties"]["action"] = {"enum": ["complete"]}
             call_schema["properties"]["reads"]["maxItems"] = 0
             call_schema["properties"]["artifact"] = {"$ref": "#/$defs/assessment_artifact"}
-        reply = transport.invoke(system, prompt, call_schema, remaining, should_stop)
+        reply = secrets.invoke(transport, system, prompt, call_schema, remaining, should_stop)
         # A reply that arrived is used; the next turn checks the job's limit.
         if should_stop():
             raise HostCancelled("Assessment cancelled")
@@ -855,6 +864,7 @@ def run_exchange(
             raise InvalidHostReply("Host reply is not JSON data") from None
         if len(encoded.encode()) > MAX_RESPONSE_BYTES:
             raise InvalidHostReply("Host reply exceeds its size limit")
+        secrets.learn(reply.payload)
         contract_error = None
         envelope_error = False
         if not validator.is_valid(reply.payload):
@@ -971,7 +981,7 @@ def run_exchange(
                 if isinstance(exc, Rejection) and exc.quotations:
                     trail[-1]["corrections"].append("quotation correction")
                     fixed, usd, called = _correct_quotations(
-                        transport, artifact, exc.quotations, slices, deadline, should_stop, context_limit_bytes
+                        transport, artifact, exc.quotations, slices, deadline, should_stop, context_limit_bytes, secrets
                     )
                     extra += int(called)
                     cost = None if cost is None or usd is None else cost + usd
@@ -993,7 +1003,7 @@ def run_exchange(
                     # MR-2: only citations are wrong, so only their lines are asked for.
                     trail[-1]["corrections"].append("line-only citation correction")
                     fixed, usd = _correct_anchors(
-                        transport, artifact, exc.anchors, slices, deadline, should_stop, context_limit_bytes
+                        transport, artifact, exc.anchors, slices, deadline, should_stop, context_limit_bytes, secrets
                     )
                     if fixed is None:
                         trail[-1]["corrections"][-1] += " (no usable answer)"

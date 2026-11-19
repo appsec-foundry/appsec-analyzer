@@ -266,6 +266,7 @@ def _test_model(ns, *, api_profile, runtime):
 def _exchange(ns, settings, model, ceiling, runtime, *, api):
     """One synthetic exchange from a private temporary directory outside every source."""
     from runtime.analyst_host import ClaudeCliTransport
+    from runtime.model_secrets import ModelSecrets
 
     from appsec_analyzer.profiles import reject_source_paths
 
@@ -296,7 +297,8 @@ def _exchange(ns, settings, model, ceiling, runtime, *, api):
                 executable=os.environ.get("APPSEC_CLAUDE_EXECUTABLE") or "claude",
                 effort=settings.get("reasoning_effort"),
             )
-        return transport.invoke(
+        return ModelSecrets.configured(getattr(ns, "platform_token_env", None)).invoke(
+            transport,
             "Connectivity test. Return the requested JSON object.",
             'Return {"ok": true}.',
             _SCHEMA,

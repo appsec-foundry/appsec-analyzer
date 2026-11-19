@@ -198,6 +198,17 @@ def test_interactive_launch_derives_the_hard_budget_from_depth(argv, usd):
     assert _budget(["--interactive-launch", *argv]) == usd
 
 
+@pytest.mark.parametrize("seconds", [0, -1])
+def test_nonpositive_duration_is_rejected_by_cli_and_controller(seconds):
+    from appsec_analyzer import cli
+
+    with pytest.raises(SystemExit) as refused:
+        cli._parser().parse_args(["assess", "--repo", ".", "--max-duration", str(seconds)])
+    assert refused.value.code == 2
+    with pytest.raises(controller.CallError, match="--max-duration"):
+        _budget(["--hard-budget", "5", "--max-duration", str(seconds)])
+
+
 def test_explicit_budget_replaces_the_depth_default():
     assert _budget(["--interactive-launch", "--thorough", "--hard-budget", "7"]) == 7.0
     assert _budget(["--interactive-launch", "--soft-budget", "8"]) == 10.0

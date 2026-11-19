@@ -339,11 +339,18 @@ def _numbered(text: str) -> str:
     return "\n".join(f"{i:>5}| {line}" for i, line in enumerate(text.splitlines(), start=1))
 
 
-def build_prompt(request: dict, snapshot: dict, context: dict, source_dir: Path, answers: list[dict]) -> str:
+def build_prompt(
+    request: dict, snapshot: dict, context: dict, source_dir: Path, answers: list[dict], *, secrets=None
+) -> str:
     """Assemble the single prompt of one analysis pass."""
+    from runtime.model_secrets import ModelSecrets
+
+    secrets = secrets or ModelSecrets.configured()
+    secrets.learn([context, answers])
     files = []
     for entry in snapshot["admitted"]:
         text = (source_dir / entry["side"] / entry["path"]).read_text(encoding="utf-8", errors="replace")
+        text = secrets.protect(text)
         item = {
             "side": entry["side"],
             "path": entry["path"],
@@ -376,14 +383,14 @@ def build_prompt(request: dict, snapshot: dict, context: dict, source_dir: Path,
         envelope["question"] = request["question"]
     if context.get("documents"):
         envelope["documents"] = [
-            {**{k: v for k, v in doc.items() if k != "text"}, "numbered_lines": _numbered(doc["text"])}
+            {**{k: v for k, v in doc.items() if k != "text"}, "numbered_lines": _numbered(secrets.protect(doc["text"]))}
             for doc in context["documents"]
         ]
     if request.get("explore"):
         envelope["explore"] = True
     # The JSON escape keeps the decoded data unchanged while the marker can
     # never occur literally, so file content cannot end the data section.
-    data = json.dumps(envelope, ensure_ascii=False, indent=1).replace(MARKER, MARKER_ESCAPED)
+    data = json.dumps(secrets.protect(envelope), ensure_ascii=False, indent=1).replace(MARKER, MARKER_ESCAPED)
     explore = (
         "Explore mode: the working directory holds a redacted copy of the repository. Before you answer, use "
         "Glob, Grep, and Read to find the code that decides this request, and cite what you rely on.\n"

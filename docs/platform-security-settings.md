@@ -40,6 +40,8 @@ Each check reports one state:
 
 A setting that cannot be read never counts as `set` or `not set`. A missing field and an empty answer count as unreadable when the platform also returns them to callers with too little access.
 
+For GitLab, Analyzer checks every matching protected-branch rule before reporting that force pushes are blocked. If a page is unreadable or more than 20 pages of 100 rules are needed, the result is `not checkable`.
+
 The checks, their IDs, and what counts as `set` are listed in the [check catalog](internal/contracts/platform-security-settings.md). The result names the platform, repository, visibility, access level, and check time. It describes the settings at that time, not the code, and is not a release approval.
 
 ## In a scan

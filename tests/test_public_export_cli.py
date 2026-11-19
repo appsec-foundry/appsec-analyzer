@@ -114,6 +114,18 @@ def test_export_rejects_untrusted_saved_state(tmp_path, defect):
     assert not output.exists()
 
 
+def test_yaml_export_verifies_a_large_optional_pdf(tmp_path):
+    source = _bundle(tmp_path, extra={"appsec-assessment.pdf": bytes(33 * 1024 * 1024)})
+    output = tmp_path / "yaml"
+    result = export_assessment(str(source), str(output), ("yaml",))
+    assert result["export_status"] == "complete"
+    assert (output / "appsec-assessment.yaml").read_bytes() == (source / "appsec-assessment.yaml").read_bytes()
+    with (source / "appsec-assessment.pdf").open("r+b") as pdf:
+        pdf.write(b"changed")
+    with pytest.raises(ExportError, match="hashes"):
+        export_assessment(str(source), str(tmp_path / "second"), ("yaml",))
+
+
 def test_export_preserves_existing_destination(tmp_path):
     source = _bundle(tmp_path)
     output = tmp_path / "export"

@@ -112,6 +112,8 @@ Each requirement keeps its `REQ-NNN` ID when it moves or is reworded. Retired ID
 
 - **REQ-032:** **Keep secrets out of results.** Analyzer blocks publication of generated files containing unmasked secrets. Reports and diagnostics avoid exposing credentials or sensitive code details. The private debug file of a failed run may contain requests, model answers, and cited source lines. Intermediate data kept during analysis stays private.
 
+- **REQ-051:** **Protect secrets before model use.** Analyzer prevents known and detectable secret values from reaching a model in any Analyzer-managed model call.
+
 - **REQ-033:** **Explain what leaves the machine.** Before using a model, Analyzer explains what code, context, and answers it will send and which selected host receives them. It distinguishes this from fetching a Git repository and does not claim provider retention guarantees it cannot verify.
 
 - **REQ-034:** **Do only what was authorized.** Analysis stays within the agreed task, resources, and permissions. Asking for an analysis does not authorize code changes, commits, publication, or acceptance of a risk. Sharing diagnostics requires approval of the actual content to be shared.

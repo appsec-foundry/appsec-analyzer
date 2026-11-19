@@ -74,7 +74,7 @@ appsec-analyzer assess --repo /path/to/service --repo /path/to/client \
   --profile claude --budget 30 --output /private/system-assessment
 ```
 
-The supported depths are `quick`, `standard`, and `thorough`. If you give no depth and no profile sets one, `assess` asks in an interactive terminal. The question shows each depth's spending limit, relative cost and runtime, and what it verifies. Enter selects `standard`. With `--non-interactive`, `--quiet`, `--resume`, in CI, or without a terminal, there is no question and `standard` applies.
+The supported depths are `quick`, `standard`, and `thorough`. If you give no depth and no profile sets one, `assess` asks in an interactive terminal. The question shows each depth's spending limit, relative cost and runtime, and what it verifies. Enter selects `standard`. A resume keeps the saved depth unless you specify another depth. For a new run with `--non-interactive`, `--quiet`, in CI, or without a terminal, the default is `standard`.
 
 The depths change work limits and select the matching model configuration within `--profile claude|codex`. With the default `claude` profile, `--model` pins all roles. `--stride-model` (the survey's model), `--triage-model`, and `--merger-model` override single roles. Check [model selection](model-selection.md) before spending.
 
@@ -170,7 +170,7 @@ Report writing completes the required Security Architecture section first. It th
 
 ### Output and continuation
 
-Without `--output`, results go to the private user-data directory under `appsec-analyzer/assessments`. An explicit output directory must be outside the selected checkouts and private (mode 0700). A missing directory is created that way, unless its path leads through a link or into a source checkout. The main files are `appsec-assessment.md` and `appsec-assessment.yaml`. Optional exports run after model and report validation. Missing tools are reported.
+Git URLs and directories without Git require `--output`. For local Git checkouts without `--output`, results go to the private user-data directory under `appsec-analyzer/assessments`. An explicit output directory must be outside the selected checkouts and private (mode 0700). A missing directory is created that way, unless its path leads through a link or into a source checkout. The main files are `appsec-assessment.md` and `appsec-assessment.yaml`. Optional exports run after model and report validation. Missing tools are reported.
 
 Recognized tool metadata may already exist in the output directory: directories named `.git`, `.claude`, `.codex`, `.cursor`, `.vscode`, or `.idea`, and regular files named `.git`, `.gitignore`, `.gitattributes`, `.editorconfig`, `AGENTS.md`, or `CLAUDE.md`. Analyzer leaves these entries untouched and does not use their contents as analysis input. The `.git` file form supports Git worktrees. Links and entries of the wrong type do not qualify. This applies to a first run, a new scan, and `--rebuild`. Other unrelated files and edited reports still block a new scan; move the named conflicts or choose another `--output`.
 
@@ -390,6 +390,8 @@ abuse_cases:
       path_patterns: ["*expense*", "*approv*"]
 ```
 
+Before sending an assessment request or correction, Analyzer checks the instructions, schema, source excerpts and other context for known credentials and recognized secret formats. A failed check stops the request before transmission. Unlabeled secrets in unfamiliar formats can escape detection.
+
 Run a model-backed assessment with an authorized budget:
 
 ```sh
@@ -408,6 +410,8 @@ Existing files under `docs/security/abuse-cases/` and `.appsec/abuse-cases/` rem
 The report shows confirmed and partially blocked attack scenarios in detail. Cases that were checked but remain inconclusive appear in a compact table with their unresolved evidence. Cases whose verification did not run appear separately under “Not verified”; an empty verifier result does not count as a completed check. Mitigated and inapplicable cases remain in the coverage overview. Proposed fixes address confirmed steps, but their effectiveness still needs validation; a review task is not a fix.
 
 ## Review an assessment with AI
+
+Analyzer checks the launch context and the Markdown and YAML reports before opening the assistant. A report that contains a recognized secret blocks the handoff. After launch, the assistant controls its own file reads and model calls.
 
 After a scan completes, the next steps include `appsec-analyzer review` with that scan's result directory. The command opens interactive Claude Code or Codex with the existing assessment and the bundled [review skill](../skills/review-assessment/SKILL.md) for evidence-based discussion and remediation planning. No export or new scan is needed.
 
@@ -439,6 +443,8 @@ appsec-analyzer export --assessment /path/to/assessment \
 ```
 
 `export` requires a completed `.assessment-state.json`, a model that passes the current schema, and artifacts matching every recorded digest. The source directory must be owned by the current user and private (mode 0700). The destination must not exist and must be outside Git checkouts and separate from the source; its parent must exist. Analyzer creates it with mode 0700 and publishes files with mode 0600. An interrupted or failed export is not a completed bundle; retry into a new directory. The saved assessment is left unchanged. Older standalone files without compatible state require explicit migration or reassessment.
+
+A saved assessment can contain up to 64 MiB per published file and 128 MiB across all published files, including optional exports and stamped copies. Analyzer checks these limits before publishing and when opening the result for export or review.
 
 The default formats are `markdown yaml`. Markdown, HTML and PDF require the recorded Markdown report. HTML requires Pandoc; PDF also requires WeasyPrint. Document conversion embeds only recorded local images or validated embedded SVG and rejects active markup and external image resources. Mermaid source remains a code block, with a warning; it is not rendered by this command. SARIF and pentest tasks retain the existing evidence and CWE filters, and Threat Dragon is a lossy diagram projection. Keep YAML for the complete model. Missing tools, modified inputs or failed validation cause exit 2 without a success result; success returns JSON with artifact digests and `model_calls: 0`.
 

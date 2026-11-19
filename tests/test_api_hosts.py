@@ -391,3 +391,40 @@ def test_connect_limit_is_short_and_the_established_socket_gets_the_call_limit(m
     connection._context = Context()
     connection.connect()
     assert seen == {"connect": api_hosts.CONNECT_SECONDS, "read": 90}
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {},
+        {
+            "kind": "gateway",
+            "endpoint": "https://gateway.example/v1/responses",
+            "key_env": "APPSEC_GATEWAY_API_KEY",
+            "gateway_route_revision": "offline",
+        },
+    ],
+)
+def test_generation_handoff_keeps_credentials_out_of_the_wire_body(fake_host, tmp_path, monkeypatch, settings):
+    from runtime.assessment_host import run_exchange
+    from runtime.multi_repo_scope import AssessmentScope
+
+    profile = _profile(**settings)
+    monkeypatch.setenv(profile.key_env, "test-only-key")
+    answer = {"action": "complete", "reads": [], "artifact": {"summary": "checked"}}
+    monkeypatch.setattr(fake_host, "getresponse", lambda self: _Reply(_response(answer)))
+    result = run_exchange(
+        api_hosts.ResponsesTransport(profile, 0.1),
+        AssessmentScope((), tmp_path),
+        instructions="Review the supplied context.",
+        context={"note": "The selected context mentions test-only-key."},
+        artifact_schema={"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]},
+        allowed_sources=frozenset(),
+        timeout_s=5,
+        should_stop=lambda: False,
+    )
+    assert result.artifact == answer["artifact"]
+    _, _, body, headers = fake_host.instances[0].requests[0]
+    assert "test-only-key" not in json.dumps(body)
+    assert "[REDACTED]" in body["input"]
+    assert headers["Authorization"] == "Bearer test-only-key"

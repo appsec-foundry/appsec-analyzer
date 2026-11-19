@@ -275,8 +275,8 @@ else:
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["model_calls"] == 0
-    assert (exported / "security-assessment.yaml").read_bytes() == (saved / "security-assessment.yaml").read_bytes()
-    assert json.loads((exported / "security-assessment.sarif.json").read_text())["version"] == "2.1.0"
+    assert (exported / "appsec-assessment.yaml").read_bytes() == (saved / "appsec-assessment.yaml").read_bytes()
+    assert json.loads((exported / "appsec-assessment.sarif.json").read_text())["version"] == "2.1.0"
     focused_state = tmp_path / "focused-state"
     result = subprocess.run(
         [

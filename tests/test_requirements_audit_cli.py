@@ -277,6 +277,7 @@ def test_audit_rejects_secret_in_catalog_even_when_markdown_omits_row(tmp_path: 
             write_md=True,
             host_factory=lambda ceiling: host,
         )
+    assert host.calls == 0
     assert not list(output.iterdir())
 
 

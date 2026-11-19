@@ -803,23 +803,32 @@ def test_launch_progress_refuses_unsafe_or_owned_output(tmp_path, defect):
     assert victim.read_text() == "preserve"
 
 
-def test_resume_without_a_depth_keeps_the_depth_of_the_saved_run(tmp_path, monkeypatch):
+@pytest.mark.parametrize("explicit_output", [True, False])
+def test_resume_without_a_depth_keeps_the_depth_of_the_saved_run(tmp_path, monkeypatch, explicit_output):
     from runtime import assessment_state
+    from shared.assessment_location import application_directory, data_base, private_directory
 
     from appsec_analyzer import cli, profiles
 
-    repo, output = tmp_path / "repo", tmp_path / "out"
-    repo.mkdir()
-    output.mkdir()
+    repo = tmp_path / "repo"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    (output / assessment_state.STATE_NAME).write_text("{}")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    output = tmp_path / "out" if explicit_output else application_directory(repo)
+    if not explicit_output:
+        private_directory(output.parent, data_base())
+    _state(output, status="interrupted")
+    output.chmod(0o700)
     saved = profiles.resolve_scan("claude", depth="thorough", repositories=[str(repo)])
-    monkeypatch.setattr(assessment_state, "_read_state", lambda path: {"operator_profile": saved})
-    base = ["assess", "--repo", str(repo), "--output", str(output), "--resume", "--non-interactive"]
+    path = output / assessment_state.STATE_NAME
+    state = json.loads(path.read_text())
+    path.write_text(json.dumps({**state, "operator_profile": saved}))
+    base = ["assess", "--repo", str(repo), "--resume", "--non-interactive"]
+    if explicit_output:
+        base += ["--output", str(output)]
     ns = cli._parser().parse_args(base)
     cli._prepare_profile(ns)
-    assert ns.assessment_depth == "thorough"
+    assert (ns.assessment_depth, ns.hard_budget) == ("thorough", saved["settings"]["budget"])
     ns = cli._parser().parse_args([*base, "--assessment-depth", "standard"])
     cli._prepare_profile(ns)
     assert ns.assessment_depth == "standard"

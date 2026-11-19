@@ -6,13 +6,15 @@ import fnmatch
 from dataclasses import dataclass
 from urllib.parse import quote
 
-from appsec_analyzer.platform_settings.client import ApiClient, Response
+from appsec_analyzer.platform_settings.client import ApiClient, Response, TransportError
 from appsec_analyzer.platform_settings.source import Repository
 
 SET, NOT_SET, NOT_CHECKABLE = "set", "not set", "not checkable"
 MISSING_PERMISSION = "missing permission"
 NOT_OFFERED = "feature not offered by the platform or plan"
 PLATFORM_ERROR = "platform error"
+GITLAB_PAGE_SIZE = 100
+MAX_BRANCH_PAGES = 20
 
 CATALOG = (
     ("PLATSEC-001", "Required reviews on the default branch"),
@@ -185,10 +187,9 @@ class GitLab:
         out: dict[str, Outcome] = {}
         branch = context.default_branch
         rules = self.client.get(f"{self.base}/approval_rules")
-        protected = self.client.get(f"{self.base}/protected_branches")
         if branch:
             out["PLATSEC-001"] = self._reviews(rules, branch)
-            out["PLATSEC-002"] = self._force(protected, branch)
+            out["PLATSEC-002"] = self._force(branch)
         else:
             out["PLATSEC-001"] = out["PLATSEC-002"] = Outcome(NOT_CHECKABLE, PLATFORM_ERROR)
         out["PLATSEC-003"] = Outcome(NOT_CHECKABLE, NOT_OFFERED)
@@ -216,18 +217,32 @@ class GitLab:
                 return Outcome(SET)
         return Outcome(NOT_SET)
 
-    def _force(self, response: Response, branch: str) -> Outcome:
-        if response.status != 200 or not isinstance(response.body, list):
-            return _unreadable(response)
-        matching = [
-            rule
-            for rule in response.body
-            if isinstance(rule, dict)
-            and isinstance(rule.get("name"), str)
-            and fnmatch.fnmatchcase(branch, rule["name"])
-        ]
-        if not matching:
-            # An empty list is also returned to callers who may not read protection details.
-            return Outcome(NOT_SET) if self.token and response.body else Outcome(NOT_CHECKABLE, MISSING_PERMISSION)
-        # The most permissive matching rule decides.
-        return _flag(any(rule.get("allow_force_push") is not False for rule in matching), False)
+    def _force(self, branch: str) -> Outcome:
+        has_rules = matched = allowed = False
+        for page in range(1, MAX_BRANCH_PAGES + 1):
+            # Only the page number varies. A Link header never supplies the destination for a token.
+            path = f"{self.base}/protected_branches?per_page={GITLAB_PAGE_SIZE}&page={page}"
+            try:
+                response = self.client.get(path)
+            except TransportError:
+                return Outcome(NOT_CHECKABLE, PLATFORM_ERROR)
+            if response.status != 200:
+                return _unreadable(response)
+            if not isinstance(response.body, list) or len(response.body) > GITLAB_PAGE_SIZE:
+                return Outcome(NOT_CHECKABLE, PLATFORM_ERROR)
+            for rule in response.body:
+                has_rules = True
+                if not isinstance(rule, dict) or not isinstance(rule.get("name"), str) or not rule["name"]:
+                    return Outcome(NOT_CHECKABLE, PLATFORM_ERROR)
+                if fnmatch.fnmatchcase(branch, rule["name"]):
+                    if not isinstance(rule.get("allow_force_push"), bool):
+                        return Outcome(NOT_CHECKABLE, MISSING_PERMISSION)
+                    matched = True
+                    allowed |= rule["allow_force_push"]
+            if response.has_next_page is False or (
+                response.has_next_page is None and len(response.body) < GITLAB_PAGE_SIZE
+            ):
+                if matched:
+                    return Outcome(NOT_SET if allowed else SET)
+                return Outcome(NOT_SET) if self.token and has_rules else Outcome(NOT_CHECKABLE, MISSING_PERMISSION)
+        return Outcome(NOT_CHECKABLE, PLATFORM_ERROR)

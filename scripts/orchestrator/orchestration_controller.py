@@ -3232,7 +3232,7 @@ def _assessment_budget(ns, rest: list[str] = (), *, subscription=False, subscrip
         limit = INTERACTIVE_DEPTH_BUDGET_USD[_requested_depth(list(rest))]
     if limit is None:
         raise CallError("a headless controller assessment requires --hard-budget")
-    seconds = ns.max_duration or ASSESSMENT_DEFAULT_SECONDS
+    seconds = ns.max_duration if ns.max_duration is not None else ASSESSMENT_DEFAULT_SECONDS
     if not 1 <= seconds <= MAX_ASSESSMENT_SECONDS:
         raise CallError(f"--max-duration must be between 1 and {MAX_ASSESSMENT_SECONDS} seconds")
     if not (limit > 0 and limit < float("inf")):
@@ -4735,6 +4735,11 @@ def _assessment_publish(
         for basename, digest in list(delivered.items()):
             if (staging / (stamped := stamp_threat_model._stamped_name(basename, slug))).is_file():
                 delivered[stamped] = digest
+    from appsec_analyzer.artifacts import MAX_DELIVERABLE_BYTES, MAX_DELIVERABLE_TOTAL
+
+    sizes = [(staging / name).stat().st_size for name in delivered]
+    if max(sizes) > MAX_DELIVERABLE_BYTES or sum(sizes) > MAX_DELIVERABLE_TOTAL:
+        raise ControllerError("Assessment exceeds the saved-result limits of 64 MiB per file or 128 MiB in total")
     # REQ-032: the last exports came after the quality gates, so everything is checked once more under its final name.
     _run_script("validators/qa_checks.py", ["published_secrets", str(staging), str(workspace)])
     # Recorded first: a run that stops after this still owns what it moved.
@@ -4945,6 +4950,10 @@ def assess_repositories(
     ensure_output_gitignore.ensure(Path(ns.output))
     try:
         scope = admit(ns.repo, ns.output, minimum=1)
+        if getattr(ns, "platform_token_env", None):
+            from dataclasses import replace
+
+            scope = replace(scope, platform_token_env=ns.platform_token_env)
     except ScopeError as exc:
         raise CallError(f"repository selection rejected: {exc}") from exc
     labels = sorted(row["label"] for row in scope.inventory()["repositories"])

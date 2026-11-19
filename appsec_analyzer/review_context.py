@@ -19,6 +19,7 @@ from appsec_analyzer.saved_assessment import load_assessment
 def read_context(assessment: str, *, identifier=None, grep=None, severity=None, component=None) -> dict:
     initialize()
     from model.query_threat_model import build_facts, lookup_id
+    from runtime.model_secrets import ModelSecrets
     from shared.assessment_sources import is_portable_model, labelled_model
 
     path = Path(assessment).absolute()
@@ -26,6 +27,7 @@ def read_context(assessment: str, *, identifier=None, grep=None, severity=None, 
         raise ValueError("parent traversal is not allowed")
     _, _, files, stem = load_assessment(path)
     model = yaml.safe_load(files[stem + ".yaml"])
+    model = ModelSecrets.configured().protect(model)
     if is_portable_model(model):
         model = labelled_model(model)
     # No unrecorded requirements sidecars or repository configuration are read.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ class Response:
     status: int
     body: Any = None
     rate_limited: bool = False
+    has_next_page: bool | None = None
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -89,7 +91,13 @@ class ApiClient:
             body = json.loads(raw) if raw else None
         except ValueError:
             body = None
-        return Response(status, body, limited)
+        next_page = reply.headers.get("x-next-page")
+        link = reply.headers.get("link", "")
+        if re.search(r'(?:^|;)\s*rel\s*=\s*"?next"?(?=\s*[,;]|\s*$)', link, re.I):
+            has_next = True
+        else:
+            has_next = bool(next_page) if next_page is not None else None
+        return Response(status, body, limited, has_next)
 
 
 def github_client(token: str | None) -> ApiClient:

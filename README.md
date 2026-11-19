@@ -99,6 +99,8 @@ For findings that a request or other input reaches, the analysis records `verifi
 
 `score` and `scan-sources` send no source to a model. They still need network access when you pass a Git URL.
 
+Before each managed model call, Analyzer masks known credential values and recognized secret patterns in the selected material. It checks follow-up answers, correction requests, and files provided for model exploration. If it cannot check the input safely, it withholds the call. An unfamiliar credential in free text can go unrecognized. Use `scan-sources` or `score` when no data may go to a model.
+
 Analyzed repositories are untrusted input: their content cannot authorize tools or select provider credentials. Reports show HTML from a repository or a model as text, and opening a report requests nothing from other hosts. Keep credentials out of repository files and Git URLs, and treat reports and intermediate files as sensitive. See the [security policy](SECURITY.md).
 
 ## Install
@@ -242,7 +244,7 @@ A published report can still have incomplete optional checks. The closing status
 appsec-analyzer assess --repo /path/to/project
 
 # Assess a remote repository; Analyzer clones it into a temporary directory
-appsec-analyzer assess --repo https://github.com/your-org/your-project.git
+appsec-analyzer assess --repo https://github.com/your-org/your-project.git --output ~/assessments/project
 
 # Assess a backend and its web frontend together as one system
 appsec-analyzer assess --repo /path/to/backend --repo /path/to/frontend

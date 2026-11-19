@@ -55,6 +55,7 @@ def test_assess_help_groups_options_and_shows_examples(capsys):
     assert positions == sorted(positions)
     assert "Examples:" in out and "--assessment-depth quick --budget 5" in out
     assert out.splitlines()[0].startswith("usage: appsec-analyzer assess --repo PATH")
+    assert "--repo https://github.com/your-org/your-project.git --output" in out
 
 
 def test_grouping_does_not_change_assess_parsing(tmp_path):

@@ -406,6 +406,14 @@ For Copilot CLI assessments, invoke the CLI from a fresh private temporary worki
 
 Block publication of generated artifacts containing unmasked secrets. Avoid copying credentials or sensitive source details into reports and diagnostics; keep retained intermediate data private. The private debug file of a failed run (REQ-050) may hold requests, model answers, and cited source lines; it stays private and masks secrets.
 
+## REQ-051: Protect secrets before model use
+
+Apply the same protection across providers and model-backed commands, including follow-up questions, retries and correction exchanges. Check all model-visible content, including source excerpts, catalogs, user answers, instructions, schemas and files made available for reading.
+
+Remove or replace detected secret values completely. If the content cannot be checked safely, stop the affected call before transmission and give a diagnostic without the value. Provider authentication remains outside model input. A separately launched interactive assistant controls its own subsequent exchanges.
+
+Offline tests inspect what a provider would receive using synthetic secrets, including repeated values and an unsuccessful check. Arbitrary free text can contain credentials without a recognizable format. Detection covers known values and the supported credential patterns.
+
 ## REQ-033: Explain what leaves the machine
 
 Preflight progress identifies the selected API destination and model before sending authenticated metadata queries; these queries contain no source content. Before an optional generation test, identify its destination, synthetic-only prompt, separate budget or plan-allowance use, and remaining verification limits.

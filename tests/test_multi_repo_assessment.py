@@ -285,7 +285,7 @@ def test_single_repository_controller_publishes_a_complete_report(tmp_path, monk
 
 
 @pytest.mark.parametrize(("label", "count"), [("dispatch", 9), ("telemetry", 10), ("compact", 2)])
-def test_publication_keeps_the_rendered_figure_1a_detail_and_its_stamped_link(tmp_path, label, count):
+def test_publication_keeps_the_rendered_figure_1a_detail_and_its_stamped_link(tmp_path, monkeypatch, label, count):
     from model.finalize_component_inventory import component_inventory_fingerprint
     from orchestrator import assessment_workspace as ws
     from renderers import compose_threat_model as compose
@@ -356,6 +356,19 @@ def test_publication_keeps_the_rendered_figure_1a_detail_and_its_stamped_link(tm
         assert stamped in delivered and (scope.output / stamped).read_bytes() == (workspace / detail).read_bytes()
         assert f"]({stamped})" in (scope.output / f"appsec-assessment-{label}.md").read_text()
     assert "unpublished.svg" not in delivered and not (scope.output / "unpublished.svg").exists()
+
+    # A set that the reader would refuse cannot replace the last report.
+    from appsec_analyzer import artifacts
+
+    sizes = [(scope.output / name).stat().st_size for name in delivered]
+    limit = "MAX_DELIVERABLE_BYTES" if count > 8 else "MAX_DELIVERABLE_TOTAL"
+    monkeypatch.setattr(artifacts, limit, (max(sizes) if count > 8 else sum(sizes)) - 1)
+    report_path = scope.output / "appsec-assessment.md"
+    report_path.write_text("previous report")
+    with pytest.raises(controller.ControllerError, match="saved-result limits"):
+        controller._assessment_publish(scope, original, names, workspace, {"slug": label}, [], record=recorded.append)
+    assert report_path.read_text() == "previous report"
+    assert recorded == [delivered]
 
 
 @pytest.mark.parametrize(("names", "depth"), [(("edge", "service"), "standard"), (("west", "east"), "thorough")])

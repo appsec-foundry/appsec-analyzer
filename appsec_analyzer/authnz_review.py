@@ -290,7 +290,7 @@ def review_repository(
     from runtime.multi_repo_discovery import BudgetedHost, DiscoveryBudget
     from runtime.multi_repo_scope import admit
     from runtime.source_preflight import check_repositories as _assessment_preflight
-    from validators.secret_scan import mask_text, scan_text
+    from validators.secret_scan import scan_text
 
     if not _MODEL_ID.fullmatch(model):
         raise ReviewError("invalid AuthNZ model identifier")
@@ -326,7 +326,7 @@ def review_repository(
                 catalog_digest = source["source_sha256"]
                 catalog_format = {k: v for k, v in source.items() if k != "source_sha256"}
                 # Catalogs are evidence too; never forward their credential literals.
-                catalog = yaml.safe_load(mask_text(body.decode("utf-8"))[0])
+                catalog = scope.model_secrets.protect(catalog)
             schema = _schema("authnz-report.schema.json")
             policy = (resource_root() / "agents/appsec-authnz-analyzer.md").read_text(encoding="utf-8")
             instructions = (

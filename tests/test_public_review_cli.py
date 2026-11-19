@@ -510,3 +510,24 @@ def test_launch_failures_preserve_assessment(tmp_path, monkeypatch, failure):
     assert "private diagnostic" not in str(error.value)
     assert all(not p.exists() for p in directories)
     assert {p.name: p.read_bytes() for p in source.iterdir()} == before
+
+
+def test_assistant_handoff_checks_paths_and_reports_before_launch(tmp_path, monkeypatch, capsys):
+    source = _assessment(tmp_path)
+    secret = "offline-review-value"
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+    renamed = tmp_path / secret
+    source.rename(renamed)
+    assert cli.main(["review", str(renamed), "--preview"]) == 2
+    output = capsys.readouterr()
+    assert secret not in output.out + output.err and "withheld" in output.err
+    renamed.rename(source)
+    report = source / "appsec-assessment.md"
+    report.write_text(report.read_text() + "\n" + secret)
+    state_path = source / ".assessment-state.json"
+    state = json.loads(state_path.read_text())
+    state["deliverables"][report.name] = hashlib.sha256(report.read_bytes()).hexdigest()
+    state_path.write_text(json.dumps(state))
+    assert cli.main(["review", str(source), "--preview"]) == 2
+    output = capsys.readouterr()
+    assert secret not in output.out + output.err and "withheld" in output.err

@@ -41,7 +41,14 @@ from pathlib import Path
 from contexts import analyst_questions as aq
 from contexts.build_analyst_context import ContextContractError, ContextError
 from contexts.build_analyst_context import build as build_context
-from contexts.build_analyst_snapshot import SnapshotError, admit_context, capture, export_view, view_paths
+from contexts.build_analyst_snapshot import (
+    SnapshotError,
+    admit_context,
+    capture,
+    export_view,
+    learn_snapshot_secrets,
+    view_paths,
+)
 from contexts.resolve_analyst_catalog import CatalogError, Selection, load_limits, resolve, select_questions
 from contexts.select_analyst_context import select as select_context
 from renderers.render_analyst_report import render
@@ -55,6 +62,7 @@ from runtime.analyst_host import (
     instructions,
     response_schema,
 )
+from runtime.model_secrets import ModelSecretError, ModelSecrets
 from runtime.resolve_org_profile import resolve as resolve_org_profile
 from validators.secret_scan import scan_text
 from validators.validate_analyst import validate_request, validate_response, validate_result
@@ -437,6 +445,8 @@ def _guarded(run: _Run, body: Callable[[], Outcome]) -> Outcome:
         outcome = body()
         keep_view = outcome.state == "awaiting_answers"
         return outcome
+    except ModelSecretError as exc:
+        return run.finish("failed", "validation_failure", [str(exc)])
     except (Exception, KeyboardInterrupt, Terminated) as exc:
         try:
             return run.abort(exc)
@@ -542,11 +552,6 @@ def _prepare(
     all_limits = load_limits()
     if inv.mode == "review" and current.snapshot["admitted"]:
         _select_surrounding_code(current, all_limits["context_files"])
-    if request.get("explore"):
-        try:
-            current.exploration = export_view(request, job, current.snapshot, all_limits)
-        except SnapshotError as exc:
-            return current.finish("failed", "validation_failure", [f"The explore copy could not be written: {exc}."])
     current.fingerprint = _sha([request, current.snapshot, current.context])
     current.ensure_started()
     snapshot = current.snapshot
@@ -623,20 +628,34 @@ def _analyze(current: _Run, answers: list[dict], transport_factory: TransportFac
     limits = request["limits"]
     source_dir = job.root / "source"
     response = None
+    secrets = ModelSecrets.configured()
+    secrets.learn([request, current.context, answers])
     while response is None:
         if st.cancel_requested(job.root):
             return current.finish("cancelled", "cancelled_by_user")
         if current.out_of_time() or current.counters["host_calls"] >= limits["host_calls"]:
             return current.finish("incomplete", "limit_exhausted", ["The analysis reached its time or call limit."])
+        learn_snapshot_secrets(request, job, current.snapshot, secrets)
+        if request.get("explore"):
+            # Values recognized in a design or in an older saved snapshot must
+            # also be removed from every file the provider will be able to read.
+            if request["mode"] == "design":
+                secrets.learn((source_dir / "design").read_text(encoding="utf-8"))
+            for entry in current.snapshot["admitted"]:
+                secrets.learn((source_dir / entry["side"] / entry["path"]).read_text(encoding="utf-8"))
+            st.clear_exploration(job)
+            current.exploration = export_view(request, job, current.snapshot, load_limits(), secrets)
+        prompt = build_prompt(request, current.snapshot, current.context, source_dir, answers, secrets=secrets)
+        system, schema = instructions(), response_schema(request["mode"])
+        secrets.check_request(system, prompt, schema)
         current.counters["host_calls"] += 1
         st.transition(job, _state(job, "analyzing", current.fingerprint, current.counters))
-        prompt = build_prompt(request, current.snapshot, current.context, source_dir, answers)
         timeout = max(1, min(limits["call_seconds"], int(current.deadline - time.monotonic())))
         try:
             reply = transport.invoke(
-                instructions(),
+                system,
                 prompt,
-                response_schema(request["mode"]),
+                schema,
                 timeout,
                 lambda: st.cancel_requested(job.root) or current.out_of_time(),
             )

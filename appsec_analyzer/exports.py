@@ -13,12 +13,12 @@ import tempfile
 from pathlib import Path
 
 from appsec_analyzer import INTERFACE_VERSION, resource_root
-from appsec_analyzer.artifacts import publish_exclusive, read_bounded
-from appsec_analyzer.saved_assessment import MAX_FILE
+from appsec_analyzer.artifacts import MAX_DELIVERABLE_BYTES, publish_exclusive, read_bounded
 from appsec_analyzer.saved_assessment import SavedAssessmentError as ExportError
 from appsec_analyzer.saved_assessment import load_assessment as _load
 from appsec_analyzer.saved_assessment import validate_directory as _directory
 
+MAX_CONVERSION_BYTES = 32 * 1024 * 1024
 FORMATS = ("markdown", "yaml", "html", "pdf", "sarif", "threatdragon", "pentest-tasks")
 
 
@@ -52,7 +52,7 @@ def _documents(work: Path, stem: str, files: dict[str, bytes], formats: tuple[st
     (work / (stem + ".md")).write_text(markdown, encoding="utf-8")
     ast_path = work / "report-ast.json"
     _run(["pandoc", stem + ".md", "-f", PANDOC_FORMAT, "-t", "json", "-o", str(ast_path)], work)
-    validate_document(json.loads(read_bounded(ast_path, MAX_FILE)), files, markdown)
+    validate_document(json.loads(read_bounded(ast_path, MAX_CONVERSION_BYTES)), files, markdown)
 
 
 def export_assessment(assessment: str, output: str, formats: tuple[str, ...]) -> dict:
@@ -135,7 +135,7 @@ def _export_assessment(assessment: str, output: str, formats: tuple[str, ...]) -
             if format_ in ("html", "pdf"):
                 args.append("--no-mermaid")
             _run(args, work)
-            selected[name] = read_bounded(target, MAX_FILE)
+            selected[name] = read_bounded(target, MAX_CONVERSION_BYTES)
         if set(formats) & {"sarif", "pentest-tasks"}:
             warnings.append(
                 "SARIF and pentest tasks use their existing evidence/CWE filters; YAML retains the complete model."
@@ -155,7 +155,7 @@ def _export_assessment(assessment: str, output: str, formats: tuple[str, ...]) -
         if read_bounded(source / STATE_NAME, len(original)) != original:
             raise ExportError("assessment changed during export; no export was published")
         for name, body in files.items():
-            if read_bounded(source / name, MAX_FILE) != body:
+            if read_bounded(source / name, MAX_DELIVERABLE_BYTES) != body:
                 raise ExportError("assessment changed during export; no export was published")
         for name, body in selected.items():
             publish_exclusive(destination / name, body)

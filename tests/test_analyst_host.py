@@ -28,7 +28,10 @@ def fake_host(tmp_path: Path, body: str) -> str:
         "#!/usr/bin/env python3\n"
         "import json, os, sys, time, subprocess\n"
         "prompt = sys.stdin.read()\n"
-        f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), 'prompt': prompt, 'env': dict(os.environ)}}, open({str(log)!r}, 'w'))\n"
+        "flags = ('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'MAX_STRUCTURED_OUTPUT_RETRIES', 'DISABLE_PROMPT_CACHING')\n"
+        "env = {key: os.environ[key] for key in flags if key in os.environ}\n"
+        "env.update({key: 'present' for key in ('GIT_DIR', 'APPSEC_RUN_ID') if key in os.environ})\n"
+        f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), 'prompt': prompt, 'env': env}}, open({str(log)!r}, 'w'))\n"
         + body
     )
     script.chmod(0o755)

@@ -269,7 +269,7 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
             "  %(prog)s --repo .\n"
             "\n"
             "  # Remote repository (cloned into a temporary directory)\n"
-            "  %(prog)s --repo https://github.com/your-org/your-project.git\n"
+            "  %(prog)s --repo https://github.com/your-org/your-project.git --output ~/assessments/project\n"
             "\n"
             "  # Backend and frontend as one system\n"
             "  %(prog)s --repo /path/to/backend --repo /path/to/frontend\n"
@@ -553,6 +553,13 @@ def _parser(*, organization=None) -> argparse.ArgumentParser:
     return parser
 
 
+def _positive_seconds(value: str) -> int:
+    seconds = int(value)
+    if seconds < 1:
+        raise argparse.ArgumentTypeError("must be a positive number of seconds")
+    return seconds
+
+
 def _positive_budget(value: str) -> float:
     try:
         amount = float(value)
@@ -628,7 +635,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
     output_group.add_argument(
         "--output",
         metavar="DIR",
-        help="Where the results go; outside the repository (default: the application's private user-data directory)",
+        help="Result directory outside the sources. Required for a Git URL or directory without Git; local checkouts default to the private user-data directory",
     )
     cost_group.add_argument(
         "--budget",
@@ -766,7 +773,7 @@ def _add_assessment_arguments(parser: argparse.ArgumentParser, *, default_repo: 
         metavar="N",
         help="Maximum CLI model exchanges including retries (default: 1000; subscription profiles only)",
     )
-    cost_group.add_argument("--max-duration", type=int, metavar="SECONDS")
+    cost_group.add_argument("--max-duration", type=_positive_seconds, metavar="SECONDS")
     output_group.add_argument("--fail-on", choices=("critical", "high", "medium"))
     cost_group.add_argument("--evidence-verifier-cap", type=int, metavar="N")
     scope_group.add_argument(
@@ -1245,12 +1252,17 @@ def _prepare_profile(ns: argparse.Namespace, default: str = "claude") -> None:
         )
 
     profile = resolve(ns.assessment_depth if "assessment_depth" in explicit else None)
-    if ns.command == "assess" and ns.resume and ns.output and "assessment_depth" not in explicit:
+    if ns.command == "assess" and ns.resume and "assessment_depth" not in explicit:
         # REQ-016: a resumed run keeps its depth unless the command names another one.
         from appsec_analyzer.profiles import DEPTHS, saved_depth
 
         _engine_imports()
-        depth = saved_depth({depth: resolve(depth) for depth in DEPTHS}, Path(ns.output).expanduser())
+        from orchestrator.orchestration_controller import _default_output, _private_destination
+
+        output = Path(ns.output).expanduser() if ns.output else Path(_default_output(ns.repo or [str(Path.cwd())]))
+        if output.exists():
+            output = Path(_private_destination(str(output)))
+        depth = saved_depth({depth: resolve(depth) for depth in DEPTHS}, output)
         if depth is not None:
             profile = resolve(depth)
     if _asks_for_depth(ns, profile, explicit):
@@ -1355,6 +1367,8 @@ def _assess(ns: argparse.Namespace) -> int:
                 "--keep-runtime-files requires a private --output directory (mode 0700); "
                 "a missing one is created only outside source checkouts"
             )
+    if getattr(ns, "platform_token_env", None) and not os.environ.get(ns.platform_token_env, "").strip():
+        raise ValueError(f"--platform-token-env {ns.platform_token_env} names an unset or empty environment variable")
     # The host-specific preflight runs only after resolving the selected profile.
     from orchestrator.orchestration_controller import assess_main
     from runtime.remote_repositories import checkout_arguments
@@ -1378,8 +1392,6 @@ def _assess(ns: argparse.Namespace) -> int:
         from appsec_analyzer.assessment_entry import progress_path
 
         ns.progress_file = progress_path(ns.output)
-    if getattr(ns, "platform_token_env", None) and not os.environ.get(ns.platform_token_env, "").strip():
-        raise ValueError(f"--platform-token-env {ns.platform_token_env} names an unset or empty environment variable")
     repositories = ns.repo or [str(Path.cwd())]
     if getattr(ns, "platform_token_env", None):
         from appsec_analyzer.platform_settings.source import platform_hosts
@@ -1821,9 +1833,9 @@ def main(argv: list[str] | None = None, *, organization=None) -> int:
                 "assess needs --repo: name the repository to assess.\n"
                 f"  Local checkout:     {command} assess --repo /path/to/project\n"
                 f"  Current directory:  {command} assess --repo .\n"
-                f"  Remote repository:  {command} assess --repo https://github.com/your-org/your-project.git\n"
+                f"  Remote repository:  {command} assess --repo https://github.com/your-org/your-project.git --output ~/assessments/project\n"
                 f"  Own results folder: {command} assess --repo . --output ~/assessments/project\n"
-                "Without --output, results go to the application's private user-data directory.\n"
+                "Local Git checkouts default to the application's private user-data directory.\n"
                 f"All options: {command} assess --help"
             )
         if ns.command in ("assess", "preflight"):

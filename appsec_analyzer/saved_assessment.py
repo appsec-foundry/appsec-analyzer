@@ -11,10 +11,7 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
-from appsec_analyzer.artifacts import read_bounded
-
-MAX_FILE = 33_554_432
-MAX_TOTAL = 134_217_728
+from appsec_analyzer.artifacts import MAX_DELIVERABLE_BYTES, MAX_DELIVERABLE_TOTAL, read_bounded
 
 
 class SavedAssessmentError(ValueError):
@@ -59,9 +56,9 @@ def load_assessment(source: Path) -> tuple[bytes, dict, dict[str, bytes], str]:
     for name, expected in state["deliverables"].items():
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
             raise SavedAssessmentError("invalid saved artifact name")
-        body = read_bounded(source / name, MAX_FILE)
+        body = read_bounded(source / name, min(MAX_DELIVERABLE_BYTES, MAX_DELIVERABLE_TOTAL - total))
         total += len(body)
-        if total > MAX_TOTAL or hashlib.sha256(body).hexdigest() != expected:
+        if hashlib.sha256(body).hexdigest() != expected:
             raise SavedAssessmentError(
                 "saved assessment artifacts exceed limits or no longer match their recorded hashes"
             )
